@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "resolveJsonModule": true,
+    "moduleResolution": "node",
+    "types": ["node", "jest"],
+    "skipLibCheck": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "removeComments": true,
+    "outDir": "./dist",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "strictPropertyInitialization": false,
+    "isolatedModules": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "baseUrl": ".",
+    "paths": {
+      "@ethersphere/bee-js": ["node_modules/@ethersphere/bee-js/dist/types/index.d.ts"]
+    }
+  },
+  "include": ["src", "tests", "**/*.test.ts"],
+  "exclude": ["node_modules", "dist"]
+}
