@@ -1,5 +1,5 @@
 import { FileManager } from "../src/fileManager";
-import { dataTxt, extendedDataTxt } from "./mockHelpers";
+import { dataTxt, emptyDataTxt, extendedDataTxt } from "./mockHelpers";
 import fs from 'fs';
 
 
@@ -49,7 +49,8 @@ describe('saveFileInfo', () => {
     });
 
     it('should throw an error if fileInfo is invalid', async () => {
-        const fileManager = new FileManager();
+      jest.spyOn(fs, 'readFileSync').mockReturnValue(emptyDataTxt);  
+      const fileManager = new FileManager();
         const fileManagerSpy = jest.spyOn(fileManager, 'saveFileInfo');
       
         const fileInfo = {
@@ -86,4 +87,19 @@ describe('saveFileInfo', () => {
           expect((error as any).message).toBe('Error saving file info');
         }
     });
+});
+
+
+describe('listFiles', () => {
+  it('should list paths (refs) for given input list', () => {
+    jest.spyOn(fs, 'readFileSync').mockReturnValue(dataTxt);
+    const fileManager = new FileManager();
+
+    const paths = fileManager.listFiles(fileManager['fileInfoList']);
+
+    expect(paths).toHaveLength(2);
+    console.log(paths)
+    expect(paths[0]).toBe("src/folder/1.txt");
+    expect(paths[1]).toBe("src/folder/2.txt");
+  });
 });
