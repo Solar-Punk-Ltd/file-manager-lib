@@ -64,7 +64,15 @@ export class FileManager {
   }
 
   async upload(filePath: string, customMetadata?: Record<string, string>): Promise<string> {
-    return '';
+    const fileInfo: FileInfo = {
+      eFileRef: filePath,
+      batchId: "ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51",
+      customMetadata
+    };
+
+    const ref = this.saveFileInfo(fileInfo);
+
+    return ref;
   }
 
   async shareItems(items: ShareItem[], targetOverlays: string[], recipients: string[]): Promise<void> {}
