@@ -8,14 +8,15 @@ export class FileManager {
   constructor() {
     this.fileInfoList = [];
 
+    // We said that constructor will load the file info list into memory, but this only works as long as initialize is synchronous.
     this.initialize();
   }
 
-  async initialize(): Promise<void> {
-    await this.initFileInfoList();
+  initialize(): void {
+    this.initFileInfoList();
   }
 
-  async initFileInfoList(): Promise<void> {
+  initFileInfoList(): void {
     const rawData = fs.readFileSync(DATA_PATH, 'utf8');
     const data = JSON.parse(rawData);
 
