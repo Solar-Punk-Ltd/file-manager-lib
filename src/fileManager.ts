@@ -1,6 +1,7 @@
+import fs from 'fs';
+
 import { DATA_PATH } from './constants';
 import { FileInfo, ShareItem } from './types';
-import fs from 'fs';
 
 export class FileManager {
   private fileInfoList: FileInfo[];
@@ -41,14 +42,13 @@ export class FileManager {
 
       const index = this.fileInfoList.length;
       this.fileInfoList.push(fileInfo);
-  
+
       const data = JSON.stringify({ fileInfoList: this.fileInfoList });
       fs.writeFileSync(DATA_PATH, data);
-  
-      return index.toString();
 
+      return index.toString();
     } catch (error) {
-      console.error("Error saving file info:", error);
+      console.error('Error saving file info:', error);
       throw error;
     }
   }
@@ -66,9 +66,10 @@ export class FileManager {
   async upload(filePath: string, customMetadata?: Record<string, string>): Promise<string> {
     const fileInfo: FileInfo = {
       eFileRef: filePath,
-      batchId: "ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51",
-      customMetadata
+      batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
     };
+
+    if (customMetadata) fileInfo.customMetadata = customMetadata;
 
     const ref = this.saveFileInfo(fileInfo);
 

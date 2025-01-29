@@ -1,3 +1,3 @@
-import { FileManager } from "./fileManager";
+import { FileManager } from './fileManager';
 
-export { FileManager }
+export { FileManager };
