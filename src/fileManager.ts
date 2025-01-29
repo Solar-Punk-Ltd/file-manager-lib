@@ -49,7 +49,7 @@ export class FileManager {
 
     } catch (error) {
       console.error("Error saving file info:", error);
-      throw new Error("Failed to save file info.");
+      throw error;
     }
   }
 
