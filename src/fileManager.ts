@@ -11,7 +11,9 @@ export class FileManager {
     this.initialize();
   }
 
-  async initialize(): Promise<void> {}
+  async initialize(): Promise<void> {
+    await this.initFileInfoList();
+  }
 
   async initFileInfoList(): Promise<void> {
     const rawData = fs.readFileSync(DATA_PATH, 'utf8');
@@ -24,7 +26,6 @@ export class FileManager {
     for (const fileInfo of data.fileInfoList) {
       this.fileInfoList.push(fileInfo);
     }
-    console.log('FileInfoList loaded:' , this.fileInfoList);
   }
 
   getFileInfoList(): FileInfo[] {
