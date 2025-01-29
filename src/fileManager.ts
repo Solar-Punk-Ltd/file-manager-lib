@@ -33,12 +33,23 @@ export class FileManager {
   }
 
   async saveFileInfo(fileInfo: FileInfo): Promise<string> {
-    const index = this.fileInfoList.length;
-    this.fileInfoList.push(fileInfo);
-    const data = JSON.stringify({ fileInfoList: this.fileInfoList });
-    fs.writeFileSync(DATA_PATH, data);
+    try {
+      if (!fileInfo || !fileInfo.batchId || !fileInfo.eFileRef) {
+        throw new Error("Invalid fileInfo: 'batchId' and 'eFileRef' are required.");
+      }
 
-    return index.toString();
+      const index = this.fileInfoList.length;
+      this.fileInfoList.push(fileInfo);
+  
+      const data = JSON.stringify({ fileInfoList: this.fileInfoList });
+      fs.writeFileSync(DATA_PATH, data);
+  
+      return index.toString();
+
+    } catch (error) {
+      console.error("Error saving file info:", error);
+      throw new Error("Failed to save file info.");
+    }
   }
 
   listFiles(fileInfo: FileInfo): string[] {
