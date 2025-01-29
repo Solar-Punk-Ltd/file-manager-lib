@@ -8,7 +8,7 @@ export class FileManager {
   constructor() {
     this.fileInfoList = [];
 
-    // We said that constructor will load the file info list into memory, but this only works as long as initialize is synchronous.
+    // We said that constructor will load the file info list into state, but this only works as long as initialize is synchronous.
     this.initialize();
   }
 
@@ -53,8 +53,14 @@ export class FileManager {
     }
   }
 
-  listFiles(fileInfo: FileInfo): string[] {
-    return [];
+  listFiles(fileInfos: FileInfo[]): string[] {
+    const pathList = [];
+
+    for (const fileInfo of fileInfos) {
+      pathList.push(fileInfo.eFileRef);
+    }
+
+    return pathList;
   }
 
   async upload(filePath: string, customMetadata?: Record<string, string>): Promise<string> {
