@@ -12,3 +12,6 @@ export const FILEINFO_HISTORY_NAME = 'history.json';
 export const FILEINFO_HISTORY_PATH = ROOT_PATH + 'history.json';
 export const INVALID_STMAP = '0'.repeat(64);
 export const SWARM_ZERO_ADDRESS = '0'.repeat(64);
+
+// TEMPORARY
+export const DATA_PATH = './data.txt';
