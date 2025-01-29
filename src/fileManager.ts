@@ -33,7 +33,12 @@ export class FileManager {
   }
 
   async saveFileInfo(fileInfo: FileInfo): Promise<string> {
-    return '';
+    const index = this.fileInfoList.length;
+    this.fileInfoList.push(fileInfo);
+    const data = JSON.stringify({ fileInfoList: this.fileInfoList });
+    fs.writeFileSync(DATA_PATH, data);
+
+    return index.toString();
   }
 
   listFiles(fileInfo: FileInfo): string[] {
