@@ -232,5 +232,25 @@ describe('shareItems', () => {
 */
 
 describe('upload and listFiles', () => {
-  it('should give back correct refs by listFiles, after upload', () => {});
+  beforeEach(() => {
+    jest.resetAllMocks();
+  });
+
+  it('should give back correct refs by listFiles, after upload', async () => {
+    jest.spyOn(fs, 'readFileSync').mockReturnValue(fileInfoTxt);
+    const fileManager = new FileManager();
+    await fileManager.initialize();
+
+    let list = fileManager.getFileInfoList();
+    let path = await fileManager.listFiles(list[0]);
+
+    expect(path).toBe('src/folder/1.txt');
+
+    await fileManager.upload(mockBatchId, 'src/folder/3.txt');
+
+    list = fileManager.getFileInfoList();
+    path = await fileManager.listFiles(list[2]);
+
+    expect(path).toBe('src/folder/3.txt');
+  });
 });
