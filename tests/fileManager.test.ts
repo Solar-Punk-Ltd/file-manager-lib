@@ -2,9 +2,8 @@ import fs from 'fs';
 
 import { FileManager } from '../src/fileManager';
 
-import { fileInfoTxt, emptyFileInfoTxt, extendedFileInfoTxt, mockBatchId } from './mockHelpers';
+import { emptyFileInfoTxt, extendedFileInfoTxt, fileInfoTxt, mockBatchId } from './mockHelpers';
 //import { ShareItem } from 'src/types';
-
 
 describe('getFileInfoList', () => {
   beforeEach(() => {
@@ -55,11 +54,11 @@ describe('initialize', () => {
     jest.spyOn(fs, 'readFileSync').mockReturnValue(`{
       "fileInfoList": "not an array"
     }`);
-      
-     try {
-      const fileManager = new FileManager()
-      await fileManager.initialize()
-      fail("initialize should fail if fileInfo is not an array");
+
+    try {
+      const fileManager = new FileManager();
+      await fileManager.initialize();
+      fail('initialize should fail if fileInfo is not an array');
     } catch (error) {
       expect(error).toBeInstanceOf(Error);
       expect((error as Error).message).toBe('fileInfoList has to be an array!');
@@ -86,7 +85,7 @@ describe('saveFileInfo', () => {
 
     const ref = await fileManager.saveFileInfo(fileInfo);
 
-    expect(ref).toBe('2');
+    expect(ref).toBe('0000000000000000000000000000000000000000000000000000000000000002');
     expect(writeFileSync).toHaveBeenCalledWith(expect.any(String), extendedFileInfoTxt);
   });
 
@@ -176,10 +175,30 @@ describe('upload', () => {
 
     const ref = await fileManager.upload(mockBatchId, 'src/folder/3.txt');
 
-    expect(ref).toBe('2');
+    expect(ref).toBe('0000000000000000000000000000000000000000000000000000000000000002');
   });
 
-  // consecutive upload
+  it('should work with consecutive uploads', async () => {
+    jest.spyOn(fs, 'readFileSync').mockReturnValue(fileInfoTxt);
+    const fileManager = new FileManager();
+    await fileManager.initialize();
+
+    await fileManager.upload(mockBatchId, 'src/folder/3.txt');
+
+    expect(fileManager.getFileInfoList()).toHaveLength(3);
+    expect(fileManager['fileInfoList'][2]).toEqual({
+      eFileRef: 'src/folder/3.txt',
+      batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
+    });
+
+    await fileManager.upload(mockBatchId, 'src/folder/4.txt');
+
+    expect(fileManager.getFileInfoList()).toHaveLength(4);
+    expect(fileManager['fileInfoList'][3]).toEqual({
+      eFileRef: 'src/folder/4.txt',
+      batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
+    });
+  });
 });
 
 /*
@@ -213,5 +232,5 @@ describe('shareItems', () => {
 */
 
 describe('upload and listFiles', () => {
-  it('should give back correct refs by listFiles, after upload', () => {})
+  it('should give back correct refs by listFiles, after upload', () => {});
 });

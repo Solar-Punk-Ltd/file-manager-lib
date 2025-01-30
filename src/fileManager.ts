@@ -1,4 +1,4 @@
-import { BatchId, Utils } from '@ethersphere/bee-js';
+import { BatchId } from '@ethersphere/bee-js';
 import fs from 'fs';
 
 import { FILE_INFO_PATH } from './constants';
@@ -46,7 +46,7 @@ export class FileManager {
       const data = JSON.stringify(this.fileInfoList);
       fs.writeFileSync(FILE_INFO_PATH, data);
 
-      return Utils.makeHexString(index, 64);
+      return index.toString(16).padStart(64, '0');
     } catch (error) {
       console.error('Error saving file info:', error);
       throw error;
@@ -64,7 +64,7 @@ export class FileManager {
     const fileInfo: FileInfo = {
       eFileRef: filePath,
       batchId: batchId,
-      customMetadata
+      customMetadata,
     };
 
     const ref = this.saveFileInfo(fileInfo);
