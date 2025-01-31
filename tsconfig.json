@@ -14,7 +14,7 @@
     "outDir": "./dist",
     "strict": true,
     "noUnusedLocals": true,
-    "noUnusedParameters": false,
+    "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "strictPropertyInitialization": false,
     "isolatedModules": true,
