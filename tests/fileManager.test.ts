@@ -162,7 +162,7 @@ describe('upload', () => {
     await fileManager.upload(mockBatchId, 'src/folder/3.txt');
 
     expect(fileManager.getFileInfoList()).toHaveLength(3);
-    expect(fileManager['fileInfoList'][2]).toEqual({
+    expect(fileManager.getFileInfoList()[2]).toEqual({
       eFileRef: 'src/folder/3.txt',
       batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
     });
@@ -186,7 +186,7 @@ describe('upload', () => {
     await fileManager.upload(mockBatchId, 'src/folder/3.txt');
 
     expect(fileManager.getFileInfoList()).toHaveLength(3);
-    expect(fileManager['fileInfoList'][2]).toEqual({
+    expect(fileManager.getFileInfoList()[2]).toEqual({
       eFileRef: 'src/folder/3.txt',
       batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
     });
@@ -194,7 +194,7 @@ describe('upload', () => {
     await fileManager.upload(mockBatchId, 'src/folder/4.txt');
 
     expect(fileManager.getFileInfoList()).toHaveLength(4);
-    expect(fileManager['fileInfoList'][3]).toEqual({
+    expect(fileManager.getFileInfoList()[3]).toEqual({
       eFileRef: 'src/folder/4.txt',
       batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
     });
@@ -215,7 +215,7 @@ describe('shareItems', () => {
 
     const items: ShareItem[] = [
       {
-        fileInfoList: fileManager['fileInfoList'],
+        fileInfoList: fileManager.getFileInfoList(),
         message: "Dear Friend! I'm sharing these files with you.",
         timestamp: 100
       }
