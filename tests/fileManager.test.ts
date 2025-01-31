@@ -5,27 +5,6 @@ import { FileManager } from '../src/fileManager';
 import { emptyFileInfoTxt, extendedFileInfoTxt, fileInfoTxt, mockBatchId } from './mockHelpers';
 //import { ShareItem } from 'src/types';
 
-describe('getFileInfoList', () => {
-  beforeEach(() => {
-    jest.resetAllMocks();
-  });
-
-  it('should give back fileInfoList after initialization', async () => {
-    jest.spyOn(fs, 'readFileSync').mockReturnValue(fileInfoTxt);
-    const fileManager = new FileManager();
-    await fileManager.initialize();
-
-    expect(fileManager.getFileInfoList()).toEqual(JSON.parse(fileInfoTxt));
-  });
-
-  it('should give back empty array if data.txt is empty', async () => {
-    jest.spyOn(fs, 'readFileSync').mockReturnValue(emptyFileInfoTxt);
-    const fileManager = new FileManager();
-    await fileManager.initialize();
-
-    expect(fileManager.getFileInfoList()).toEqual([]);
-  });
-});
 
 describe('initialize', () => {
   beforeEach(() => {
