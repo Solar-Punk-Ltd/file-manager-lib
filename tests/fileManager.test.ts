@@ -5,7 +5,6 @@ import { FileManager } from '../src/fileManager';
 import { emptyFileInfoTxt, extendedFileInfoTxt, fileInfoTxt, mockBatchId } from './mockHelpers';
 //import { ShareItem } from 'src/types';
 
-
 describe('initialize', () => {
   beforeEach(() => {
     jest.resetAllMocks();
