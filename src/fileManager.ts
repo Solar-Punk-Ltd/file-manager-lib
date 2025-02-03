@@ -3,14 +3,16 @@ import fs from 'fs';
 
 import { FILE_INFO_PATH } from './constants';
 import { FileInfo, ShareItem } from './types';
+import { MantarayNode } from '@solarpunkltd/mantaray-js';
 
 export class FileManager {
   private fileInfoList: FileInfo[];
+  public mantaray: MantarayNode;
 
   constructor() {
     this.fileInfoList = [];
 
-    // We said that constructor will load the file info list into state, but this only works as long as initialize is synchronous.
+    this.mantaray = new MantarayNode();
   }
 
   async initialize(): Promise<void> {
