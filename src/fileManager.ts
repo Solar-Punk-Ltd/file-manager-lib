@@ -21,15 +21,10 @@ export class FileManager {
 
   private async initFileInfoList(): Promise<void> {
     const rawData = fs.readFileSync(FILE_INFO_PATH, 'utf8');
-    const data = JSON.parse(rawData);
+    const encoder = new TextEncoder();
+    const data = encoder.encode(rawData);
 
-    if (!Array.isArray(data)) {
-      throw new TypeError('fileInfoList has to be an array!');
-    }
-
-    for (const fileInfo of data) {
-      this.fileInfoList.push(fileInfo);
-    }
+    this.mantaray.deserialize(data);
   }
 
   getFileInfoList(): FileInfo[] {

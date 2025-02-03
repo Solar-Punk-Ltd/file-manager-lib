@@ -233,3 +233,14 @@ describe('upload and listFiles', () => {
     expect(path).toBe('src/folder/3.txt');
   });
 });
+
+
+describe('tryMantaray', () => {
+  beforeEach(() => {
+    jest.resetAllMocks();
+  });
+
+  it('should try manataray', async () => {
+    new FileManager()
+  });
+});
