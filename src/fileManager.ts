@@ -3,14 +3,16 @@ import fs from 'fs';
 
 import { FILE_INFO_PATH } from './constants';
 import { FileInfo, ShareItem } from './types';
+import { MantarayNode } from '@solarpunkltd/mantaray-js';
 
 export class FileManager {
   private fileInfoList: FileInfo[];
+  public mantaray: MantarayNode;
 
   constructor() {
     this.fileInfoList = [];
 
-    // We said that constructor will load the file info list into state, but this only works as long as initialize is synchronous.
+    this.mantaray = new MantarayNode();
   }
 
   async initialize(): Promise<void> {
@@ -19,15 +21,10 @@ export class FileManager {
 
   private async initFileInfoList(): Promise<void> {
     const rawData = fs.readFileSync(FILE_INFO_PATH, 'utf8');
-    const data = JSON.parse(rawData);
+    const encoder = new TextEncoder();
+    const data = encoder.encode(rawData);
 
-    if (!Array.isArray(data)) {
-      throw new TypeError('fileInfoList has to be an array!');
-    }
-
-    for (const fileInfo of data) {
-      this.fileInfoList.push(fileInfo);
-    }
+    this.mantaray.deserialize(data);
   }
 
   getFileInfoList(): FileInfo[] {
