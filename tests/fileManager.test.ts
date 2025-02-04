@@ -1,7 +1,9 @@
+import { TextEncoder } from "util";
 import { FileManager } from '../src/fileManager';
-
 import { emptyFileInfoTxt, extendedFileInfoTxt, fileInfoTxt, mockBatchId } from './mockHelpers';
 //import { ShareItem } from 'src/types';
+
+global.TextEncoder = TextEncoder;
 
 Object.defineProperty(global, 'localStorage', {
   value: {
