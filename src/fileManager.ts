@@ -25,8 +25,9 @@ export class FileManager {
       console.info('No data found in data.txt (localStorage)');
       return;
     }
-    const encoder = new TextEncoder();
-    const data = encoder.encode(rawData);
+
+    const dataArray = JSON.parse(rawData) as number[];
+    const data = new Uint8Array(dataArray);
 
     this.mantaray.deserialize(data);
   }
@@ -43,13 +44,13 @@ export class FileManager {
         throw new Error("Invalid fileInfo: 'batchId' and 'eFileRef' are required.");
       }
       const encoder = new TextEncoder();
-      const decoder = new TextDecoder();
 
       // will need to mock Reference here (second parameter)
       this.mantaray.addFork(encoder.encode(fileInfo.fileName), fileInfo.eFileRef as any);
 
       const data = this.mantaray.serialize();
-      localStorage.setItem(FILE_INFO_LOCAL_STORAGE, decoder.decode(data));
+      const dataArray = Array.from(data); // Convert Uint8Array to a regular array
+      localStorage.setItem(FILE_INFO_LOCAL_STORAGE, JSON.stringify(dataArray));
 
       const ref = this.mantaray.save(mockSaver);
       

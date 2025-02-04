@@ -17,6 +17,23 @@ Object.defineProperty(global, 'localStorage', {
   writable: true,
 });
 
+describe('example', () => {
+  it('example', async () => {
+    jest.spyOn(localStorage, 'getItem').mockReturnValue(null);
+    const setItemSpy = jest.spyOn(localStorage, 'setItem').mockImplementation();
+
+    const fileManager = new FileManager();
+    fileManager.initialize();
+    //const res = await fileManager.upload('abc', 'c'.repeat(64));
+    //console.log("RES: ", res)
+    
+    fileManager.mantaray.deserialize(new Uint8Array([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,87,104,179,182,167,219,86,210,29,26,191,244,13,65,206,191,200,52,72,254,216,215,233,176,110,192,211,176,115,242,143,32,204,204,204,204,204,204,204,204,204,204,204,204,204,204,204,204,204,204,204,204,204,204,204,204,204,204,204,204,204,204,204,204,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]));
+    console.log(fileManager.mantaray)
+    expect(setItemSpy).toHaveBeenCalledWith("somethings");
+  });
+
+});
+
 describe('initialize', () => {
   beforeEach(() => {
     jest.resetAllMocks();
