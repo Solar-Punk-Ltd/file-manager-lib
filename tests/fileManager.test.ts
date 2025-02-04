@@ -22,6 +22,16 @@ describe('initialize', () => {
     jest.resetAllMocks();
   });
 
+  it('should log no data found, if data.txt entry does not exist', async () => {
+    jest.spyOn(localStorage, 'getItem').mockReturnValue(null);
+    const fileManager = new FileManager();
+    const consoleSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+
+    await fileManager.initialize();
+
+    expect(consoleSpy).toHaveBeenCalledWith('No data found in data.txt (localStorage)');
+  });
+
   it('should load FileInfo list into memory', async () => {
     jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
 

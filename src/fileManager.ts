@@ -21,7 +21,7 @@ export class FileManager {
   private async initFileInfoList(): Promise<void> {
     const rawData = localStorage.getItem(FILE_INFO_LOCAL_STORAGE);
     if (!rawData) {
-      console.error('No data found in data.txt (localStorage');
+      console.info('No data found in data.txt (localStorage)');
       return;
     }
     const encoder = new TextEncoder();
