@@ -3,6 +3,7 @@ import { BatchId } from '@ethersphere/bee-js';
 import { FILE_INFO_LOCAL_STORAGE } from './constants';
 import { FileInfo, ShareItem } from './types';
 import { MantarayNode } from '@solarpunkltd/mantaray-js';
+import { mockSaver } from './utils';
 
 export class FileManager {
   private fileInfoList: FileInfo[];
@@ -36,17 +37,23 @@ export class FileManager {
 
   async saveFileInfo(fileInfo: FileInfo): Promise<string> {
     try {
+      // should we trust that in-memory mantaray is correct, or should we fetch it all the time?
+      // if lib is statless, we would fetch it all the time
       if (!fileInfo || !fileInfo.batchId || !fileInfo.eFileRef) {
         throw new Error("Invalid fileInfo: 'batchId' and 'eFileRef' are required.");
       }
+      const encoder = new TextEncoder();
+      const decoder = new TextDecoder();
 
-      const index = this.fileInfoList.length;
-      this.fileInfoList.push(fileInfo);
+      // will need to mock Reference here (second parameter)
+      this.mantaray.addFork(encoder.encode(fileInfo.fileName), fileInfo.eFileRef as any);
 
-      const data = JSON.stringify(this.fileInfoList);
-      localStorage.setItem(FILE_INFO_LOCAL_STORAGE, data);
+      const data = this.mantaray.serialize();
+      localStorage.setItem(FILE_INFO_LOCAL_STORAGE, decoder.decode(data));
 
-      return index.toString(16).padStart(64, '0');
+      const ref = this.mantaray.save(mockSaver);
+      
+      return ref;
     } catch (error) {
       console.error('Error saving file info:', error);
       throw error;

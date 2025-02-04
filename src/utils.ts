@@ -1,4 +1,4 @@
-import { BeeRequestOptions, Utils } from '@ethersphere/bee-js';
+import { BeeRequestOptions, Reference, Utils } from '@ethersphere/bee-js';
 import { Binary } from 'cafe-utility';
 import path from 'path';
 
@@ -106,4 +106,9 @@ export function makeNumericIndex(index: Index): number {
   }
 
   throw new TypeError(`Unknown type of index: ${index}`);
+}
+
+export const mockSaver = async (/*data: Uint8Array, options?: { ecrypt?: boolean }*/): Promise<Reference> => {
+  const hexRef = '9'.repeat(64);
+  return hexRef as Reference;
 }
