@@ -1,7 +1,6 @@
 import { BatchId } from '@ethersphere/bee-js';
-import fs from 'fs';
 
-import { FILE_INFO_PATH } from './constants';
+import { FILE_INFO_LOCAL_STORAGE } from './constants';
 import { FileInfo, ShareItem } from './types';
 import { MantarayNode } from '@solarpunkltd/mantaray-js';
 
@@ -20,7 +19,11 @@ export class FileManager {
   }
 
   private async initFileInfoList(): Promise<void> {
-    const rawData = fs.readFileSync(FILE_INFO_PATH, 'utf8');
+    const rawData = localStorage.getItem(FILE_INFO_LOCAL_STORAGE);
+    if (!rawData) {
+      console.error('No data found in data.txt (localStorage');
+      return;
+    }
     const encoder = new TextEncoder();
     const data = encoder.encode(rawData);
 
@@ -41,7 +44,7 @@ export class FileManager {
       this.fileInfoList.push(fileInfo);
 
       const data = JSON.stringify(this.fileInfoList);
-      fs.writeFileSync(FILE_INFO_PATH, data);
+      localStorage.setItem(FILE_INFO_LOCAL_STORAGE, data);
 
       return index.toString(16).padStart(64, '0');
     } catch (error) {

@@ -1,8 +1,9 @@
 {
   "name": "@solarpunkltd/file-manager-lib",
-  "version": "0.0.0",
+  "version": "0.0.8",
   "description": "A file manager for storing and handling data on Swarm.",
-  "main": "dist/fileManager.js",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
   "scripts": {
     "build": "tsc",
     "test": "node --loader ts-node/esm node_modules/jest/bin/jest.js",

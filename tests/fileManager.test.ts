@@ -1,10 +1,19 @@
-import fs from 'fs';
-
 import { FileManager } from '../src/fileManager';
 
 import { emptyFileInfoTxt, extendedFileInfoTxt, fileInfoTxt, mockBatchId } from './mockHelpers';
 //import { ShareItem } from 'src/types';
 
+Object.defineProperty(global, 'localStorage', {
+  value: {
+    getItem: jest.fn(() => null),
+    setItem: jest.fn(),
+    removeItem: jest.fn(),
+    clear: jest.fn(),
+    length: 0,
+    key: jest.fn(),
+  },
+  writable: true,
+});
 
 describe('initialize', () => {
   beforeEach(() => {
@@ -12,7 +21,7 @@ describe('initialize', () => {
   });
 
   it('should load FileInfo list into memory', async () => {
-    jest.spyOn(fs, 'readFileSync').mockReturnValue(fileInfoTxt);
+    jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
 
     const fileManager = new FileManager();
     await fileManager.initialize();
@@ -30,7 +39,7 @@ describe('initialize', () => {
   });
 
   it('should throw an error if fileInfoList is not an array', async () => {
-    jest.spyOn(fs, 'readFileSync').mockReturnValue(`{
+    jest.spyOn(localStorage, 'getItem').mockReturnValue(`{
       "fileInfoList": "not an array"
     }`);
 
@@ -51,9 +60,9 @@ describe('saveFileInfo', () => {
   });
 
   it('should save new FileInfo into data.txt', async () => {
-    jest.spyOn(fs, 'readFileSync').mockReturnValue(fileInfoTxt);
-    jest.spyOn(fs, 'writeFileSync').mockReturnValue();
-    const writeFileSync = jest.spyOn(fs, 'writeFileSync');
+    jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
+    jest.spyOn(localStorage, 'setItem').mockReturnValue();
+    const writeFileSync = jest.spyOn(localStorage, 'setItem');
 
     const fileManager = new FileManager();
     await fileManager.initialize();
@@ -69,7 +78,7 @@ describe('saveFileInfo', () => {
   });
 
   it('should throw an error if fileInfo is invalid', async () => {
-    jest.spyOn(fs, 'readFileSync').mockReturnValue(emptyFileInfoTxt);
+    jest.spyOn(localStorage, 'getItem').mockReturnValue(emptyFileInfoTxt);
     const fileManager = new FileManager();
     await fileManager.initialize();
     const fileManagerSpy = jest.spyOn(fileManager, 'saveFileInfo');
@@ -89,8 +98,8 @@ describe('saveFileInfo', () => {
   });
 
   it('should throw an error if there is an error saving the file info', async () => {
-    jest.spyOn(fs, 'readFileSync').mockReturnValue(fileInfoTxt);
-    jest.spyOn(fs, 'writeFileSync').mockImplementation(() => {
+    jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
+    jest.spyOn(localStorage, 'setItem').mockImplementation(() => {
       throw new Error('Error saving file info');
     });
 
@@ -117,7 +126,7 @@ describe('listFiles', () => {
   });
 
   it('should list paths (refs) for given input list', async () => {
-    jest.spyOn(fs, 'readFileSync').mockReturnValue(fileInfoTxt);
+    jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
     const fileManager = new FileManager();
     await fileManager.initialize();
     const list = fileManager.getFileInfoList();
@@ -134,7 +143,7 @@ describe('upload', () => {
   });
 
   it('should save FileInfo', async () => {
-    jest.spyOn(fs, 'readFileSync').mockReturnValue(fileInfoTxt);
+    jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
     const fileManager = new FileManager();
     await fileManager.initialize();
 
@@ -148,7 +157,7 @@ describe('upload', () => {
   });
 
   it('should give back ref (currently index)', async () => {
-    jest.spyOn(fs, 'readFileSync').mockReturnValue(fileInfoTxt);
+    jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
     const fileManager = new FileManager();
     await fileManager.initialize();
 
@@ -158,7 +167,7 @@ describe('upload', () => {
   });
 
   it('should work with consecutive uploads', async () => {
-    jest.spyOn(fs, 'readFileSync').mockReturnValue(fileInfoTxt);
+    jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
     const fileManager = new FileManager();
     await fileManager.initialize();
 
@@ -216,7 +225,7 @@ describe('upload and listFiles', () => {
   });
 
   it('should give back correct refs by listFiles, after upload', async () => {
-    jest.spyOn(fs, 'readFileSync').mockReturnValue(fileInfoTxt);
+    jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
     const fileManager = new FileManager();
     await fileManager.initialize();
 
@@ -231,16 +240,5 @@ describe('upload and listFiles', () => {
     path = await fileManager.listFiles(list[2]);
 
     expect(path).toBe('src/folder/3.txt');
-  });
-});
-
-
-describe('tryMantaray', () => {
-  beforeEach(() => {
-    jest.resetAllMocks();
-  });
-
-  it('should try manataray', async () => {
-    new FileManager()
   });
 });

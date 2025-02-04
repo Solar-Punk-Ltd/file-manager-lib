@@ -14,4 +14,4 @@ export const INVALID_STMAP = '0'.repeat(64);
 export const SWARM_ZERO_ADDRESS = '0'.repeat(64);
 
 // TEMPORARY
-export const FILE_INFO_PATH = './data.txt';
+export const FILE_INFO_LOCAL_STORAGE = 'data.txt';
