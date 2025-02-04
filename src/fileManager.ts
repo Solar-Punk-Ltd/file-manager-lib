@@ -111,4 +111,33 @@ export class FileManager {
       }
     }
   }
+
+  /**
+   * Fetches a file reference hash for manual retrieval.
+   */
+  // async downloadFile(fileRef: string): Promise<string> {
+  //   console.log(`Downloading file: ${fileRef}`);
+  //   return fileRef;
+  // }
+  
+  /**
+   * Fetches and downloads files from a selected volume.
+   */
+  async downloadVolume(volumeId: string): Promise<void> {
+    console.log(`Downloading volume ${volumeId}`);
+  }
+
+  /**
+   * Removes a stored volume from the UI and backend.
+  */
+  async destroyVolume(batchID: string): Promise<void> {
+    console.log(`Destroying volume with ID: ${batchID}`);
+  }
+
+  /**
+   * Filters the file list based on the provided name.
+   */
+  searchFiles(name: string): FileInfo[] {
+    return this.fileInfoList.filter(file => file.eFileRef.includes(name)); // 1st iteration implementation for ts type validation
+  }
 }
