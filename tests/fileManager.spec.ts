@@ -1,6 +1,9 @@
+import { Bee } from '@ethersphere/bee-js';
+
 import { FileManager } from '../src/fileManager';
 
 import { emptyFileInfoTxt, extendedFileInfoTxt, fileInfoTxt, mockBatchId } from './mockHelpers';
+import { BEE_URL } from './utils';
 //import { ShareItem } from 'src/types';
 
 Object.defineProperty(global, 'localStorage', {
@@ -15,6 +18,8 @@ Object.defineProperty(global, 'localStorage', {
   writable: true,
 });
 
+const mockBee = new Bee(BEE_URL);
+
 describe('initialize', () => {
   beforeEach(() => {
     jest.resetAllMocks();
@@ -23,7 +28,7 @@ describe('initialize', () => {
   it('should load FileInfo list into memory', async () => {
     jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
 
-    const fileManager = new FileManager();
+    const fileManager = new FileManager(mockBee, '0'.repeat(64));
     await fileManager.initialize();
 
     expect(fileManager.getFileInfoList()).toEqual([
@@ -44,7 +49,7 @@ describe('initialize', () => {
     }`);
 
     try {
-      const fileManager = new FileManager();
+      const fileManager = new FileManager(mockBee, '0'.repeat(64));
       await fileManager.initialize();
       fail('initialize should fail if fileInfo is not an array');
     } catch (error) {
@@ -64,7 +69,7 @@ describe('saveFileInfo', () => {
     jest.spyOn(localStorage, 'setItem').mockReturnValue();
     const writeFileSync = jest.spyOn(localStorage, 'setItem');
 
-    const fileManager = new FileManager();
+    const fileManager = new FileManager(mockBee, '0'.repeat(64));
     await fileManager.initialize();
     const fileInfo = {
       batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
@@ -79,7 +84,7 @@ describe('saveFileInfo', () => {
 
   it('should throw an error if fileInfo is invalid', async () => {
     jest.spyOn(localStorage, 'getItem').mockReturnValue(emptyFileInfoTxt);
-    const fileManager = new FileManager();
+    const fileManager = new FileManager(mockBee, '0'.repeat(64));
     await fileManager.initialize();
     const fileManagerSpy = jest.spyOn(fileManager, 'saveFileInfo');
 
@@ -103,7 +108,7 @@ describe('saveFileInfo', () => {
       throw new Error('Error saving file info');
     });
 
-    const fileManager = new FileManager();
+    const fileManager = new FileManager(mockBee, '0'.repeat(64));
     await fileManager.initialize();
     const fileInfo = {
       batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
@@ -127,7 +132,7 @@ describe('listFiles', () => {
 
   it('should list paths (refs) for given input list', async () => {
     jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
-    const fileManager = new FileManager();
+    const fileManager = new FileManager(mockBee, '0'.repeat(64));
     await fileManager.initialize();
     const list = fileManager.getFileInfoList();
 
@@ -144,7 +149,7 @@ describe('upload', () => {
 
   it('should save FileInfo', async () => {
     jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
-    const fileManager = new FileManager();
+    const fileManager = new FileManager(mockBee, '0'.repeat(64));
     await fileManager.initialize();
 
     await fileManager.upload(mockBatchId, 'src/folder/3.txt');
@@ -158,7 +163,7 @@ describe('upload', () => {
 
   it('should give back ref (currently index)', async () => {
     jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
-    const fileManager = new FileManager();
+    const fileManager = new FileManager(mockBee, '0'.repeat(64));
     await fileManager.initialize();
 
     const ref = await fileManager.upload(mockBatchId, 'src/folder/3.txt');
@@ -168,7 +173,7 @@ describe('upload', () => {
 
   it('should work with consecutive uploads', async () => {
     jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
-    const fileManager = new FileManager();
+    const fileManager = new FileManager(mockBee, '0'.repeat(64));
     await fileManager.initialize();
 
     await fileManager.upload(mockBatchId, 'src/folder/3.txt');
@@ -198,7 +203,7 @@ describe('shareItems', () => {
   it('should call sendShareMessage', async () => {
     jest.spyOn(fs, 'readFileSync').mockReturnValue(dataTxt);
     const sendShareMessageSpy = jest.spyOn(FileManager as any, 'sendShareMessage');
-    const fileManager = new FileManager();
+    const fileManager = new FileManager(mockBee, ('0').repeat(64));
     await fileManager.initialize();
 
     const items: ShareItem[] = [
@@ -226,7 +231,7 @@ describe('upload and listFiles', () => {
 
   it('should give back correct refs by listFiles, after upload', async () => {
     jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
-    const fileManager = new FileManager();
+    const fileManager = new FileManager(mockBee, '0'.repeat(64));
     await fileManager.initialize();
 
     let list = fileManager.getFileInfoList();

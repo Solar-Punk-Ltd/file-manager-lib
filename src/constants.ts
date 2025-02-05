@@ -8,8 +8,8 @@ export const OWNER_FEED_STAMP_LABEL = 'owner-stamp';
 export const ROOT_PATH = '/';
 export const FILEIINFO_NAME = 'fileinfo.json';
 export const FILEIINFO_PATH = ROOT_PATH + 'fileinfo.json';
-export const FILEINFO_HISTORY_NAME = 'history.json';
-export const FILEINFO_HISTORY_PATH = ROOT_PATH + 'history.json';
+export const FILEINFO_HISTORY_NAME = 'history';
+export const FILEINFO_HISTORY_PATH = ROOT_PATH + 'history';
 export const INVALID_STMAP = '0'.repeat(64);
 export const SWARM_ZERO_ADDRESS = '0'.repeat(64);
 
