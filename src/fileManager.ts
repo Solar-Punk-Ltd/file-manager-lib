@@ -66,7 +66,6 @@ export class FileManager {
   // could name downloadFiles as well, possibly
   // getDirectorStructure()
   async listFiles(fileInfo: FileInfo): Promise<string[]> {
-    //const includeMetadata = false;
     const targetRef = fileInfo.eFileRef;
 
     const refList = [];
@@ -91,22 +90,6 @@ export class FileManager {
         }
 
         if (fork.node.isValueType() && found) {
-          //const metadata = fork.node.getMetadata || {};
-          
-          //let originalPath = fullPath;
-
-          //if (metadata['Custom-Metadata']) {
-          //  try {
-          //    const customMetadata = JSON.parse(metadata['Custom-Metadata']);
-          //    originalPath = customMetadata.fullPath || fullPath;
-          //  } catch (e) {
-          //    console.warn(`Invalid metadata JSON for ${fullPath}, using default path.`);
-          //  }
-          //}
-
-          // Conditionally include metadata
-          //const fileEntry = includeMetadata ? { metadata, path: originalPath } : { path: originalPath };
-
           if (fork.node.getEntry) refList.push(fork.node.getEntry);
         } else {
           stack.push({ node: fork.node, path: fullPath });
