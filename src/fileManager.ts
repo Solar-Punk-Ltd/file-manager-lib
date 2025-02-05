@@ -84,7 +84,7 @@ export class FileManager {
         const prefix = fork.prefix ? decodeBytesToPath(fork.prefix) : key || 'unknown'; // Decode path
         const fullPath = path.join(currentPath, prefix);
 
-        if (fork.node.getEntry === targetRef) {
+        if (fork.node.getEntry === targetRef && !found) {
           stack = [ item ];
           found = true;
         }
