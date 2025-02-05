@@ -3,7 +3,8 @@ import { BatchId } from '@ethersphere/bee-js';
 import { FILE_INFO_LOCAL_STORAGE } from './constants';
 import { FileInfo, ShareItem } from './types';
 import { MantarayNode } from '@solarpunkltd/mantaray-js';
-import { mockSaver } from './utils';
+import { decodeBytesToPath, mockSaver } from './utils';
+import path from 'path';
 
 export class FileManager {
   private fileInfoList: FileInfo[];
@@ -64,8 +65,56 @@ export class FileManager {
   // fileInfo might point to a folder, or a single file
   // could name downloadFiles as well, possibly
   // getDirectorStructure()
-  async listFiles(fileInfo: FileInfo): Promise<string> {
-    return fileInfo.eFileRef;
+  async listFiles(fileInfo: FileInfo): Promise<string[]> {
+    //const includeMetadata = false;
+    const targetRef = fileInfo.eFileRef;
+
+    const refList = [];
+    let stack = [{ node: this.mantaray, path: '' }];
+    let found = false;
+
+    while (stack.length > 0) {
+      const item = stack.pop();
+      if (!item) continue;
+      const { node, path: currentPath } = item;
+      const forks = node.forks;
+
+      if (!forks) continue;
+
+      for (const [key, fork] of Object.entries(forks)) {
+        const prefix = fork.prefix ? decodeBytesToPath(fork.prefix) : key || 'unknown'; // Decode path
+        const fullPath = path.join(currentPath, prefix);
+
+        if (fork.node.getEntry === targetRef) {
+          stack = [ item ];
+          found = true;
+        }
+
+        if (fork.node.isValueType() && found) {
+          //const metadata = fork.node.getMetadata || {};
+          
+          //let originalPath = fullPath;
+
+          //if (metadata['Custom-Metadata']) {
+          //  try {
+          //    const customMetadata = JSON.parse(metadata['Custom-Metadata']);
+          //    originalPath = customMetadata.fullPath || fullPath;
+          //  } catch (e) {
+          //    console.warn(`Invalid metadata JSON for ${fullPath}, using default path.`);
+          //  }
+          //}
+
+          // Conditionally include metadata
+          //const fileEntry = includeMetadata ? { metadata, path: originalPath } : { path: originalPath };
+
+          if (fork.node.getEntry) refList.push(fork.node.getEntry);
+        } else {
+          stack.push({ node: fork.node, path: fullPath });
+        }
+      }
+    }
+
+    return refList;
   }
 
   async upload(batchId: string | BatchId, filePath: string, customMetadata?: Record<string, string>): Promise<string> {
