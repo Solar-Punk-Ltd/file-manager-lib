@@ -1,6 +1,7 @@
 import { TextEncoder } from "util";
 import { FileManager } from '../src/fileManager';
 import { emptyFileInfoTxt, extendedFileInfoTxt, fileInfoTxt, mockBatchId } from './mockHelpers';
+import { FileInfo } from "src/types";
 //import { ShareItem } from 'src/types';
 
 global.TextEncoder = TextEncoder;
@@ -78,7 +79,7 @@ describe('saveFileInfo', () => {
 
     const fileManager = new FileManager();
     await fileManager.initialize();
-    const fileInfo = {
+    const fileInfo: FileInfo = {
       batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
       eFileRef: 'src/folder/3.txt',
     };

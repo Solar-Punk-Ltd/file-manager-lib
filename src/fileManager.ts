@@ -1,19 +1,15 @@
-import { BatchId } from '@ethersphere/bee-js';
+import { BatchId, Reference, REFERENCE_HEX_LENGTH, Utils } from '@ethersphere/bee-js';
 
 import { FILE_INFO_LOCAL_STORAGE } from './constants';
 import { FileInfo, ShareItem } from './types';
 import { MantarayNode } from '@solarpunkltd/mantaray-js';
 import { decodeBytesToPath, mockSaver } from './utils';
-import path from 'path';
 
 export class FileManager {
   private fileInfoList: FileInfo[];
-  public mantaray: MantarayNode;
 
   constructor() {
     this.fileInfoList = [];
-
-    this.mantaray = new MantarayNode();
   }
 
   async initialize(): Promise<void> {
@@ -27,10 +23,10 @@ export class FileManager {
       return;
     }
 
-    const dataArray = JSON.parse(rawData) as number[];
-    const data = new Uint8Array(dataArray);
+    const data = JSON.parse(rawData) as FileInfo[];
+    // assert
 
-    this.mantaray.deserialize(data);
+    this.fileInfoList = data;
   }
 
   getFileInfoList(): FileInfo[] {
@@ -41,21 +37,14 @@ export class FileManager {
     try {
       // should we trust that in-memory mantaray is correct, or should we fetch it all the time?
       // if lib is statless, we would fetch it all the time
+      // asserFileInfo, asserReference
       if (!fileInfo || !fileInfo.batchId || !fileInfo.eFileRef) {
         throw new Error("Invalid fileInfo: 'batchId' and 'eFileRef' are required.");
       }
-      const encoder = new TextEncoder();
 
-      // will need to mock Reference here (second parameter)
-      this.mantaray.addFork(encoder.encode(fileInfo.fileName), fileInfo.eFileRef as any);
-
-      const data = this.mantaray.serialize();
-      const dataArray = Array.from(data); // Convert Uint8Array to a regular array
-      localStorage.setItem(FILE_INFO_LOCAL_STORAGE, JSON.stringify(dataArray));
-
-      const ref = this.mantaray.save(mockSaver);
+      localStorage.setItem(FILE_INFO_LOCAL_STORAGE, JSON.stringify(this.fileInfoList));
       
-      return ref;
+      return Utils.makeHexString(this.fileInfoList.length, REFERENCE_HEX_LENGTH);
     } catch (error) {
       console.error('Error saving file info:', error);
       throw error;
@@ -66,23 +55,25 @@ export class FileManager {
   // could name downloadFiles as well, possibly
   // getDirectorStructure()
   async listFiles(fileInfo: FileInfo): Promise<string[]> {
-    const targetRef = fileInfo.eFileRef;
+    const targetRef = fileInfo.eFileRef as Reference;
+    const mantaray = new MantarayNode();
+    await mantaray.load(mockSaver, targetRef);
 
     const refList = [];
-    let stack = [{ node: this.mantaray, path: '' }];
+    let stack = [{ node: mantaray, path: '' }]; // legyen típusa, refListnek is
     let found = false;
 
     while (stack.length > 0) {
       const item = stack.pop();
       if (!item) continue;
-      const { node, path: currentPath } = item;
-      const forks = node.forks;
+      const { node: currentMantaray, path: currentPath } = item;
+      const forks = currentMantaray.forks;
 
       if (!forks) continue;
 
       for (const [key, fork] of Object.entries(forks)) {
         const prefix = fork.prefix ? decodeBytesToPath(fork.prefix) : key || 'unknown'; // Decode path
-        const fullPath = path.join(currentPath, prefix);
+        const fullPath = currentPath.endsWith('/') ? `${currentPath}${prefix}` : `${currentPath}/${prefix}`;
 
         if (fork.node.getEntry === targetRef && !found) {
           stack = [ item ];

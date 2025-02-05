@@ -3,6 +3,7 @@ import { Binary } from 'cafe-utility';
 import path from 'path';
 
 import { Index, ShareItem } from './types';
+import { HexString } from '@ethersphere/bee-js/dist/types/utils/hex';
 
 export function getContentType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
@@ -108,7 +109,7 @@ export function makeNumericIndex(index: Index): number {
   throw new TypeError(`Unknown type of index: ${index}`);
 }
 
-export const mockSaver = async (/*data: Uint8Array, options?: { ecrypt?: boolean }*/): Promise<Reference> => {
+export const mockSaver = async (data: Reference, options?: { ecrypt?: boolean }): Promise<Uint8Array> => {
   const hexRef = '9'.repeat(64);
-  return hexRef as Reference;
+  return Utils.hexToBytes(hexRef);
 }
