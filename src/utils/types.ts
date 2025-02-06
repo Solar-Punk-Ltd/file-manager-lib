@@ -1,11 +1,11 @@
 import { BatchId, Bytes, EthAddress, FeedIndex, RedundancyLevel, Reference, Topic } from '@upcoming/bee-js';
 
 export interface FileInfo {
-  batchId: BatchId;
-  eFileRef: Reference;
-  topic?: Topic;
-  historyRef?: Reference;
-  owner?: EthAddress;
+  batchId: string | BatchId;
+  eFileRef: string | Reference;
+  topic?: string | Topic;
+  historyRef?: string | Reference;
+  owner?: string | EthAddress;
   fileName?: string;
   timestamp?: number;
   shared?: boolean;
@@ -21,13 +21,13 @@ export interface ShareItem {
 }
 
 export interface ReferenceWithHistory {
-  reference: Reference;
-  historyRef: Reference;
+  reference: string | Reference;
+  historyRef: string | Reference;
 }
 
 export interface WrappedMantarayFeed extends ReferenceWithHistory {
-  eFileRef?: Reference;
-  eGranteeRef?: Reference;
+  eFileRef?: string | Reference;
+  eGranteeRef?: string | Reference;
 }
 
 interface FeedUpdateHeaders {

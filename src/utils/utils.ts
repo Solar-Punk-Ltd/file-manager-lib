@@ -45,20 +45,15 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
 
   const fi = value as unknown as FileInfo;
 
-  if (fi.eFileRef === undefined || fi.eFileRef.length !== Reference.LENGTH) {
-    throw new TypeError('eFileRef property of FileInfo has to be Reference!');
+  new Reference(fi.eFileRef);
+  new Reference(fi.batchId);
+
+  if (fi.historyRef !== undefined) {
+    new Reference(fi.historyRef);
   }
 
-  if (fi.batchId === undefined || fi.batchId.length !== BatchId.LENGTH) {
-    throw new TypeError('batchId property of FileInfo has to be string!');
-  }
-
-  if (fi.historyRef !== undefined && fi.historyRef.length !== Reference.LENGTH) {
-    throw new TypeError('historyRef property of FileInfo has to be Reference!');
-  }
-
-  if (fi.topic !== undefined && fi.topic.length !== Topic.LENGTH) {
-    throw new TypeError('topic property of FileInfo has to be Reference!');
+  if (fi.topic !== undefined) {
+    new Topic(fi.topic);
   }
 
   if (fi.customMetadata !== undefined && !isRecord(fi.customMetadata)) {
@@ -69,8 +64,8 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
     throw new TypeError('timestamp property of FileInfo has to be number!');
   }
 
-  if (fi.owner !== undefined && fi.owner.length !== EthAddress.LENGTH) {
-    throw new TypeError('owner property of FileInfo has to be EthAddress!');
+  if (fi.owner !== undefined) {
+    new EthAddress(fi.owner);
   }
 
   if (fi.fileName !== undefined && typeof fi.fileName !== 'string') {
@@ -97,9 +92,7 @@ export function assertShareItem(value: unknown): asserts value is ShareItem {
 
   const item = value as unknown as ShareItem;
 
-  if (!isStrictlyObject(item.fileInfo)) {
-    throw new TypeError('ShareItem fileInfo has to be object!');
-  }
+  assertFileInfo(item.fileInfo);
 
   if (item.timestamp !== undefined && typeof item.timestamp !== 'number') {
     throw new TypeError('timestamp property of ShareItem has to be number!');
@@ -117,13 +110,8 @@ export function assertReferenceWithHistory(value: unknown): asserts value is Ref
 
   const rwh = value as unknown as ReferenceWithHistory;
 
-  if (rwh.reference === undefined || rwh.reference.length !== Reference.LENGTH) {
-    throw new TypeError('reference property of ReferenceWithHistory has to be Reference!');
-  }
-
-  if (rwh.historyRef === undefined || rwh.historyRef.length !== Reference.LENGTH) {
-    throw new TypeError('historyRef property of ReferenceWithHistory has to be Reference!');
-  }
+  new Reference(rwh.reference);
+  new Reference(rwh.historyRef);
 }
 
 export function assertWrappedMantarayFeed(value: unknown): asserts value is WrappedMantarayFeed {
@@ -134,13 +122,12 @@ export function assertWrappedMantarayFeed(value: unknown): asserts value is Wrap
   assertReferenceWithHistory(value);
 
   const wmf = value as unknown as WrappedMantarayFeed;
-
-  if (wmf.eFileRef !== undefined && wmf.eFileRef.length !== Reference.LENGTH) {
-    throw new TypeError('eFileRef property of WrappedMantarayFeed has to be Reference!');
+  if (wmf.eFileRef !== undefined) {
+    new Reference(wmf.eFileRef);
   }
 
-  if (wmf.eGranteeRef !== undefined && wmf.eGranteeRef.length !== Reference.LENGTH) {
-    throw new TypeError('eGranteeRef property of WrappedMantarayFeed has to be Reference!');
+  if (wmf.eGranteeRef !== undefined) {
+    new Reference(wmf.eGranteeRef);
   }
 }
 
@@ -165,12 +152,12 @@ export function makeBeeRequestOptions(
 ): BeeRequestOptions {
   const options: BeeRequestOptions = {};
   if (historyRef !== undefined) {
-    options.headers = { 'swarm-act-history-address': historyRef.toHex() };
+    options.headers = { 'swarm-act-history-address': historyRef.toString() };
   }
   if (publisher !== undefined) {
     options.headers = {
       ...options.headers,
-      'swarm-act-publisher': publisher.toHex(),
+      'swarm-act-publisher': publisher.toCompressedHex(),
     };
   }
   if (timestamp !== undefined) {
@@ -198,7 +185,7 @@ export function isNotFoundError(error: any): boolean {
   return error.stack.includes('404') || error.message.includes('Not Found') || error.message.includes('404');
 }
 
-export function getRandomTopicHex(): Topic {
+export function getRandomTopic(): Topic {
   return new Topic(getRandomBytes(Topic.LENGTH));
 }
 

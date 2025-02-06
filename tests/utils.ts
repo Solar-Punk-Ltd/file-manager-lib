@@ -22,7 +22,7 @@ export async function buyStamp(bee: Bee, label?: string): Promise<BatchId> {
     label: label,
   });
 }
-
+// TODO: is obfuscationKey needed ?
 export function initTestMantarayNode(): MantarayNode {
   // return initManifestNode({ obfuscationKey: randomBytes(TOPIC_BYTES_LENGTH) as Bytes<32> });
   return new MantarayNode();
