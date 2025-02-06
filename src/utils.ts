@@ -1,9 +1,8 @@
-import { BeeRequestOptions, Reference, Utils } from '@ethersphere/bee-js';
+import { BATCH_ID_HEX_LENGTH, BatchId, BeeRequestOptions, ENCRYPTED_REFERENCE_HEX_LENGTH, Reference, REFERENCE_HEX_LENGTH, Topic, TOPIC_HEX_LENGTH, Utils } from '@ethersphere/bee-js';
 import { Binary } from 'cafe-utility';
 import path from 'path';
 
-import { Index, ShareItem } from './types';
-import { HexString } from '@ethersphere/bee-js/dist/types/utils/hex';
+import { FileInfo, Index, ShareItem } from './types';
 
 export function getContentType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
@@ -24,6 +23,10 @@ export function isObject(value: unknown): value is Record<string, unknown> {
 
 export function isStrictlyObject(value: unknown): value is Record<string, unknown> {
   return isObject(value) && !Array.isArray(value);
+}
+
+export function isRecord(value: Record<string, string> | string[]): value is Record<string, string> {
+  return typeof value === 'object' && 'key' in value;
 }
 
 export function assertShareItem(value: unknown): asserts value is ShareItem {
@@ -112,4 +115,72 @@ export function makeNumericIndex(index: Index): number {
 export const mockSaver = async (data: Reference, options?: { ecrypt?: boolean }): Promise<Uint8Array> => {
   const hexRef = '9'.repeat(64);
   return Utils.hexToBytes(hexRef);
+}
+
+export function assertReference(value: unknown): asserts value is Reference {
+  try {
+    Utils.assertHexString(value, REFERENCE_HEX_LENGTH);
+  } catch (e) {
+    Utils.assertHexString(value, ENCRYPTED_REFERENCE_HEX_LENGTH);
+  }
+}
+
+export function assertBatchId(value: unknown): asserts value is BatchId {
+  Utils.assertHexString(value, BATCH_ID_HEX_LENGTH);
+}
+
+export function assertFileInfo(value: unknown): asserts value is FileInfo {
+  if (!isStrictlyObject(value)) {
+    throw new TypeError('FileInfo has to be object!');
+  }
+
+  const fi = value as unknown as FileInfo;
+
+  assertReference(fi.eFileRef);
+
+  if (fi.batchId === undefined || typeof fi.batchId !== 'string') {
+    throw new TypeError('batchId property of FileInfo has to be string!');
+  }
+
+  if (fi.historyRef !== undefined) {
+    assertReference(fi.historyRef);
+  }
+
+  if (fi.topic !== undefined) {
+    assertTopic(fi.topic);
+  }
+
+  if (fi.customMetadata !== undefined && !isRecord(fi.customMetadata)) {
+    throw new TypeError('FileInfo customMetadata has to be object!');
+  }
+
+  if (fi.timestamp !== undefined && typeof fi.timestamp !== 'number') {
+    throw new TypeError('timestamp property of FileInfo has to be number!');
+  }
+
+  if (fi.owner !== undefined && !Utils.isHexEthAddress(fi.owner)) {
+    throw new TypeError('owner property of FileInfo has to be string!');
+  }
+
+  if (fi.fileName !== undefined && typeof fi.fileName !== 'string') {
+    throw new TypeError('fileName property of FileInfo has to be string!');
+  }
+
+  if (fi.preview !== undefined && typeof fi.preview !== 'string') {
+    throw new TypeError('preview property of FileInfo has to be string!');
+  }
+
+  if (fi.shared !== undefined && typeof fi.shared !== 'boolean') {
+    throw new TypeError('shared property of FileInfo has to be boolean!');
+  }
+
+  if (fi.redundancyLevel !== undefined && typeof fi.redundancyLevel !== 'number') {
+    throw new TypeError('redundancyLevel property of FileInfo has to be number!');
+  }
+}
+
+export function assertTopic(value: unknown): asserts value is Topic {
+  if (!Utils.isHexString(value, TOPIC_HEX_LENGTH)) {
+    throw `Invalid feed topic: ${value}`;
+  }
 }

@@ -3,7 +3,8 @@ import { BatchId, Reference, REFERENCE_HEX_LENGTH, Utils } from '@ethersphere/be
 import { FILE_INFO_LOCAL_STORAGE } from './constants';
 import { FileInfo, ShareItem } from './types';
 import { MantarayNode } from '@solarpunkltd/mantaray-js';
-import { decodeBytesToPath, mockSaver } from './utils';
+import { assertBatchId, assertFileInfo, assertReference, decodeBytesToPath, mockSaver } from './utils';
+import { assert } from 'console';
 
 export class FileManager {
   private fileInfoList: FileInfo[];
@@ -37,14 +38,13 @@ export class FileManager {
     try {
       // should we trust that in-memory mantaray is correct, or should we fetch it all the time?
       // if lib is statless, we would fetch it all the time
-      // asserFileInfo, asserReference
-      if (!fileInfo || !fileInfo.batchId || !fileInfo.eFileRef) {
-        throw new Error("Invalid fileInfo: 'batchId' and 'eFileRef' are required.");
-      }
+      assertFileInfo(fileInfo);
+      assertBatchId(fileInfo.batchId);
+      assertReference(fileInfo.eFileRef);
 
       localStorage.setItem(FILE_INFO_LOCAL_STORAGE, JSON.stringify(this.fileInfoList));
       
-      return Utils.makeHexString(this.fileInfoList.length, REFERENCE_HEX_LENGTH);
+      return this.fileInfoList.length.toString(16).padStart(64, '0').slice(0, 64);
     } catch (error) {
       console.error('Error saving file info:', error);
       throw error;
