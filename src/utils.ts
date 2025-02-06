@@ -1,19 +1,17 @@
 import {
+  BatchId,
   BeeRequestOptions,
-  ENCRYPTED_REFERENCE_HEX_LENGTH,
+  Bytes,
+  EthAddress,
+  FeedIndex,
+  PublicKey,
   Reference,
-  REFERENCE_BYTES_LENGTH,
-  REFERENCE_HEX_LENGTH,
   Topic,
-  TOPIC_BYTES_LENGTH,
-  TOPIC_HEX_LENGTH,
-  Utils,
-} from '@ethersphere/bee-js';
-import { Binary } from 'cafe-utility';
+} from '@upcoming/bee-js';
 import { randomBytes } from 'crypto';
 import path from 'path';
 
-import { FileInfo, Index, ReferenceWithHistory, ShareItem, WrappedMantarayFeed } from './types';
+import { FileInfo, ReferenceWithHistory, ShareItem, WrappedMantarayFeed } from './types';
 
 export function getContentType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
@@ -26,20 +24,6 @@ export function getContentType(filePath: string): string {
     ['.png', 'image/png'],
   ]);
   return contentTypes.get(ext) || 'application/octet-stream';
-}
-
-export function assertReference(value: unknown): asserts value is Reference {
-  try {
-    Utils.assertHexString(value, REFERENCE_HEX_LENGTH);
-  } catch (e) {
-    Utils.assertHexString(value, ENCRYPTED_REFERENCE_HEX_LENGTH);
-  }
-}
-
-export function assertTopic(value: unknown): asserts value is Topic {
-  if (!Utils.isHexString(value, TOPIC_HEX_LENGTH)) {
-    throw `Invalid feed topic: ${value}`;
-  }
 }
 
 export function isObject(value: unknown): value is Record<string, unknown> {
@@ -61,18 +45,20 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
 
   const fi = value as unknown as FileInfo;
 
-  assertReference(fi.eFileRef);
+  if (fi.eFileRef === undefined || fi.eFileRef.length !== Reference.LENGTH) {
+    throw new TypeError('eFileRef property of FileInfo has to be Reference!');
+  }
 
-  if (fi.batchId === undefined || typeof fi.batchId !== 'string') {
+  if (fi.batchId === undefined || fi.batchId.length !== BatchId.LENGTH) {
     throw new TypeError('batchId property of FileInfo has to be string!');
   }
 
-  if (fi.historyRef !== undefined) {
-    assertReference(fi.historyRef);
+  if (fi.historyRef !== undefined && fi.historyRef.length !== Reference.LENGTH) {
+    throw new TypeError('historyRef property of FileInfo has to be Reference!');
   }
 
-  if (fi.topic !== undefined) {
-    assertTopic(fi.topic);
+  if (fi.topic !== undefined && fi.topic.length !== Topic.LENGTH) {
+    throw new TypeError('topic property of FileInfo has to be Reference!');
   }
 
   if (fi.customMetadata !== undefined && !isRecord(fi.customMetadata)) {
@@ -83,8 +69,8 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
     throw new TypeError('timestamp property of FileInfo has to be number!');
   }
 
-  if (fi.owner !== undefined && !Utils.isHexEthAddress(fi.owner)) {
-    throw new TypeError('owner property of FileInfo has to be string!');
+  if (fi.owner !== undefined && fi.owner.length !== EthAddress.LENGTH) {
+    throw new TypeError('owner property of FileInfo has to be EthAddress!');
   }
 
   if (fi.fileName !== undefined && typeof fi.fileName !== 'string') {
@@ -131,9 +117,13 @@ export function assertReferenceWithHistory(value: unknown): asserts value is Ref
 
   const rwh = value as unknown as ReferenceWithHistory;
 
-  assertReference(rwh.historyRef);
+  if (rwh.reference === undefined || rwh.reference.length !== Reference.LENGTH) {
+    throw new TypeError('reference property of ReferenceWithHistory has to be Reference!');
+  }
 
-  assertReference(rwh.reference);
+  if (rwh.historyRef === undefined || rwh.historyRef.length !== Reference.LENGTH) {
+    throw new TypeError('historyRef property of ReferenceWithHistory has to be Reference!');
+  }
 }
 
 export function assertWrappedMantarayFeed(value: unknown): asserts value is WrappedMantarayFeed {
@@ -145,19 +135,19 @@ export function assertWrappedMantarayFeed(value: unknown): asserts value is Wrap
 
   const wmf = value as unknown as WrappedMantarayFeed;
 
-  if (wmf.eFileRef !== undefined) {
-    assertReference(wmf.eFileRef);
+  if (wmf.eFileRef !== undefined && wmf.eFileRef.length !== Reference.LENGTH) {
+    throw new TypeError('eFileRef property of WrappedMantarayFeed has to be Reference!');
   }
 
-  if (wmf.eGranteeRef !== undefined) {
-    assertReference(wmf.eGranteeRef);
+  if (wmf.eGranteeRef !== undefined && wmf.eGranteeRef.length !== Reference.LENGTH) {
+    throw new TypeError('eGranteeRef property of WrappedMantarayFeed has to be Reference!');
   }
 }
 
 export function decodeBytesToPath(bytes: Uint8Array): string {
-  if (bytes.length !== REFERENCE_BYTES_LENGTH) {
-    const paddedBytes = new Uint8Array(REFERENCE_BYTES_LENGTH);
-    paddedBytes.set(bytes.slice(0, REFERENCE_BYTES_LENGTH)); // Truncate or pad the input to ensure it's 32 bytes
+  if (bytes.length !== Reference.LENGTH) {
+    const paddedBytes = new Uint8Array(Reference.LENGTH);
+    paddedBytes.set(bytes.slice(0, Reference.LENGTH)); // Truncate or pad the input to ensure it's 32 bytes
     bytes = paddedBytes;
   }
   return new TextDecoder().decode(bytes);
@@ -168,19 +158,19 @@ export function encodePathToBytes(pathString: string): Uint8Array {
 }
 
 export function makeBeeRequestOptions(
-  historyRef?: string,
-  publisher?: string,
+  historyRef?: Reference,
+  publisher?: PublicKey,
   timestamp?: number,
   act?: boolean,
 ): BeeRequestOptions {
   const options: BeeRequestOptions = {};
   if (historyRef !== undefined) {
-    options.headers = { 'swarm-act-history-address': historyRef };
+    options.headers = { 'swarm-act-history-address': historyRef.toHex() };
   }
   if (publisher !== undefined) {
     options.headers = {
       ...options.headers,
-      'swarm-act-publisher': publisher,
+      'swarm-act-publisher': publisher.toHex(),
     };
   }
   if (timestamp !== undefined) {
@@ -193,36 +183,13 @@ export function makeBeeRequestOptions(
   return options;
 }
 
-export function numberToFeedIndex(index: number | undefined): string | undefined {
-  if (index === undefined) {
-    return undefined;
-  }
-  const bytes = new Uint8Array(8);
-  const dv = new DataView(bytes.buffer);
-  dv.setUint32(4, index);
-
-  return Utils.bytesToHex(bytes);
+export function numberToFeedIndex(index: number | Uint8Array | string | Bytes): FeedIndex {
+  index = typeof index === 'number' ? FeedIndex.fromBigInt(BigInt(index)) : index;
+  return new FeedIndex(index);
 }
 
-export function makeNumericIndex(index: Index): number {
-  if (index instanceof Uint8Array) {
-    return Binary.uint64BEToNumber(index);
-  }
-
-  if (typeof index === 'string') {
-    const base = 16;
-    const ix = parseInt(index, base);
-    if (isNaN(ix)) {
-      throw new TypeError(`Invalid index: ${index}`);
-    }
-    return ix;
-  }
-
-  if (typeof index === 'number') {
-    return index;
-  }
-
-  throw new TypeError(`Unknown type of index: ${index}`);
+export function makeNumericIndex(index: FeedIndex | undefined): number {
+  return index === undefined ? 0 : Number(index.toBigInt());
 }
 
 // status is undefined in the error object
@@ -232,7 +199,7 @@ export function isNotFoundError(error: any): boolean {
 }
 
 export function getRandomTopicHex(): Topic {
-  return Utils.bytesToHex(getRandomBytes(TOPIC_BYTES_LENGTH), TOPIC_HEX_LENGTH);
+  return new Topic(getRandomBytes(Topic.LENGTH));
 }
 
 export function getRandomBytes(len: number): Buffer {
