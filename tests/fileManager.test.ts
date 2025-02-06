@@ -1,7 +1,8 @@
 import { TextEncoder } from "util";
 import { FileManager } from '../src/fileManager';
-import { emptyFileInfoTxt, extendedFileInfoTxt, fileInfoTxt, mockBatchId } from './mockHelpers';
-import { FileInfo } from "src/types";
+import { emptyFileInfoTxt, extendedFileInfoTxt, fileInfoTxt, mockBatchId, MockLocalStorage } from './mockHelpers';
+import { FileInfo } from "../src/types";
+import { FILE_INFO_LOCAL_STORAGE } from "../src/constants";
 //import { ShareItem } from 'src/types';
 
 global.TextEncoder = TextEncoder;
@@ -151,13 +152,30 @@ describe('listFiles', () => {
 });
 
 describe('upload', () => {
+  let originalLocalStorage: Storage;
+  let mockLocalStorage: Record<string, string>;
+
   beforeEach(() => {
     jest.resetAllMocks();
+    originalLocalStorage = global.localStorage;
+    Object.defineProperty(global, 'localStorage', {
+      value: new MockLocalStorage(),
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(global, 'localStorage', {
+      value: originalLocalStorage,
+      writable: true,
+    });
+    jest.restoreAllMocks();
   });
 
   it('should save FileInfo', async () => {
-    jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
     const fileManager = new FileManager();
+    localStorage.setItem(FILE_INFO_LOCAL_STORAGE, fileInfoTxt);
     await fileManager.initialize();
 
     await fileManager.upload(mockBatchId, 'src/folder/3.txt');
@@ -176,7 +194,7 @@ describe('upload', () => {
 
     const ref = await fileManager.upload(mockBatchId, 'src/folder/3.txt');
 
-    expect(ref).toBe('0000000000000000000000000000000000000000000000000000000000000002');
+    expect(ref).toBe('0000000000000000000000000000000000000000000000000000000000000003');
   });
 
   it('should work with consecutive uploads', async () => {

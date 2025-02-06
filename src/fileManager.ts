@@ -98,6 +98,8 @@ export class FileManager {
       customMetadata,
     };
 
+    this.fileInfoList.push(fileInfo);
+
     const ref = this.saveFileInfo(fileInfo);
 
     return ref;

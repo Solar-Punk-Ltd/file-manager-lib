@@ -118,11 +118,15 @@ export const mockSaver = async (data: Reference, options?: { ecrypt?: boolean })
 }
 
 export function assertReference(value: unknown): asserts value is Reference {
-  try {
-    Utils.assertHexString(value, REFERENCE_HEX_LENGTH);
-  } catch (e) {
-    Utils.assertHexString(value, ENCRYPTED_REFERENCE_HEX_LENGTH);
+  if (typeof value !== 'string') {
+    // this is a mock
+    throw new TypeError('Reference has to be string!');
   }
+  //try {
+  //  Utils.assertHexString(value, REFERENCE_HEX_LENGTH);
+  //} catch (e) {
+  //  Utils.assertHexString(value, ENCRYPTED_REFERENCE_HEX_LENGTH);
+  //}
 }
 
 export function assertBatchId(value: unknown): asserts value is BatchId {

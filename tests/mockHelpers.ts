@@ -71,3 +71,27 @@ export function createMockMantarayNode(customForks: Record<string, any> = {}, ex
     }),
   };
 }
+
+export class MockLocalStorage {
+  store: Record<string, string>;
+
+  constructor() {
+    this.store = {};
+  }
+
+  getItem(key: string) {
+    return this.store[key] || null;
+  }
+
+  setItem(key: string, value: string) {
+    this.store[key] = value;
+  }
+
+  removeItem(key: string) {
+    delete this.store[key];
+  }
+
+  clear() {
+    this.store = {};
+  }
+}
