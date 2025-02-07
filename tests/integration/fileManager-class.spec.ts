@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { Bee, MantarayNode, Reference } from '@upcoming/bee-js';
+import { BeeDev, MantarayNode, Reference } from '@upcoming/bee-js';
 
 import { FileManager } from '../../src/fileManager';
 import { OWNER_FEED_STAMP_LABEL, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
@@ -10,14 +10,14 @@ import { BEE_URL, buyStamp, getTestFile, MOCK_SIGNER, OTHER_BEE_URL, OTHER_MOCK_
 
 describe('FileManager initialization', () => {
   beforeEach(async () => {
-    const bee = new Bee(BEE_URL);
+    const bee = new BeeDev(BEE_URL);
     await buyStamp(bee, OWNER_FEED_STAMP_LABEL);
 
     jest.resetAllMocks();
   });
 
   it('should create and initialize a new instance', async () => {
-    const bee = new Bee(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
+    const bee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
     const fileManager = new FileManager(bee);
     try {
       await fileManager.initialize();
@@ -33,7 +33,7 @@ describe('FileManager initialization', () => {
   });
 
   it('should fetch the owner stamp and initialize the owner feed and topic', async () => {
-    const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+    const bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     const batchId = await buyStamp(bee, OWNER_FEED_STAMP_LABEL);
     const fileManager = new FileManager(bee);
     await fileManager.initialize();
@@ -59,8 +59,8 @@ describe('FileManager initialization', () => {
   });
 
   it('should throw an error if someone else than the owner tries to read the owner feed', async () => {
-    const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-    const otherBee = new Bee(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
+    const bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    const otherBee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
     const fileManager = new FileManager(bee);
     await fileManager.initialize();
     const publsiherPublicKey = fileManager.getNodeAddresses().publicKey;
@@ -87,7 +87,7 @@ describe('FileManager initialization', () => {
 
   it('should upload a file and save it on swarm', async () => {
     const expectedFileData = getTestFile('fixtures/test.txt');
-    const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+    const bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     const testStampId = await buyStamp(bee, 'testStamp');
     let actualFileInfo: FileInfo;
     {

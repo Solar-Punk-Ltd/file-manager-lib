@@ -9,11 +9,9 @@ import {
   MantarayNode,
   NodeAddresses,
   NULL_TOPIC,
-  PeerAddress,
   PostageBatch,
   PrivateKey,
   PssSubscription,
-  PublicKey,
   RedundancyLevel,
   Reference,
   STAMPS_DEPTH_MAX,
@@ -100,19 +98,8 @@ export class FileManager {
     }
   }
 
-  // TODO: only for testing now, in dev mode underlay is empty and getNodeAddresses throws error
   private async initNodeAddresses(): Promise<void> {
-    try {
-      this.nodeAddresses = await this.bee.getNodeAddresses();
-    } catch (error) {
-      this.nodeAddresses = {
-        overlay: new PeerAddress('46c1f688e19a41f01b512783fa9480d88bf849b639ffc5d359a8b4419463455e'),
-        underlay: [''],
-        ethereum: new EthAddress('0x04f5b007bfd1453c71dbe7ff18556cab96515ee0'),
-        pssPublicKey: new PublicKey('02946268311edf00cc4b3e012a75a68a56a49b7bf20473e450e4877a68e7b01d6b'),
-        publicKey: new PublicKey('02946268311edf00cc4b3e012a75a68a56a49b7bf20473e450e4877a68e7b01d6b'),
-      };
-    }
+    this.nodeAddresses = await this.bee.getNodeAddresses();
   }
 
   private async initOwnerFeedTopic(): Promise<void> {

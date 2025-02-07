@@ -1,13 +1,4 @@
-import {
-  BatchId,
-  BeeRequestOptions,
-  Bytes,
-  EthAddress,
-  FeedIndex,
-  PublicKey,
-  Reference,
-  Topic,
-} from '@upcoming/bee-js';
+import { BeeRequestOptions, Bytes, EthAddress, FeedIndex, PublicKey, Reference, Topic } from '@upcoming/bee-js';
 import { randomBytes } from 'crypto';
 import path from 'path';
 
