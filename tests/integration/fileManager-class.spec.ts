@@ -95,8 +95,7 @@ describe('FileManager initialization', () => {
       await fileManager.initialize();
       const publsiherPublicKey = fileManager.getNodeAddresses().publicKey;
 
-      const testMantaray = new MantarayNode();
-      await fileManager.upload(testStampId, testMantaray, '../tests/fixtures/test.txt');
+      await fileManager.upload(testStampId, '../tests/fixtures/test.txt');
 
       const fileInfoList = fileManager.getFileInfoList();
       console.log('baogy test fileInfoList: ', fileInfoList);

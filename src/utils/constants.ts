@@ -5,8 +5,6 @@ export const SHARED_INBOX_TOPIC = new Topic(Topic.fromString('shared-inbox'));
 export const SHARED_WTIHME_TOPIC = 'shared-with-me';
 export const OWNER_FEED_STAMP_LABEL = 'owner-stamp';
 export const ROOT_PATH = '/';
-export const FILEIINFO_NAME = 'fileinfo.json';
-export const FILEINFO_HISTORY_NAME = 'history';
 export const SWARM_ZERO_ADDRESS = new Reference(NULL_ADDRESS);
 
 // TEMPORARY

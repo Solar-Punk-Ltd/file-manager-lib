@@ -2,7 +2,7 @@ import { BeeRequestOptions, Bytes, EthAddress, FeedIndex, PublicKey, Reference, 
 import { randomBytes } from 'crypto';
 import path from 'path';
 
-import { FileInfo, ReferenceWithHistory, ShareItem, WrappedMantarayFeed } from './types';
+import { FileInfo, ReferenceWithHistory, ShareItem, WrappedFileInoFeed } from './types';
 
 export function getContentType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
@@ -105,14 +105,14 @@ export function assertReferenceWithHistory(value: unknown): asserts value is Ref
   new Reference(rwh.historyRef);
 }
 
-export function assertWrappedMantarayFeed(value: unknown): asserts value is WrappedMantarayFeed {
+export function assertWrappedFileInoFeed(value: unknown): asserts value is WrappedFileInoFeed {
   if (!isStrictlyObject(value)) {
     throw new TypeError('WrappedMantarayFeed has to be object!');
   }
 
   assertReferenceWithHistory(value);
 
-  const wmf = value as unknown as WrappedMantarayFeed;
+  const wmf = value as unknown as WrappedFileInoFeed;
   if (wmf.eFileRef !== undefined) {
     new Reference(wmf.eFileRef);
   }
