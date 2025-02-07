@@ -1,4 +1,5 @@
 import { BatchId, RedundancyLevel, Reference, Topic } from '@ethersphere/bee-js';
+import { MantarayNode } from '@solarpunkltd/mantaray-js';
 
 export interface FileInfo {
   batchId: string | BatchId;
@@ -30,3 +31,8 @@ export interface Epoch {
 export type Index = number | Epoch | IndexBytes | string;
 const feedTypes = ['sequence', 'epoch'] as const;
 export type FeedType = (typeof feedTypes)[number];
+
+export interface MantarayStackItem {
+  node: MantarayNode;
+  path: string;
+}

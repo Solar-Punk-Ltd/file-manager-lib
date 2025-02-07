@@ -1,10 +1,9 @@
 import { BatchId, Reference, REFERENCE_HEX_LENGTH, Utils } from '@ethersphere/bee-js';
 
 import { FILE_INFO_LOCAL_STORAGE } from './constants';
-import { FileInfo, ShareItem } from './types';
+import { FileInfo, MantarayStackItem, ShareItem } from './types';
 import { MantarayNode } from '@solarpunkltd/mantaray-js';
-import { assertBatchId, assertFileInfo, assertReference, decodeBytesToPath, mockSaver } from './utils';
-import { assert } from 'console';
+import { assertBatchId, assertFileInfo, assertReference, decodeBytesToPath, mockLoader } from './utils';
 
 export class FileManager {
   private fileInfoList: FileInfo[];
@@ -57,10 +56,10 @@ export class FileManager {
   async listFiles(fileInfo: FileInfo): Promise<string[]> {
     const targetRef = fileInfo.eFileRef as Reference;
     const mantaray = new MantarayNode();
-    await mantaray.load(mockSaver, targetRef);
+    await mantaray.load(mockLoader, targetRef);
 
-    const refList = [];
-    let stack = [{ node: mantaray, path: '' }]; // legyen típusa, refListnek is
+    const refList: Reference[] = [];
+    let stack: MantarayStackItem[] = [{ node: mantaray, path: '' }];
     let found = false;
 
     while (stack.length > 0) {

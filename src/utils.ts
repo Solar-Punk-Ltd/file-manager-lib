@@ -3,6 +3,8 @@ import { Binary } from 'cafe-utility';
 import path from 'path';
 
 import { FileInfo, Index, ShareItem } from './types';
+import { createMockMantarayNode } from '../tests/mockHelpers';
+import { MantarayNode } from '@solarpunkltd/mantaray-js';
 
 export function getContentType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
@@ -115,6 +117,14 @@ export function makeNumericIndex(index: Index): number {
 export const mockSaver = async (data: Reference, options?: { ecrypt?: boolean }): Promise<Uint8Array> => {
   const hexRef = '9'.repeat(64);
   return Utils.hexToBytes(hexRef);
+}
+
+export const mockLoader = (reference: Reference): Promise<Uint8Array> => {
+  const mNode = new MantarayNode();
+  mNode.addFork(encodePathToBytes('example.txt'), 'a'.repeat(64) as Reference);
+  const serializedMantaray = mNode.serialize();
+
+  return Promise.resolve(serializedMantaray);
 }
 
 export function assertReference(value: unknown): asserts value is Reference {

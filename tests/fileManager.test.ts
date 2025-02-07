@@ -153,7 +153,6 @@ describe('listFiles', () => {
 
 describe('upload', () => {
   let originalLocalStorage: Storage;
-  let mockLocalStorage: Record<string, string>;
 
   beforeEach(() => {
     jest.resetAllMocks();
@@ -251,13 +250,29 @@ describe('shareItems', () => {
 */
 
 describe('upload and listFiles', () => {
+  let originalLocalStorage: Storage;
+
   beforeEach(() => {
     jest.resetAllMocks();
+    originalLocalStorage = global.localStorage;
+    Object.defineProperty(global, 'localStorage', {
+      value: new MockLocalStorage(),
+      writable: true,
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(global, 'localStorage', {
+      value: originalLocalStorage,
+      writable: true,
+    });
+    jest.restoreAllMocks();
   });
 
   it('should give back correct refs by listFiles, after upload', async () => {
-    jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
     const fileManager = new FileManager();
+    localStorage.setItem(FILE_INFO_LOCAL_STORAGE, fileInfoTxt);
     await fileManager.initialize();
 
     let list = fileManager.getFileInfoList();
