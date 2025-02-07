@@ -121,7 +121,17 @@ export const mockSaver = async (data: Reference, options?: { ecrypt?: boolean })
 
 export const mockLoader = (reference: Reference): Promise<Uint8Array> => {
   const mNode = new MantarayNode();
-  mNode.addFork(encodePathToBytes('example.txt'), 'a'.repeat(64) as Reference);
+  const pathAsBytes = encodePathToBytes('example.txt')
+  console.log("Path as bytes:", pathAsBytes)
+  
+ // mNode.addFork(pathAsBytes, 'a'.repeat(64) as Reference);
+ const hexString = '0'.repeat(64) as Reference 
+ //console.log("Utils.isHexString", Utils.isHexString(hexString))
+ mNode['contentAddress'] = hexString
+  
+  //mNode.setContentAddress = hexString
+  mNode['entry'] = '3'.repeat(64) as Reference;
+  console.log("Content address: ", mNode.getContentAddress);
   const serializedMantaray = mNode.serialize();
 
   return Promise.resolve(serializedMantaray);

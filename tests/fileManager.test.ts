@@ -1,4 +1,4 @@
-import { TextEncoder } from "util";
+import { TextEncoder, TextDecoder } from "util";
 import { FileManager } from '../src/fileManager';
 import { emptyFileInfoTxt, extendedFileInfoTxt, fileInfoTxt, mockBatchId, MockLocalStorage } from './mockHelpers';
 import { FileInfo } from "../src/types";
@@ -6,6 +6,7 @@ import { FILE_INFO_LOCAL_STORAGE } from "../src/constants";
 //import { ShareItem } from 'src/types';
 
 global.TextEncoder = TextEncoder;
+global.TextDecoder = TextDecoder as unknown as typeof globalThis.TextDecoder;;
 
 Object.defineProperty(global, 'localStorage', {
   value: {
