@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { BeeDev, MantarayNode, Reference } from '@upcoming/bee-js';
+import { BeeDev, Reference } from '@upcoming/bee-js';
 
 import { FileManager } from '../../src/fileManager';
 import { OWNER_FEED_STAMP_LABEL, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';

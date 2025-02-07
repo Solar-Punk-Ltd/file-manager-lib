@@ -20,7 +20,6 @@ export interface ShareItem {
   message?: string;
 }
 
-// TODO: use uploadResult instead of this
 export interface ReferenceWithHistory {
   reference: string | Reference;
   historyRef: string | Reference;

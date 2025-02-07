@@ -1,4 +1,6 @@
-export const mockBatchId = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
+import { BatchId } from '@upcoming/bee-js';
+
+export const mockBatchId = new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51');
 
 export const fileInfoTxt = `[
   {

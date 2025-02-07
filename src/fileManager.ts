@@ -17,6 +17,7 @@ import {
   STAMPS_DEPTH_MAX,
   Topic,
   UploadOptions,
+  UploadResult,
   Utils,
 } from '@upcoming/bee-js';
 import { readFileSync } from 'fs';
@@ -33,7 +34,6 @@ import { BeeVersionError, StampError } from './utils/errors';
 import { FetchFeedUpdateResponse, FileInfo, ReferenceWithHistory, ShareItem, WrappedFileInoFeed } from './utils/types';
 import {
   assertFileInfo,
-  assertReferenceWithHistory,
   assertShareItem,
   assertWrappedFileInoFeed,
   getContentType,
@@ -145,10 +145,9 @@ export class FileManager {
 
     this.nextOwnerFeedIndex = makeNumericIndex(latestFeedData.feedIndexNext);
     const refWithHistory = latestFeedData.payload.toJSON() as ReferenceWithHistory;
-    assertReferenceWithHistory(refWithHistory);
+    const options = makeBeeRequestOptions(new Reference(refWithHistory.historyRef), this.nodeAddresses.publicKey);
 
-    const options = makeBeeRequestOptions(refWithHistory.historyRef as Reference, this.nodeAddresses.publicKey);
-    const fileInfoFeedListRawData = await this.bee.downloadData(refWithHistory.reference, options);
+    const fileInfoFeedListRawData = await this.bee.downloadData(new Reference(refWithHistory.reference), options);
     const fileInfoFeedListData = fileInfoFeedListRawData.toJSON() as WrappedFileInoFeed[];
 
     for (const feedItem of fileInfoFeedListData) {
@@ -184,7 +183,6 @@ export class FileManager {
   // End mantaray methods
 
   // TODO: at this point we already have the efilerRef, so we can use it to fetch the data
-  // TODO: loadallnodes and deserialize works but load() doesn't work -> why ?
   // TODO: already unwrapped historyRef by bee ?
   private async initFileInfoList(): Promise<void> {
     // TODO: leave publickey get out of the for loop
@@ -192,7 +190,7 @@ export class FileManager {
       console.log('bagoy feedItem: ', feedItem);
       // const feedOptions = makeBeeRequestOptions(feedItem.historyRef,  this.nodeAddresses.publicKey);
       const fileInfoFeedData = await this.getFeedData(
-        feedItem.reference as Topic,
+        new Topic(feedItem.reference),
         0, // TODO: if index is provided then it calls the chunk api, if undefined then it calls the feed api to lookup
         // feedOptions, // TODO: commented out the act options because it can download without it but whyy ? it was uploaded via act
       );
@@ -204,14 +202,13 @@ export class FileManager {
 
       const wrappedFileInfoRef = new Reference(fileInfoFeedData.payload);
       const wrappedFileInfoData = (await this.bee.downloadData(wrappedFileInfoRef)).toJSON() as ReferenceWithHistory;
-      assertReferenceWithHistory(wrappedFileInfoData);
 
       const options = makeBeeRequestOptions(
         new Reference(wrappedFileInfoData.historyRef),
         this.nodeAddresses.publicKey,
       );
       const fileInfoData = (
-        await this.bee.downloadData(wrappedFileInfoData.reference, options)
+        await this.bee.downloadData(new Reference(wrappedFileInfoData.reference), options)
       ).toJSON() as ReferenceWithHistory;
 
       try {
@@ -255,7 +252,7 @@ export class FileManager {
       batchId: batchId.toString(),
       eFileRef: uploadFileRes.reference.toString(),
       topic: topic.toString(),
-      historyRef: uploadFileRes.historyRef.toString(),
+      historyRef: uploadFileRes.historyAddress.toString(),
       owner: this.nodeAddresses.ethereum.toString(),
       fileName: path.basename(file),
       timestamp: new Date().getTime(),
@@ -265,7 +262,14 @@ export class FileManager {
       customMetadata: currentFileInfo?.customMetadata,
     });
 
-    await this.updateFileInfoFeed(batchId, fileInfoResult, topic as Topic);
+    const newFeedItem = await this.saveWrappedFileInfoFeed(batchId, fileInfoResult, new Topic(topic));
+
+    const ix = this.fileInfoFeedList.findIndex((f) => f.reference === newFeedItem.reference);
+    if (ix !== -1) {
+      this.fileInfoFeedList[ix] = { ...newFeedItem, eGranteeRef: this.fileInfoFeedList[ix].eGranteeRef };
+    } else {
+      this.fileInfoFeedList.push(newFeedItem);
+    }
 
     await this.saveFileInfoFeedList();
   }
@@ -274,7 +278,7 @@ export class FileManager {
     batchId: BatchId,
     file: string,
     currentFileInfo: FileInfo | undefined = undefined,
-  ): Promise<ReferenceWithHistory> {
+  ): Promise<UploadResult> {
     console.log(`Uploading file: ${file}`);
     const filePath = path.resolve(__dirname, file);
     const fileData = new Uint8Array(readFileSync(filePath));
@@ -282,7 +286,9 @@ export class FileManager {
     const contentType = getContentType(file);
 
     try {
-      const options = makeBeeRequestOptions(currentFileInfo?.historyRef as Reference);
+      const options = currentFileInfo?.historyRef
+        ? makeBeeRequestOptions(new Reference(currentFileInfo.historyRef))
+        : undefined;
       const uploadFileRes = await this.bee.uploadFile(
         batchId,
         fileData,
@@ -296,13 +302,13 @@ export class FileManager {
       );
 
       console.log(`File uploaded successfully: ${fileName}, Reference: ${uploadFileRes.reference.toString()}`);
-      return { reference: uploadFileRes.reference, historyRef: new Reference(uploadFileRes.historyAddress) };
+      return uploadFileRes;
     } catch (error: any) {
       throw `Failed to upload file ${file}: ${error}`;
     }
   }
 
-  private async uploadFileInfo(fileInfo: FileInfo): Promise<ReferenceWithHistory> {
+  private async uploadFileInfo(fileInfo: FileInfo): Promise<UploadResult> {
     try {
       const uploadInfoRes = await this.bee.uploadData(fileInfo.batchId, JSON.stringify(fileInfo), {
         act: true,
@@ -312,28 +318,26 @@ export class FileManager {
 
       this.fileInfoList.push(fileInfo);
 
-      return { reference: uploadInfoRes.reference, historyRef: new Reference(uploadInfoRes.historyAddress) };
+      return uploadInfoRes;
     } catch (error: any) {
       throw `Failed to save fileinfo: ${error}`;
     }
   }
 
-  private async updateFileInfoFeed(
+  private async saveWrappedFileInfoFeed(
     batchId: BatchId,
-    fileInfoResult: ReferenceWithHistory,
+    fileInfoResult: UploadResult,
     topic: Topic,
     redundancyLevel: RedundancyLevel = RedundancyLevel.MEDIUM,
-  ): Promise<void> {
+  ): Promise<WrappedFileInoFeed> {
     try {
-      console.log('bagoy fileInfoResult.reference.toString(): ', fileInfoResult.reference.toString());
-      console.log('bagoy fileInfoResult.historyRef.toString(): ', new Reference(fileInfoResult.historyRef).toString());
       // TODO: wrapper for uploadData
       const uploadInfoRes = await this.bee.uploadData(
         batchId,
         JSON.stringify({
           reference: fileInfoResult.reference.toString(),
-          historyRef: fileInfoResult.historyRef.toString(),
-        }),
+          historyRef: fileInfoResult.historyAddress.toString(),
+        } as ReferenceWithHistory),
         {
           redundancyLevel: redundancyLevel,
         },
@@ -341,25 +345,13 @@ export class FileManager {
       const fw = this.bee.makeFeedWriter(topic, this.signer);
       const wrappedFeedUpdateRes = await fw.upload(batchId, uploadInfoRes.reference, {
         index: undefined, // todo: keep track of the latest index ??
-        act: true, // TODO: shall this call to /soc post api ?
+        act: true,
       });
-      console.log('bagoy wrappedFeedUpdateRes.reference.toString(): ', wrappedFeedUpdateRes.reference.toString());
-      console.log(
-        'bagoy wrappedFeedUpdateRes.historyRef.toString(): ',
-        new Reference(wrappedFeedUpdateRes.historyAddress).toString(),
-      );
-      const feedUpdate: WrappedFileInoFeed = {
-        reference: topic.toString(),
+      return {
+        reference: new Reference(topic).toString(),
         historyRef: wrappedFeedUpdateRes.historyAddress.toString(),
         eFileRef: fileInfoResult.reference.toString(), // TODO: why  fileInfoRes.reference instead of eFileRef ? -> might not be needed
       };
-
-      const ix = this.fileInfoFeedList.findIndex((f) => f.reference === feedUpdate.reference);
-      if (ix !== -1) {
-        this.fileInfoFeedList[ix] = { ...feedUpdate, eGranteeRef: this.fileInfoFeedList[ix].eGranteeRef };
-      } else {
-        this.fileInfoFeedList.push(feedUpdate);
-      }
     } catch (error: any) {
       throw `Failed to save wrapped fileInfo feed: ${error}`;
     }
@@ -371,7 +363,6 @@ export class FileManager {
     if (!ownerFeedStamp) {
       throw 'Owner feed stamp is not found.';
     }
-
     try {
       const fileInfoFeedListData = await this.bee.uploadData(
         ownerFeedStamp.batchID,
@@ -396,7 +387,7 @@ export class FileManager {
       console.log('Owner feed list updated: ', writeResult.reference.toString());
       this.nextOwnerFeedIndex += 1;
     } catch (error: any) {
-      throw `Failed to update owner feed list: ${error}`;
+      throw `Failed to save owner feed list: ${error}`;
     }
   }
   // End owner fileInfo feed handler methods
@@ -452,7 +443,6 @@ export class FileManager {
 
   // End grantee handler methods
 
-  // TODO: upload /soc wiht ACT and download: do not upload mantaraymanifref with ACT as data!
   public async getFeedData(
     topic: Topic,
     index?: number,
@@ -481,7 +471,7 @@ export class FileManager {
   // could name downloadFiles as well, possibly
   // getDirectorStructure()
   async listFiles(fileInfo: FileInfo): Promise<Reference[]> {
-    return [fileInfo.eFileRef as Reference];
+    return [new Reference(fileInfo.eFileRef)];
   }
 
   // Start stamp methods
@@ -641,6 +631,7 @@ export class FileManager {
     }
   }
   // End share methods
+
   // TODO: saveFileInfo only exists for testing now
   async saveFileInfo(fileInfo: FileInfo): Promise<string> {
     try {
