@@ -1,8 +1,9 @@
 import { BeeRequestOptions, Bytes, EthAddress, FeedIndex, PublicKey, Reference, Topic } from '@upcoming/bee-js';
 import { randomBytes } from 'crypto';
+import { readFileSync } from 'fs';
 import path from 'path';
 
-import { FileInfo, ShareItem, WrappedFileInoFeed } from './types';
+import { FileData, FileInfo, ShareItem, WrappedFileInfoFeed } from './types';
 
 export function getContentType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
@@ -15,6 +16,15 @@ export function getContentType(filePath: string): string {
     ['.png', 'image/png'],
   ]);
   return contentTypes.get(ext) || 'application/octet-stream';
+}
+
+export function readFile(filePath: string): FileData {
+  const resolvedPath = path.resolve(__dirname, filePath);
+  const fileData = new Uint8Array(readFileSync(resolvedPath));
+  const fileName = path.basename(resolvedPath);
+  const contentType = getContentType(resolvedPath);
+
+  return { data: fileData, name: fileName, contentType };
 }
 
 export function isObject(value: unknown): value is Record<string, unknown> {
@@ -94,43 +104,25 @@ export function assertShareItem(value: unknown): asserts value is ShareItem {
   }
 }
 
-export function assertWrappedFileInoFeed(value: unknown): asserts value is WrappedFileInoFeed {
+export function assertWrappedFileInoFeed(value: unknown): asserts value is WrappedFileInfoFeed {
   if (!isStrictlyObject(value)) {
     throw new TypeError('WrappedMantarayFeed has to be object!');
   }
 
-  const wmf = value as unknown as WrappedFileInoFeed;
+  const wmf = value as unknown as WrappedFileInfoFeed;
 
   new Reference(wmf.reference);
   new Reference(wmf.historyRef);
-
-  if (wmf.eFileRef !== undefined) {
-    new Reference(wmf.eFileRef);
-  }
 
   if (wmf.eGranteeRef !== undefined) {
     new Reference(wmf.eGranteeRef);
   }
 }
 
-export function decodeBytesToPath(bytes: Uint8Array): string {
-  if (bytes.length !== Reference.LENGTH) {
-    const paddedBytes = new Uint8Array(Reference.LENGTH);
-    paddedBytes.set(bytes.slice(0, Reference.LENGTH)); // Truncate or pad the input to ensure it's 32 bytes
-    bytes = paddedBytes;
-  }
-  return new TextDecoder().decode(bytes);
-}
-
-export function encodePathToBytes(pathString: string): Uint8Array {
-  return new TextEncoder().encode(pathString);
-}
-
 export function makeBeeRequestOptions(
   historyRef?: Reference,
   publisher?: PublicKey,
   timestamp?: number,
-  act?: boolean,
 ): BeeRequestOptions {
   const options: BeeRequestOptions = {};
   if (historyRef !== undefined) {
@@ -144,9 +136,6 @@ export function makeBeeRequestOptions(
   }
   if (timestamp !== undefined) {
     options.headers = { ...options.headers, 'swarm-act-timestamp': timestamp.toString() };
-  }
-  if (act) {
-    options.headers = { ...options.headers, 'swarm-act': 'true' };
   }
 
   return options;
@@ -168,9 +157,5 @@ export function isNotFoundError(error: any): boolean {
 }
 
 export function getRandomTopic(): Topic {
-  return new Topic(getRandomBytes(Topic.LENGTH));
-}
-
-export function getRandomBytes(len: number): Buffer {
-  return randomBytes(len);
+  return new Topic(randomBytes(Topic.LENGTH));
 }

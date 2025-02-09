@@ -1,4 +1,5 @@
-import { BatchId, Bee, MantarayNode, PrivateKey } from '@upcoming/bee-js';
+import { BatchId, Bee, MantarayNode, PrivateKey, Topic } from '@upcoming/bee-js';
+import { randomBytes } from 'crypto';
 import { readFileSync } from 'fs';
 import path from 'path';
 
@@ -22,10 +23,9 @@ export async function buyStamp(bee: Bee, label?: string): Promise<BatchId> {
     label: label,
   });
 }
-// TODO: is obfuscationKey needed ?
+
 export function initTestMantarayNode(): MantarayNode {
-  // return initManifestNode({ obfuscationKey: randomBytes(TOPIC_BYTES_LENGTH) as Bytes<32> });
-  return new MantarayNode();
+  return new MantarayNode({ obfuscationKey: randomBytes(Topic.LENGTH) });
 }
 
 export function getTestFile(relativePath: string): string {

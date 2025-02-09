@@ -94,8 +94,8 @@ describe('FileManager initialization', () => {
       const fileManager = new FileManager(bee);
       await fileManager.initialize();
       const publsiherPublicKey = fileManager.getNodeAddresses().publicKey;
-
-      await fileManager.upload(testStampId, '../tests/fixtures/test.txt');
+      // TODO: readfile path handling
+      await fileManager.upload(testStampId, '../../tests/fixtures/test.txt');
 
       const fileInfoList = fileManager.getFileInfoList();
       console.log('baogy test fileInfoList: ', fileInfoList);
