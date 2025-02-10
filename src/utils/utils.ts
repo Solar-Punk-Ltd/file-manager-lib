@@ -46,12 +46,9 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
 
   const fi = value as unknown as FileInfo;
 
-  new Reference(fi.eFileRef);
+  new Reference(fi.file.reference);
   new Reference(fi.batchId);
-
-  if (fi.historyRef !== undefined) {
-    new Reference(fi.historyRef);
-  }
+  new Reference(fi.file.historyRef);
 
   if (fi.topic !== undefined) {
     new Topic(fi.topic);

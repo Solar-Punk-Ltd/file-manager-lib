@@ -110,8 +110,8 @@ describe('FileManager initialization', () => {
       expect(fileInfoList.length).toEqual(1);
 
       actualFileInfo = fileInfoList[0];
-      const actualFileData = await bee.downloadFile(actualFileInfo.eFileRef, undefined, {
-        actHistoryAddress: actualFileInfo.historyRef as Reference,
+      const actualFileData = await bee.downloadFile(actualFileInfo.file.reference, undefined, {
+        actHistoryAddress: actualFileInfo.file.historyRef as Reference,
         actPublisher: publsiherPublicKey,
       });
 
@@ -127,8 +127,8 @@ describe('FileManager initialization', () => {
     expect(fileInfoList.length).toEqual(1);
     expect(downloadedFileInfo).toEqual(actualFileInfo);
 
-    const actualFileData = await bee.downloadFile(downloadedFileInfo.eFileRef, undefined, {
-      actHistoryAddress: downloadedFileInfo.historyRef,
+    const actualFileData = await bee.downloadFile(downloadedFileInfo.file.reference, undefined, {
+      actHistoryAddress: downloadedFileInfo.file.historyRef,
       actPublisher: publsiherPublicKey,
     });
     expect(actualFileData.data.toUtf8()).toEqual(expectedFileData);

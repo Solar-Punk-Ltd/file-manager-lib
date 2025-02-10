@@ -250,23 +250,21 @@ export class FileManager {
     }
 
     const uploadFileRes = await this.uploadFile(batchId, filePath, true, historyRef, redundancyLevel);
-    let previewRef: Reference | undefined;
+    let uploadPreviewRes: ReferenceWithHistory | undefined;
     if (preview) {
-      const uploadPreviewRes = await this.uploadFile(batchId, preview, false, undefined, redundancyLevel);
-      previewRef = new Reference(uploadPreviewRes.reference);
+      uploadPreviewRes = await this.uploadFile(batchId, preview, false, undefined, redundancyLevel);
     }
-    // TODO: store feed index in fileinfo to speed up upload? -> undifined == 0, index otherwise
+
     const topic = infoTopic ? new Topic(Topic.fromString(infoTopic)) : getRandomTopic();
     const fileInfoResult = await this.uploadFileInfo({
       batchId: batchId.toString(),
-      eFileRef: uploadFileRes.reference.toString(),
+      file: uploadFileRes,
       topic: topic.toString(),
-      historyRef: uploadFileRes.historyRef.toString(),
       owner: this.signer.publicKey().address().toString(),
       fileName: path.basename(filePath), // TODO: redundant read
       timestamp: new Date().getTime(),
       shared: false,
-      preview: previewRef,
+      preview: uploadPreviewRes,
       redundancyLevel: redundancyLevel,
       customMetadata: customMetadata,
     });
@@ -412,7 +410,7 @@ export class FileManager {
   // could name downloadFiles as well, possibly
   // getDirectorStructure()
   async listFiles(fileInfo: FileInfo): Promise<Reference[]> {
-    return [new Reference(fileInfo.eFileRef)];
+    return [new Reference(fileInfo.file.reference)];
   }
 
   // Start stamp handler methods
@@ -518,10 +516,9 @@ export class FileManager {
     },
     eGranteeRef?: string | Reference,
   ): Promise<GranteesResult> {
-    console.log('Granting access to file: ', fileInfo.eFileRef.toString());
-    const fIx = this.fileInfoList.findIndex((f) => f.eFileRef === fileInfo.eFileRef);
+    const fIx = this.fileInfoList.findIndex((f) => f.file === fileInfo.file);
     if (fIx === -1) {
-      throw `Provided fileinfo not found: ${fileInfo.eFileRef}`;
+      throw `Provided fileinfo not found: ${fileInfo.file.reference}`;
     }
 
     let grantResult: GranteesResult;
@@ -530,7 +527,7 @@ export class FileManager {
       grantResult = await this.bee.patchGrantees(
         fileInfo.batchId,
         eGranteeRef,
-        fileInfo.historyRef || SWARM_ZERO_ADDRESS,
+        fileInfo.file.historyRef || SWARM_ZERO_ADDRESS,
         grantees,
       );
       console.log('Grantee list patched, grantee list reference: ', grantResult.ref.toString());
@@ -576,7 +573,7 @@ export class FileManager {
   }
 
   async shareItem(fileInfo: FileInfo, targetOverlays: string[], recipients: string[], message?: string): Promise<void> {
-    const mfIx = this.ownerFeedList.findIndex((mf) => mf.reference === fileInfo.eFileRef);
+    const mfIx = this.ownerFeedList.findIndex((mf) => mf.reference === fileInfo.file.reference);
     if (mfIx === -1) {
       console.log('File reference not found in fileInfo feed list.');
       return;
@@ -648,10 +645,6 @@ export class FileManager {
   // TODO: saveFileInfo only exists for testing now
   async saveFileInfo(fileInfo: FileInfo): Promise<string> {
     try {
-      if (!fileInfo || !fileInfo.batchId || !fileInfo.eFileRef) {
-        throw new Error("Invalid fileInfo: 'batchId' and 'eFileRef' are required.");
-      }
-
       const index = this.fileInfoList.length;
       this.fileInfoList.push(fileInfo);
 

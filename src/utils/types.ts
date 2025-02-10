@@ -1,16 +1,14 @@
 import { BatchId, Bytes, EthAddress, FeedIndex, RedundancyLevel, Reference, Topic } from '@upcoming/bee-js';
 
-// TODO: use ReferenceWithHistory within fileinfo: for the file and preview as well
 export interface FileInfo {
   batchId: string | BatchId;
-  eFileRef: string | Reference;
+  file: ReferenceWithHistory;
   topic?: string | Topic;
-  historyRef?: string | Reference;
   owner?: string | EthAddress;
   fileName?: string;
   timestamp?: number;
   shared?: boolean;
-  preview?: string | Reference;
+  preview?: ReferenceWithHistory;
   redundancyLevel?: RedundancyLevel;
   customMetadata?: Record<string, string>;
 }
@@ -26,8 +24,10 @@ export interface ReferenceWithHistory {
   historyRef: string | Reference;
 }
 
+// TODO: sotre index for a quicker upload
 export interface WrappedFileInfoFeed extends ReferenceWithHistory {
   eGranteeRef?: string | Reference;
+  // index?: FeedIndex;
 }
 
 export interface FileData {
