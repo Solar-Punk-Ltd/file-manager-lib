@@ -277,8 +277,15 @@ describe('upload and listFiles', () => {
     await fileManager.initialize();
 
     let list = fileManager.getFileInfoList();
-    let path = await fileManager.listFiles(list[0]);
+    const listt: FileInfo[] = [
+      {
+        batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
+        eFileRef: 'c14653e8d747c6dc6ddefd39688391189e686236aec361637b22d5f138329f5c',
+      }
+    ]
+    let path = await fileManager.listFiles(listt[0]);
 
+    expect(path).toBe('c14653e8d747c6dc6ddefd39688391189e686236aec361637b22d5f138329f5c');
     expect(path).toBe('src/folder/1.txt');
 
     await fileManager.upload(mockBatchId, 'src/folder/3.txt');

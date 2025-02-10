@@ -1,8 +1,7 @@
-import { BatchId, Reference, REFERENCE_HEX_LENGTH, Utils } from '@ethersphere/bee-js';
+import { BatchId, Reference } from '@upcoming/bee-js';
 
 import { FILE_INFO_LOCAL_STORAGE } from './constants';
 import { FileInfo, MantarayStackItem, ShareItem } from './types';
-import { MantarayNode } from '@solarpunkltd/mantaray-js';
 import { assertBatchId, assertFileInfo, assertReference, decodeBytesToPath, mockLoader } from './utils';
 
 export class FileManager {
@@ -76,6 +75,8 @@ export class FileManager {
         const fullPath = currentPath.endsWith('/') ? `${currentPath}${prefix}` : `${currentPath}/${prefix}`;
 
         console.log('fork.node.getEntry: ', fork.node.getEntry);
+        console.log(`fork.node.getEntry === targetRef:  ${fork.node.getEntry} === ${targetRef}`);
+        console.log('fork.node.getEntry === targetRef: ', fork.node.getEntry === targetRef);
         if (fork.node.getEntry === targetRef && !found) {
           stack = [ item ];
           found = true;
