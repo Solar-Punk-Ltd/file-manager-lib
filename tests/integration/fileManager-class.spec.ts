@@ -5,7 +5,6 @@ import { FileManager } from '../../src/fileManager';
 import { OWNER_FEED_STAMP_LABEL, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { StampError } from '../../src/utils/errors';
 import { FileInfo } from '../../src/utils/types';
-import { makeBeeRequestOptions } from '../../src/utils/utils';
 import { BEE_URL, buyStamp, getTestFile, MOCK_SIGNER, OTHER_BEE_URL, OTHER_MOCK_SIGNER } from '../utils';
 
 describe('FileManager initialization', () => {
@@ -47,13 +46,18 @@ describe('FileManager initialization', () => {
 
     const feedTopicData = await fileManager.getFeedData(REFERENCE_LIST_TOPIC, 0);
     const topicHistory = await fileManager.getFeedData(REFERENCE_LIST_TOPIC, 1);
-    const options = makeBeeRequestOptions(new Reference(topicHistory.payload), publsiherPublicKey);
-    const topicHex = await bee.downloadData(new Reference(feedTopicData.payload), options);
+    const topicHex = await bee.downloadData(new Reference(feedTopicData.payload), {
+      actHistoryAddress: new Reference(topicHistory.payload),
+      actPublisher: publsiherPublicKey,
+    });
 
     expect(topicHex).not.toEqual(SWARM_ZERO_ADDRESS);
     // test re-initialization
     await fileManager.initialize();
-    const reinitTopicHex = await bee.downloadData(new Reference(feedTopicData.payload), options);
+    const reinitTopicHex = await bee.downloadData(new Reference(feedTopicData.payload), {
+      actHistoryAddress: new Reference(topicHistory.payload),
+      actPublisher: publsiherPublicKey,
+    });
 
     expect(topicHex).toEqual(reinitTopicHex);
   });
@@ -67,18 +71,22 @@ describe('FileManager initialization', () => {
 
     const feedTopicData = await fileManager.getFeedData(REFERENCE_LIST_TOPIC, 0, MOCK_SIGNER.publicKey().address());
     const topicHistory = await fileManager.getFeedData(REFERENCE_LIST_TOPIC, 1, MOCK_SIGNER.publicKey().address());
-    const options = makeBeeRequestOptions(new Reference(topicHistory.payload), publsiherPublicKey);
-    const otherOptions = makeBeeRequestOptions(new Reference(topicHistory.payload), OTHER_MOCK_SIGNER.publicKey());
 
     try {
-      await bee.downloadData(new Reference(feedTopicData.payload), otherOptions);
+      await bee.downloadData(new Reference(feedTopicData.payload), {
+        actHistoryAddress: new Reference(topicHistory.payload),
+        actPublisher: OTHER_MOCK_SIGNER.publicKey(),
+      });
     } catch (error) {
       expect(error).toBeInstanceOf(Error);
       expect((error as Error).stack?.includes('404')).toBeTruthy();
     }
 
     try {
-      await otherBee.downloadData(new Reference(feedTopicData.payload), options);
+      await otherBee.downloadData(new Reference(feedTopicData.payload), {
+        actHistoryAddress: new Reference(topicHistory.payload),
+        actPublisher: publsiherPublicKey,
+      });
     } catch (error) {
       expect(error).toBeInstanceOf(Error);
       expect((error as Error).stack?.includes('500')).toBeTruthy();
@@ -102,8 +110,10 @@ describe('FileManager initialization', () => {
       expect(fileInfoList.length).toEqual(1);
 
       actualFileInfo = fileInfoList[0];
-      const options = makeBeeRequestOptions(actualFileInfo.historyRef as Reference, publsiherPublicKey);
-      const actualFileData = await bee.downloadFile(actualFileInfo.eFileRef, undefined, options);
+      const actualFileData = await bee.downloadFile(actualFileInfo.eFileRef, undefined, {
+        actHistoryAddress: actualFileInfo.historyRef as Reference,
+        actPublisher: publsiherPublicKey,
+      });
 
       expect(actualFileData.data.toUtf8()).toEqual(expectedFileData);
     }
@@ -117,8 +127,10 @@ describe('FileManager initialization', () => {
     expect(fileInfoList.length).toEqual(1);
     expect(downloadedFileInfo).toEqual(actualFileInfo);
 
-    const options = makeBeeRequestOptions(downloadedFileInfo.historyRef as Reference, publsiherPublicKey);
-    const actualFileData = await bee.downloadFile(downloadedFileInfo.eFileRef, undefined, options);
+    const actualFileData = await bee.downloadFile(downloadedFileInfo.eFileRef, undefined, {
+      actHistoryAddress: downloadedFileInfo.historyRef,
+      actPublisher: publsiherPublicKey,
+    });
     expect(actualFileData.data.toUtf8()).toEqual(expectedFileData);
   });
 });

@@ -3,6 +3,7 @@ import {
   Bee,
   BeeRequestOptions,
   Bytes,
+  DownloadOptions,
   EthAddress,
   GetGranteesResult,
   GranteesResult,
@@ -17,7 +18,6 @@ import {
   STAMPS_DEPTH_MAX,
   Topic,
   UploadOptions,
-  UploadResult,
   Utils,
 } from '@upcoming/bee-js';
 import path from 'path';
@@ -119,13 +119,15 @@ export class FileManager {
 
       const fw = this.bee.makeFeedWriter(REFERENCE_LIST_TOPIC, this.signer);
       await fw.upload(ownerFeedStamp.batchID, topicDataRes.reference, { index: numberToFeedIndex(0) });
-      await fw.upload(ownerFeedStamp.batchID, topicDataRes.historyAddress, {
+      await fw.upload(ownerFeedStamp.batchID, topicDataRes.historyAddress.getOrThrow(), {
         index: numberToFeedIndex(1),
       });
     } else {
       const topicHistory = await this.getFeedData(REFERENCE_LIST_TOPIC, 1);
-      const options = makeBeeRequestOptions(new Reference(topicHistory.payload), this.nodeAddresses.publicKey);
-      const topicBytes = await this.bee.downloadData(new Reference(feedTopicData.payload), options);
+      const topicBytes = await this.bee.downloadData(new Reference(feedTopicData.payload), {
+        actHistoryAddress: new Reference(topicHistory.payload),
+        actPublisher: this.nodeAddresses.publicKey,
+      });
 
       this.ownerFeedTopic = new Topic(topicBytes);
     }
@@ -153,9 +155,11 @@ export class FileManager {
 
     this.ownerFeedNextIndex = makeNumericIndex(latestFeedData.feedIndexNext);
     const refWithHistory = latestFeedData.payload.toJSON() as ReferenceWithHistory;
-    const options = makeBeeRequestOptions(new Reference(refWithHistory.historyRef), this.nodeAddresses.publicKey);
 
-    const fileInfoFeedListRawData = await this.bee.downloadData(new Reference(refWithHistory.reference), options);
+    const fileInfoFeedListRawData = await this.bee.downloadData(new Reference(refWithHistory.reference), {
+      actHistoryAddress: new Reference(refWithHistory.historyRef),
+      actPublisher: this.nodeAddresses.publicKey,
+    });
     const fileInfoFeedListData = fileInfoFeedListRawData.toJSON() as WrappedFileInfoFeed[];
 
     for (const feedItem of fileInfoFeedListData) {
@@ -176,9 +180,11 @@ export class FileManager {
       const rawFeedData = await this.getFeedData(new Topic(feedItem.reference));
       const fileInfoFeedData = rawFeedData.payload.toJSON() as ReferenceWithHistory;
 
-      const options = makeBeeRequestOptions(new Reference(fileInfoFeedData.historyRef), this.nodeAddresses.publicKey);
       const unwrappedFileInfoData = (
-        await this.bee.downloadData(fileInfoFeedData.reference, options)
+        await this.bee.downloadData(fileInfoFeedData.reference, {
+          actHistoryAddress: new Reference(fileInfoFeedData.historyRef),
+          actPublisher: this.nodeAddresses.publicKey,
+        })
       ).toJSON() as ReferenceWithHistory;
 
       try {
@@ -204,7 +210,7 @@ export class FileManager {
     return mantaray;
   }
   // TODO: use node.find() - it does not seem to work - test it
-  private async getForkData(mantaray: MantarayNode, forkPath: string, options?: BeeRequestOptions): Promise<Bytes> {
+  private async getForkData(mantaray: MantarayNode, forkPath: string, options?: DownloadOptions): Promise<Bytes> {
     const node = mantaray.collect().find((n) => n.fullPathString === forkPath);
     if (!node) return SWARM_ZERO_ADDRESS;
     const targetRef = new Reference(node.targetAddress);
@@ -243,19 +249,19 @@ export class FileManager {
       throw new FileInfoError('infoTopic and historyRef have to be provided at the same time.');
     }
 
-    const uploadFileRes = await this.uploadFile(batchId, filePath, historyRef, redundancyLevel);
+    const uploadFileRes = await this.uploadFile(batchId, filePath, true, historyRef, redundancyLevel);
     let previewRef: Reference | undefined;
     if (preview) {
-      previewRef = (await this.uploadFile(batchId, preview, undefined, redundancyLevel)).reference;
+      const uploadPreviewRes = await this.uploadFile(batchId, preview, false, undefined, redundancyLevel);
+      previewRef = new Reference(uploadPreviewRes.reference);
     }
-
     // TODO: store feed index in fileinfo to speed up upload? -> undifined == 0, index otherwise
     const topic = infoTopic ? new Topic(Topic.fromString(infoTopic)) : getRandomTopic();
     const fileInfoResult = await this.uploadFileInfo({
       batchId: batchId.toString(),
       eFileRef: uploadFileRes.reference.toString(),
       topic: topic.toString(),
-      historyRef: uploadFileRes.historyAddress.toString(),
+      historyRef: uploadFileRes.historyRef.toString(),
       owner: this.signer.publicKey().address().toString(),
       fileName: path.basename(filePath), // TODO: redundant read
       timestamp: new Date().getTime(),
@@ -283,9 +289,10 @@ export class FileManager {
   private async uploadFile(
     batchId: BatchId,
     file: string,
+    act: boolean,
     historyRef?: string | Reference,
     redundancyLevel?: RedundancyLevel,
-  ): Promise<UploadResult> {
+  ): Promise<ReferenceWithHistory> {
     const { data, name, contentType } = readFile(file);
     console.log(`Uploading file: ${name}`);
 
@@ -296,7 +303,7 @@ export class FileManager {
         data,
         name,
         {
-          act: true,
+          act: act,
           redundancyLevel: redundancyLevel,
           contentType: contentType,
         },
@@ -304,13 +311,16 @@ export class FileManager {
       );
 
       console.log(`File uploaded successfully: ${name}, Reference: ${uploadFileRes.reference.toString()}`);
-      return uploadFileRes;
+      return {
+        reference: uploadFileRes.reference.toString(),
+        historyRef: uploadFileRes.historyAddress.getOrThrow().toString(),
+      };
     } catch (error: any) {
       throw `Failed to upload file ${file}: ${error}`;
     }
   }
 
-  private async uploadFileInfo(fileInfo: FileInfo): Promise<UploadResult> {
+  private async uploadFileInfo(fileInfo: FileInfo): Promise<ReferenceWithHistory> {
     try {
       const uploadInfoRes = await this.bee.uploadData(fileInfo.batchId, JSON.stringify(fileInfo), {
         act: true,
@@ -320,7 +330,10 @@ export class FileManager {
 
       this.fileInfoList.push(fileInfo);
 
-      return uploadInfoRes;
+      return {
+        reference: uploadInfoRes.reference.toString(),
+        historyRef: uploadInfoRes.historyAddress.getOrThrow().toString(),
+      };
     } catch (error: any) {
       throw `Failed to save fileinfo: ${error}`;
     }
@@ -328,7 +341,7 @@ export class FileManager {
 
   private async saveWrappedFileInfoFeed(
     batchId: BatchId,
-    fileInfoResult: UploadResult,
+    fileInfoResult: ReferenceWithHistory,
     topic: Topic,
     redundancyLevel?: RedundancyLevel,
   ): Promise<WrappedFileInfoFeed> {
@@ -337,7 +350,7 @@ export class FileManager {
         batchId,
         JSON.stringify({
           reference: fileInfoResult.reference.toString(),
-          historyRef: fileInfoResult.historyAddress.toString(),
+          historyRef: fileInfoResult.historyRef.toString(),
         } as ReferenceWithHistory),
         {
           redundancyLevel: redundancyLevel,
@@ -353,7 +366,7 @@ export class FileManager {
 
       return {
         reference: new Reference(topic).toString(),
-        historyRef: wrappedFeedUpdateRes.historyAddress.toString(),
+        historyRef: wrappedFeedUpdateRes.historyAddress.getOrThrow().toString(),
       };
     } catch (error: any) {
       throw `Failed to save wrapped fileInfo feed: ${error}`;
@@ -379,7 +392,7 @@ export class FileManager {
         ownerFeedStamp.batchID,
         JSON.stringify({
           reference: fileInfoFeedListData.reference.toString(),
-          historyRef: fileInfoFeedListData.historyAddress.toString(),
+          historyRef: fileInfoFeedListData.historyAddress.getOrThrow().toString(),
         }),
       );
 
