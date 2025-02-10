@@ -55,8 +55,9 @@ export class FileManager {
   // getDirectorStructure()
   async listFiles(fileInfo: FileInfo): Promise<string[]> {
     const targetRef = fileInfo.eFileRef as Reference;
+    console.log("targetRef: ", targetRef);
     const mantaray = new MantarayNode();
-    await mantaray.load(mockLoader, targetRef);
+    await mantaray.load(mockLoader, '0'.repeat(64) as Reference);
 
     const refList: Reference[] = [];
     let stack: MantarayStackItem[] = [{ node: mantaray, path: '' }];
@@ -74,6 +75,7 @@ export class FileManager {
         const prefix = fork.prefix ? decodeBytesToPath(fork.prefix) : key || 'unknown'; // Decode path
         const fullPath = currentPath.endsWith('/') ? `${currentPath}${prefix}` : `${currentPath}/${prefix}`;
 
+        console.log('fork.node.getEntry: ', fork.node.getEntry);
         if (fork.node.getEntry === targetRef && !found) {
           stack = [ item ];
           found = true;

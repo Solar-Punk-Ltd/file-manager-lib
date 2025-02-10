@@ -120,25 +120,10 @@ export const mockSaver = async (data: Reference, options?: { ecrypt?: boolean })
 }
 
 export const mockLoader = (reference: Reference): Promise<Uint8Array> => {
-  const mockMant = createMockMantarayNode();
-  const stringMantaray = JSON.stringify(mockMant);
-  const encoder = new TextEncoder();
-  const uint8Array = encoder.encode(stringMantaray);
+  // this was created in mantaray-js, in test should serialize/deserialize the same as Bee'
+  const mantarayJson = "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,87,104,179,182,167,219,86,210,29,26,191,244,13,65,206,191,200,52,72,254,216,215,233,176,110,192,211,176,115,242,143,32,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,128,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,18,1,47,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,133,4,242,161,7,202,148,11,234,252,76,226,246,201,169,240,150,140,98,165,181,137,63,240,228,225,226,152,48,72,210,118,0,62,123,34,119,101,98,115,105,116,101,45,105,110,100,101,120,45,100,111,99,117,109,101,110,116,34,58,34,105,110,100,101,120,46,104,116,109,108,34,125,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,4,1,105,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,193,70,83,232,215,71,198,220,109,222,253,57,104,131,145,24,158,104,98,54,174,195,97,99,123,34,213,241,56,50,159,92]";
+  const uint8Array = new Uint8Array(JSON.parse(mantarayJson));
 
-
- // const mNode = new MantarayNode();
- // const pathAsBytes = encodePathToBytes('example.txt')
- // console.log("Path as bytes:", pathAsBytes)
-  
- // mNode.addFork(pathAsBytes, 'a'.repeat(64) as Reference);
-// const hexString = '0'.repeat(64) as Reference 
- //console.log("Utils.isHexString", Utils.isHexString(hexString))
- //mNode['contentAddress'] = hexString
-  
-  //mNode.setContentAddress = hexString
- // mNode['entry'] = '3'.repeat(64) as Reference;
- // console.log("Content address: ", mNode.getContentAddress);
-//  const serializedMantaray = mNode.serialize();
 
   return Promise.resolve(uint8Array);
 }
