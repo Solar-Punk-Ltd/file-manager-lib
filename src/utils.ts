@@ -1,8 +1,7 @@
-import { BatchId, BeeRequestOptions, Reference, Topic, Utils, MantarayNode } from '@upcoming/bee-js';
+import { BeeRequestOptions, FeedIndex } from '@upcoming/bee-js';
 import path from 'path';
 
-import { FileInfo, Index, ShareItem } from './types';
-import { createMockMantarayNode } from '../tests/mockHelpers';
+import { FileInfo, ShareItem } from './types';
 
 export function getContentType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
@@ -80,70 +79,27 @@ export function makeBeeRequestOptions(historyRef?: string, publisher?: string, t
   return options;
 }
 
-export function numberToFeedIndex(index: number | undefined): string | undefined {
-  if (index === undefined) {
-    return undefined;
+//export function numberToFeedIndex(index: number | undefined): string | undefined {
+//  if (index === undefined) {
+//    return undefined;
+//  }
+//  const bytes = new Uint8Array(8);
+//  const dv = new DataView(bytes.buffer);
+//  dv.setUint32(4, index);
+//
+//  return Utils.bytesToHex(bytes);
+//}
+
+export function makeNumericIndex(index: FeedIndex): number {
+  const bigIntValue = index.toBigInt();
+  
+  if (bigIntValue <= Number.MAX_SAFE_INTEGER) {
+    return Number(bigIntValue);
+  } else {
+    throw new Error('Index is too large to be represented as a number');
   }
-  const bytes = new Uint8Array(8);
-  const dv = new DataView(bytes.buffer);
-  dv.setUint32(4, index);
-
-  return Utils.bytesToHex(bytes);
 }
 
-export function makeNumericIndex(index: Index): number {
-  if (index instanceof Uint8Array) {
-    return Binary.uint64BEToNumber(index);
-  }
-
-  if (typeof index === 'string') {
-    const base = 16;
-    const ix = parseInt(index, base);
-    if (isNaN(ix)) {
-      throw new TypeError(`Invalid index: ${index}`);
-    }
-    return ix;
-  }
-
-  if (typeof index === 'number') {
-    return index;
-  }
-
-  throw new TypeError(`Unknown type of index: ${index}`);
-}
-
-export const mockSaver = async (data: Reference, options?: { ecrypt?: boolean }): Promise<Uint8Array> => {
-  const hexRef = '9'.repeat(64);
-  return Utils.hexToBytes(hexRef);
-}
-
-export const mockLoader = (reference: Reference): Promise<Uint8Array> => {
-  // this was created in mantaray-js, in test should serialize/deserialize the same as Bee'
-  //const mantarayJson = "[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,87,104,179,182,167,219,86,210,29,26,191,244,13,65,206,191,200,52,72,254,216,215,233,176,110,192,211,176,115,242,143,32,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,128,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,18,1,47,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,133,4,242,161,7,202,148,11,234,252,76,226,246,201,169,240,150,140,98,165,181,137,63,240,228,225,226,152,48,72,210,118,0,62,123,34,119,101,98,115,105,116,101,45,105,110,100,101,120,45,100,111,99,117,109,101,110,116,34,58,34,105,110,100,101,120,46,104,116,109,108,34,125,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,10,4,1,105,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,193,70,83,232,215,71,198,220,109,222,253,57,104,131,145,24,158,104,98,54,174,195,97,99,123,34,213,241,56,50,159,92]";
-  createMockMantarayNode();
-  const x = new MantarayNode()
-  MantarayNode.unmarshal()
-  const uint8Array = new Uint8Array(JSON.parse(mantarayJson));
-
-
-  return Promise.resolve(uint8Array);
-}
-
-export function assertReference(value: unknown): asserts value is Reference {
-  if (typeof value !== 'string') {
-    // this is a mock
-    throw new TypeError('Reference has to be string!');
-  }
-  //try {
-  //  Utils.assertHexString(value, REFERENCE_HEX_LENGTH);
-  //} catch (e) {
-  //  Utils.assertHexString(value, ENCRYPTED_REFERENCE_HEX_LENGTH);
-  //}
-}
-
-export function assertBatchId(value: unknown): asserts value is BatchId {
-  Utils.assertHexString(value, BATCH_ID_HEX_LENGTH);
-}
 
 export function assertFileInfo(value: unknown): asserts value is FileInfo {
   if (!isStrictlyObject(value)) {
@@ -152,19 +108,10 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
 
   const fi = value as unknown as FileInfo;
 
-  assertReference(fi.eFileRef);
-
   if (fi.batchId === undefined || typeof fi.batchId !== 'string') {
     throw new TypeError('batchId property of FileInfo has to be string!');
   }
 
-  if (fi.historyRef !== undefined) {
-    assertReference(fi.historyRef);
-  }
-
-  if (fi.topic !== undefined) {
-    assertTopic(fi.topic);
-  }
 
   if (fi.customMetadata !== undefined && !isRecord(fi.customMetadata)) {
     throw new TypeError('FileInfo customMetadata has to be object!');
@@ -172,10 +119,6 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
 
   if (fi.timestamp !== undefined && typeof fi.timestamp !== 'number') {
     throw new TypeError('timestamp property of FileInfo has to be number!');
-  }
-
-  if (fi.owner !== undefined && !Utils.isHexEthAddress(fi.owner)) {
-    throw new TypeError('owner property of FileInfo has to be string!');
   }
 
   if (fi.fileName !== undefined && typeof fi.fileName !== 'string') {
@@ -192,11 +135,5 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
 
   if (fi.redundancyLevel !== undefined && typeof fi.redundancyLevel !== 'number') {
     throw new TypeError('redundancyLevel property of FileInfo has to be number!');
-  }
-}
-
-export function assertTopic(value: unknown): asserts value is Topic {
-  if (!Utils.isHexString(value, TOPIC_HEX_LENGTH)) {
-    throw `Invalid feed topic: ${value}`;
   }
 }

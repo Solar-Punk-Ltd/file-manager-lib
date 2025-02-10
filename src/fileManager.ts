@@ -1,11 +1,12 @@
-import { BatchId, Reference } from '@upcoming/bee-js';
+import { BatchId, Bee, MantarayNode, Reference } from '@upcoming/bee-js';
 
 import { FILE_INFO_LOCAL_STORAGE } from './constants';
 import { FileInfo, MantarayStackItem, ShareItem } from './types';
-import { assertBatchId, assertFileInfo, assertReference, decodeBytesToPath, mockLoader } from './utils';
+import { assertFileInfo, decodeBytesToPath } from './utils';
 
 export class FileManager {
   private fileInfoList: FileInfo[];
+  public bee: Bee;
 
   constructor() {
     this.fileInfoList = [];
@@ -37,11 +38,11 @@ export class FileManager {
       // should we trust that in-memory mantaray is correct, or should we fetch it all the time?
       // if lib is statless, we would fetch it all the time
       assertFileInfo(fileInfo);
-      assertBatchId(fileInfo.batchId);
-      assertReference(fileInfo.eFileRef);
+      //assertBatchId(fileInfo.batchId);
+      //assertReference(fileInfo.eFileRef);
 
       localStorage.setItem(FILE_INFO_LOCAL_STORAGE, JSON.stringify(this.fileInfoList));
-      
+
       return this.fileInfoList.length.toString(16).padStart(64, '0').slice(0, 64);
     } catch (error) {
       console.error('Error saving file info:', error);
@@ -52,11 +53,10 @@ export class FileManager {
   // fileInfo might point to a folder, or a single file
   // could name downloadFiles as well, possibly
   // getDirectorStructure()
-  async listFiles(fileInfo: FileInfo): Promise<string[]> {
+  async listFiles(fileInfo: FileInfo): Promise<Reference[]> {
     const targetRef = fileInfo.eFileRef as Reference;
-    console.log("targetRef: ", targetRef);
-    const mantaray = new MantarayNode();
-    await mantaray.load(mockLoader, '0'.repeat(64) as Reference);
+    console.log('targetRef: ', targetRef);
+    const mantaray = await MantarayNode.unmarshal(this.bee, targetRef);
 
     const refList: Reference[] = [];
     let stack: MantarayStackItem[] = [{ node: mantaray, path: '' }];
@@ -78,7 +78,7 @@ export class FileManager {
         console.log(`fork.node.getEntry === targetRef:  ${fork.node.getEntry} === ${targetRef}`);
         console.log('fork.node.getEntry === targetRef: ', fork.node.getEntry === targetRef);
         if (fork.node.getEntry === targetRef && !found) {
-          stack = [ item ];
+          stack = [item];
           found = true;
         }
 

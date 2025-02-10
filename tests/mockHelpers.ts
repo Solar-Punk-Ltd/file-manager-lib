@@ -1,4 +1,4 @@
-import { encodePathToBytes } from "../src/utils";
+import { encodePathToBytes } from '../src/utils';
 
 export const mockBatchId = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
 
@@ -79,20 +79,19 @@ export class MockLocalStorage {
     this.store = {};
   }
 
-  getItem(key: string) {
+  getItem(key: string): string | null {
     return this.store[key] || null;
   }
 
-  setItem(key: string, value: string) {
+  setItem(key: string, value: string): void {
     this.store[key] = value;
   }
 
-  removeItem(key: string) {
+  removeItem(key: string): void {
     delete this.store[key];
   }
 
-  clear() {
+  clear(): void {
     this.store = {};
   }
 }
-

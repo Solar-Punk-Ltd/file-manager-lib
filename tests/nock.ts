@@ -1,30 +1,28 @@
-import { Reference } from "@upcoming/bee-js";
-import nock from "nock";
+import { Reference } from '@upcoming/bee-js';
+import nock from 'nock';
 
-export const MOCK_SERVER_URL = "http://localhost:1633";
+export const MOCK_SERVER_URL = 'http://localhost:1633';
 
 // Endpoints
-const FEED_ENDPOINT = "/feeds";
-const SOC_ENDPOINT = "/soc";
-const CHUNK_ENDPOINT = "/chunks";
-const BYTES_ENDPOINT = "/bytes";
+const FEED_ENDPOINT = '/feeds';
+const SOC_ENDPOINT = '/soc';
+const CHUNK_ENDPOINT = '/chunks';
+const BYTES_ENDPOINT = '/bytes';
 
 export function assertAllIsDone(): void {
   if (!nock.isDone()) {
-    throw new Error("Some expected request was not performed!");
+    throw new Error('Some expected request was not performed!');
   }
 }
 
-export function fetchFeedUpdateMock(
-  address: string,
-  hashedTopic: string,
-): nock.Interceptor {
+export function fetchFeedUpdateMock(address: string, hashedTopic: string): nock.Interceptor {
   return nock(MOCK_SERVER_URL)
     .defaultReplyHeaders({
-      "swarm-feed-index": "0",
-      "swarm-feed-index-next": "1",
+      'swarm-feed-index': '0',
+      'swarm-feed-index-next': '1',
     })
-    .get(`${FEED_ENDPOINT}/${address}/${hashedTopic}?type=${type}`);
+    .get(`${FEED_ENDPOINT}/${address}/${hashedTopic}`);
+  //.get(`${FEED_ENDPOINT}/${address}/${hashedTopic}?type=${type}`);
 }
 
 export function downloadDataMock(reference: Reference | string): nock.Interceptor {
@@ -45,8 +43,8 @@ interface UploadOptions {
   errorDocument?: string;
 }
 
-function camelCaseToDashCase(str: string) {
-  return str.replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`);
+function camelCaseToDashCase(str: string): string {
+  return str.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
 }
 
 export function uploadDataMock(
@@ -62,7 +60,7 @@ export function uploadDataMock(
   }, {});
 
   return nock(MOCK_SERVER_URL, {
-    reqheaders: { "swarm-postage-batch-id": batchId, ...headers, ...extraHeaders },
+    reqheaders: { 'swarm-postage-batch-id': batchId, ...headers, ...extraHeaders },
   }).post(`${BYTES_ENDPOINT}`);
 }
 
@@ -81,13 +79,13 @@ export function socPostMock(
   }, {});
 
   return nock(MOCK_SERVER_URL, {
-    reqheaders: { "swarm-postage-batch-id": batchId, ...headers, ...extraHeaders },
+    reqheaders: { 'swarm-postage-batch-id': batchId, ...headers, ...extraHeaders },
   })
     .defaultReplyHeaders({
-      "swarm-tag": "123",
+      'swarm-tag': '123',
     })
     .post(`${SOC_ENDPOINT}/${address}/${identifier}`)
-    .query(obj => {
-      return typeof obj.sig === "string" && obj.sig.length > 0;
+    .query((obj) => {
+      return typeof obj.sig === 'string' && obj.sig.length > 0;
     });
 }

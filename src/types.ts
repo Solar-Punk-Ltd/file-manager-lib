@@ -1,16 +1,15 @@
-import { BatchId, RedundancyLevel, Reference, Topic } from '@ethersphere/bee-js';
-import { MantarayNode } from '@solarpunkltd/mantaray-js';
+import { BatchId, EthAddress, MantarayNode, RedundancyLevel, Reference, Topic } from '@upcoming/bee-js';
 
 export interface FileInfo {
-  batchId: string | BatchId;
-  eFileRef: string | Reference;
-  topic?: string | Topic;
-  historyRef?: string | Reference;
-  owner?: string;
+  batchId: string | BatchId;  // string possibly shouldn't be allowed
+  eFileRef: string | Reference; // string possibly shouldn't be allowed
+  topic?: string | Topic;  // string possibly shouldn't be allowed
+  historyRef?: string | Reference;  // string possibly shouldn't be allowed
+  owner?: EthAddress;
   fileName?: string;
   timestamp?: number;
   shared?: boolean;
-  preview?: string;
+  preview?: string;  // possibly should be Reference
   redundancyLevel?: RedundancyLevel;
   customMetadata?: Record<string, string>;
 }
