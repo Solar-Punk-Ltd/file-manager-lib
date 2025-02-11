@@ -86,8 +86,7 @@ console.log(this.fileInfoList[0].batchId)
   // getDirectorStructure()
   async listFiles(fileInfo: FileInfo): Promise<Reference[]> {
     const targetRef = fileInfo.eFileRef as Reference;
-    console.log('targetRef: ', targetRef);
-    const mantaray = await MantarayNode.unmarshal(this.bee, new Reference('0'.repeat(64)));
+    const mantaray = await MantarayNode.unmarshal(this.bee, targetRef);
 
     const refList: Reference[] = [];
     let stack: MantarayStackItem[] = [{ node: mantaray, path: '' }];
