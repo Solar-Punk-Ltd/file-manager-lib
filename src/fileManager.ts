@@ -24,7 +24,7 @@ export class FileManager {
     }
 
     const data = JSON.parse(rawData) as FileInfo[];
-    // assert
+    if (!Array.isArray(data)) throw new Error("fileInfoList has to be an array!");
 
     this.fileInfoList = data;
   }

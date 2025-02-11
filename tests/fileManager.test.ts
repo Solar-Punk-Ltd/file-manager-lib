@@ -1,12 +1,12 @@
-import { TextEncoder, TextDecoder } from "util";
+//import { TextEncoder, TextDecoder } from "util";
 import { FileManager } from '../src/fileManager';
 import { emptyFileInfoTxt, extendedFileInfoTxt, fileInfoTxt, mockBatchId, MockLocalStorage } from './mockHelpers';
 import { FileInfo } from "../src/types";
 import { FILE_INFO_LOCAL_STORAGE } from "../src/constants";
 //import { ShareItem } from 'src/types';
 
-global.TextEncoder = TextEncoder;
-global.TextDecoder = TextDecoder as unknown as typeof globalThis.TextDecoder;;
+//global.TextEncoder = TextEncoder;
+//global.TextDecoder = TextDecoder as unknown as typeof globalThis.TextDecoder;
 
 Object.defineProperty(global, 'localStorage', {
   value: {
@@ -61,7 +61,7 @@ describe('initialize', () => {
     try {
       const fileManager = new FileManager();
       await fileManager.initialize();
-      fail('initialize should fail if fileInfo is not an array');
+      throw new Error('initialize should fail if fileInfo is not an array');
     } catch (error) {
       expect(error).toBeInstanceOf(Error);
       expect((error as Error).message).toBe('fileInfoList has to be an array!');
