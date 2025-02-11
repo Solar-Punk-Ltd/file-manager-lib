@@ -6,7 +6,7 @@ export const mockBatchId = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4
 export const fileInfoTxt = `[
   {
     "batchId": "ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51",
-    "eFileRef": "1111111111111111111111111111111111111111111111111111111111111111"
+    "eFileRef": "1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68"
   },
   {
     "batchId": "ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51",

@@ -161,37 +161,40 @@ describe('listFiles', () => {
 
   it('should list paths (refs) for given input list', async () => {
     jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
-    const mockBatchId = new BatchId('f'.repeat(64)).toHex();
+    
+    const mockBatchId = new BatchId("63edc4fcb487118f0ea0af39ed5b13f96dc472ecc3c63e0fef8150f5d88d679c");
     const uploadResult = {
       reference: new Reference('1'.repeat(64)).toHex(),
       historyAddress: null
     }
-    uploadDataMock(mockBatchId).reply(200, uploadResult);
+    //uploadDataMock(mockBatchId).reply(200, uploadResult);
 
     const mantaray = new MantarayNode();
-    let res = await mantaray.saveRecursively(new Bee(MOCK_SERVER_URL), mockBatchId)
-    const uint8Mantara = await mantaray.marshal();
-    console.log("egyik", uint8Mantara)  // üres
-    
     mantaray.addFork('hello.txt', '9'.repeat(64))
-    res = await mantaray.saveRecursively(new Bee(MOCK_SERVER_URL), mockBatchId)
-    const uint2 = await mantaray.marshal();
+    let mantarayReference = await mantaray.saveRecursively(new Bee(MOCK_SERVER_URL), mockBatchId)
+    console.log("Manta: ", mantaray)
+    
+    //console.log("egyik", uint8Mantara)
+    const selfRef = await mantaray.calculateSelfAddress();
+    //res = await mantaray.saveRecursively(new Bee(MOCK_SERVER_URL), mockBatchId)
+    const marshaled = await mantaray.marshal();
+    console.log("Marshaled: ", marshaled)
     //console.log("Mantaray Find: ", mantaray.find('hello.txt'));
     //console.log("Res: ", res)
-    console.log("masodik ", uint2)
 
-    //mantaray.addFork('hello2.txt', '8'.repeat(64));
-    //mantaray.saveRecursively(new Bee(MOCK_SERVER_URL), mockBatchId)
-    //const uint3 = await mantaray.marshal();
-    //console.log("harmadik ", uint3)
-
-    downloadDataMock('1'.repeat(64)).reply(200, uint8Mantara);
-    const x = await MantarayNode.unmarshal(new Bee(MOCK_SERVER_URL), '1'.repeat(64))
-    console.log(x)
-
+    
+    console.log("JSON: ", selfRef.toHex())
+    //downloadDataMock(selfRef.toHex()).reply(200, marshaled);
+    
+    //const x = await MantarayNode.unmarshal(new Bee(MOCK_SERVER_URL), '1'.repeat(64))
+    //x.loadRecursively(new Bee(MOCK_SERVER_URL))
+    //console.log(x)
+    
     const fileManager = new FileManager();
     await fileManager.initialize();
+//    const mantarayNode = await fileManager.loadMantaray(mantarayReference)
     const list = fileManager.getFileInfoList();
+    console.log("list ", list)
 
 
     const path = await fileManager.listFiles(list[0]);

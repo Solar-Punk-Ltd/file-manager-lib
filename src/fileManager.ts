@@ -1,4 +1,4 @@
-import { BatchId, Bee, MantarayNode, Reference, Topic } from '@upcoming/bee-js';
+import { BatchId, Bee, Bytes, MantarayNode, Reference, Topic } from '@upcoming/bee-js';
 
 import { FILE_INFO_LOCAL_STORAGE } from './constants';
 import { FileInfo, MantarayStackItem, ShareItem } from './types';
@@ -81,12 +81,22 @@ console.log(this.fileInfoList[0].batchId)
     }
   }
 
+  public async loadMantaray(mantarayRef: Reference): Promise<MantarayNode> {
+    const mantaray = await MantarayNode.unmarshal(this.bee, mantarayRef);
+    await mantaray.loadRecursively(this.bee);
+    return mantaray;
+  }
+
   // fileInfo might point to a folder, or a single file
   // could name downloadFiles as well, possibly
   // getDirectorStructure()
   async listFiles(fileInfo: FileInfo): Promise<Reference[]> {
-    const targetRef = fileInfo.eFileRef as Reference;
+    const targetRef = new Reference(fileInfo.eFileRef).toHex();
+    console.log("Target ref: ",  targetRef)
     const mantaray = await MantarayNode.unmarshal(this.bee, targetRef);
+    console.log("M", mantaray)
+    await mantaray.loadRecursively(this.bee);
+    console.log("L", mantaray.forks.get(104))
 
     const refList: Reference[] = [];
     let stack: MantarayStackItem[] = [{ node: mantaray, path: '' }];
@@ -98,16 +108,16 @@ console.log(this.fileInfoList[0].batchId)
       const { node: currentMantaray, path: currentPath } = item;
       const forks = currentMantaray.forks;
 
-      if (!forks) continue;
+      if (!forks) continue;      
 
-      for (const [key, fork] of Object.entries(forks)) {
+      for (const [key, fork] of forks.entries()) {
         const prefix = fork.prefix ? decodeBytesToPath(fork.prefix) : key || 'unknown'; // Decode path
         const fullPath = currentPath.endsWith('/') ? `${currentPath}${prefix}` : `${currentPath}/${prefix}`;
 
-        console.log('fork.node.getEntry: ', fork.node.getEntry);
-        console.log(`fork.node.getEntry === targetRef:  ${fork.node.getEntry} === ${targetRef}`);
-        console.log('fork.node.getEntry === targetRef: ', fork.node.getEntry === targetRef);
-        if (fork.node.getEntry === targetRef && !found) {
+        console.log('fork.node.targetAddress: ', fork.node.targetAddress);
+        console.log(`fork.node.targetAddress === targetRef:  ${fork.node.targetAddress} === ${targetRef}`);
+        console.log("Prefix: ", new Bytes(fork.prefix).toUtf8())
+        /*if (fork.node.targetAddress === targetRef && !found) {
           stack = [item];
           found = true;
         }
@@ -116,7 +126,7 @@ console.log(this.fileInfoList[0].batchId)
           if (fork.node.getEntry) refList.push(fork.node.getEntry);
         } else {
           stack.push({ node: fork.node, path: fullPath });
-        }
+        }*/
       }
     }
 
