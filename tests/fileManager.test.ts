@@ -99,15 +99,16 @@ describe('saveFileInfo', () => {
     const fileManagerSpy = jest.spyOn(fileManager, 'saveFileInfo');
 
     const fileInfo = {
-      batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
+      batchId: 33,
+      eFileRef: 'src/1.txt'
     };
 
     try {
       await fileManager.saveFileInfo(fileInfo as any);
-      fail('Expected saveFileInfo to throw an error');
+      throw new Error('Expected saveFileInfo to throw an error');
     } catch (error) {
       expect(error).toBeInstanceOf(Error);
-      expect((error as any).message).toBe("Invalid fileInfo: 'batchId' and 'eFileRef' are required.");
+      expect((error as any).message).toBe("batchId property of FileInfo has to be string!");
       expect(fileManagerSpy).toHaveBeenCalledWith(fileInfo as any);
     }
   });

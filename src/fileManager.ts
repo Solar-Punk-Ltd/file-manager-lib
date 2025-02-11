@@ -38,12 +38,13 @@ export class FileManager {
       // should we trust that in-memory mantaray is correct, or should we fetch it all the time?
       // if lib is statless, we would fetch it all the time
       assertFileInfo(fileInfo);
-      //assertBatchId(fileInfo.batchId);
-      //assertReference(fileInfo.eFileRef);
+
+      const index = this.fileInfoList.length.toString(16).padStart(64, '0').slice(0, 64);
+      this.fileInfoList.push(fileInfo);
 
       localStorage.setItem(FILE_INFO_LOCAL_STORAGE, JSON.stringify(this.fileInfoList));
 
-      return this.fileInfoList.length.toString(16).padStart(64, '0').slice(0, 64);
+      return index;
     } catch (error) {
       console.error('Error saving file info:', error);
       throw error;
@@ -99,8 +100,6 @@ export class FileManager {
       batchId: batchId,
       customMetadata,
     };
-
-    this.fileInfoList.push(fileInfo);
 
     const ref = this.saveFileInfo(fileInfo);
 
