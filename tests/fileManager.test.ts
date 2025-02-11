@@ -45,12 +45,30 @@ describe('initialize', () => {
 
     expect(fileManager.getFileInfoList()).toEqual([
       {
-        batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
-        eFileRef: new Reference(pathToRef.get('src/folder/1.txt')!).toHex(),
+        batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
+        eFileRef: new Reference(pathToRef.get('src/folder/1.txt')!),
+        fileName: undefined,
+        historyRef: undefined,
+        owner: undefined,
+        preview: undefined,
+        redundancyLevel: undefined,
+        shared: undefined,
+        timestamp: undefined,
+        topic: undefined,
+        customMetadata: undefined
       },
       {
-        batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
-        eFileRef: new Reference(pathToRef.get('src/folder/2.txt')!).toHex(),
+        batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
+        eFileRef: new Reference(pathToRef.get('src/folder/2.txt')!),
+        fileName: undefined,
+        historyRef: undefined,
+        owner: undefined,
+        preview: undefined,
+        redundancyLevel: undefined,
+        shared: undefined,
+        timestamp: undefined,
+        topic: undefined,
+        customMetadata: undefined
       },
     ]);
   });
