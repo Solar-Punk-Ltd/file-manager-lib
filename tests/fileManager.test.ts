@@ -1,10 +1,10 @@
 //import { TextEncoder, TextDecoder } from "util";
 import { FileManager } from '../src/fileManager';
-import { createMockMantarayNode, emptyFileInfoTxt, extendedFileInfoTxt, fileInfoTxt, mockBatchId, MockLocalStorage, pathToRef } from './mockHelpers';
+import { createMockMantarayNode, emptyFileInfoTxt, extendedFileInfoTxt, fileInfoTxt, mockBatchId, MockLocalStorage, Optional, pathToRef } from './mockHelpers';
 import { FileInfo } from "../src/types";
 import { FILE_INFO_LOCAL_STORAGE } from "../src/constants";
 import { downloadDataMock, MOCK_SERVER_URL, uploadDataMock } from './nock';
-import { BatchId, Bee, MantarayNode, Reference } from '@upcoming/bee-js';
+import { BatchId, Bee, MantarayNode, Reference, UploadResult } from '@upcoming/bee-js';
 //import { ShareItem } from 'src/types';
 
 //global.TextEncoder = TextEncoder;
@@ -162,10 +162,12 @@ describe('listFiles', () => {
   it('should list paths (refs) for given input list', async () => {
     jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
     const mockBatchId = new BatchId('f'.repeat(64)).toHex();
-    uploadDataMock(mockBatchId).reply(200, {
-      reference: new Reference('1'.repeat(64)).toHex()
-    });
-    
+    const uploadResult = {
+      reference: new Reference('1'.repeat(64)).toHex(),
+      historyAddress: null
+    }
+    uploadDataMock(mockBatchId).reply(200, uploadResult);
+
     const mantaray = new MantarayNode();
     let res = await mantaray.saveRecursively(new Bee(MOCK_SERVER_URL), mockBatchId)
     const uint8Mantara = await mantaray.marshal();
@@ -183,7 +185,7 @@ describe('listFiles', () => {
     //const uint3 = await mantaray.marshal();
     //console.log("harmadik ", uint3)
 
-    downloadDataMock('1'.repeat(64)).reply(200, uint2);
+    downloadDataMock('1'.repeat(64)).reply(200, uint8Mantara);
     const x = await MantarayNode.unmarshal(new Bee(MOCK_SERVER_URL), '1'.repeat(64))
     console.log(x)
 

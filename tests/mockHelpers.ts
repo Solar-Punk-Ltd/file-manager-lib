@@ -110,3 +110,14 @@ pathToRef.set('src/folder/1.txt', new Reference('1'.repeat(64)));
 pathToRef.set('src/folder/2.txt', new Reference('2'.repeat(64)));
 pathToRef.set('src/folder/3.txt', new Reference('3'.repeat(64)));
 pathToRef.set('src/folder/4.txt', new Reference('4'.repeat(64)));
+
+export declare class Optional<T> {
+  value: T | null | undefined;
+  private constructor();
+  static of<U>(value: U | null | undefined): Optional<U>;
+  static empty<U>(): Optional<U>;
+  map<K>(fn: (value: T) => K): Optional<K>;
+  ifPresent(fn: (value: T) => void): this;
+  orElse(fn: () => void): void;
+  getOrThrow(): T;
+}
