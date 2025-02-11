@@ -29,7 +29,7 @@ import {
   SHARED_INBOX_TOPIC,
   SWARM_ZERO_ADDRESS,
 } from './utils/constants';
-import { BeeVersionError, FileInfoError, SignerError, StampError } from './utils/errors';
+import { BeeVersionError, FileError, FileInfoError, SignerError, StampError } from './utils/errors';
 import { FetchFeedUpdateResponse, FileInfo, ReferenceWithHistory, ShareItem, WrappedFileInfoFeed } from './utils/types';
 import {
   assertFileInfo,
@@ -80,17 +80,13 @@ export class FileManager {
     await this.initFileInfoList();
   }
 
-  // TODO: is exact version check necessary?
   // verifies if the bee and bee-api versions are supported
   private async verifySupportedVersions(): Promise<void> {
     const beeVersions = await this.bee.getVersions();
     console.log(`Bee version: ${beeVersions.beeVersion}`);
     console.log(`Bee API version: ${beeVersions.beeApiVersion}`);
-    const supportedBee = await this.bee.isSupportedExactVersion();
     const supportedApi = await this.bee.isSupportedApiVersion();
-    const majorVersionMatch =
-      beeVersions.beeVersion.substring(0, 4) === beeVersions.supportedBeeVersion.substring(0, 4);
-    if ((!supportedBee && !majorVersionMatch) || !supportedApi) {
+    if (!supportedApi) {
       console.log('Supported bee API version: ', beeVersions.supportedBeeApiVersion);
       console.log('Supported bee version: ', beeVersions.supportedBeeVersion);
       throw new BeeVersionError('Bee or Bee API version not supported');
@@ -204,19 +200,35 @@ export class FileManager {
     return mantaray.saveRecursively(this.bee, batchId, options);
   }
 
-  private async loadMantaray(mantarayRef: Reference): Promise<MantarayNode> {
-    const mantaray = await MantarayNode.unmarshal(this.bee, mantarayRef);
+  private async loadMantaray(mantarayRef: Reference, options?: DownloadOptions): Promise<MantarayNode> {
+    const mantaray = await MantarayNode.unmarshal(this.bee, mantarayRef, options);
     await mantaray.loadRecursively(this.bee);
     return mantaray;
   }
   // TODO: use node.find() - it does not seem to work - test it
-  private async getForkData(mantaray: MantarayNode, forkPath: string, options?: DownloadOptions): Promise<Bytes> {
+  public async downloadFork(mantaray: MantarayNode, forkPath: string, options?: DownloadOptions): Promise<Bytes> {
     const node = mantaray.collect().find((n) => n.fullPathString === forkPath);
     if (!node) return SWARM_ZERO_ADDRESS;
-    const targetRef = new Reference(node.targetAddress);
 
-    return await this.bee.downloadData(targetRef, options);
+    return await this.bee.downloadData(node.targetAddress, options);
   }
+
+  public async listAllForks(eRef: Reference, options?: DownloadOptions): Promise<Reference[]> {
+    const unmarshalled = await this.loadMantaray(eRef, options);
+    return unmarshalled.collect().map((n) => new Reference(n.targetAddress));
+  }
+
+  async downloadFiles(eRef: Reference, options?: DownloadOptions): Promise<string[]> {
+    const unmarshalled = await this.loadMantaray(eRef, options);
+    const files: string[] = [];
+
+    for (const node of unmarshalled.collect()) {
+      const file = (await this.bee.downloadData(node.targetAddress)).toUtf8();
+      files.push(file);
+    }
+    return files;
+  }
+
   // End mantaray methods
 
   // Start getter methods
@@ -234,12 +246,10 @@ export class FileManager {
   // End getter methods
 
   // Start Swarm data saving methods
-  // TODO: upload preview just like a file and assign it ot fileinfo -> is ACT necessary for preview?
-  // TODO: assemble a mantaray structure from the filepath/folderpath
   async upload(
     batchId: BatchId,
-    filePath: string,
-    preview?: string,
+    resolvedPath: string,
+    previewPath?: string,
     historyRef?: Reference,
     infoTopic?: string,
     redundancyLevel?: RedundancyLevel,
@@ -249,19 +259,19 @@ export class FileManager {
       throw new FileInfoError('infoTopic and historyRef have to be provided at the same time.');
     }
 
-    const uploadFileRes = await this.uploadFile(batchId, filePath, true, historyRef, redundancyLevel);
+    const uploadFilesRes = await this.uploadFiles(batchId, resolvedPath, true, historyRef, redundancyLevel);
     let uploadPreviewRes: ReferenceWithHistory | undefined;
-    if (preview) {
-      uploadPreviewRes = await this.uploadFile(batchId, preview, false, undefined, redundancyLevel);
+    if (previewPath) {
+      uploadPreviewRes = await this.uploadFiles(batchId, previewPath, false, undefined, redundancyLevel);
     }
 
     const topic = infoTopic ? new Topic(Topic.fromString(infoTopic)) : getRandomTopic();
     const fileInfoResult = await this.uploadFileInfo({
       batchId: batchId.toString(),
-      file: uploadFileRes,
+      file: uploadFilesRes,
       topic: topic.toString(),
       owner: this.signer.publicKey().address().toString(),
-      fileName: path.basename(filePath), // TODO: redundant read
+      name: path.basename(resolvedPath), // TODO: redundant read
       timestamp: new Date().getTime(),
       shared: false,
       preview: uploadPreviewRes,
@@ -284,18 +294,19 @@ export class FileManager {
     await this.saveFileInfoFeedList();
   }
 
-  private async uploadFile(
+  // TODO: refactor upload
+  private async uploadFiles(
     batchId: BatchId,
-    file: string,
+    resolvedPath: string,
     act: boolean,
     historyRef?: string | Reference,
     redundancyLevel?: RedundancyLevel,
   ): Promise<ReferenceWithHistory> {
-    const { data, name, contentType } = readFile(file);
-    console.log(`Uploading file: ${name}`);
-
+    const options = historyRef ? makeBeeRequestOptions(new Reference(historyRef)) : undefined;
     try {
-      const options = historyRef ? makeBeeRequestOptions(new Reference(historyRef)) : undefined;
+      const { data, name, contentType } = readFile(resolvedPath);
+      console.log(`Uploading file: ${name}`);
+
       const uploadFileRes = await this.bee.uploadFile(
         batchId,
         data,
@@ -308,13 +319,40 @@ export class FileManager {
         options,
       );
 
-      console.log(`File uploaded successfully: ${name}, Reference: ${uploadFileRes.reference.toString()}`);
+      console.log(`File uploaded successfully: ${name}, reference: ${uploadFileRes.reference.toString()}`);
       return {
         reference: uploadFileRes.reference.toString(),
         historyRef: uploadFileRes.historyAddress.getOrThrow().toString(),
       };
     } catch (error: any) {
-      throw `Failed to upload file ${file}: ${error}`;
+      if (!(error instanceof FileError)) {
+        throw new FileError(`Failed to read file ${resolvedPath}: ${error}`);
+      }
+    }
+
+    console.log(`Uploading directory: ${path.basename(resolvedPath)}`);
+    try {
+      const uploadFilesRes = await this.bee.uploadFilesFromDirectory(
+        batchId,
+        resolvedPath,
+        {
+          act: act,
+          redundancyLevel: redundancyLevel,
+        },
+        options,
+      );
+
+      console.log(
+        `Directory uploaded successfully: ${path.basename(
+          resolvedPath,
+        )}, reference: ${uploadFilesRes.reference.toString()}`,
+      );
+      return {
+        reference: uploadFilesRes.reference.toString(),
+        historyRef: uploadFilesRes.historyAddress.getOrThrow().toString(),
+      };
+    } catch (error: any) {
+      throw `Failed to upload file ${resolvedPath}: ${error}`;
     }
   }
 
@@ -404,6 +442,7 @@ export class FileManager {
       throw `Failed to save owner feed list: ${error}`;
     }
   }
+
   // End Swarm data saving methods
 
   // fileInfo might point to a folder, or a single file
@@ -446,7 +485,7 @@ export class FileManager {
     return this.stampList;
   }
 
-  getOwnerFeedStamp(): PostageBatch | undefined {
+  private getOwnerFeedStamp(): PostageBatch | undefined {
     return this.stampList.find((s) => s.label === OWNER_FEED_STAMP_LABEL);
   }
 

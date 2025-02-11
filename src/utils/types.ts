@@ -5,7 +5,7 @@ export interface FileInfo {
   file: ReferenceWithHistory;
   topic?: string | Topic;
   owner?: string | EthAddress;
-  fileName?: string;
+  name?: string;
   timestamp?: number;
   shared?: boolean;
   preview?: ReferenceWithHistory;

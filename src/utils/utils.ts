@@ -1,8 +1,9 @@
 import { BeeRequestOptions, Bytes, EthAddress, FeedIndex, PublicKey, Reference, Topic } from '@upcoming/bee-js';
 import { randomBytes } from 'crypto';
-import { readFileSync } from 'fs';
+import * as fs from 'fs';
 import path from 'path';
 
+import { FileError } from './errors';
 import { FileData, FileInfo, ShareItem, WrappedFileInfoFeed } from './types';
 
 export function getContentType(filePath: string): string {
@@ -19,8 +20,13 @@ export function getContentType(filePath: string): string {
 }
 
 export function readFile(filePath: string): FileData {
+  const isDir = fs.lstatSync(filePath).isDirectory();
+  if (isDir) {
+    throw new FileError('readFile cannot read a directory!');
+  }
+
   const resolvedPath = path.resolve(__dirname, filePath);
-  const fileData = new Uint8Array(readFileSync(resolvedPath));
+  const fileData = new Uint8Array(fs.readFileSync(resolvedPath));
   const fileName = path.basename(resolvedPath);
   const contentType = getContentType(resolvedPath);
 
@@ -66,7 +72,7 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
     new EthAddress(fi.owner);
   }
 
-  if (fi.fileName !== undefined && typeof fi.fileName !== 'string') {
+  if (fi.name !== undefined && typeof fi.name !== 'string') {
     throw new TypeError('fileName property of FileInfo has to be string!');
   }
 

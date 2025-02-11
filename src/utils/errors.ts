@@ -21,3 +21,9 @@ export class FileInfoError extends Error {
     super(message);
   }
 }
+
+export class FileError extends Error {
+  public constructor(message: string) {
+    super(message);
+  }
+}

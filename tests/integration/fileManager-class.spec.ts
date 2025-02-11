@@ -1,11 +1,20 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { BeeDev, Reference } from '@upcoming/bee-js';
+import path from 'path';
 
 import { FileManager } from '../../src/fileManager';
 import { OWNER_FEED_STAMP_LABEL, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { StampError } from '../../src/utils/errors';
-import { FileInfo } from '../../src/utils/types';
-import { BEE_URL, buyStamp, getTestFile, MOCK_SIGNER, OTHER_BEE_URL, OTHER_MOCK_SIGNER } from '../utils';
+import {
+  BEE_URL,
+  buyStamp,
+  dowloadAndCompareFiles,
+  getTestFile,
+  MOCK_SIGNER,
+  OTHER_BEE_URL,
+  OTHER_MOCK_SIGNER,
+  readFilesOrDirectory,
+} from '../utils';
 
 describe('FileManager initialization', () => {
   beforeEach(async () => {
@@ -93,44 +102,43 @@ describe('FileManager initialization', () => {
     }
   });
 
-  it('should upload a file and save it on swarm', async () => {
-    const expectedFileData = getTestFile('fixtures/test.txt');
+  it('should upload to and fetch from swarm a nested folder with files', async () => {
+    const exptTestFileData = getTestFile('fixtures/test.txt');
+    const expFilePaths = await readFilesOrDirectory(path.join(__dirname, '../fixtures/nested'), 'nested');
+    const expFileDataArr: string[][] = [];
+    const fileDataArr: string[] = [];
+    for (const f of expFilePaths) {
+      fileDataArr.push(getTestFile(`./fixtures/${f}`));
+    }
+    expFileDataArr.push(fileDataArr);
+    expFileDataArr.push([exptTestFileData]);
+
     const bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     const testStampId = await buyStamp(bee, 'testStamp');
-    let actualFileInfo: FileInfo;
     {
       const fileManager = new FileManager(bee);
       await fileManager.initialize();
-      const publsiherPublicKey = fileManager.getNodeAddresses().publicKey;
-      // TODO: readfile path handling
-      await fileManager.upload(testStampId, '../../tests/fixtures/test.txt');
+      const publsiherPublicKey = fileManager.getNodeAddresses().publicKey.toCompressedHex();
+      await fileManager.upload(
+        testStampId,
+        '/Users/ujvaribalint/repos/solarpunk/file-manager-lib/tests/fixtures/nested',
+      );
+      await fileManager.upload(
+        testStampId,
+        '/Users/ujvaribalint/repos/solarpunk/file-manager-lib/tests/fixtures/test.txt',
+      );
 
       const fileInfoList = fileManager.getFileInfoList();
+      expect(fileInfoList.length).toEqual(expFileDataArr.length);
       console.log('baogy test fileInfoList: ', fileInfoList);
-      expect(fileInfoList.length).toEqual(1);
-
-      actualFileInfo = fileInfoList[0];
-      const actualFileData = await bee.downloadFile(actualFileInfo.file.reference, undefined, {
-        actHistoryAddress: actualFileInfo.file.historyRef as Reference,
-        actPublisher: publsiherPublicKey,
-      });
-
-      expect(actualFileData.data.toUtf8()).toEqual(expectedFileData);
+      await dowloadAndCompareFiles(fileManager, publsiherPublicKey, fileInfoList, expFileDataArr);
     }
     // re-init fileManager after it goes out of scope to test if the file is saved on the feed
     const fileManager = new FileManager(bee);
     await fileManager.initialize();
-    const publsiherPublicKey = fileManager.getNodeAddresses().publicKey;
+    const publsiherPublicKey = fileManager.getNodeAddresses().publicKey.toCompressedHex();
 
     const fileInfoList = fileManager.getFileInfoList();
-    const downloadedFileInfo = fileInfoList[0];
-    expect(fileInfoList.length).toEqual(1);
-    expect(downloadedFileInfo).toEqual(actualFileInfo);
-
-    const actualFileData = await bee.downloadFile(downloadedFileInfo.file.reference, undefined, {
-      actHistoryAddress: downloadedFileInfo.file.historyRef,
-      actPublisher: publsiherPublicKey,
-    });
-    expect(actualFileData.data.toUtf8()).toEqual(expectedFileData);
+    await dowloadAndCompareFiles(fileManager, publsiherPublicKey, fileInfoList, expFileDataArr);
   });
 });
