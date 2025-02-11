@@ -108,11 +108,6 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
 
   const fi = value as unknown as FileInfo;
 
-  if (fi.batchId === undefined || typeof fi.batchId !== 'string') {
-    throw new TypeError('batchId property of FileInfo has to be string!');
-  }
-
-
   if (fi.customMetadata !== undefined && !isRecord(fi.customMetadata)) {
     throw new TypeError('FileInfo customMetadata has to be object!');
   }

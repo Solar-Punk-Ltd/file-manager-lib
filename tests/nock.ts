@@ -26,6 +26,7 @@ export function fetchFeedUpdateMock(address: string, hashedTopic: string): nock.
 }
 
 export function downloadDataMock(reference: Reference | string): nock.Interceptor {
+  console.log("Download Data mock called.")
   return nock(MOCK_SERVER_URL).get(`${BYTES_ENDPOINT}/${reference}`);
 }
 

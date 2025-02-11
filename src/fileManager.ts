@@ -1,4 +1,4 @@
-import { BatchId, Bee, MantarayNode, Reference } from '@upcoming/bee-js';
+import { BatchId, Bee, MantarayNode, Reference, Topic } from '@upcoming/bee-js';
 
 import { FILE_INFO_LOCAL_STORAGE } from './constants';
 import { FileInfo, MantarayStackItem, ShareItem } from './types';
@@ -10,6 +10,7 @@ export class FileManager {
 
   constructor() {
     this.fileInfoList = [];
+    this.bee = new Bee('http://localhost:1633');
   }
 
   async initialize(): Promise<void> {
@@ -26,7 +27,21 @@ export class FileManager {
     const data = JSON.parse(rawData) as FileInfo[];
     if (!Array.isArray(data)) throw new Error("fileInfoList has to be an array!");
 
-    this.fileInfoList = data;
+    const processedData: FileInfo[] = data.map((rawItem) => ({
+      batchId: new BatchId(rawItem.batchId),
+      eFileRef: new Reference(rawItem.eFileRef),
+      topic: rawItem.topic ? new Topic(rawItem.topic): undefined,
+      historyRef: rawItem.historyRef ? new Reference(rawItem.historyRef) : undefined,
+      owner: rawItem.owner ? rawItem.owner : undefined,
+      fileName: rawItem.fileName,
+      timestamp: rawItem.timestamp,
+      shared: rawItem.shared,
+      preview: rawItem.preview,
+      redundancyLevel: rawItem.redundancyLevel,
+      customMetadata: rawItem.customMetadata
+    }));
+
+    this.fileInfoList = processedData;
   }
 
   getFileInfoList(): FileInfo[] {
@@ -40,9 +55,24 @@ export class FileManager {
       assertFileInfo(fileInfo);
 
       const index = this.fileInfoList.length.toString(16).padStart(64, '0').slice(0, 64);
-      this.fileInfoList.push(fileInfo);
 
-      localStorage.setItem(FILE_INFO_LOCAL_STORAGE, JSON.stringify(this.fileInfoList));
+      this.fileInfoList.push(fileInfo);
+console.log(this.fileInfoList[0].batchId)
+      const fileInfoList = this.fileInfoList.map((item) => ({
+        batchId: item.batchId.toHex(),
+        eFileRef: item.eFileRef.toHex(),
+        topic: item.topic?.toHex(),
+        historyRef: item.historyRef?.toHex(),
+        owner: item.owner?.toHex(),
+        fileName: item.fileName,
+        timestamp: item.timestamp,
+        shared: item.shared,
+        preview: item.preview,
+        redundancyLevel: item.redundancyLevel,
+        customMetadata: item.customMetadata
+      }))
+
+      localStorage.setItem(FILE_INFO_LOCAL_STORAGE, JSON.stringify(fileInfoList));
 
       return index;
     } catch (error) {
@@ -57,7 +87,7 @@ export class FileManager {
   async listFiles(fileInfo: FileInfo): Promise<Reference[]> {
     const targetRef = fileInfo.eFileRef as Reference;
     console.log('targetRef: ', targetRef);
-    const mantaray = await MantarayNode.unmarshal(this.bee, targetRef);
+    const mantaray = await MantarayNode.unmarshal(this.bee, new Reference('0'.repeat(64)));
 
     const refList: Reference[] = [];
     let stack: MantarayStackItem[] = [{ node: mantaray, path: '' }];
@@ -94,10 +124,10 @@ export class FileManager {
     return refList;
   }
 
-  async upload(batchId: string | BatchId, filePath: string, customMetadata?: Record<string, string>): Promise<string> {
+  async upload(batchId: string | BatchId, reference: Reference, customMetadata?: Record<string, string>): Promise<string> {
     const fileInfo: FileInfo = {
-      eFileRef: filePath,
-      batchId: batchId,
+      eFileRef: new Reference(reference),
+      batchId: new BatchId(batchId),
       customMetadata,
     };
 

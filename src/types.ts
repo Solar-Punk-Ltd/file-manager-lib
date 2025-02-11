@@ -1,10 +1,10 @@
 import { BatchId, EthAddress, MantarayNode, RedundancyLevel, Reference, Topic } from '@upcoming/bee-js';
 
 export interface FileInfo {
-  batchId: string | BatchId;  // string possibly shouldn't be allowed
-  eFileRef: string | Reference; // string possibly shouldn't be allowed
-  topic?: string | Topic;  // string possibly shouldn't be allowed
-  historyRef?: string | Reference;  // string possibly shouldn't be allowed
+  batchId: BatchId;
+  eFileRef: Reference;
+  topic?: Topic;
+  historyRef?: Reference;
   owner?: EthAddress;
   fileName?: string;
   timestamp?: number;

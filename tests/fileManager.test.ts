@@ -1,8 +1,10 @@
 //import { TextEncoder, TextDecoder } from "util";
 import { FileManager } from '../src/fileManager';
-import { emptyFileInfoTxt, extendedFileInfoTxt, fileInfoTxt, mockBatchId, MockLocalStorage } from './mockHelpers';
+import { emptyFileInfoTxt, extendedFileInfoTxt, fileInfoTxt, mockBatchId, MockLocalStorage, pathToRef } from './mockHelpers';
 import { FileInfo } from "../src/types";
 import { FILE_INFO_LOCAL_STORAGE } from "../src/constants";
+import { downloadDataMock } from './nock';
+import { BatchId, Reference } from '@upcoming/bee-js';
 //import { ShareItem } from 'src/types';
 
 //global.TextEncoder = TextEncoder;
@@ -44,11 +46,11 @@ describe('initialize', () => {
     expect(fileManager.getFileInfoList()).toEqual([
       {
         batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
-        eFileRef: 'src/folder/1.txt',
+        eFileRef: new Reference(pathToRef.get('src/folder/1.txt')!).toHex(),
       },
       {
         batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
-        eFileRef: 'src/folder/2.txt',
+        eFileRef: new Reference(pathToRef.get('src/folder/2.txt')!).toHex(),
       },
     ]);
   });
@@ -82,8 +84,8 @@ describe('saveFileInfo', () => {
     const fileManager = new FileManager();
     await fileManager.initialize();
     const fileInfo: FileInfo = {
-      batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
-      eFileRef: 'src/folder/3.txt',
+      batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
+      eFileRef: new Reference(pathToRef.get('src/folder/3.txt')!),
     };
 
     const ref = await fileManager.saveFileInfo(fileInfo);
@@ -98,18 +100,16 @@ describe('saveFileInfo', () => {
     await fileManager.initialize();
     const fileManagerSpy = jest.spyOn(fileManager, 'saveFileInfo');
 
-    const fileInfo = {
-      batchId: 33,
-      eFileRef: 'src/1.txt'
-    };
-
     try {
-      await fileManager.saveFileInfo(fileInfo as any);
+      const fileInfo = {
+        batchId: new BatchId('33'),
+        eFileRef: new Reference(pathToRef.get('src/folder/1.txt')!)
+      };
+      await fileManager.saveFileInfo(fileInfo);
       throw new Error('Expected saveFileInfo to throw an error');
     } catch (error) {
       expect(error).toBeInstanceOf(Error);
-      expect((error as any).message).toBe("batchId property of FileInfo has to be string!");
-      expect(fileManagerSpy).toHaveBeenCalledWith(fileInfo as any);
+      expect((error as any).message).toBe("Bytes#checkByteLength: bytes length is 1 but expected 32");
     }
   });
 
@@ -121,12 +121,12 @@ describe('saveFileInfo', () => {
 
     const fileManager = new FileManager();
     await fileManager.initialize();
-    const fileInfo = {
-      batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
-      eFileRef: 'src/folder/3.txt',
-    };
-
     try {
+      const fileInfo = {
+        batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
+        eFileRef: new Reference(pathToRef.get('src/folder/3.txt')!),
+      };
+
       await fileManager.saveFileInfo(fileInfo);
       fail('Expected saveFileInfo to throw an error');
     } catch (error) {
@@ -143,9 +143,16 @@ describe('listFiles', () => {
 
   it('should list paths (refs) for given input list', async () => {
     jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
+    downloadDataMock('0'.repeat(64)).reply(200, {
+      
+    });
+
+    // "tegyük fel bemegy egy normal reference a MantarayNode.unmarshallnak"
+
     const fileManager = new FileManager();
     await fileManager.initialize();
     const list = fileManager.getFileInfoList();
+
 
     const path = await fileManager.listFiles(list[0]);
 
@@ -179,7 +186,7 @@ describe('upload', () => {
     localStorage.setItem(FILE_INFO_LOCAL_STORAGE, fileInfoTxt);
     await fileManager.initialize();
 
-    await fileManager.upload(mockBatchId, 'src/folder/3.txt');
+    await fileManager.upload(mockBatchId, pathToRef.get('src/folder/3.txt')!);
 
     expect(fileManager.getFileInfoList()).toHaveLength(3);
     expect(fileManager.getFileInfoList()[2]).toEqual({
@@ -193,7 +200,7 @@ describe('upload', () => {
     const fileManager = new FileManager();
     await fileManager.initialize();
 
-    const ref = await fileManager.upload(mockBatchId, 'src/folder/3.txt');
+    const ref = await fileManager.upload(mockBatchId, pathToRef.get('src/folder/3.txt')!);
 
     expect(ref).toBe('0000000000000000000000000000000000000000000000000000000000000003');
   });
@@ -203,19 +210,19 @@ describe('upload', () => {
     const fileManager = new FileManager();
     await fileManager.initialize();
 
-    await fileManager.upload(mockBatchId, 'src/folder/3.txt');
+    await fileManager.upload(mockBatchId, pathToRef.get('src/folder/3.txt')!);
 
     expect(fileManager.getFileInfoList()).toHaveLength(3);
     expect(fileManager.getFileInfoList()[2]).toEqual({
-      eFileRef: 'src/folder/3.txt',
+      eFileRef: pathToRef.get('src/folder/3.txt')!,
       batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
     });
 
-    await fileManager.upload(mockBatchId, 'src/folder/4.txt');
+    await fileManager.upload(mockBatchId, pathToRef.get('src/folder/4.txt')!);
 
     expect(fileManager.getFileInfoList()).toHaveLength(4);
     expect(fileManager.getFileInfoList()[3]).toEqual({
-      eFileRef: 'src/folder/4.txt',
+      eFileRef: pathToRef.get('src/folder/4.txt')!,
       batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
     });
   });
@@ -280,8 +287,8 @@ describe('upload and listFiles', () => {
     let list = fileManager.getFileInfoList();
     const listt: FileInfo[] = [
       {
-        batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
-        eFileRef: 'c14653e8d747c6dc6ddefd39688391189e686236aec361637b22d5f138329f5c',
+        batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
+        eFileRef: new Reference('c14653e8d747c6dc6ddefd39688391189e686236aec361637b22d5f138329f5c'),
       }
     ]
     let path = await fileManager.listFiles(listt[0]);
@@ -289,7 +296,7 @@ describe('upload and listFiles', () => {
     expect(path).toBe('c14653e8d747c6dc6ddefd39688391189e686236aec361637b22d5f138329f5c');
     expect(path).toBe('src/folder/1.txt');
 
-    await fileManager.upload(mockBatchId, 'src/folder/3.txt');
+    await fileManager.upload(mockBatchId, pathToRef.get('src/folder/3.txt')!);
 
     list = fileManager.getFileInfoList();
     path = await fileManager.listFiles(list[2]);
