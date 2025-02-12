@@ -104,10 +104,10 @@ describe('FileManager initialization', () => {
 
   it('should upload to and fetch from swarm a nested folder with files', async () => {
     const exptTestFileData = getTestFile('fixtures/test.txt');
-    const expFilePaths = await readFilesOrDirectory(path.join(__dirname, '../fixtures/nested'), 'nested');
+    const expNestedPaths = await readFilesOrDirectory(path.join(__dirname, '../fixtures/nested'), 'nested');
     const expFileDataArr: string[][] = [];
     const fileDataArr: string[] = [];
-    for (const f of expFilePaths) {
+    for (const f of expNestedPaths) {
       fileDataArr.push(getTestFile(`./fixtures/${f}`));
     }
     expFileDataArr.push(fileDataArr);
@@ -119,18 +119,21 @@ describe('FileManager initialization', () => {
       const fileManager = new FileManager(bee);
       await fileManager.initialize();
       const publsiherPublicKey = fileManager.getNodeAddresses().publicKey.toCompressedHex();
-      await fileManager.upload(
-        testStampId,
-        '/Users/ujvaribalint/repos/solarpunk/file-manager-lib/tests/fixtures/nested',
-      );
-      await fileManager.upload(
-        testStampId,
-        '/Users/ujvaribalint/repos/solarpunk/file-manager-lib/tests/fixtures/test.txt',
-      );
+      await fileManager.upload(testStampId, path.join(__dirname, '../fixtures/nested'));
+      await fileManager.upload(testStampId, path.join(__dirname, '../fixtures/test.txt'));
 
       const fileInfoList = fileManager.getFileInfoList();
       expect(fileInfoList.length).toEqual(expFileDataArr.length);
       await dowloadAndCompareFiles(fileManager, publsiherPublicKey, fileInfoList, expFileDataArr);
+
+      const fileList = await fileManager.listFiles(fileInfoList[0], {
+        actHistoryAddress: fileInfoList[0].file.historyRef,
+        actPublisher: publsiherPublicKey,
+      });
+      expect(fileList.length).toEqual(expNestedPaths.length);
+      for (const [ix, f] of fileList.entries()) {
+        expect(path.basename(f.path)).toEqual(path.basename(expNestedPaths[ix]));
+      }
     }
     // re-init fileManager after it goes out of scope to test if the file is saved on the feed
     const fileManager = new FileManager(bee);

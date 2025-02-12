@@ -1,4 +1,4 @@
-import { BatchId, Bytes, EthAddress, FeedIndex, RedundancyLevel, Reference, Topic } from '@upcoming/bee-js';
+import { BatchId, Bytes, EthAddress, FeedIndex, PublicKey, RedundancyLevel, Reference, Topic } from '@upcoming/bee-js';
 import { ReadStream } from 'fs';
 
 export interface FileInfo {
@@ -10,6 +10,7 @@ export interface FileInfo {
   timestamp?: number;
   shared?: boolean;
   preview?: ReferenceWithHistory;
+  index?: number | undefined;
   redundancyLevel?: RedundancyLevel;
   customMetadata?: Record<string, string>;
 }
@@ -31,6 +32,11 @@ export interface WrappedFileInfoFeed extends ReferenceWithHistory {
   // index?: FeedIndex;
 }
 
+export interface ReferenceWithPath {
+  reference: Reference;
+  path: string;
+}
+
 export interface FileData {
   data: string | Uint8Array | ReadStream;
   name: string;
@@ -43,4 +49,11 @@ interface FeedUpdateHeaders {
 }
 export interface FetchFeedUpdateResponse extends FeedUpdateHeaders {
   payload: Bytes;
+}
+
+export interface RequestOptions {
+  historyRef?: Reference;
+  publisher?: PublicKey;
+  timestamp?: number;
+  redundancyLevel?: RedundancyLevel;
 }

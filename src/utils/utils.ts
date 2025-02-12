@@ -1,10 +1,10 @@
-import { BeeRequestOptions, Bytes, EthAddress, FeedIndex, PublicKey, Reference, Topic } from '@upcoming/bee-js';
+import { BeeRequestOptions, Bytes, EthAddress, FeedIndex, Reference, Topic } from '@upcoming/bee-js';
 import { randomBytes } from 'crypto';
 import * as fs from 'fs';
 import path from 'path';
 
 import { FileError } from './errors';
-import { FileData, FileInfo, ShareItem, WrappedFileInfoFeed } from './types';
+import { FileData, FileInfo, RequestOptions, ShareItem, WrappedFileInfoFeed } from './types';
 
 export function getContentType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
@@ -19,16 +19,15 @@ export function getContentType(filePath: string): string {
   return contentTypes.get(ext) || 'application/octet-stream';
 }
 
-export function isDir(path: string): boolean {
-  if (!fs.existsSync(path)) throw new FileError(`Path ${path} does not exist!`);
-  return fs.lstatSync(path).isDirectory();
+export function isDir(dirPath: string): boolean {
+  if (!fs.existsSync(dirPath)) throw new FileError(`Path ${dirPath} does not exist!`);
+  return fs.lstatSync(dirPath).isDirectory();
 }
 
 export function readFile(filePath: string): FileData {
-  const resolvedPath = path.resolve(__dirname, filePath);
-  const readable = fs.createReadStream(resolvedPath);
-  const fileName = path.basename(resolvedPath);
-  const contentType = getContentType(resolvedPath);
+  const readable = fs.createReadStream(filePath);
+  const fileName = path.basename(filePath);
+  const contentType = getContentType(filePath);
 
   return { data: readable, name: fileName, contentType };
 }
@@ -122,23 +121,22 @@ export function assertWrappedFileInoFeed(value: unknown): asserts value is Wrapp
   }
 }
 
-export function makeBeeRequestOptions(
-  historyRef?: Reference,
-  publisher?: PublicKey,
-  timestamp?: number,
-): BeeRequestOptions {
+export function makeBeeRequestOptions(requestOptions: RequestOptions): BeeRequestOptions {
   const options: BeeRequestOptions = {};
-  if (historyRef !== undefined) {
-    options.headers = { 'swarm-act-history-address': historyRef.toString() };
+  if (requestOptions.historyRef !== undefined) {
+    options.headers = { 'swarm-act-history-address': requestOptions.historyRef.toString() };
   }
-  if (publisher !== undefined) {
+  if (requestOptions.publisher !== undefined) {
     options.headers = {
       ...options.headers,
-      'swarm-act-publisher': publisher.toCompressedHex(),
+      'swarm-act-publisher': requestOptions.publisher.toCompressedHex(),
     };
   }
-  if (timestamp !== undefined) {
-    options.headers = { ...options.headers, 'swarm-act-timestamp': timestamp.toString() };
+  if (requestOptions.timestamp !== undefined) {
+    options.headers = { ...options.headers, 'swarm-act-timestamp': requestOptions.timestamp.toString() };
+  }
+  if (requestOptions.redundancyLevel !== undefined) {
+    options.headers = { ...options.headers, 'swarm-redundancy-level': requestOptions.redundancyLevel.toString() };
   }
 
   return options;

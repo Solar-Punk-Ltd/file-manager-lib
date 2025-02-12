@@ -1,6 +1,7 @@
 import {
   BatchId,
   Bee,
+  BeeModes,
   BeeRequestOptions,
   Bytes,
   CollectionUploadOptions,
@@ -31,8 +32,15 @@ import {
   SHARED_INBOX_TOPIC,
   SWARM_ZERO_ADDRESS,
 } from './utils/constants';
-import { BeeVersionError, FileInfoError, SignerError, StampError } from './utils/errors';
-import { FetchFeedUpdateResponse, FileInfo, ReferenceWithHistory, ShareItem, WrappedFileInfoFeed } from './utils/types';
+import { BeeVersionError, FileInfoError, SignerError, StampError, SubscribtionError } from './utils/errors';
+import {
+  FetchFeedUpdateResponse,
+  FileInfo,
+  ReferenceWithHistory,
+  ReferenceWithPath,
+  ShareItem,
+  WrappedFileInfoFeed,
+} from './utils/types';
 import {
   assertFileInfo,
   assertShareItem,
@@ -199,7 +207,7 @@ export class FileManager {
   // End init methods
 
   // Start mantaray methods
-  private async saveMantaray(batchId: BatchId, mantaray: MantarayNode, options?: UploadOptions): Promise<Reference> {
+  async saveMantaray(batchId: BatchId, mantaray: MantarayNode, options?: UploadOptions): Promise<Reference> {
     return mantaray.saveRecursively(this.bee, batchId, options);
   }
 
@@ -209,16 +217,28 @@ export class FileManager {
     return mantaray;
   }
   // TODO: use node.find() - it does not seem to work - test it
-  public async downloadFork(mantaray: MantarayNode, forkPath: string, options?: DownloadOptions): Promise<Bytes> {
-    const node = mantaray.collect().find((n) => n.fullPathString === forkPath);
+  async downloadFork(mantaray: MantarayNode, path: string, options?: DownloadOptions): Promise<Bytes> {
+    const node = mantaray.collect().find((n) => n.fullPathString === path);
     if (!node) return SWARM_ZERO_ADDRESS;
 
     return await this.bee.downloadData(node.targetAddress, options);
   }
 
-  public async listAllForks(eRef: Reference, options?: DownloadOptions): Promise<Reference[]> {
-    const unmarshalled = await this.loadMantaray(eRef, options);
-    return unmarshalled.collect().map((n) => new Reference(n.targetAddress));
+  // lists all the files found under the reference of the provided fileInfo
+  async listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<ReferenceWithPath[]> {
+    const mantaray = await this.loadMantaray(new Reference(fileInfo.file.reference), options);
+    // TODO: is filter needed ?
+    const fileList = mantaray
+      .collect()
+      .map((n) => {
+        return {
+          reference: new Reference(n.targetAddress),
+          path: n.fullPathString,
+        } as ReferenceWithPath;
+      })
+      .filter((item) => item.path !== '' && item.reference !== SWARM_ZERO_ADDRESS);
+
+    return fileList;
   }
 
   async downloadFiles(eRef: Reference, options?: DownloadOptions): Promise<string[]> {
@@ -255,6 +275,7 @@ export class FileManager {
     previewPath?: string,
     historyRef?: Reference,
     infoTopic?: string,
+    index?: number | undefined,
     redundancyLevel?: RedundancyLevel,
     customMetadata?: Record<string, string>,
   ): Promise<void> {
@@ -262,11 +283,11 @@ export class FileManager {
       throw new FileInfoError('infoTopic and historyRef have to be provided at the same time.');
     }
 
-    const requestOptions = historyRef ? makeBeeRequestOptions(new Reference(historyRef)) : undefined;
+    const requestOptions = historyRef ? makeBeeRequestOptions({ historyRef }) : undefined;
     const uploadFilesRes = await this.uploadFileOrDirectory(
       batchId,
       resolvedPath,
-      { act: true, redundancyLevel: redundancyLevel },
+      { act: true, redundancyLevel },
       requestOptions,
     );
     let uploadPreviewRes: ReferenceWithHistory | undefined;
@@ -274,12 +295,13 @@ export class FileManager {
       uploadPreviewRes = await this.uploadFileOrDirectory(
         batchId,
         previewPath,
-        { act: true, redundancyLevel: redundancyLevel },
+        { act: true, redundancyLevel },
         requestOptions,
       );
     }
 
     const topic = infoTopic ? Topic.fromString(infoTopic) : new Topic(getRandomBytes(Topic.LENGTH));
+    const feedIndex = index !== undefined ? index : 0;
     const fileInfoResult = await this.uploadFileInfo({
       batchId: batchId.toString(),
       file: uploadFilesRes,
@@ -289,11 +311,12 @@ export class FileManager {
       timestamp: new Date().getTime(),
       shared: false,
       preview: uploadPreviewRes,
-      redundancyLevel: redundancyLevel,
-      customMetadata: customMetadata,
+      index: feedIndex,
+      redundancyLevel,
+      customMetadata,
     });
 
-    const newFeedItem = await this.saveWrappedFileInfoFeed(batchId, fileInfoResult, topic, redundancyLevel);
+    const newFeedItem = await this.saveWrappedFileInfoFeed(batchId, fileInfoResult, topic, feedIndex, redundancyLevel);
 
     const ix = this.ownerFeedList.findIndex((f) => f.reference === newFeedItem.reference);
     if (ix !== -1) {
@@ -307,7 +330,7 @@ export class FileManager {
 
     await this.saveFileInfoFeedList();
   }
-
+  // TODO: streamFiles & uploadFiles  - streamDirectory & uploadFilesFromDirectory -> browser vs nodejs
   private async uploadFileOrDirectory(
     batchId: BatchId,
     resolvedPath: string,
@@ -404,6 +427,7 @@ export class FileManager {
     batchId: BatchId,
     fileInfoResult: ReferenceWithHistory,
     topic: Topic,
+    index?: number,
     redundancyLevel?: RedundancyLevel,
   ): Promise<WrappedFileInfoFeed> {
     try {
@@ -414,14 +438,14 @@ export class FileManager {
           historyRef: fileInfoResult.historyRef.toString(),
         } as ReferenceWithHistory),
         {
-          redundancyLevel: redundancyLevel,
+          redundancyLevel,
         },
       );
 
-      const fw = this.bee.makeFeedWriter(topic, this.signer);
-      // TODO: bee-js feedWriter should redundancylevel ?
+      const requestOptions = redundancyLevel ? makeBeeRequestOptions({ redundancyLevel }) : undefined;
+      const fw = this.bee.makeFeedWriter(topic, this.signer, requestOptions);
       const wrappedFeedUpdateRes = await fw.upload(batchId, uploadInfoRes.reference, {
-        index: undefined, // todo: keep track of the latest index ??
+        index: index,
         act: true,
       });
 
@@ -469,13 +493,6 @@ export class FileManager {
   }
 
   // End Swarm data saving methods
-
-  // fileInfo might point to a folder, or a single file
-  // could name downloadFiles as well, possibly
-  // getDirectorStructure()
-  async listFiles(fileInfo: FileInfo): Promise<Reference[]> {
-    return [new Reference(fileInfo.file.reference)];
-  }
 
   // Start stamp handler methods
   private async getUsableStamps(): Promise<PostageBatch[]> {
@@ -608,7 +625,14 @@ export class FileManager {
   // End grantee handler methods
 
   // Start share methods
-  subscribeToSharedInbox(topic: string, callback?: (data: ShareItem) => void): void {
+  async subscribeToSharedInbox(topic: string, callback?: (data: ShareItem) => void): Promise<void> {
+    const nodeInfo = await this.bee.getNodeInfo();
+    if (nodeInfo.beeMode !== BeeModes.FULL) {
+      throw new SubscribtionError(
+        `Node has to be in ${BeeModes.FULL} mode but it is running in ${nodeInfo.beeMode} mode.`,
+      );
+    }
+
     console.log('Subscribing to shared inbox, topic: ', topic);
     this.sharedSubscription = this.bee.pssSubscribe(Topic.fromString(topic), {
       onMessage: (message) => {
@@ -679,7 +703,7 @@ export class FileManager {
 
   // Start helper methods
   // Fetches the feed data for the given topic, index and address
-  public async getFeedData(
+  async getFeedData(
     topic: Topic,
     index?: number,
     address?: EthAddress,

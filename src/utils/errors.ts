@@ -27,3 +27,9 @@ export class FileError extends Error {
     super(message);
   }
 }
+
+export class SubscribtionError extends Error {
+  public constructor(message: string) {
+    super(message);
+  }
+}
