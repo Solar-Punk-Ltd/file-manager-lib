@@ -94,9 +94,9 @@ console.log(this.fileInfoList[0].batchId)
     const targetRef = new Reference(fileInfo.eFileRef).toHex();
     console.log("Target ref: ",  targetRef)
     const mantaray = await MantarayNode.unmarshal(this.bee, targetRef);
-    console.log("M", mantaray)
+    //console.log("M", mantaray)
     await mantaray.loadRecursively(this.bee);
-    console.log("L", mantaray.forks.get(104))
+    //console.log("L", mantaray.forks.get(104))
 
     const refList: Reference[] = [];
     let stack: MantarayStackItem[] = [{ node: mantaray, path: '' }];

@@ -14,7 +14,7 @@ export const fileInfoTxt = `[
   }
 ]`;
 
-export const extendedFileInfoTxt = `[{"batchId":"ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51","eFileRef":"1111111111111111111111111111111111111111111111111111111111111111"},{"batchId":"ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51","eFileRef":"2222222222222222222222222222222222222222222222222222222222222222"},{"batchId":"ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51","eFileRef":"3333333333333333333333333333333333333333333333333333333333333333\"}]`;
+export const extendedFileInfoTxt = `[{"batchId":"ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51","eFileRef":"1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68"},{"batchId":"ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51","eFileRef":"2222222222222222222222222222222222222222222222222222222222222222"},{"batchId":"ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51","eFileRef":"3333333333333333333333333333333333333333333333333333333333333333\"}]`;
 
 export const emptyFileInfoTxt = `[]`;
 
@@ -100,13 +100,13 @@ export class MockLocalStorage {
 
 // Map that will translate Referene to file path, only used while mocking Swarm (offline)
 export const refToPath = new Map<Reference, string>();
-refToPath.set(new Reference('1'.repeat(64)), 'src/folder/1.txt');
+refToPath.set(new Reference('1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68'), 'src/folder/1.txt');
 refToPath.set(new Reference('2'.repeat(64)), 'src/folder/2.txt');
 refToPath.set(new Reference('3'.repeat(64)), 'src/folder/3.txt');
 refToPath.set(new Reference('4'.repeat(64)), 'src/folder/4.txt');
 
 export const pathToRef = new Map<string, Reference>();
-pathToRef.set('src/folder/1.txt', new Reference('1'.repeat(64)));
+pathToRef.set('src/folder/1.txt', new Reference('1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68'));
 pathToRef.set('src/folder/2.txt', new Reference('2'.repeat(64)));
 pathToRef.set('src/folder/3.txt', new Reference('3'.repeat(64)));
 pathToRef.set('src/folder/4.txt', new Reference('4'.repeat(64)));

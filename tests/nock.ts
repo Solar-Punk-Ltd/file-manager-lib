@@ -1,6 +1,11 @@
 import { Reference } from '@upcoming/bee-js';
 import nock from 'nock';
 
+nock.recorder.rec({
+  logging: console.log,
+  output_objects: true
+})
+
 export const MOCK_SERVER_URL = 'http://localhost:1633';
 
 // Endpoints
@@ -56,7 +61,7 @@ export function uploadDataMock(
   console.log("Setting up mock for batch ID:", batchId);
   
   return nock('http://localhost:1633')  // Use exact URL
-    .persist()  // Keep the mock active for multiple calls
+    //.persist()  // Keep the mock active for multiple calls
     .filteringRequestBody(() => '*')  // Ignore request body differences
     .post('/bytes')  // Exact endpoint
 
