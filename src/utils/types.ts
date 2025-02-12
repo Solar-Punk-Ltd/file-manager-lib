@@ -1,4 +1,5 @@
 import { BatchId, Bytes, EthAddress, FeedIndex, RedundancyLevel, Reference, Topic } from '@upcoming/bee-js';
+import { ReadStream } from 'fs';
 
 export interface FileInfo {
   batchId: string | BatchId;
@@ -31,7 +32,7 @@ export interface WrappedFileInfoFeed extends ReferenceWithHistory {
 }
 
 export interface FileData {
-  data: string | Uint8Array;
+  data: string | Uint8Array | ReadStream;
   name: string;
   contentType: string;
 }

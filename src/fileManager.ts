@@ -3,8 +3,10 @@ import {
   Bee,
   BeeRequestOptions,
   Bytes,
+  CollectionUploadOptions,
   DownloadOptions,
   EthAddress,
+  FileUploadOptions,
   GetGranteesResult,
   GranteesResult,
   MantarayNode,
@@ -29,13 +31,14 @@ import {
   SHARED_INBOX_TOPIC,
   SWARM_ZERO_ADDRESS,
 } from './utils/constants';
-import { BeeVersionError, FileError, FileInfoError, SignerError, StampError } from './utils/errors';
+import { BeeVersionError, FileInfoError, SignerError, StampError } from './utils/errors';
 import { FetchFeedUpdateResponse, FileInfo, ReferenceWithHistory, ShareItem, WrappedFileInfoFeed } from './utils/types';
 import {
   assertFileInfo,
   assertShareItem,
   assertWrappedFileInoFeed,
-  getRandomTopic,
+  getRandomBytes,
+  isDir,
   isNotFoundError,
   makeBeeRequestOptions,
   makeNumericIndex,
@@ -108,7 +111,7 @@ export class FileManager {
         throw new StampError('Owner stamp not found');
       }
 
-      this.ownerFeedTopic = getRandomTopic();
+      this.ownerFeedTopic = new Topic(getRandomBytes(Topic.LENGTH));
       const topicDataRes = await this.bee.uploadData(ownerFeedStamp.batchID, this.ownerFeedTopic.toUint8Array(), {
         act: true,
       });
@@ -259,19 +262,30 @@ export class FileManager {
       throw new FileInfoError('infoTopic and historyRef have to be provided at the same time.');
     }
 
-    const uploadFilesRes = await this.uploadFiles(batchId, resolvedPath, true, historyRef, redundancyLevel);
+    const requestOptions = historyRef ? makeBeeRequestOptions(new Reference(historyRef)) : undefined;
+    const uploadFilesRes = await this.uploadFileOrDirectory(
+      batchId,
+      resolvedPath,
+      { act: true, redundancyLevel: redundancyLevel },
+      requestOptions,
+    );
     let uploadPreviewRes: ReferenceWithHistory | undefined;
     if (previewPath) {
-      uploadPreviewRes = await this.uploadFiles(batchId, previewPath, false, undefined, redundancyLevel);
+      uploadPreviewRes = await this.uploadFileOrDirectory(
+        batchId,
+        previewPath,
+        { act: true, redundancyLevel: redundancyLevel },
+        requestOptions,
+      );
     }
 
-    const topic = infoTopic ? new Topic(Topic.fromString(infoTopic)) : getRandomTopic();
+    const topic = infoTopic ? Topic.fromString(infoTopic) : new Topic(getRandomBytes(Topic.LENGTH));
     const fileInfoResult = await this.uploadFileInfo({
       batchId: batchId.toString(),
       file: uploadFilesRes,
       topic: topic.toString(),
       owner: this.signer.publicKey().address().toString(),
-      name: path.basename(resolvedPath), // TODO: redundant read
+      name: path.basename(resolvedPath),
       timestamp: new Date().getTime(),
       shared: false,
       preview: uploadPreviewRes,
@@ -294,15 +308,25 @@ export class FileManager {
     await this.saveFileInfoFeedList();
   }
 
-  // TODO: refactor upload
-  private async uploadFiles(
+  private async uploadFileOrDirectory(
     batchId: BatchId,
     resolvedPath: string,
-    act: boolean,
-    historyRef?: string | Reference,
-    redundancyLevel?: RedundancyLevel,
+    uploadOptions?: CollectionUploadOptions | FileUploadOptions,
+    requestOptions?: BeeRequestOptions,
   ): Promise<ReferenceWithHistory> {
-    const options = historyRef ? makeBeeRequestOptions(new Reference(historyRef)) : undefined;
+    if (isDir(resolvedPath)) {
+      return this.uploadDirectory(batchId, resolvedPath, uploadOptions, requestOptions);
+    } else {
+      return this.uploadFile(batchId, resolvedPath, uploadOptions, requestOptions);
+    }
+  }
+
+  private async uploadFile(
+    batchId: BatchId,
+    resolvedPath: string,
+    uploadOptions?: FileUploadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<ReferenceWithHistory> {
     try {
       const { data, name, contentType } = readFile(resolvedPath);
       console.log(`Uploading file: ${name}`);
@@ -312,11 +336,10 @@ export class FileManager {
         data,
         name,
         {
-          act: act,
-          redundancyLevel: redundancyLevel,
+          ...uploadOptions,
           contentType: contentType,
         },
-        options,
+        requestOptions,
       );
 
       console.log(`File uploaded successfully: ${name}, reference: ${uploadFileRes.reference.toString()}`);
@@ -325,21 +348,23 @@ export class FileManager {
         historyRef: uploadFileRes.historyAddress.getOrThrow().toString(),
       };
     } catch (error: any) {
-      if (!(error instanceof FileError)) {
-        throw new FileError(`Failed to read file ${resolvedPath}: ${error}`);
-      }
+      throw `Failed to upload file ${resolvedPath}: ${error}`;
     }
+  }
 
+  private async uploadDirectory(
+    batchId: BatchId,
+    resolvedPath: string,
+    uploadOptions?: CollectionUploadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<ReferenceWithHistory> {
     console.log(`Uploading directory: ${path.basename(resolvedPath)}`);
     try {
       const uploadFilesRes = await this.bee.uploadFilesFromDirectory(
         batchId,
         resolvedPath,
-        {
-          act: act,
-          redundancyLevel: redundancyLevel,
-        },
-        options,
+        uploadOptions,
+        requestOptions,
       );
 
       console.log(
@@ -352,7 +377,7 @@ export class FileManager {
         historyRef: uploadFilesRes.historyAddress.getOrThrow().toString(),
       };
     } catch (error: any) {
-      throw `Failed to upload file ${resolvedPath}: ${error}`;
+      throw `Failed to upload directory ${resolvedPath}: ${error}`;
     }
   }
 
@@ -562,7 +587,6 @@ export class FileManager {
 
     let grantResult: GranteesResult;
     if (eGranteeRef !== undefined) {
-      // TODO: history ref should be optional in bee-js
       grantResult = await this.bee.patchGrantees(
         fileInfo.batchId,
         eGranteeRef,
@@ -584,9 +608,9 @@ export class FileManager {
   // End grantee handler methods
 
   // Start share methods
-  subscribeToSharedInbox(topic: string, callback?: (data: ShareItem) => void): PssSubscription {
+  subscribeToSharedInbox(topic: string, callback?: (data: ShareItem) => void): void {
     console.log('Subscribing to shared inbox, topic: ', topic);
-    this.sharedSubscription = this.bee.pssSubscribe(new Topic(Topic.fromString(topic)), {
+    this.sharedSubscription = this.bee.pssSubscribe(Topic.fromString(topic), {
       onMessage: (message) => {
         console.log('Received shared inbox message: ', message);
         assertShareItem(message);
@@ -600,8 +624,6 @@ export class FileManager {
         throw e;
       },
     });
-
-    return this.sharedSubscription;
   }
 
   unsubscribeFromSharedInbox(): void {
@@ -639,15 +661,14 @@ export class FileManager {
   // recipient is optional, if not provided the message will be broadcasted == pss public key
   private async sendShareMessage(targetOverlays: string[], item: ShareItem, recipients: string[]): Promise<void> {
     if (recipients.length === 0 || recipients.length !== targetOverlays.length) {
-      console.log('Invalid recipients or  targetoverlays specified for sharing.');
-      return;
+      throw 'Invalid recipients or  targetoverlays specified for sharing.';
     }
 
     for (let i = 0; i < recipients.length; i++) {
       try {
         // TODO: mining will take too long, 2 bytes are enough
         const target = Utils.makeMaxTarget(targetOverlays[i]);
-        const msgData = new Uint8Array(Buffer.from(JSON.stringify(item)));
+        const msgData = Bytes.fromUtf8(JSON.stringify(item)).toUint8Array();
         this.bee.pssSend(item.fileInfo.batchId, SHARED_INBOX_TOPIC, target, msgData, recipients[i]);
       } catch (error: any) {
         console.log(`Failed to share item with recipient: ${recipients[i]}\n `, error);

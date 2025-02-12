@@ -19,18 +19,18 @@ export function getContentType(filePath: string): string {
   return contentTypes.get(ext) || 'application/octet-stream';
 }
 
-export function readFile(filePath: string): FileData {
-  const isDir = fs.lstatSync(filePath).isDirectory();
-  if (isDir) {
-    throw new FileError('readFile cannot read a directory!');
-  }
+export function isDir(path: string): boolean {
+  if (!fs.existsSync(path)) throw new FileError(`Path ${path} does not exist!`);
+  return fs.lstatSync(path).isDirectory();
+}
 
+export function readFile(filePath: string): FileData {
   const resolvedPath = path.resolve(__dirname, filePath);
-  const fileData = new Uint8Array(fs.readFileSync(resolvedPath));
+  const readable = fs.createReadStream(resolvedPath);
   const fileName = path.basename(resolvedPath);
   const contentType = getContentType(resolvedPath);
 
-  return { data: fileData, name: fileName, contentType };
+  return { data: readable, name: fileName, contentType };
 }
 
 export function isObject(value: unknown): value is Record<string, unknown> {
@@ -159,6 +159,6 @@ export function isNotFoundError(error: any): boolean {
   return error.stack.includes('404') || error.message.includes('Not Found') || error.message.includes('404');
 }
 
-export function getRandomTopic(): Topic {
-  return new Topic(randomBytes(Topic.LENGTH));
+export function getRandomBytes(len: number): Bytes {
+  return new Bytes(randomBytes(len));
 }

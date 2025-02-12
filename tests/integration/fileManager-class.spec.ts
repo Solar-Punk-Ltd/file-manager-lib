@@ -130,7 +130,6 @@ describe('FileManager initialization', () => {
 
       const fileInfoList = fileManager.getFileInfoList();
       expect(fileInfoList.length).toEqual(expFileDataArr.length);
-      console.log('baogy test fileInfoList: ', fileInfoList);
       await dowloadAndCompareFiles(fileManager, publsiherPublicKey, fileInfoList, expFileDataArr);
     }
     // re-init fileManager after it goes out of scope to test if the file is saved on the feed
