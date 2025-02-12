@@ -58,13 +58,16 @@ export function uploadDataMock(
   options?: UploadOptions,
   extraHeaders?: Record<string, string>,
 ): nock.Interceptor {
-  console.log("Setting up mock for batch ID:", batchId);
-  
-  return nock('http://localhost:1633')  // Use exact URL
-    //.persist()  // Keep the mock active for multiple calls
-    .filteringRequestBody(() => '*')  // Ignore request body differences
-    .post('/bytes')  // Exact endpoint
+  // Prefixes the options with `swarm-` so the object can be used for required headers
+  const headers = Object.entries(options || {}).reduce<Record<string, string>>((prev, curr) => {
+    prev[`swarm-${camelCaseToDashCase(curr[0])}`] = curr[1];
 
+    return prev;
+  }, {});
+
+  return nock(MOCK_SERVER_URL, {
+    reqheaders: { 'swarm-postage-batch-id': batchId, ...headers, ...extraHeaders },
+  }).post(`${BYTES_ENDPOINT}`);
 }
 
 export function socPostMock(

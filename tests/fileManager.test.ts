@@ -1,10 +1,12 @@
 //import { TextEncoder, TextDecoder } from "util";
 import { FileManager } from '../src/fileManager';
-import { createMockMantarayNode, emptyFileInfoTxt, extendedFileInfoTxt, fileInfoTxt, mockBatchId, MockLocalStorage, Optional, pathToRef } from './mockHelpers';
+import { createMockMantarayNode, emptyFileInfoTxt, extendedFileInfoTxt, fileInfoTxt, mockBatchId, MockLocalStorage, pathToRef } from './mockHelpers';
 import { FileInfo } from "../src/types";
+import { Optional } from 'cafe-utility'
+
 import { FILE_INFO_LOCAL_STORAGE } from "../src/constants";
 import { downloadDataMock, MOCK_SERVER_URL, uploadDataMock } from './nock';
-import { BatchId, Bee, MantarayNode, Reference, UploadResult } from '@upcoming/bee-js';
+import { BatchId, Bee, Bytes, MantarayNode, Reference, UploadResult } from '@upcoming/bee-js';
 //import { ShareItem } from 'src/types';
 
 //global.TextEncoder = TextEncoder;
@@ -162,7 +164,7 @@ describe('listFiles', () => {
   it('should list paths (refs) for given input list', async () => {
     jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
     
-    const mockBatchId = new BatchId("6311c41a9f9781820d6161af40556ef67bd410b30ef6d56ebdec438f204ae562");
+    const mockBatchId = new BatchId("6f41dd9a54a0650cf7ed3eab0605ba386d6fcd4ee8650302fe34cf5ea986c794");
     const uploadResult1 = {
       reference: new Reference('2894fabf569cf8ca189328da14f87eb0578910855b6081871f377b4629c59c4d').toHex(),
       historyAddress: null
@@ -171,16 +173,36 @@ describe('listFiles', () => {
       reference: new Reference('1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68').toHex(),
       historyAddress: null
     }
-    //uploadDataMock(mockBatchId.toHex()).times(1).reply(200, uploadResult1);
-    //uploadDataMock(mockBatchId.toHex()).times(1).reply(200, uploadResult2);
+    const uploadResult: UploadResult = {
+      reference: new Reference('1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68'),
+      historyAddress: Optional.empty()
+    };
+  
+    // Spy on the Bee.upload method so that it returns uploadResult.
+    jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValue(uploadResult);
+    //uploadDataMock(mockBatchId.toHex()).times(1).reply(200, uploadResult1)
+      //.persist()
+      //.post(/.*/) 
+    //uploadDataMock(mockBatchId.toHex()).times(1).reply(200, uploadResult2)
+      //.persist()
+      //.post(/.*/)
     // 2894fabf569cf8ca189328da14f87eb0578910855b6081871f377b4629c59c4d
     // 1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68
 
     const mantaray = new MantarayNode();
     mantaray.addFork('hello.txt', '9'.repeat(64))
-    let mantarayReference = await mantaray.saveRecursively(new Bee(MOCK_SERVER_URL), mockBatchId.toHex())
+    try {
+      let mantarayReference = await mantaray.saveRecursively(new Bee(MOCK_SERVER_URL), mockBatchId.toHex())
+    } catch (error) {
+      console.log(error)
+      throw error
+      if ((error as any).response) {
+        console.error("Response Data:", (error as any).response.data);
+        console.error("Status Code:", (error as any).response.status);
+      }
+    }
     console.log("Manta: ", mantaray)
-return
+
     //console.log("egyik", uint8Mantara)
     const selfRef = await mantaray.calculateSelfAddress();
     //res = await mantaray.saveRecursively(new Bee(MOCK_SERVER_URL), mockBatchId)
@@ -191,8 +213,10 @@ return
 
     
     console.log("Self Address: ", selfRef.toHex())
-    downloadDataMock('1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68')
-    .reply(200, marshaled);
+    //downloadDataMock('1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68')
+    const beeJsBytes = new Bytes(marshaled)
+    jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(beeJsBytes)
+    //.reply(200, marshaled);
     
     //const x = await MantarayNode.unmarshal(new Bee(MOCK_SERVER_URL), '1'.repeat(64))
     //x.loadRecursively(new Bee(MOCK_SERVER_URL))
@@ -208,7 +232,7 @@ return
     const path = await fileManager.listFiles(list[0]);
 
     expect(path).toBe('src/folder/1.txt');
-  });
+  }, 60*1000);
 });
 
 describe('upload', () => {
