@@ -1,4 +1,5 @@
 import { Reference } from '@upcoming/bee-js';
+
 import { encodePathToBytes } from '../src/utils';
 
 export const mockBatchId = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
@@ -14,7 +15,7 @@ export const fileInfoTxt = `[
   }
 ]`;
 
-export const extendedFileInfoTxt = `[{"batchId":"ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51","eFileRef":"1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68"},{"batchId":"ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51","eFileRef":"2222222222222222222222222222222222222222222222222222222222222222"},{"batchId":"ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51","eFileRef":"3333333333333333333333333333333333333333333333333333333333333333\"}]`;
+export const extendedFileInfoTxt = `[{"batchId":"ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51","eFileRef":"1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68"},{"batchId":"ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51","eFileRef":"2222222222222222222222222222222222222222222222222222222222222222"},{"batchId":"ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51","eFileRef":"3333333333333333333333333333333333333333333333333333333333333333\\"}]`;
 
 export const emptyFileInfoTxt = `[]`;
 
@@ -96,7 +97,6 @@ export class MockLocalStorage {
     this.store = {};
   }
 }
-
 
 // Map that will translate Referene to file path, only used while mocking Swarm (offline)
 export const refToPath = new Map<Reference, string>();

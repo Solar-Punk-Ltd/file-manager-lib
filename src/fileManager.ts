@@ -25,12 +25,12 @@ export class FileManager {
     }
 
     const data = JSON.parse(rawData) as FileInfo[];
-    if (!Array.isArray(data)) throw new Error("fileInfoList has to be an array!");
+    if (!Array.isArray(data)) throw new Error('fileInfoList has to be an array!');
 
     const processedData: FileInfo[] = data.map((rawItem) => ({
       batchId: new BatchId(rawItem.batchId),
       eFileRef: new Reference(rawItem.eFileRef),
-      topic: rawItem.topic ? new Topic(rawItem.topic): undefined,
+      topic: rawItem.topic ? new Topic(rawItem.topic) : undefined,
       historyRef: rawItem.historyRef ? new Reference(rawItem.historyRef) : undefined,
       owner: rawItem.owner ? rawItem.owner : undefined,
       fileName: rawItem.fileName,
@@ -38,7 +38,7 @@ export class FileManager {
       shared: rawItem.shared,
       preview: rawItem.preview,
       redundancyLevel: rawItem.redundancyLevel,
-      customMetadata: rawItem.customMetadata
+      customMetadata: rawItem.customMetadata,
     }));
 
     this.fileInfoList = processedData;
@@ -57,7 +57,7 @@ export class FileManager {
       const index = this.fileInfoList.length.toString(16).padStart(64, '0').slice(0, 64);
 
       this.fileInfoList.push(fileInfo);
-console.log(this.fileInfoList[0].batchId)
+      console.log(this.fileInfoList[0].batchId);
       const fileInfoList = this.fileInfoList.map((item) => ({
         batchId: item.batchId.toHex(),
         eFileRef: item.eFileRef.toHex(),
@@ -69,8 +69,8 @@ console.log(this.fileInfoList[0].batchId)
         shared: item.shared,
         preview: item.preview,
         redundancyLevel: item.redundancyLevel,
-        customMetadata: item.customMetadata
-      }))
+        customMetadata: item.customMetadata,
+      }));
 
       localStorage.setItem(FILE_INFO_LOCAL_STORAGE, JSON.stringify(fileInfoList));
 
@@ -90,50 +90,52 @@ console.log(this.fileInfoList[0].batchId)
   // fileInfo might point to a folder, or a single file
   // could name downloadFiles as well, possibly
   // getDirectorStructure()
-  async listFiles(fileInfo: FileInfo): Promise<Reference[]> {
+  async listFiles(fileInfo: FileInfo): Promise<string[]> {
+    // Get the target reference from fileInfo
     const targetRef = new Reference(fileInfo.eFileRef).toHex();
-    console.log("Target ref: ",  targetRef)
-    const mantaray = await MantarayNode.unmarshal(this.bee, targetRef);
-    //console.log("M", mantaray)
-    await mantaray.loadRecursively(this.bee);
-    //console.log("L", mantaray.forks.get(104))
+    console.log('Target ref: ', targetRef);
 
-    const refList: Reference[] = [];
-    let stack: MantarayStackItem[] = [{ node: mantaray, path: '' }];
-    let found = false;
+    // Unmarshal (load) the root node from Bee
+    const mantaray = await MantarayNode.unmarshal(this.bee, targetRef);
+    await mantaray.loadRecursively(this.bee);
+
+    const refList: string[] = [];
+    // Start with the root node and an empty path
+    const stack: { node: MantarayNode; path: string }[] = [{ node: mantaray, path: '' }];
 
     while (stack.length > 0) {
-      const item = stack.pop();
-      if (!item) continue;
-      const { node: currentMantaray, path: currentPath } = item;
-      const forks = currentMantaray.forks;
+      const { node, path } = stack.pop()!;
 
-      if (!forks) continue;      
+      // If the current node has forks, iterate over them.
+      if (node.forks && node.forks.size > 0) {
+        for (const [key, fork] of node.forks.entries()) {
+          // Decode the prefix (the name of the file/folder) if available,
+          // and explicitly convert key to a string if needed.
+          const prefix: string = fork.prefix ? decodeBytesToPath(fork.prefix) : `${key}` || 'unknown';
+          // Build the full path string
+          const fullPath: string = path ? `${path}/${prefix}` : prefix;
 
-      for (const [key, fork] of forks.entries()) {
-        const prefix = fork.prefix ? decodeBytesToPath(fork.prefix) : key || 'unknown'; // Decode path
-        const fullPath = currentPath.endsWith('/') ? `${currentPath}${prefix}` : `${currentPath}/${prefix}`;
-
-        console.log('fork.node.targetAddress: ', fork.node.targetAddress);
-        console.log(`fork.node.targetAddress === targetRef:  ${fork.node.targetAddress} === ${targetRef}`);
-        console.log("Prefix: ", new Bytes(fork.prefix).toUtf8())
-        /*if (fork.node.targetAddress === targetRef && !found) {
-          stack = [item];
-          found = true;
+          // Here we decide if the fork is a file (leaf node) or a folder (has forks).
+          // In your test setup, the file node does not have any forks.
+          if (!fork.node.forks || fork.node.forks.size === 0) {
+            // It’s a file—add its full path to the list.
+            refList.push(fullPath);
+          } else {
+            // It’s a directory—push it onto the stack to continue traversing.
+            stack.push({ node: fork.node, path: fullPath });
+          }
         }
-
-        if (fork.node.isValueType() && found) {
-          if (fork.node.getEntry) refList.push(fork.node.getEntry);
-        } else {
-          stack.push({ node: fork.node, path: fullPath });
-        }*/
       }
     }
 
     return refList;
   }
 
-  async upload(batchId: string | BatchId, reference: Reference, customMetadata?: Record<string, string>): Promise<string> {
+  async upload(
+    batchId: string | BatchId,
+    reference: Reference,
+    customMetadata?: Record<string, string>,
+  ): Promise<string> {
     const fileInfo: FileInfo = {
       eFileRef: new Reference(reference),
       batchId: new BatchId(batchId),
