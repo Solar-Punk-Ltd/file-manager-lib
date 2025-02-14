@@ -111,7 +111,8 @@ export class FileManager {
         for (const [key, fork] of node.forks.entries()) {
           const prefix: string = fork.prefix ? decodeBytesToPath(fork.prefix) : `${key}` || 'unknown';
           console.log("prefix: ", prefix)
-          const fullPath: string = path ? `${path}/${prefix}` : prefix;
+          let fullPath: string = path ? `${path}/${prefix}` : prefix;
+          fullPath = fullPath.replace(/\0/g, '');
           console.log("fullPath: ", fullPath);
 
           if (!fork.node.forks || fork.node.forks.size === 0) {
@@ -125,6 +126,7 @@ export class FileManager {
       }
     }
 
+    console.log("This will be returned: ", refList)
     return refList;
   }
 

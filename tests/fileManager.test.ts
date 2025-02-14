@@ -176,7 +176,7 @@ describe('listFiles', () => {
     const fileManager = new FileManager();
     await fileManager.initialize();
 
-    const mockBatchId = new BatchId('6f41dd9a54a0650cf7ed3eab0605ba386d6fcd4ee8650302fe34cf5ea986c794');
+    const mockBatchId = new BatchId('33a3c54eb870c7257d18ee364c57f4b61dfafd670b8f1475eedd8fb178fe0eec');
     const uploadResult = {
       reference: new Reference('2894fabf569cf8ca189328da14f87eb0578910855b6081871f377b4629c59c4d'),
       historyAddress: Optional.of(new Reference('1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68')),
