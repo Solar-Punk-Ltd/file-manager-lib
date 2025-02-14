@@ -109,14 +109,11 @@ export class FileManager {
       // If the current node has forks, iterate over them.
       if (node.forks && node.forks.size > 0) {
         for (const [key, fork] of node.forks.entries()) {
-          // Decode the prefix (the name of the file/folder) if available,
-          // and explicitly convert key to a string if needed.
           const prefix: string = fork.prefix ? decodeBytesToPath(fork.prefix) : `${key}` || 'unknown';
-          // Build the full path string
+          console.log("prefix: ", prefix)
           const fullPath: string = path ? `${path}/${prefix}` : prefix;
+          console.log("fullPath: ", fullPath);
 
-          // Here we decide if the fork is a file (leaf node) or a folder (has forks).
-          // In your test setup, the file node does not have any forks.
           if (!fork.node.forks || fork.node.forks.size === 0) {
             // It’s a file—add its full path to the list.
             refList.push(fullPath);
