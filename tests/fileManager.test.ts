@@ -313,49 +313,49 @@ describe('shareItems', () => {
 });
 */
 
-// describe('upload and listFiles', () => {
-//   let originalLocalStorage: Storage;
+describe('upload and listFiles', () => {
+  let originalLocalStorage: Storage;
 
-//   beforeEach(() => {
-//     jest.resetAllMocks();
-//     originalLocalStorage = global.localStorage;
-//     Object.defineProperty(global, 'localStorage', {
-//       value: new MockLocalStorage(),
-//       writable: true,
-//       configurable: true,
-//     });
-//   });
+  beforeEach(() => {
+    jest.resetAllMocks();
+    originalLocalStorage = global.localStorage;
+    Object.defineProperty(global, 'localStorage', {
+      value: new MockLocalStorage(),
+      writable: true,
+      configurable: true,
+    });
+  });
 
-//   afterEach(() => {
-//     Object.defineProperty(global, 'localStorage', {
-//       value: originalLocalStorage,
-//       writable: true,
-//     });
-//     jest.restoreAllMocks();
-//   });
+  afterEach(() => {
+    Object.defineProperty(global, 'localStorage', {
+      value: originalLocalStorage,
+      writable: true,
+    });
+    jest.restoreAllMocks();
+  });
 
-//   it('should give back correct refs by listFiles, after upload', async () => {
-//     const fileManager = new FileManager();
-//     localStorage.setItem(FILE_INFO_LOCAL_STORAGE, fileInfoTxt);
-//     await fileManager.initialize();
+  it('should give back correct refs by listFiles, after upload', async () => {
+    const fileManager = new FileManager();
+    localStorage.setItem(FILE_INFO_LOCAL_STORAGE, fileInfoTxt);
+    await fileManager.initialize();
 
-//     let list = fileManager.getFileInfoList();
-//     const listt: FileInfo[] = [
-//       {
-//         batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
-//         eFileRef: new Reference('c14653e8d747c6dc6ddefd39688391189e686236aec361637b22d5f138329f5c'),
-//       },
-//     ];
-//     let path = await fileManager.listFiles(listt[0]);
+    let list = fileManager.getFileInfoList();
+    const listt: FileInfo[] = [
+      {
+        batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
+        eFileRef: new Reference('c14653e8d747c6dc6ddefd39688391189e686236aec361637b22d5f138329f5c'),
+      },
+    ];
+    let path = await fileManager.listFiles(listt[0]);
 
-//     expect(path).toBe('c14653e8d747c6dc6ddefd39688391189e686236aec361637b22d5f138329f5c');
-//     expect(path).toBe('src/folder/1.txt');
+    expect(path).toBe('c14653e8d747c6dc6ddefd39688391189e686236aec361637b22d5f138329f5c');
+    expect(path).toBe('src/folder/1.txt');
 
-//     await fileManager.upload(mockBatchId, pathToRef.get('src/folder/3.txt')!);
+    await fileManager.upload(mockBatchId, pathToRef.get('src/folder/3.txt')!);
 
-//     list = fileManager.getFileInfoList();
-//     path = await fileManager.listFiles(list[2]);
+    list = fileManager.getFileInfoList();
+    path = await fileManager.listFiles(list[2]);
 
-//     expect(path).toBe('src/folder/3.txt');
-//   });
-// });
+    expect(path).toBe('src/folder/3.txt');
+  });
+});
