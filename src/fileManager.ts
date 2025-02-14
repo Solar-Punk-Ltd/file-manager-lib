@@ -91,17 +91,14 @@ export class FileManager {
   // could name downloadFiles as well, possibly
   // getDirectorStructure()
   async listFiles(fileInfo: FileInfo): Promise<string[]> {
-    // Get the target reference from fileInfo
     const targetRef = new Reference(fileInfo.eFileRef).toHex();
     console.log('Target ref: ', targetRef);
 
-    // Unmarshal (load) the root node from Bee
     const mantaray = await MantarayNode.unmarshal(this.bee, targetRef);
     await mantaray.loadRecursively(this.bee);
 
     const refList: string[] = [];
-    // Start with the root node and an empty path
-    const stack: { node: MantarayNode; path: string }[] = [{ node: mantaray, path: '' }];
+    const stack: { node: MantarayNode; path: string }[] = [{ node: mantaray, path: '' }];     // Start with the root node and an empty path
 
     while (stack.length > 0) {
       const { node, path } = stack.pop()!;
@@ -110,10 +107,8 @@ export class FileManager {
       if (node.forks && node.forks.size > 0) {
         for (const [key, fork] of node.forks.entries()) {
           const prefix: string = fork.prefix ? decodeBytesToPath(fork.prefix) : `${key}` || 'unknown';
-          console.log("prefix: ", prefix)
           let fullPath: string = path ? `${path}/${prefix}` : prefix;
           fullPath = fullPath.replace(/\0/g, '');
-          console.log("fullPath: ", fullPath);
 
           if (!fork.node.forks || fork.node.forks.size === 0) {
             // It’s a file—add its full path to the list.
@@ -126,7 +121,6 @@ export class FileManager {
       }
     }
 
-    console.log("This will be returned: ", refList)
     return refList;
   }
 

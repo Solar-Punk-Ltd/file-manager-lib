@@ -197,14 +197,20 @@ describe('listFiles', () => {
     const rootNode = new MantarayNode();
     rootNode.addFork('hello.txt', forkRef);
 
-    jest
+    
+    const downloadDataSpy = jest
       .spyOn(Bee.prototype, 'downloadData')
       .mockImplementationOnce(async () => new Bytes(await rootNode.marshal()))
       .mockImplementation(async () => new Bytes(await new MantarayNode().marshal()));   // Default Empty Node for Unmatched Refs
       // I think this shouldn't be here, this is not the real behavior for unmatched refs
 
     const paths = await fileManager.listFiles(fileManager.getFileInfoList()[0]);
+
+    console.log("Calls: ", downloadDataSpy.mock.calls);
+
     console.log("Paths: ", paths)
+    expect(downloadDataSpy).toHaveBeenCalledWith('1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68');
+    expect(downloadDataSpy).toHaveBeenLastCalledWith(uploadResult.reference.toUint8Array());
     expect(paths[0]).toBe('hello.txt');
   });
 });

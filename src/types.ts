@@ -2,7 +2,7 @@ import { BatchId, EthAddress, MantarayNode, RedundancyLevel, Reference, Topic } 
 
 export interface FileInfo {
   batchId: BatchId;
-  eFileRef: Reference;
+  eFileRef: Reference;    // should be renamed to eMantarayRef
   topic?: Topic;
   historyRef?: Reference;
   owner?: EthAddress;
