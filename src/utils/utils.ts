@@ -1,4 +1,4 @@
-import { BeeRequestOptions, Bytes, EthAddress, FeedIndex, Reference, Topic } from '@upcoming/bee-js';
+import { BatchId, Bee, BeeRequestOptions, Bytes, EthAddress, FeedIndex, Reference, Topic } from '@upcoming/bee-js';
 import { randomBytes } from 'crypto';
 import * as fs from 'fs';
 import path from 'path';
@@ -113,8 +113,8 @@ export function assertWrappedFileInoFeed(value: unknown): asserts value is Wrapp
 
   const wmf = value as unknown as WrappedFileInfoFeed;
 
-  new Reference(wmf.reference);
-  new Reference(wmf.historyRef);
+  // new Reference(wmf.reference);
+  // new Reference(wmf.historyRef);
 
   if (wmf.eGranteeRef !== undefined) {
     new Reference(wmf.eGranteeRef);
@@ -159,4 +159,18 @@ export function isNotFoundError(error: any): boolean {
 
 export function getRandomBytes(len: number): Bytes {
   return new Bytes(randomBytes(len));
+}
+
+export async function buyStamp(bee: Bee, amount: string | bigint, depth: number, label?: string): Promise<BatchId> {
+  const stamp = (await bee.getAllPostageBatch()).find(async (b) => {
+    b.label === label;
+  });
+  if (stamp && stamp.usable) {
+    return stamp.batchID;
+  }
+
+  return await bee.createPostageBatch(amount, depth, {
+    waitForUsable: true,
+    label: label,
+  });
 }

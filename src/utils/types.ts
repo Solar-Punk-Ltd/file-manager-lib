@@ -21,13 +21,15 @@ export interface ShareItem {
   message?: string;
 }
 
+// TODO: make historyRef optional
 export interface ReferenceWithHistory {
   reference: string | Reference;
   historyRef: string | Reference;
 }
 
 // TODO: sotre index for a quicker upload
-export interface WrappedFileInfoFeed extends ReferenceWithHistory {
+export interface WrappedFileInfoFeed {
+  topic: string | Topic;
   eGranteeRef?: string | Reference;
   // index?: FeedIndex;
 }
@@ -56,4 +58,9 @@ export interface RequestOptions {
   publisher?: PublicKey;
   timestamp?: number;
   redundancyLevel?: RedundancyLevel;
+}
+
+export interface UploadProgress {
+  total: number;
+  processed: number;
 }

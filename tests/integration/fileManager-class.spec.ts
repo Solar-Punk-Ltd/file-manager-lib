@@ -1,3 +1,7 @@
+import { TextDecoder as NodeTextDecoder, TextEncoder } from 'util';
+global.TextDecoder = NodeTextDecoder as typeof TextDecoder;
+global.TextEncoder = TextEncoder;
+
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { BeeDev, Reference } from '@upcoming/bee-js';
 import path from 'path';
@@ -5,9 +9,11 @@ import path from 'path';
 import { FileManager } from '../../src/fileManager';
 import { OWNER_FEED_STAMP_LABEL, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { StampError } from '../../src/utils/errors';
+import { buyStamp } from '../../src/utils/utils';
 import {
   BEE_URL,
-  buyStamp,
+  DEFAULT_BATCH_AMOUNT,
+  DEFAULT_BATCH_DEPTH,
   dowloadAndCompareFiles,
   getTestFile,
   MOCK_SIGNER,
@@ -19,7 +25,7 @@ import {
 describe('FileManager initialization', () => {
   beforeEach(async () => {
     const bee = new BeeDev(BEE_URL);
-    await buyStamp(bee, OWNER_FEED_STAMP_LABEL);
+    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
 
     jest.resetAllMocks();
   });
@@ -42,7 +48,7 @@ describe('FileManager initialization', () => {
 
   it('should fetch the owner stamp and initialize the owner feed and topic', async () => {
     const bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
-    const batchId = await buyStamp(bee, OWNER_FEED_STAMP_LABEL);
+    const batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
     const fileManager = new FileManager(bee);
     await fileManager.initialize();
     const stamps = await fileManager.getStamps();
@@ -103,24 +109,28 @@ describe('FileManager initialization', () => {
   });
 
   it('should upload to and fetch from swarm a nested folder with files', async () => {
-    const exptTestFileData = getTestFile('fixtures/test.txt');
-    const expNestedPaths = await readFilesOrDirectory(path.join(__dirname, '../fixtures/nested'), 'nested');
-    const expFileDataArr: string[][] = [];
-    const fileDataArr: string[] = [];
-    for (const f of expNestedPaths) {
-      fileDataArr.push(getTestFile(`./fixtures/${f}`));
-    }
-    expFileDataArr.push(fileDataArr);
-    expFileDataArr.push([exptTestFileData]);
+    // const exptTestFileData = getTestFile('fixtures/test.txt');
+    // const expNestedPaths = await readFilesOrDirectory(path.join(__dirname, '../fixtures/nested'), 'nested');
+    // const fileDataArr: File[] = [];
+    // for (const f of expNestedPaths) {
+    //   fileDataArr.push(getTestFile(`./fixtures/${f}`));
+    // }
+    // expFileDataArr.push(fileDataArr);
+    // expFileDataArr.push([exptTestFileData]);
+    const firstFile = new File(['Shh!'], 'secret.txt', { type: 'text/plain' });
+    const secondFile = new File(['Hello'], 'nested/hello.txt', { type: 'text/plain' });
+    const thirdFile = new File(['World'], 'nested/world.txt', { type: 'text/plain' });
+    const expNestedPaths = ['secret.txt', 'nested/hello.txt', 'nested/world.txt'];
+    const expFileDataArr: File[][] = [[firstFile], [secondFile, thirdFile]];
 
     const bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
-    const testStampId = await buyStamp(bee, 'testStamp');
+    const testStampId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'testStamp');
     {
       const fileManager = new FileManager(bee);
       await fileManager.initialize();
       const publsiherPublicKey = fileManager.getNodeAddresses().publicKey.toCompressedHex();
-      await fileManager.upload(testStampId, path.join(__dirname, '../fixtures/nested'));
-      await fileManager.upload(testStampId, path.join(__dirname, '../fixtures/test.txt'));
+      await fileManager.upload(testStampId, [firstFile]);
+      await fileManager.upload(testStampId, [secondFile, thirdFile]);
 
       const fileInfoList = fileManager.getFileInfoList();
       expect(fileInfoList.length).toEqual(expFileDataArr.length);
@@ -130,6 +140,7 @@ describe('FileManager initialization', () => {
         actHistoryAddress: fileInfoList[0].file.historyRef,
         actPublisher: publsiherPublicKey,
       });
+      console.log('bagoy fileList', fileList);
       expect(fileList.length).toEqual(expNestedPaths.length);
       for (const [ix, f] of fileList.entries()) {
         expect(path.basename(f.path)).toEqual(path.basename(expNestedPaths[ix]));

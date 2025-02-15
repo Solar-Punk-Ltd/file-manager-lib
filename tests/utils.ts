@@ -12,20 +12,6 @@ export const DEFAULT_BATCH_AMOUNT = '500000000';
 export const MOCK_SIGNER = new PrivateKey('634fb5a872396d9693e5c9f9d7233cfa93f395c093371017ff44aa9ae6564cdd');
 export const OTHER_MOCK_SIGNER = new PrivateKey('734fb5a872396d9693e5c9f9d7233cfa93f395c093371017ff44aa9ae6564cd7');
 
-export async function buyStamp(bee: Bee, label?: string): Promise<BatchId> {
-  const ownerStamp = (await bee.getAllPostageBatch()).find(async (b) => {
-    b.label === label;
-  });
-  if (ownerStamp && ownerStamp.usable) {
-    return ownerStamp.batchID;
-  }
-
-  return await bee.createPostageBatch(DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, {
-    waitForUsable: true,
-    label: label,
-  });
-}
-
 export function getTestFile(relativePath: string): string {
   return fs.readFileSync(path.resolve(__dirname, relativePath), 'utf-8');
 }
@@ -62,7 +48,7 @@ export async function dowloadAndCompareFiles(
   fileManager: FileManager,
   publicKey: string,
   fiList: FileInfo[],
-  expArr: string[][],
+  expArr: File[][],
 ): Promise<void> {
   if (fiList.length !== expArr.length) {
     expect(fiList.length).toEqual(expArr.length);

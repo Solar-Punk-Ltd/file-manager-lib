@@ -17,6 +17,7 @@ import {
   PrivateKey,
   PssSubscription,
   RedundancyLevel,
+  RedundantUploadOptions,
   Reference,
   STAMPS_DEPTH_MAX,
   Topic,
@@ -39,12 +40,14 @@ import {
   ReferenceWithHistory,
   ReferenceWithPath,
   ShareItem,
+  UploadProgress,
   WrappedFileInfoFeed,
 } from './utils/types';
 import {
   assertFileInfo,
   assertShareItem,
   assertWrappedFileInoFeed,
+  buyStamp,
   getRandomBytes,
   isDir,
   isNotFoundError,
@@ -65,6 +68,7 @@ export class FileManager {
   private sharedWithMe: ShareItem[];
   private sharedSubscription: PssSubscription | undefined;
   private ownerFeedTopic: Topic;
+  private isInitialized: boolean;
 
   constructor(bee: Bee) {
     this.bee = bee;
@@ -79,6 +83,7 @@ export class FileManager {
     this.ownerFeedTopic = NULL_TOPIC;
     this.sharedWithMe = [];
     this.sharedSubscription = undefined;
+    this.isInitialized = false;
   }
 
   // Start init methods
@@ -89,6 +94,8 @@ export class FileManager {
     await this.initOwnerFeedTopic();
     await this.initOwnerFeedList();
     await this.initFileInfoList();
+
+    this.isInitialized = true;
   }
 
   // verifies if the bee and bee-api versions are supported
@@ -145,7 +152,7 @@ export class FileManager {
   // fetches the usable stamps from the node
   private async initStamps(): Promise<void> {
     try {
-      this.stampList = await this.getUsableStamps();
+      await this.getUsableStamps();
       console.log('Usable stamps fetched successfully.');
     } catch (error: any) {
       console.error(`Failed to fetch stamps: ${error}`);
@@ -184,7 +191,7 @@ export class FileManager {
   // fetches the file info list from the owner feed and unwraps the data encrypted with ACT
   private async initFileInfoList(): Promise<void> {
     for (const feedItem of this.ownerFeedList) {
-      const rawFeedData = await this.getFeedData(new Topic(feedItem.reference));
+      const rawFeedData = await this.getFeedData(new Topic(feedItem.topic));
       const fileInfoFeedData = rawFeedData.payload.toJSON() as ReferenceWithHistory;
 
       const unwrappedFileInfoData = (
@@ -207,8 +214,12 @@ export class FileManager {
   // End init methods
 
   // Start mantaray methods
-  async saveMantaray(batchId: BatchId, mantaray: MantarayNode, options?: UploadOptions): Promise<Reference> {
-    return mantaray.saveRecursively(this.bee, batchId, options);
+  async saveMantaray(batchId: BatchId, mantaray: MantarayNode, options?: UploadOptions): Promise<ReferenceWithHistory> {
+    const result = await mantaray.saveRecursively(this.bee, batchId, options);
+    return {
+      reference: result.reference.toString(),
+      historyRef: result.historyAddress.getOrThrow().toString(),
+    };
   }
 
   private async loadMantaray(mantarayRef: Reference, options?: DownloadOptions): Promise<MantarayNode> {
@@ -255,6 +266,10 @@ export class FileManager {
   // End mantaray methods
 
   // Start getter methods
+  getIsInitialized(): boolean {
+    return this.isInitialized;
+  }
+
   getFileInfoList(): FileInfo[] {
     return this.fileInfoList;
   }
@@ -269,32 +284,35 @@ export class FileManager {
   // End getter methods
 
   // Start Swarm data saving methods
+  // TODO: event emitter integration
   async upload(
     batchId: BatchId,
-    resolvedPath: string,
-    previewPath?: string,
+    files: File[] | FileList,
+    customMetadata?: Record<string, string>,
     historyRef?: Reference,
     infoTopic?: string,
     index?: number | undefined,
+    preview?: File,
     redundancyLevel?: RedundancyLevel,
-    customMetadata?: Record<string, string>,
   ): Promise<void> {
     if ((infoTopic && !historyRef) || (!infoTopic && historyRef)) {
       throw new FileInfoError('infoTopic and historyRef have to be provided at the same time.');
     }
 
     const requestOptions = historyRef ? makeBeeRequestOptions({ historyRef }) : undefined;
-    const uploadFilesRes = await this.uploadFileOrDirectory(
+    const uploadFilesRes = await this.streamFiles(
       batchId,
-      resolvedPath,
+      files,
+      (p) => console.log(`progress: ${p.processed}/${p.total}`),
       { act: true, redundancyLevel },
       requestOptions,
     );
     let uploadPreviewRes: ReferenceWithHistory | undefined;
-    if (previewPath) {
-      uploadPreviewRes = await this.uploadFileOrDirectory(
+    if (preview) {
+      uploadPreviewRes = await this.streamFiles(
         batchId,
-        previewPath,
+        [preview],
+        (p) => console.log(`progress: ${p.processed}/${p.total}`),
         { act: true, redundancyLevel },
         requestOptions,
       );
@@ -307,7 +325,7 @@ export class FileManager {
       file: uploadFilesRes,
       topic: topic.toString(),
       owner: this.signer.publicKey().address().toString(),
-      name: path.basename(resolvedPath),
+      name: 'TODO bagoy',
       timestamp: new Date().getTime(),
       shared: false,
       preview: uploadPreviewRes,
@@ -316,21 +334,37 @@ export class FileManager {
       customMetadata,
     });
 
-    const newFeedItem = await this.saveWrappedFileInfoFeed(batchId, fileInfoResult, topic, feedIndex, redundancyLevel);
+    await this.saveWrappedFileInfoFeed(batchId, fileInfoResult, topic, feedIndex, redundancyLevel);
 
-    const ix = this.ownerFeedList.findIndex((f) => f.reference === newFeedItem.reference);
+    const ix = this.ownerFeedList.findIndex((f) => f.topic.toString() === topic.toString());
     if (ix !== -1) {
       this.ownerFeedList[ix] = {
-        ...newFeedItem,
+        topic: topic.toString(),
         eGranteeRef: this.ownerFeedList[ix].eGranteeRef?.toString(),
       };
     } else {
-      this.ownerFeedList.push(newFeedItem);
+      this.ownerFeedList.push({ topic: topic.toString() });
     }
 
     await this.saveFileInfoFeedList();
   }
   // TODO: streamFiles & uploadFiles  - streamDirectory & uploadFilesFromDirectory -> browser vs nodejs
+  // TODO: redundancyLevel missing from uploadoptions
+  private async streamFiles(
+    batchId: BatchId,
+    files: File[] | FileList,
+    onUploadProgress?: (progress: UploadProgress) => void,
+    uploadOptions?: RedundantUploadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<ReferenceWithHistory> {
+    const reuslt = await this.bee.streamFiles(batchId, files, onUploadProgress, uploadOptions, requestOptions);
+
+    return {
+      reference: reuslt.reference.toString(),
+      historyRef: reuslt.historyAddress.getOrThrow().toString(),
+    };
+  }
+
   private async uploadFileOrDirectory(
     batchId: BatchId,
     resolvedPath: string,
@@ -429,7 +463,7 @@ export class FileManager {
     topic: Topic,
     index?: number,
     redundancyLevel?: RedundancyLevel,
-  ): Promise<WrappedFileInfoFeed> {
+  ): Promise<void> {
     try {
       const uploadInfoRes = await this.bee.uploadData(
         batchId,
@@ -444,15 +478,9 @@ export class FileManager {
 
       const requestOptions = redundancyLevel ? makeBeeRequestOptions({ redundancyLevel }) : undefined;
       const fw = this.bee.makeFeedWriter(topic, this.signer, requestOptions);
-      const wrappedFeedUpdateRes = await fw.upload(batchId, uploadInfoRes.reference, {
+      await fw.upload(batchId, uploadInfoRes.reference, {
         index: index,
-        act: true,
       });
-
-      return {
-        reference: new Reference(topic).toString(),
-        historyRef: wrappedFeedUpdateRes.historyAddress.getOrThrow().toString(),
-      };
     } catch (error: any) {
       throw `Failed to save wrapped fileInfo feed: ${error}`;
     }
@@ -497,7 +525,8 @@ export class FileManager {
   // Start stamp handler methods
   private async getUsableStamps(): Promise<PostageBatch[]> {
     try {
-      return (await this.bee.getAllPostageBatch()).filter((s) => s.usable);
+      this.stampList = (await this.bee.getAllPostageBatch()).filter((s) => s.usable);
+      return this.stampList;
     } catch (error: any) {
       console.error(`Failed to get usable stamps: ${error}`);
       return [];
@@ -527,14 +556,18 @@ export class FileManager {
     return this.stampList;
   }
 
-  private getOwnerFeedStamp(): PostageBatch | undefined {
+  getOwnerFeedStamp(): PostageBatch | undefined {
     return this.stampList.find((s) => s.label === OWNER_FEED_STAMP_LABEL);
   }
 
-  async fetchStamp(batchId: string | { batchID: string }): Promise<PostageBatch | undefined> {
+  async buyOwnerStamp(amount: string | bigint, depth: number): Promise<BatchId> {
+    return await buyStamp(this.bee, amount, depth, OWNER_FEED_STAMP_LABEL);
+  }
+
+  // TODO: is this needed ?
+  async fetchStamp(batchId: string | BatchId): Promise<PostageBatch | undefined> {
     try {
-      const id = typeof batchId === 'string' ? batchId : batchId.batchID;
-      const newStamp = await this.bee.getPostageBatch(id);
+      const newStamp = await this.bee.getPostageBatch(batchId);
       if (newStamp?.exists && newStamp.usable) {
         this.stampList.push(newStamp);
         return newStamp;
@@ -546,7 +579,7 @@ export class FileManager {
 
   async destroyVolume(batchId: BatchId): Promise<void> {
     if (batchId === this.getOwnerFeedStamp()?.batchID) {
-      throw `Cannot destroy owner stamp, batchId: ${batchId.toString()}`;
+      throw new StampError(`Cannot destroy owner stamp, batchId: ${batchId.toString()}`);
     }
 
     await this.bee.diluteBatch(batchId, STAMPS_DEPTH_MAX);
@@ -562,7 +595,7 @@ export class FileManager {
       const fileInfo = this.fileInfoList[i];
       if (fileInfo.batchId === batchId) {
         this.fileInfoList.splice(i, 1);
-        const mfIx = this.ownerFeedList.findIndex((mf) => mf.reference === fileInfo.topic);
+        const mfIx = this.ownerFeedList.findIndex((mf) => mf.topic === fileInfo.topic);
         if (mfIx !== -1) {
           this.ownerFeedList.splice(mfIx, 1);
         }
@@ -578,7 +611,7 @@ export class FileManager {
   // Start grantee handler methods
   // fetches the list of grantees who can access the file reference
   async getGranteesOfFile(fileInfo: FileInfo): Promise<GetGranteesResult> {
-    const mfIx = this.ownerFeedList.findIndex((mf) => mf.reference === fileInfo.topic);
+    const mfIx = this.ownerFeedList.findIndex((mf) => mf.topic === fileInfo.topic);
     const eglRef = this.ownerFeedList[mfIx].eGranteeRef;
     if (mfIx === -1 || !eglRef) {
       throw `Grantee list not found for file eReference: ${fileInfo.topic}`;
@@ -658,7 +691,7 @@ export class FileManager {
   }
 
   async shareItem(fileInfo: FileInfo, targetOverlays: string[], recipients: string[], message?: string): Promise<void> {
-    const mfIx = this.ownerFeedList.findIndex((mf) => mf.reference === fileInfo.file.reference);
+    const mfIx = this.ownerFeedList.findIndex((mf) => mf.topic === fileInfo.file.reference);
     if (mfIx === -1) {
       console.log('File reference not found in fileInfo feed list.');
       return;
