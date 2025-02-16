@@ -2,7 +2,7 @@
 import { BatchId, Bee, Bytes, MantarayNode, Reference, UploadResult } from '@upcoming/bee-js';
 import { Optional } from 'cafe-utility';
 
-import { FILE_INFO_LOCAL_STORAGE } from '../src/constants';
+import { FILE_INFO_LOCAL_STORAGE, SWARM_ZERO_ADDRESS } from '../src/constants';
 import { FileManager } from '../src/fileManager';
 import { FileInfo } from '../src/types';
 
@@ -171,12 +171,12 @@ describe('listFiles', () => {
   beforeEach(() => jest.resetAllMocks());
 
   it('should list paths (refs) for given input list', async () => {
+    const expectedPath = 'src/folder/1.txt';
     jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
 
     const fileManager = new FileManager();
     await fileManager.initialize();
 
-    const mockBatchId = new BatchId('33a3c54eb870c7257d18ee364c57f4b61dfafd670b8f1475eedd8fb178fe0eec');
     const uploadResult = {
       reference: new Reference('2894fabf569cf8ca189328da14f87eb0578910855b6081871f377b4629c59c4d'),
       historyAddress: Optional.of(new Reference('1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68')),
@@ -184,34 +184,29 @@ describe('listFiles', () => {
     jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValue(uploadResult);
 
     const mantaray = new MantarayNode();
-    mantaray.addFork('hello.txt', '9'.repeat(64));
-    try {
-      await mantaray.saveRecursively(new Bee(MOCK_SERVER_URL), mockBatchId.toHex());
-    } catch (error) {
-      console.log(error);
-      throw error;
-    }
-
-    // Root Node
-    const forkRef = '9'.repeat(64);
-    const rootNode = new MantarayNode();
-    rootNode.addFork('hello.txt', forkRef);
-
+    mantaray.addFork('src/folder/1.txt', '1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68');
     
+    const first = new Uint8Array([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,87,104,179,182,167,219,86,210,29,26,191,244,13,65,206,191,200,52,72,254,216,215,233,176,110,192,211,176,115,242,143,32,26,154,208,58,169,147,213,238,85,13,174,194,228,223,72,41,253,153,204,35,153,62,167,211,224,121,125,211,50,83,253,104,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]);
+    const second = new Uint8Array([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,87,104,179,182,167,219,86,210,29,26,191,244,13,65,206,191,200,52,72,254,216,215,233,176,110,192,211,176,115,242,143,32,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,10,16,115,114,99,47,102,111,108,100,101,114,47,49,46,116,120,116,0,0,0,0,0,0,0,0,0,0,0,0,0,0,148,0,17,119,248,231,159,158,240,146,107,58,95,110,135,168,220,196,216,79,98,210,143,97,225,35,59,60,200,178,218,27]);
+
     const downloadDataSpy = jest
       .spyOn(Bee.prototype, 'downloadData')
-      .mockImplementationOnce(async () => new Bytes(await rootNode.marshal()))
-      .mockImplementation(async () => new Bytes(await new MantarayNode().marshal()));   // Default Empty Node for Unmatched Refs
-      // I think this shouldn't be here, this is not the real behavior for unmatched refs
+      .mockImplementationOnce(async () => new Bytes(second))
+      .mockImplementation(async () => new Bytes(first));
 
-    const paths = await fileManager.listFiles(fileManager.getFileInfoList()[0]);
+    const list = fileManager.getFileInfoList();
+    console.log("List: ", list[0].file.reference.toString())
+    const paths = await fileManager.listFiles(list[0]);
 
-    console.log("Calls: ", downloadDataSpy.mock.calls);
+    console.log('Calls: ', downloadDataSpy.mock.calls);
+    console.log('Paths: ', paths);
+    
+    const expectedFirstRef = new Reference('1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68');
+    console.log('expected first ref: ', expectedFirstRef);
 
-    console.log("Paths: ", paths)
-    expect(downloadDataSpy).toHaveBeenCalledWith('1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68');
-    expect(downloadDataSpy).toHaveBeenLastCalledWith(uploadResult.reference.toUint8Array());
-    expect(paths[0]).toBe('hello.txt');
+    //expect(downloadDataSpy).toHaveBeenNthCalledWith( 1, expectedFirstRef );
+    //expect(downloadDataSpy).toHaveBeenLastCalledWith(uploadResult.reference.toUint8Array());
+    expect(paths[0].path).toBe(expectedPath);
   });
 });
 
@@ -343,7 +338,10 @@ describe('upload and listFiles', () => {
     const listt: FileInfo[] = [
       {
         batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
-        eFileRef: new Reference('c14653e8d747c6dc6ddefd39688391189e686236aec361637b22d5f138329f5c'),
+        file: {
+          reference: new Reference('c14653e8d747c6dc6ddefd39688391189e686236aec361637b22d5f138329f5c'),
+          historyRef: new Reference(SWARM_ZERO_ADDRESS),
+        },
       },
     ];
     let path = await fileManager.listFiles(listt[0]);

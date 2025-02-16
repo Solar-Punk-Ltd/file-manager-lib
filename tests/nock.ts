@@ -3,8 +3,8 @@ import nock from 'nock';
 
 nock.recorder.rec({
   logging: console.log,
-  output_objects: true
-})
+  output_objects: true,
+});
 
 export const MOCK_SERVER_URL = 'http://localhost:1633';
 
@@ -31,7 +31,7 @@ export function fetchFeedUpdateMock(address: string, hashedTopic: string): nock.
 }
 
 export function downloadDataMock(reference: Reference | string): nock.Interceptor {
-  console.log("Download Data mock called.")
+  console.log('Download Data mock called.');
   return nock(MOCK_SERVER_URL).get(`${BYTES_ENDPOINT}/${reference}`);
 }
 

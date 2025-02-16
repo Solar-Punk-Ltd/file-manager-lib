@@ -1,8 +1,8 @@
-import { BatchId, Bee, Bytes, MantarayNode, Reference, Topic } from '@upcoming/bee-js';
+import { BatchId, Bee, Bytes, DownloadOptions, MantarayNode, Reference, Topic } from '@upcoming/bee-js';
 
-import { FILE_INFO_LOCAL_STORAGE } from './constants';
-import { FileInfo, MantarayStackItem, ShareItem } from './types';
-import { assertFileInfo, decodeBytesToPath } from './utils';
+import { FILE_INFO_LOCAL_STORAGE, SWARM_ZERO_ADDRESS } from './constants';
+import { FileInfo, ReferenceWithPath, ShareItem } from './types';
+import { assertFileInfo } from './utils';
 
 export class FileManager {
   private fileInfoList: FileInfo[];
@@ -28,12 +28,14 @@ export class FileManager {
     if (!Array.isArray(data)) throw new Error('fileInfoList has to be an array!');
 
     const processedData: FileInfo[] = data.map((rawItem) => ({
-      batchId: new BatchId(rawItem.batchId),
-      eFileRef: new Reference(rawItem.eFileRef),
-      topic: rawItem.topic ? new Topic(rawItem.topic) : undefined,
-      historyRef: rawItem.historyRef ? new Reference(rawItem.historyRef) : undefined,
+      batchId: new BatchId(rawItem.batchId).toString(),
+      file: {
+        reference: rawItem.file.reference.toString(),
+        historyRef: rawItem.file.historyRef.toString(),
+      },
+      topic: rawItem.topic ? rawItem.topic.toString() : undefined,
       owner: rawItem.owner ? rawItem.owner : undefined,
-      fileName: rawItem.fileName,
+      name: rawItem.name,
       timestamp: rawItem.timestamp,
       shared: rawItem.shared,
       preview: rawItem.preview,
@@ -59,12 +61,14 @@ export class FileManager {
       this.fileInfoList.push(fileInfo);
       console.log(this.fileInfoList[0].batchId);
       const fileInfoList = this.fileInfoList.map((item) => ({
-        batchId: item.batchId.toHex(),
-        eFileRef: item.eFileRef.toHex(),
-        topic: item.topic?.toHex(),
-        historyRef: item.historyRef?.toHex(),
-        owner: item.owner?.toHex(),
-        fileName: item.fileName,
+        batchId: item.batchId.toString(),
+        file: {
+          reference: item.file.reference.toString(),
+          historyRef: item.file.historyRef.toString(),
+        },
+        topic: item.topic?.toString(),
+        owner: item.owner?.toString(),
+        name: item.name,
         timestamp: item.timestamp,
         shared: item.shared,
         preview: item.preview,
@@ -81,8 +85,8 @@ export class FileManager {
     }
   }
 
-  public async loadMantaray(mantarayRef: Reference): Promise<MantarayNode> {
-    const mantaray = await MantarayNode.unmarshal(this.bee, mantarayRef);
+  public async loadMantaray(mantarayRef: Reference, options?: DownloadOptions): Promise<MantarayNode> {
+    const mantaray = await MantarayNode.unmarshal(this.bee, mantarayRef, options);
     await mantaray.loadRecursively(this.bee);
     return mantaray;
   }
@@ -90,38 +94,21 @@ export class FileManager {
   // fileInfo might point to a folder, or a single file
   // could name downloadFiles as well, possibly
   // getDirectorStructure()
-  async listFiles(fileInfo: FileInfo): Promise<string[]> {
-    const targetRef = new Reference(fileInfo.eFileRef).toHex();
-    console.log('Target ref: ', targetRef);
+  async listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<ReferenceWithPath[]> {
+    const mantaray = await this.loadMantaray(new Reference(fileInfo.file.reference), options);
+    // TODO: is filter needed ?
 
-    const mantaray = await MantarayNode.unmarshal(this.bee, targetRef);
-    await mantaray.loadRecursively(this.bee);
+    const fileList = mantaray
+      .collect()
+      .map((n) => {
+        return {
+          reference: new Reference(n.targetAddress),
+          path: n.fullPathString,
+        } as ReferenceWithPath;
+      })
+      .filter((item) => item.path !== '' && item.reference !== SWARM_ZERO_ADDRESS);
 
-    const refList: string[] = [];
-    const stack: { node: MantarayNode; path: string }[] = [{ node: mantaray, path: '' }];     // Start with the root node and an empty path
-
-    while (stack.length > 0) {
-      const { node, path } = stack.pop()!;
-
-      // If the current node has forks, iterate over them.
-      if (node.forks && node.forks.size > 0) {
-        for (const [key, fork] of node.forks.entries()) {
-          const prefix: string = fork.prefix ? decodeBytesToPath(fork.prefix) : `${key}` || 'unknown';
-          let fullPath: string = path ? `${path}/${prefix}` : prefix;
-          fullPath = fullPath.replace(/\0/g, '');
-
-          if (!fork.node.forks || fork.node.forks.size === 0) {
-            // It’s a file—add its full path to the list.
-            refList.push(fullPath);
-          } else {
-            // It’s a directory—push it onto the stack to continue traversing.
-            stack.push({ node: fork.node, path: fullPath });
-          }
-        }
-      }
-    }
-
-    return refList;
+    return fileList;
   }
 
   async upload(
@@ -130,34 +117,17 @@ export class FileManager {
     customMetadata?: Record<string, string>,
   ): Promise<string> {
     const fileInfo: FileInfo = {
-      eFileRef: new Reference(reference),
-      batchId: new BatchId(batchId),
+      file: {
+        reference: reference,
+        historyRef: SWARM_ZERO_ADDRESS,
+      },
+      batchId: batchId.toString(),
       customMetadata,
     };
 
     const ref = this.saveFileInfo(fileInfo);
 
     return ref;
-  }
-
-  async shareItems(items: ShareItem[], targetOverlays: string[], recipients: string[]): Promise<void> {
-    try {
-      for (let i = 0; i < items.length; i++) {
-        for (let j = 0; j < items[i].fileInfoList.length; j++) {
-          const ix = this.fileInfoList.findIndex((fileInfo) => fileInfo.eFileRef === items[i].fileInfoList[j].eFileRef);
-          if (ix === -1) {
-            throw new Error(`Could not find reference: ${items[i].fileInfoList[j].eFileRef}`);
-          }
-        }
-      }
-
-      for (const shareItem of items) {
-        this.sendShareMessage(targetOverlays, shareItem, recipients);
-      }
-    } catch (error) {
-      console.error('There was an error while trying to share items: ', error);
-      throw error;
-    }
   }
 
   async sendShareMessage(targetOverlays: string[], item: ShareItem, recipients: string[]): Promise<void> {

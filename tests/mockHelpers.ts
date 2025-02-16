@@ -1,17 +1,21 @@
-import { Reference } from '@upcoming/bee-js';
-
-import { encodePathToBytes } from '../src/utils';
+import { Bytes, Reference } from '@upcoming/bee-js';
 
 export const mockBatchId = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
 
 export const fileInfoTxt = `[
   {
     "batchId": "ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51",
-    "eFileRef": "1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68"
+    "file": {
+      "reference": "1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68",
+      "historyRef": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
   },
   {
     "batchId": "ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51",
-    "eFileRef": "2222222222222222222222222222222222222222222222222222222222222222"
+    "file": {
+      "reference": "2222222222222222222222222222222222222222222222222222222222222222",
+      "historyRef": "0000000000000000000000000000000000000000000000000000000000000000"
+    }
   }
 ]`;
 
@@ -22,11 +26,11 @@ export const emptyFileInfoTxt = `[]`;
 export function createMockMantarayNode(customForks: Record<string, any> = {}, excludeDefaultForks = false): any {
   const defaultForks: Record<string, any> = {
     file: {
-      prefix: encodePathToBytes('file'),
+      prefix: Bytes.fromUtf8('file'),
       node: {
         forks: {
           '1.txt': {
-            prefix: encodePathToBytes('1.txt'),
+            prefix: Bytes.fromUtf8('1.txt'),
             node: {
               isValueType: () => true,
               getEntry: 'a'.repeat(64), // Valid Uint8Array
@@ -37,7 +41,7 @@ export function createMockMantarayNode(customForks: Record<string, any> = {}, ex
             },
           },
           '2.txt': {
-            prefix: encodePathToBytes('2.txt'),
+            prefix: Bytes.fromUtf8('2.txt'),
             node: {
               isValueType: () => true,
               getEntry: 'b'.repeat(64), // Valid Uint8Array

@@ -1,37 +1,59 @@
-import { BatchId, EthAddress, MantarayNode, RedundancyLevel, Reference, Topic } from '@upcoming/bee-js';
+import { BatchId, Bytes, EthAddress, FeedIndex, PublicKey, RedundancyLevel, Reference, Topic } from '@upcoming/bee-js';
+import { ReadStream } from 'fs';
 
 export interface FileInfo {
-  batchId: BatchId;
-  eFileRef: Reference;    // should be renamed to eMantarayRef
-  topic?: Topic;
-  historyRef?: Reference;
-  owner?: EthAddress;
-  fileName?: string;
+  batchId: string | BatchId;
+  file: ReferenceWithHistory;
+  topic?: string | Topic;
+  owner?: string | EthAddress;
+  name?: string;
   timestamp?: number;
   shared?: boolean;
-  preview?: string;  // possibly should be Reference
+  preview?: ReferenceWithHistory;
+  index?: number | undefined;
   redundancyLevel?: RedundancyLevel;
   customMetadata?: Record<string, string>;
 }
+
 export interface ShareItem {
-  fileInfoList: FileInfo[];
+  fileInfo: FileInfo;
   timestamp?: number;
   message?: string;
 }
 
-export interface Bytes<Length extends number> extends Uint8Array {
-  readonly length: Length;
+export interface ReferenceWithHistory {
+  reference: string | Reference;
+  historyRef: string | Reference;
 }
-export type IndexBytes = Bytes<8>;
-export interface Epoch {
-  time: number;
-  level: number;
-}
-export type Index = number | Epoch | IndexBytes | string;
-const feedTypes = ['sequence', 'epoch'] as const;
-export type FeedType = (typeof feedTypes)[number];
 
-export interface MantarayStackItem {
-  node: MantarayNode;
+// TODO: sotre index for a quicker upload
+export interface WrappedFileInfoFeed extends ReferenceWithHistory {
+  eGranteeRef?: string | Reference;
+  // index?: FeedIndex;
+}
+
+export interface ReferenceWithPath {
+  reference: Reference;
   path: string;
+}
+
+export interface FileData {
+  data: string | Uint8Array | ReadStream;
+  name: string;
+  contentType: string;
+}
+
+interface FeedUpdateHeaders {
+  feedIndex: FeedIndex;
+  feedIndexNext?: FeedIndex;
+}
+export interface FetchFeedUpdateResponse extends FeedUpdateHeaders {
+  payload: Bytes;
+}
+
+export interface RequestOptions {
+  historyRef?: Reference;
+  publisher?: PublicKey;
+  timestamp?: number;
+  redundancyLevel?: RedundancyLevel;
 }
