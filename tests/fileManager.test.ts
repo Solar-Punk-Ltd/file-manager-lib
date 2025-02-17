@@ -33,137 +33,146 @@ Object.defineProperty(global, 'localStorage', {
   writable: true,
 });
 
-// describe('initialize', () => {
-//   beforeEach(() => {
-//     jest.resetAllMocks();
-//   });
+describe('initialize', () => {
+  beforeEach(() => {
+    jest.resetAllMocks();
+  });
 
-//   it('should log no data found, if data.txt entry does not exist', async () => {
-//     jest.spyOn(localStorage, 'getItem').mockReturnValue(null);
-//     const fileManager = new FileManager();
-//     const consoleSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+  it('should log no data found, if data.txt entry does not exist', async () => {
+    jest.spyOn(localStorage, 'getItem').mockReturnValue(null);
+    const fileManager = new FileManager();
+    const consoleSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
 
-//     await fileManager.initialize();
+    await fileManager.initialize();
 
-//     expect(consoleSpy).toHaveBeenCalledWith('No data found in data.txt (localStorage)');
-//   });
+    expect(consoleSpy).toHaveBeenCalledWith('No data found in data.txt (localStorage)');
+  });
 
-//   it('should load FileInfo list into memory', async () => {
-//     jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
+  it('should load FileInfo list into memory', async () => {
+    jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
 
-//     const fileManager = new FileManager();
-//     await fileManager.initialize();
+    const fileManager = new FileManager();
+    await fileManager.initialize();
 
-//     expect(fileManager.getFileInfoList()).toEqual([
-//       {
-//         batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
-//         eFileRef: new Reference(pathToRef.get('src/folder/1.txt')!),
-//         fileName: undefined,
-//         historyRef: undefined,
-//         owner: undefined,
-//         preview: undefined,
-//         redundancyLevel: undefined,
-//         shared: undefined,
-//         timestamp: undefined,
-//         topic: undefined,
-//         customMetadata: undefined,
-//       },
-//       {
-//         batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
-//         eFileRef: new Reference(pathToRef.get('src/folder/2.txt')!),
-//         fileName: undefined,
-//         historyRef: undefined,
-//         owner: undefined,
-//         preview: undefined,
-//         redundancyLevel: undefined,
-//         shared: undefined,
-//         timestamp: undefined,
-//         topic: undefined,
-//         customMetadata: undefined,
-//       },
-//     ]);
-//   });
+    expect(fileManager.getFileInfoList()).toEqual([
+      {
+        batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
+        eFileRef: new Reference(pathToRef.get('src/folder/1.txt')!),
+        fileName: undefined,
+        historyRef: undefined,
+        owner: undefined,
+        preview: undefined,
+        redundancyLevel: undefined,
+        shared: undefined,
+        timestamp: undefined,
+        topic: undefined,
+        customMetadata: undefined,
+      },
+      {
+        batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
+        eFileRef: new Reference(pathToRef.get('src/folder/2.txt')!),
+        fileName: undefined,
+        historyRef: undefined,
+        owner: undefined,
+        preview: undefined,
+        redundancyLevel: undefined,
+        shared: undefined,
+        timestamp: undefined,
+        topic: undefined,
+        customMetadata: undefined,
+      },
+    ]);
+  });
 
-//   it('should throw an error if fileInfoList is not an array', async () => {
-//     jest.spyOn(localStorage, 'getItem').mockReturnValue(`{
-//       "fileInfoList": "not an array"
-//     }`);
+  it('should throw an error if fileInfoList is not an array', async () => {
+    jest.spyOn(localStorage, 'getItem').mockReturnValue(`{
+      "fileInfoList": "not an array"
+    }`);
 
-//     try {
-//       const fileManager = new FileManager();
-//       await fileManager.initialize();
-//       throw new Error('initialize should fail if fileInfo is not an array');
-//     } catch (error) {
-//       expect(error).toBeInstanceOf(Error);
-//       expect((error as Error).message).toBe('fileInfoList has to be an array!');
-//     }
-//   });
-// });
+    try {
+      const fileManager = new FileManager();
+      await fileManager.initialize();
+      throw new Error('initialize should fail if fileInfo is not an array');
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toBe('fileInfoList has to be an array!');
+    }
+  });
+});
 
-// describe('saveFileInfo', () => {
-//   beforeEach(() => {
-//     jest.resetAllMocks();
-//   });
+describe('saveFileInfo', () => {
+  beforeEach(() => {
+    jest.resetAllMocks();
+  });
 
-//   it('should save new FileInfo into data.txt', async () => {
-//     jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
-//     jest.spyOn(localStorage, 'setItem').mockReturnValue();
-//     const writeFileSync = jest.spyOn(localStorage, 'setItem');
+  it('should save new FileInfo into data.txt', async () => {
+    jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
+    jest.spyOn(localStorage, 'setItem').mockReturnValue();
+    const writeFileSync = jest.spyOn(localStorage, 'setItem');
 
-//     const fileManager = new FileManager();
-//     await fileManager.initialize();
-//     const fileInfo: FileInfo = {
-//       batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
-//       eFileRef: new Reference(pathToRef.get('src/folder/3.txt')!),
-//     };
+    const fileManager = new FileManager();
+    await fileManager.initialize();
+    const fileInfo: FileInfo = {
+      file: {
+        historyRef: new Reference('0000000000000000000000000000000000000000000000000000000000000000'),
+        reference: pathToRef.get('src/folder/3.txt')!,
+      },
+      batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
+    };
 
-//     const ref = await fileManager.saveFileInfo(fileInfo);
+    const ref = await fileManager.saveFileInfo(fileInfo);
 
-//     expect(ref).toBe('0000000000000000000000000000000000000000000000000000000000000002');
-//     expect(writeFileSync).toHaveBeenCalledWith(expect.any(String), extendedFileInfoTxt);
-//   });
+    expect(ref).toBe('0000000000000000000000000000000000000000000000000000000000000002');
+    expect(writeFileSync).toHaveBeenCalledWith(expect.any(String), extendedFileInfoTxt);
+  });
 
-//   it('should throw an error if fileInfo is invalid', async () => {
-//     jest.spyOn(localStorage, 'getItem').mockReturnValue(emptyFileInfoTxt);
-//     const fileManager = new FileManager();
-//     await fileManager.initialize();
-//     const fileManagerSpy = jest.spyOn(fileManager, 'saveFileInfo');
+  it('should throw an error if fileInfo is invalid', async () => {
+    jest.spyOn(localStorage, 'getItem').mockReturnValue(emptyFileInfoTxt);
+    const fileManager = new FileManager();
+    await fileManager.initialize();
+    const fileManagerSpy = jest.spyOn(fileManager, 'saveFileInfo');
 
-//     try {
-//       const fileInfo = {
-//         batchId: new BatchId('33'),
-//         eFileRef: new Reference(pathToRef.get('src/folder/1.txt')!),
-//       };
-//       await fileManager.saveFileInfo(fileInfo);
-//       throw new Error('Expected saveFileInfo to throw an error');
-//     } catch (error) {
-//       expect(error).toBeInstanceOf(Error);
-//       expect((error as any).message).toBe('Bytes#checkByteLength: bytes length is 1 but expected 32');
-//     }
-//   });
+    try {
+      const fileInfo: FileInfo = {
+        file: {
+          reference: pathToRef.get('src/folder/1.txt')!,
+          historyRef: pathToRef.get('src/folder/1.txt')!
+        },
+        batchId: new BatchId('33'),
+      };
+      await fileManager.saveFileInfo(fileInfo);
+      throw new Error('Expected saveFileInfo to throw an error');
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as any).message).toBe('Bytes#checkByteLength: bytes length is 1 but expected 32');
+    }
+  });
 
-//   it('should throw an error if there is an error saving the file info', async () => {
-//     jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
-//     jest.spyOn(localStorage, 'setItem').mockImplementation(() => {
-//       throw new Error('Error saving file info');
-//     });
+  it('should throw an error if there is an error saving the file info', async () => {
+    jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
+    jest.spyOn(localStorage, 'setItem').mockImplementation(() => {
+      throw new Error('Error saving file info');
+    });
 
-//     const fileManager = new FileManager();
-//     await fileManager.initialize();
-//     try {
-//       const fileInfo = {
-//         batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
-//         eFileRef: new Reference(pathToRef.get('src/folder/3.txt')!),
-//       };
+    const fileManager = new FileManager();
+    await fileManager.initialize();
+    try {
+      const fileInfo: FileInfo = {
+        file: {
+          reference: pathToRef.get('src/folder/3.txt')!,
+          historyRef: pathToRef.get('src/folder/3.txt')!
+        },
+        batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
+      };
 
-//       await fileManager.saveFileInfo(fileInfo);
-//       fail('Expected saveFileInfo to throw an error');
-//     } catch (error) {
-//       expect(error).toBeInstanceOf(Error);
-//       expect((error as any).message).toBe('Error saving file info');
-//     }
-//   });
-// });
+      await fileManager.saveFileInfo(fileInfo);
+      fail('Expected saveFileInfo to throw an error');
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error);
+      expect((error as any).message).toBe('Error saving file info');
+    }
+  });
+});
 
 // Updated Test File for `listFiles` using Mantaray JS Implementation
 
@@ -210,73 +219,73 @@ describe('listFiles', () => {
   });
 });
 
-// describe('upload', () => {
-//   let originalLocalStorage: Storage;
+describe('upload', () => {
+  let originalLocalStorage: Storage;
 
-//   beforeEach(() => {
-//     jest.resetAllMocks();
-//     originalLocalStorage = global.localStorage;
-//     Object.defineProperty(global, 'localStorage', {
-//       value: new MockLocalStorage(),
-//       writable: true,
-//       configurable: true,
-//     });
-//   });
+  beforeEach(() => {
+    jest.resetAllMocks();
+    originalLocalStorage = global.localStorage;
+    Object.defineProperty(global, 'localStorage', {
+      value: new MockLocalStorage(),
+      writable: true,
+      configurable: true,
+    });
+  });
 
-//   afterEach(() => {
-//     Object.defineProperty(global, 'localStorage', {
-//       value: originalLocalStorage,
-//       writable: true,
-//     });
-//     jest.restoreAllMocks();
-//   });
+  afterEach(() => {
+    Object.defineProperty(global, 'localStorage', {
+      value: originalLocalStorage,
+      writable: true,
+    });
+    jest.restoreAllMocks();
+  });
 
-//   it('should save FileInfo', async () => {
-//     const fileManager = new FileManager();
-//     localStorage.setItem(FILE_INFO_LOCAL_STORAGE, fileInfoTxt);
-//     await fileManager.initialize();
+  it('should save FileInfo', async () => {
+    const fileManager = new FileManager();
+    localStorage.setItem(FILE_INFO_LOCAL_STORAGE, fileInfoTxt);
+    await fileManager.initialize();
 
-//     await fileManager.upload(mockBatchId, pathToRef.get('src/folder/3.txt')!);
+    await fileManager.upload(mockBatchId, pathToRef.get('src/folder/3.txt')!);
 
-//     expect(fileManager.getFileInfoList()).toHaveLength(3);
-//     expect(fileManager.getFileInfoList()[2]).toEqual({
-//       eFileRef: 'src/folder/3.txt',
-//       batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
-//     });
-//   });
+    expect(fileManager.getFileInfoList()).toHaveLength(3);
+    expect(fileManager.getFileInfoList()[2]).toEqual({
+      eFileRef: 'src/folder/3.txt',
+      batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
+    });
+  });
 
-//   it('should give back ref (currently index)', async () => {
-//     jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
-//     const fileManager = new FileManager();
-//     await fileManager.initialize();
+  it('should give back ref (currently index)', async () => {
+    jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
+    const fileManager = new FileManager();
+    await fileManager.initialize();
 
-//     const ref = await fileManager.upload(mockBatchId, pathToRef.get('src/folder/3.txt')!);
+    const ref = await fileManager.upload(mockBatchId, pathToRef.get('src/folder/3.txt')!);
 
-//     expect(ref).toBe('0000000000000000000000000000000000000000000000000000000000000003');
-//   });
+    expect(ref).toBe('0000000000000000000000000000000000000000000000000000000000000003');
+  });
 
-//   it('should work with consecutive uploads', async () => {
-//     jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
-//     const fileManager = new FileManager();
-//     await fileManager.initialize();
+  it('should work with consecutive uploads', async () => {
+    jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
+    const fileManager = new FileManager();
+    await fileManager.initialize();
 
-//     await fileManager.upload(mockBatchId, pathToRef.get('src/folder/3.txt')!);
+    await fileManager.upload(mockBatchId, pathToRef.get('src/folder/3.txt')!);
 
-//     expect(fileManager.getFileInfoList()).toHaveLength(3);
-//     expect(fileManager.getFileInfoList()[2]).toEqual({
-//       eFileRef: pathToRef.get('src/folder/3.txt')!,
-//       batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
-//     });
+    expect(fileManager.getFileInfoList()).toHaveLength(3);
+    expect(fileManager.getFileInfoList()[2]).toEqual({
+      eFileRef: pathToRef.get('src/folder/3.txt')!,
+      batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
+    });
 
-//     await fileManager.upload(mockBatchId, pathToRef.get('src/folder/4.txt')!);
+    await fileManager.upload(mockBatchId, pathToRef.get('src/folder/4.txt')!);
 
-//     expect(fileManager.getFileInfoList()).toHaveLength(4);
-//     expect(fileManager.getFileInfoList()[3]).toEqual({
-//       eFileRef: pathToRef.get('src/folder/4.txt')!,
-//       batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
-//     });
-//   });
-// });
+    expect(fileManager.getFileInfoList()).toHaveLength(4);
+    expect(fileManager.getFileInfoList()[3]).toEqual({
+      eFileRef: pathToRef.get('src/folder/4.txt')!,
+      batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
+    });
+  });
+});
 
 /*
 describe('shareItems', () => {
