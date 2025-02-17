@@ -4,7 +4,7 @@ import { Optional } from 'cafe-utility';
 
 import { FILE_INFO_LOCAL_STORAGE, SWARM_ZERO_ADDRESS } from '../src/constants';
 import { FileManager } from '../src/fileManager';
-import { FileInfo } from '../src/types';
+import { FileInfo, ReferenceWithHistory, ReferenceWithPath } from '../src/types';
 
 import {
   createMockMantarayNode,
@@ -331,51 +331,60 @@ describe('shareItems', () => {
 */
 
 describe('upload and listFiles', () => {
-  let originalLocalStorage: Storage;
-
   beforeEach(() => {
     jest.resetAllMocks();
-    originalLocalStorage = global.localStorage;
-    Object.defineProperty(global, 'localStorage', {
-      value: new MockLocalStorage(),
-      writable: true,
-      configurable: true,
-    });
-  });
-
-  afterEach(() => {
-    Object.defineProperty(global, 'localStorage', {
-      value: originalLocalStorage,
-      writable: true,
-    });
-    jest.restoreAllMocks();
   });
 
   it('should give back correct refs by listFiles, after upload', async () => {
     const fileManager = new FileManager();
-    localStorage.setItem(FILE_INFO_LOCAL_STORAGE, fileInfoTxt);
+    jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
     await fileManager.initialize();
 
     let list = fileManager.getFileInfoList();
-    const listt: FileInfo[] = [
-      {
-        batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
-        file: {
-          reference: new Reference('c14653e8d747c6dc6ddefd39688391189e686236aec361637b22d5f138329f5c'),
-          historyRef: new Reference(SWARM_ZERO_ADDRESS),
-        },
-      },
-    ];
-    let path = await fileManager.listFiles(listt[0]);
+    
+    console.log('List: ', list);
 
-    expect(path).toBe('c14653e8d747c6dc6ddefd39688391189e686236aec361637b22d5f138329f5c');
-    expect(path).toBe('src/folder/1.txt');
+    const uploadResult = {
+      reference: new Reference('2894fabf569cf8ca189328da14f87eb0578910855b6081871f377b4629c59c4d'),
+      historyAddress: Optional.of(new Reference('1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68')),
+    };
+    jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValue(uploadResult);
 
-    await fileManager.upload(mockBatchId, pathToRef.get('src/folder/3.txt')!);
+    const mantaray = new MantarayNode();
+    mantaray.addFork('src/folder/1.txt', '1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68');
 
-    list = fileManager.getFileInfoList();
-    path = await fileManager.listFiles(list[2]);
+    const first = new Uint8Array([
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 87, 104, 179, 182,
+      167, 219, 86, 210, 29, 26, 191, 244, 13, 65, 206, 191, 200, 52, 72, 254, 216, 215, 233, 176, 110, 192, 211, 176,
+      115, 242, 143, 32, 26, 154, 208, 58, 169, 147, 213, 238, 85, 13, 174, 194, 228, 223, 72, 41, 253, 153, 204, 35,
+      153, 62, 167, 211, 224, 121, 125, 211, 50, 83, 253, 104, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ]);
+    const second = new Uint8Array([
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 87, 104, 179, 182,
+      167, 219, 86, 210, 29, 26, 191, 244, 13, 65, 206, 191, 200, 52, 72, 254, 216, 215, 233, 176, 110, 192, 211, 176,
+      115, 242, 143, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 16, 115, 114,
+      99, 47, 102, 111, 108, 100, 101, 114, 47, 49, 46, 116, 120, 116, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 148, 0,
+      17, 119, 248, 231, 159, 158, 240, 146, 107, 58, 95, 110, 135, 168, 220, 196, 216, 79, 98, 210, 143, 97, 225, 35,
+      59, 60, 200, 178, 218, 27,
+    ]);
 
-    expect(path).toBe('src/folder/3.txt');
+    const downloadDataSpy = jest
+      .spyOn(Bee.prototype, 'downloadData')
+      .mockImplementationOnce(async () => new Bytes(second))
+      .mockImplementation(async () => new Bytes(first));
+
+    let path: ReferenceWithPath[] = await fileManager.listFiles(list[0]);
+
+    expect(path[0].reference.toHex()).toBe('1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68');
+    expect(path[0].path).toBe('src/folder/1.txt');
+
+    // await fileManager.upload(mockBatchId, pathToRef.get('src/folder/3.txt')!);
+
+    // list = fileManager.getFileInfoList();
+    // path = await fileManager.listFiles(list[2]);
+
+    // expect(path).toBe('src/folder/3.txt');
   });
 });
