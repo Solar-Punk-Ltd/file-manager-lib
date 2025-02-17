@@ -28,12 +28,12 @@ export class FileManager {
     if (!Array.isArray(data)) throw new Error('fileInfoList has to be an array!');
 
     const processedData: FileInfo[] = data.map((rawItem) => ({
-      batchId: new BatchId(rawItem.batchId).toString(),
+      batchId: new BatchId(rawItem.batchId),
       file: {
-        reference: rawItem.file.reference.toString(),
-        historyRef: rawItem.file.historyRef.toString(),
+        reference: new Reference(rawItem.file.reference),
+        historyRef: new Reference(rawItem.file.historyRef),
       },
-      topic: rawItem.topic ? rawItem.topic.toString() : undefined,
+      topic: rawItem.topic ? new Topic(rawItem.topic) : undefined,
       owner: rawItem.owner ? rawItem.owner : undefined,
       name: rawItem.name,
       timestamp: rawItem.timestamp,
