@@ -268,7 +268,7 @@ describe('upload', () => {
 
     const ref = await fileManager.upload(mockBatchId, pathToRef.get('src/folder/3.txt')!);
 
-    expect(ref).toBe('0000000000000000000000000000000000000000000000000000000000000003');
+    expect(ref).toBe('0000000000000000000000000000000000000000000000000000000000000002');
   });
 
   it('should work with consecutive uploads', async () => {
@@ -280,7 +280,10 @@ describe('upload', () => {
 
     expect(fileManager.getFileInfoList()).toHaveLength(3);
     expect(fileManager.getFileInfoList()[2]).toEqual({
-      eFileRef: pathToRef.get('src/folder/3.txt')!,
+      file: {
+        reference: pathToRef.get('src/folder/3.txt')!,
+        historyRef: new Reference(SWARM_ZERO_ADDRESS)
+      },
       batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
     });
 
@@ -288,7 +291,10 @@ describe('upload', () => {
 
     expect(fileManager.getFileInfoList()).toHaveLength(4);
     expect(fileManager.getFileInfoList()[3]).toEqual({
-      eFileRef: pathToRef.get('src/folder/4.txt')!,
+      file: {
+        reference: pathToRef.get('src/folder/4.txt')!,
+        historyRef: new Reference(SWARM_ZERO_ADDRESS)
+      },
       batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
     });
   });
