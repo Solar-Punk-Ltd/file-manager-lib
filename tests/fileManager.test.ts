@@ -57,9 +57,11 @@ describe('initialize', () => {
     expect(fileManager.getFileInfoList()).toEqual([
       {
         batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
-        eFileRef: new Reference(pathToRef.get('src/folder/1.txt')!),
-        fileName: undefined,
-        historyRef: undefined,
+        file: {
+          reference: pathToRef.get('src/folder/1.txt')!,
+          historyRef: new Reference('0000000000000000000000000000000000000000000000000000000000000000')
+        },
+        name: undefined,
         owner: undefined,
         preview: undefined,
         redundancyLevel: undefined,
@@ -70,8 +72,11 @@ describe('initialize', () => {
       },
       {
         batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
-        eFileRef: new Reference(pathToRef.get('src/folder/2.txt')!),
-        fileName: undefined,
+        file: {
+          reference: pathToRef.get('src/folder/2.txt')!,
+          historyRef: new Reference('0000000000000000000000000000000000000000000000000000000000000000')
+        },
+        name: undefined,
         historyRef: undefined,
         owner: undefined,
         preview: undefined,
