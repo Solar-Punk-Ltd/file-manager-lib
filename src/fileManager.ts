@@ -1,16 +1,19 @@
 import { BatchId, Bee, Bytes, DownloadOptions, MantarayNode, Reference, Topic } from '@upcoming/bee-js';
+import createEventEmitter, { Emitter } from 'event-emitter';
 
-import { FILE_INFO_LOCAL_STORAGE, SWARM_ZERO_ADDRESS } from './constants';
+import { FILE_INFO_LOCAL_STORAGE, FILE_MANAGER_EVENTS, SWARM_ZERO_ADDRESS } from './constants';
 import { FileInfo, ReferenceWithPath, ShareItem } from './types';
 import { assertFileInfo } from './utils';
 
 export class FileManager {
   private fileInfoList: FileInfo[];
   public bee: Bee;
+  public emitter: Emitter;
 
   constructor() {
     this.fileInfoList = [];
     this.bee = new Bee('http://localhost:1633');
+    this.emitter = createEventEmitter();
   }
 
   async initialize(): Promise<void> {
@@ -44,6 +47,7 @@ export class FileManager {
     }));
 
     this.fileInfoList = processedData;
+    this.emitter.emit(FILE_MANAGER_EVENTS.FILE_INFO_LIST_INITIALIZED, this.fileInfoList);
   }
 
   getFileInfoList(): FileInfo[] {
@@ -126,6 +130,7 @@ export class FileManager {
     };
 
     const ref = this.saveFileInfo(fileInfo);
+    this.emitter.emit(FILE_MANAGER_EVENTS.FILE_UPLOADED, fileInfo); // or we could emit the ref
 
     return ref;
   }
@@ -141,6 +146,7 @@ export class FileManager {
         const msgData = new Uint8Array(Buffer.from(JSON.stringify(item)));
         console.log(`Sending message to ${recipients[i]}: `, msgData);
         // Save this to a separate file, like data.txt. msgData should be saved into an array
+        this.emitter.emit(FILE_MANAGER_EVENTS.SHARE_MESSAGE_SENT, { recipient: recipients[i], item });
       } catch (error: any) {
         console.log(`Failed to share item with recipient: ${recipients[i]}\n `, error);
       }

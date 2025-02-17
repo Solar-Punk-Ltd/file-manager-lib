@@ -255,7 +255,7 @@ describe('upload', () => {
     expect(fileManager.getFileInfoList()[2]).toEqual({
       file: {
         reference: pathToRef.get('src/folder/3.txt')!,
-        historyRef: new Reference(SWARM_ZERO_ADDRESS)
+        historyRef: new Reference(SWARM_ZERO_ADDRESS),
       },
       batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
     });
@@ -282,7 +282,7 @@ describe('upload', () => {
     expect(fileManager.getFileInfoList()[2]).toEqual({
       file: {
         reference: pathToRef.get('src/folder/3.txt')!,
-        historyRef: new Reference(SWARM_ZERO_ADDRESS)
+        historyRef: new Reference(SWARM_ZERO_ADDRESS),
       },
       batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
     });
@@ -293,7 +293,7 @@ describe('upload', () => {
     expect(fileManager.getFileInfoList()[3]).toEqual({
       file: {
         reference: pathToRef.get('src/folder/4.txt')!,
-        historyRef: new Reference(SWARM_ZERO_ADDRESS)
+        historyRef: new Reference(SWARM_ZERO_ADDRESS),
       },
       batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
     });
@@ -340,8 +340,8 @@ describe('upload and listFiles', () => {
     jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
     await fileManager.initialize();
 
-    let list = fileManager.getFileInfoList();
-    
+    const list = fileManager.getFileInfoList();
+
     console.log('List: ', list);
 
     const uploadResult = {
@@ -375,7 +375,7 @@ describe('upload and listFiles', () => {
       .mockImplementationOnce(async () => new Bytes(second))
       .mockImplementation(async () => new Bytes(first));
 
-    let path: ReferenceWithPath[] = await fileManager.listFiles(list[0]);
+    const path: ReferenceWithPath[] = await fileManager.listFiles(list[0]);
 
     expect(path[0].reference.toHex()).toBe('1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68');
     expect(path[0].path).toBe('src/folder/1.txt');
