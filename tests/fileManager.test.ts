@@ -59,7 +59,7 @@ describe('initialize', () => {
         batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
         file: {
           reference: pathToRef.get('src/folder/1.txt')!,
-          historyRef: new Reference('0000000000000000000000000000000000000000000000000000000000000000')
+          historyRef: new Reference(SWARM_ZERO_ADDRESS),
         },
         name: undefined,
         owner: undefined,
@@ -74,7 +74,7 @@ describe('initialize', () => {
         batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
         file: {
           reference: pathToRef.get('src/folder/2.txt')!,
-          historyRef: new Reference('0000000000000000000000000000000000000000000000000000000000000000')
+          historyRef: new Reference(SWARM_ZERO_ADDRESS),
         },
         name: undefined,
         historyRef: undefined,
@@ -119,7 +119,7 @@ describe('saveFileInfo', () => {
     await fileManager.initialize();
     const fileInfo: FileInfo = {
       file: {
-        historyRef: new Reference('0000000000000000000000000000000000000000000000000000000000000000'),
+        historyRef: new Reference(SWARM_ZERO_ADDRESS),
         reference: pathToRef.get('src/folder/3.txt')!,
       },
       batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
@@ -141,7 +141,7 @@ describe('saveFileInfo', () => {
       const fileInfo: FileInfo = {
         file: {
           reference: pathToRef.get('src/folder/1.txt')!,
-          historyRef: pathToRef.get('src/folder/1.txt')!
+          historyRef: pathToRef.get('src/folder/1.txt')!,
         },
         batchId: new BatchId('33'),
       };
@@ -165,7 +165,7 @@ describe('saveFileInfo', () => {
       const fileInfo: FileInfo = {
         file: {
           reference: pathToRef.get('src/folder/3.txt')!,
-          historyRef: pathToRef.get('src/folder/3.txt')!
+          historyRef: pathToRef.get('src/folder/3.txt')!,
         },
         batchId: new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51'),
       };
@@ -199,9 +199,23 @@ describe('listFiles', () => {
 
     const mantaray = new MantarayNode();
     mantaray.addFork('src/folder/1.txt', '1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68');
-    
-    const first = new Uint8Array([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,87,104,179,182,167,219,86,210,29,26,191,244,13,65,206,191,200,52,72,254,216,215,233,176,110,192,211,176,115,242,143,32,26,154,208,58,169,147,213,238,85,13,174,194,228,223,72,41,253,153,204,35,153,62,167,211,224,121,125,211,50,83,253,104,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]);
-    const second = new Uint8Array([0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,87,104,179,182,167,219,86,210,29,26,191,244,13,65,206,191,200,52,72,254,216,215,233,176,110,192,211,176,115,242,143,32,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,8,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,10,16,115,114,99,47,102,111,108,100,101,114,47,49,46,116,120,116,0,0,0,0,0,0,0,0,0,0,0,0,0,0,148,0,17,119,248,231,159,158,240,146,107,58,95,110,135,168,220,196,216,79,98,210,143,97,225,35,59,60,200,178,218,27]);
+
+    const first = new Uint8Array([
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 87, 104, 179, 182,
+      167, 219, 86, 210, 29, 26, 191, 244, 13, 65, 206, 191, 200, 52, 72, 254, 216, 215, 233, 176, 110, 192, 211, 176,
+      115, 242, 143, 32, 26, 154, 208, 58, 169, 147, 213, 238, 85, 13, 174, 194, 228, 223, 72, 41, 253, 153, 204, 35,
+      153, 62, 167, 211, 224, 121, 125, 211, 50, 83, 253, 104, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ]);
+    const second = new Uint8Array([
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 87, 104, 179, 182,
+      167, 219, 86, 210, 29, 26, 191, 244, 13, 65, 206, 191, 200, 52, 72, 254, 216, 215, 233, 176, 110, 192, 211, 176,
+      115, 242, 143, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 16, 115, 114,
+      99, 47, 102, 111, 108, 100, 101, 114, 47, 49, 46, 116, 120, 116, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 148, 0,
+      17, 119, 248, 231, 159, 158, 240, 146, 107, 58, 95, 110, 135, 168, 220, 196, 216, 79, 98, 210, 143, 97, 225, 35,
+      59, 60, 200, 178, 218, 27,
+    ]);
 
     const downloadDataSpy = jest
       .spyOn(Bee.prototype, 'downloadData')
@@ -209,12 +223,12 @@ describe('listFiles', () => {
       .mockImplementation(async () => new Bytes(first));
 
     const list = fileManager.getFileInfoList();
-    console.log("List: ", list[0].file.reference.toString())
+    console.log('List: ', list[0].file.reference.toString());
     const paths = await fileManager.listFiles(list[0]);
 
     console.log('Calls: ', downloadDataSpy.mock.calls);
     console.log('Paths: ', paths);
-    
+
     const expectedFirstRef = new Reference('1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68');
     console.log('expected first ref: ', expectedFirstRef);
 
@@ -225,28 +239,13 @@ describe('listFiles', () => {
 });
 
 describe('upload', () => {
-  let originalLocalStorage: Storage;
-
   beforeEach(() => {
     jest.resetAllMocks();
-    originalLocalStorage = global.localStorage;
-    Object.defineProperty(global, 'localStorage', {
-      value: new MockLocalStorage(),
-      writable: true,
-      configurable: true,
-    });
-  });
-
-  afterEach(() => {
-    Object.defineProperty(global, 'localStorage', {
-      value: originalLocalStorage,
-      writable: true,
-    });
-    jest.restoreAllMocks();
   });
 
   it('should save FileInfo', async () => {
     const fileManager = new FileManager();
+    jest.spyOn(localStorage, 'getItem').mockReturnValue(fileInfoTxt);
     localStorage.setItem(FILE_INFO_LOCAL_STORAGE, fileInfoTxt);
     await fileManager.initialize();
 
@@ -254,7 +253,10 @@ describe('upload', () => {
 
     expect(fileManager.getFileInfoList()).toHaveLength(3);
     expect(fileManager.getFileInfoList()[2]).toEqual({
-      eFileRef: 'src/folder/3.txt',
+      file: {
+        reference: pathToRef.get('src/folder/3.txt')!,
+        historyRef: new Reference(SWARM_ZERO_ADDRESS)
+      },
       batchId: 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51',
     });
   });
