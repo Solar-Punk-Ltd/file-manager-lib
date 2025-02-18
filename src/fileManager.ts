@@ -1,4 +1,4 @@
-import { BatchId, Bee, Bytes, DownloadOptions, MantarayNode, Reference, Topic } from '@upcoming/bee-js';
+import { BatchId, Bee, DownloadOptions, MantarayNode, Reference, Topic } from '@upcoming/bee-js';
 import createEventEmitter, { Emitter } from 'event-emitter';
 
 import { FILE_INFO_LOCAL_STORAGE, FILE_MANAGER_EVENTS, SWARM_ZERO_ADDRESS } from './constants';
