@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import path from 'path';
 
 //import { FileError } from './errors';
-import { FileData, FileInfo, RequestOptions, ShareItem, WrappedFileInfoFeed } from './types';
+import { FileInfo, RequestOptions, ShareItem, WrappedFileInfoFeed } from './types';
 
 export function getContentType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
@@ -22,14 +22,6 @@ export function getContentType(filePath: string): string {
 export function isDir(dirPath: string): boolean {
   if (!fs.existsSync(dirPath)) throw new Error(`Path ${dirPath} does not exist!`);
   return fs.lstatSync(dirPath).isDirectory();
-}
-
-export function readFile(filePath: string): FileData {
-  const readable = fs.createReadStream(filePath);
-  const fileName = path.basename(filePath);
-  const contentType = getContentType(filePath);
-
-  return { data: readable, name: fileName, contentType };
 }
 
 export function isObject(value: unknown): value is Record<string, unknown> {
