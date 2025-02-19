@@ -1,6 +1,6 @@
 import { BatchId, Bee, DownloadOptions, MantarayNode, Reference, Topic } from '@upcoming/bee-js';
 
-import { FILE_INFO_LOCAL_STORAGE, FILE_MANAGER_EVENTS, SWARM_ZERO_ADDRESS } from './constants';
+import { FILE_INFO_LOCAL_STORAGE, SWARM_ZERO_ADDRESS } from './constants';
 import { FileInfo, ReferenceWithPath, ShareItem } from './types';
 import { assertFileInfo } from './utils';
 
