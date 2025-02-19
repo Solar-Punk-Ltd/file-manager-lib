@@ -1,6 +1,5 @@
 import { BeeRequestOptions, Bytes, EthAddress, FeedIndex, Reference, Topic } from '@upcoming/bee-js';
 import { randomBytes } from 'crypto';
-import * as fs from 'fs';
 import path from 'path';
 
 //import { FileError } from './errors';
@@ -17,11 +16,6 @@ export function getContentType(filePath: string): string {
     ['.png', 'image/png'],
   ]);
   return contentTypes.get(ext) || 'application/octet-stream';
-}
-
-export function isDir(dirPath: string): boolean {
-  if (!fs.existsSync(dirPath)) throw new Error(`Path ${dirPath} does not exist!`);
-  return fs.lstatSync(dirPath).isDirectory();
 }
 
 export function isObject(value: unknown): value is Record<string, unknown> {
