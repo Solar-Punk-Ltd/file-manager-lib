@@ -1,8 +1,9 @@
-import { BeeRequestOptions, Utils } from '@ethersphere/bee-js';
-import { Binary } from 'cafe-utility';
+import { BeeRequestOptions, Bytes, EthAddress, FeedIndex, Reference, Topic } from '@upcoming/bee-js';
+import { randomBytes } from 'crypto';
 import path from 'path';
 
-import { Index, ShareItem } from './types';
+//import { FileError } from './errors';
+import { FileInfo, RequestOptions, ShareItem, WrappedFileInfoFeed } from './types';
 
 export function getContentType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
@@ -25,6 +26,54 @@ export function isStrictlyObject(value: unknown): value is Record<string, unknow
   return isObject(value) && !Array.isArray(value);
 }
 
+export function isRecord(value: Record<string, string> | string[]): value is Record<string, string> {
+  return typeof value === 'object' && 'key' in value;
+}
+
+export function assertFileInfo(value: unknown): asserts value is FileInfo {
+  if (!isStrictlyObject(value)) {
+    throw new TypeError('FileInfo has to be object!');
+  }
+
+  const fi = value as unknown as FileInfo;
+
+  new Reference(fi.file.reference);
+  new Reference(fi.batchId);
+  new Reference(fi.file.historyRef);
+
+  if (fi.topic !== undefined) {
+    new Topic(fi.topic);
+  }
+
+  if (fi.customMetadata !== undefined && !isRecord(fi.customMetadata)) {
+    throw new TypeError('FileInfo customMetadata has to be object!');
+  }
+
+  if (fi.timestamp !== undefined && typeof fi.timestamp !== 'number') {
+    throw new TypeError('timestamp property of FileInfo has to be number!');
+  }
+
+  if (fi.owner !== undefined) {
+    new EthAddress(fi.owner);
+  }
+
+  if (fi.name !== undefined && typeof fi.name !== 'string') {
+    throw new TypeError('fileName property of FileInfo has to be string!');
+  }
+
+  if (fi.preview !== undefined && typeof fi.preview !== 'string') {
+    throw new TypeError('preview property of FileInfo has to be string!');
+  }
+
+  if (fi.shared !== undefined && typeof fi.shared !== 'boolean') {
+    throw new TypeError('shared property of FileInfo has to be boolean!');
+  }
+
+  if (fi.redundancyLevel !== undefined && typeof fi.redundancyLevel !== 'number') {
+    throw new TypeError('redundancyLevel property of FileInfo has to be number!');
+  }
+}
+
 export function assertShareItem(value: unknown): asserts value is ShareItem {
   if (!isStrictlyObject(value)) {
     throw new TypeError('ShareItem has to be object!');
@@ -32,9 +81,7 @@ export function assertShareItem(value: unknown): asserts value is ShareItem {
 
   const item = value as unknown as ShareItem;
 
-  if (!Array.isArray(item.fileInfoList)) {
-    throw new TypeError('ShareItem fileInfoList has to be array!');
-  }
+  assertFileInfo(item.fileInfo);
 
   if (item.timestamp !== undefined && typeof item.timestamp !== 'number') {
     throw new TypeError('timestamp property of ShareItem has to be number!');
@@ -45,65 +92,57 @@ export function assertShareItem(value: unknown): asserts value is ShareItem {
   }
 }
 
-export function decodeBytesToPath(bytes: Uint8Array): string {
-  if (bytes.length !== 32) {
-    const paddedBytes = new Uint8Array(32);
-    paddedBytes.set(bytes.slice(0, 32)); // Truncate or pad the input to ensure it's 32 bytes
-    bytes = paddedBytes;
+export function assertWrappedFileInoFeed(value: unknown): asserts value is WrappedFileInfoFeed {
+  if (!isStrictlyObject(value)) {
+    throw new TypeError('WrappedMantarayFeed has to be object!');
   }
-  return new TextDecoder().decode(bytes);
+
+  const wmf = value as unknown as WrappedFileInfoFeed;
+
+  new Reference(wmf.reference);
+  new Reference(wmf.historyRef);
+
+  if (wmf.eGranteeRef !== undefined) {
+    new Reference(wmf.eGranteeRef);
+  }
 }
 
-export function encodePathToBytes(pathString: string): Uint8Array {
-  return new TextEncoder().encode(pathString);
-}
-
-export function makeBeeRequestOptions(historyRef?: string, publisher?: string, timestamp?: number): BeeRequestOptions {
+export function makeBeeRequestOptions(requestOptions: RequestOptions): BeeRequestOptions {
   const options: BeeRequestOptions = {};
-  if (historyRef !== undefined) {
-    options.headers = { 'swarm-act-history-address': historyRef };
+  if (requestOptions.historyRef !== undefined) {
+    options.headers = { 'swarm-act-history-address': requestOptions.historyRef.toString() };
   }
-  if (publisher !== undefined) {
+  if (requestOptions.publisher !== undefined) {
     options.headers = {
       ...options.headers,
-      'swarm-act-publisher': publisher,
+      'swarm-act-publisher': requestOptions.publisher.toCompressedHex(),
     };
   }
-  if (timestamp !== undefined) {
-    options.headers = { ...options.headers, 'swarm-act-timestamp': timestamp.toString() };
+  if (requestOptions.timestamp !== undefined) {
+    options.headers = { ...options.headers, 'swarm-act-timestamp': requestOptions.timestamp.toString() };
+  }
+  if (requestOptions.redundancyLevel !== undefined) {
+    options.headers = { ...options.headers, 'swarm-redundancy-level': requestOptions.redundancyLevel.toString() };
   }
 
   return options;
 }
 
-export function numberToFeedIndex(index: number | undefined): string | undefined {
-  if (index === undefined) {
-    return undefined;
-  }
-  const bytes = new Uint8Array(8);
-  const dv = new DataView(bytes.buffer);
-  dv.setUint32(4, index);
-
-  return Utils.bytesToHex(bytes);
+export function numberToFeedIndex(index: number | Uint8Array | string | Bytes): FeedIndex {
+  index = typeof index === 'number' ? FeedIndex.fromBigInt(BigInt(index)) : index;
+  return new FeedIndex(index);
 }
 
-export function makeNumericIndex(index: Index): number {
-  if (index instanceof Uint8Array) {
-    return Binary.uint64BEToNumber(index);
-  }
+export function makeNumericIndex(index: FeedIndex | undefined): number {
+  return index === undefined ? 0 : Number(index.toBigInt());
+}
 
-  if (typeof index === 'string') {
-    const base = 16;
-    const ix = parseInt(index, base);
-    if (isNaN(ix)) {
-      throw new TypeError(`Invalid index: ${index}`);
-    }
-    return ix;
-  }
+// status is undefined in the error object
+// Determines if the error is about 'Not Found'
+export function isNotFoundError(error: any): boolean {
+  return error.stack.includes('404') || error.message.includes('Not Found') || error.message.includes('404');
+}
 
-  if (typeof index === 'number') {
-    return index;
-  }
-
-  throw new TypeError(`Unknown type of index: ${index}`);
+export function getRandomBytes(len: number): Bytes {
+  return new Bytes(randomBytes(len));
 }

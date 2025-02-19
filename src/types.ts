@@ -1,30 +1,52 @@
-import { BatchId, Reference } from '@ethersphere/bee-js';
+import { BatchId, Bytes, EthAddress, FeedIndex, PublicKey, RedundancyLevel, Reference, Topic } from '@upcoming/bee-js';
 
 export interface FileInfo {
   batchId: string | BatchId;
-  eFileRef: string | Reference;
-  historyRef?: string | Reference;
-  owner?: string;
-  fileName?: string;
+  file: ReferenceWithHistory;
+  topic?: string | Topic;
+  owner?: string | EthAddress;
+  name?: string;
   timestamp?: number;
   shared?: boolean;
-  preview?: string;
-  customMetadata?: Record<string, unknown>;
+  preview?: ReferenceWithHistory;
+  index?: number | undefined;
+  redundancyLevel?: RedundancyLevel;
+  customMetadata?: Record<string, string>;
 }
+
 export interface ShareItem {
-  fileInfoList: FileInfo[];
+  fileInfo: FileInfo;
   timestamp?: number;
   message?: string;
 }
 
-export interface Bytes<Length extends number> extends Uint8Array {
-  readonly length: Length;
+export interface ReferenceWithHistory {
+  reference: string | Reference;
+  historyRef: string | Reference;
 }
-export type IndexBytes = Bytes<8>;
-export interface Epoch {
-  time: number;
-  level: number;
+
+// TODO: sotre index for a quicker upload
+export interface WrappedFileInfoFeed extends ReferenceWithHistory {
+  eGranteeRef?: string | Reference;
+  // index?: FeedIndex;
 }
-export type Index = number | Epoch | IndexBytes | string;
-const feedTypes = ['sequence', 'epoch'] as const;
-export type FeedType = (typeof feedTypes)[number];
+
+export interface ReferenceWithPath {
+  reference: Reference;
+  path: string;
+}
+
+interface FeedUpdateHeaders {
+  feedIndex: FeedIndex;
+  feedIndexNext?: FeedIndex;
+}
+export interface FetchFeedUpdateResponse extends FeedUpdateHeaders {
+  payload: Bytes;
+}
+
+export interface RequestOptions {
+  historyRef?: Reference;
+  publisher?: PublicKey;
+  timestamp?: number;
+  redundancyLevel?: RedundancyLevel;
+}
