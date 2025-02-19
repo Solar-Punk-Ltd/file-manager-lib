@@ -4,10 +4,8 @@ import {
   BeeModes,
   BeeRequestOptions,
   Bytes,
-  CollectionUploadOptions,
   DownloadOptions,
   EthAddress,
-  FileUploadOptions,
   GetGranteesResult,
   GranteesResult,
   MantarayNode,
@@ -89,7 +87,7 @@ export class FileManager {
   // Start init methods
   async initialize(): Promise<void> {
     if (this.isInitialized) {
-      console.log('bagoy already initialized');
+      console.log('FileManager is already initialized');
       return;
     }
 

@@ -1,37 +1,6 @@
 import { BatchId, Bee, BeeRequestOptions, Bytes, EthAddress, FeedIndex, Reference, Topic } from '@upcoming/bee-js';
 
-// TOOD: use window.crypto.getRandomValues() instead of crypto.randomBytes()
-// import { randomBytes } from 'crypto';
-// import * as fs from 'fs';
-// import path from 'path';
-import { FileError } from './errors';
-import { FileData, FileInfo, RequestOptions, ShareItem, WrappedFileInfoFeed } from './types';
-
-// export function getContentType(filePath: string): string {
-//   const ext = path.extname(filePath).toLowerCase();
-//   const contentTypes: Map<string, string> = new Map([
-//     ['.txt', 'text/plain'],
-//     ['.json', 'application/json'],
-//     ['.html', 'text/html'],
-//     ['.jpg', 'image/jpeg'],
-//     ['.jpeg', 'image/jpeg'],
-//     ['.png', 'image/png'],
-//   ]);
-//   return contentTypes.get(ext) || 'application/octet-stream';
-// }
-
-// export function isDir(dirPath: string): boolean {
-//   if (!fs.existsSync(dirPath)) throw new FileError(`Path ${dirPath} does not exist!`);
-//   return fs.lstatSync(dirPath).isDirectory();
-// }
-
-// export function readFile(filePath: string): FileData {
-//   const readable = fs.createReadStream(filePath);
-//   const fileName = path.basename(filePath);
-//   const contentType = getContentType(filePath);
-
-//   return { data: readable, name: fileName, contentType };
-// }
+import { FileInfo, RequestOptions, ShareItem, WrappedFileInfoFeed } from './types';
 
 export function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
@@ -155,15 +124,11 @@ export function isNotFoundError(error: any): boolean {
   return error.stack.includes('404') || error.message.includes('Not Found') || error.message.includes('404');
 }
 
-// export function getRandomBytes(len: number): Bytes {
-//   return new Bytes(randomBytes(len));
-// }
-
-// export function getRandomBytes(len: number): Bytes {
-//   const arr = new Uint8Array(8);
-//   window.crypto.getRandomValues(arr);
-//   return new Bytes(arr);
-// }
+export function getRandomBytes(len: number): Bytes {
+  const arr = new Uint8Array(len);
+  window.crypto.getRandomValues(arr);
+  return new Bytes(arr);
+}
 
 export async function buyStamp(bee: Bee, amount: string | bigint, depth: number, label?: string): Promise<BatchId> {
   const stamp = (await bee.getAllPostageBatch()).find(async (b) => {

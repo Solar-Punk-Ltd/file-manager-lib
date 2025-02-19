@@ -15,11 +15,9 @@ import {
   DEFAULT_BATCH_AMOUNT,
   DEFAULT_BATCH_DEPTH,
   dowloadAndCompareFiles,
-  getTestFile,
   MOCK_SIGNER,
   OTHER_BEE_URL,
   OTHER_MOCK_SIGNER,
-  readFilesOrDirectory,
 } from '../utils';
 
 describe('FileManager initialization', () => {
@@ -52,7 +50,7 @@ describe('FileManager initialization', () => {
     const fileManager = new FileManager(bee);
     await fileManager.initialize();
     const stamps = await fileManager.getStamps();
-    const publsiherPublicKey = fileManager.getNodeAddresses().publicKey;
+    const publsiherPublicKey = fileManager.getNodeAddresses()!.publicKey;
 
     expect(stamps[0].batchID).toEqual(batchId);
     expect(stamps[0].label).toEqual(OWNER_FEED_STAMP_LABEL);
@@ -82,7 +80,7 @@ describe('FileManager initialization', () => {
     const otherBee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
     const fileManager = new FileManager(bee);
     await fileManager.initialize();
-    const publsiherPublicKey = fileManager.getNodeAddresses().publicKey;
+    const publsiherPublicKey = fileManager.getNodeAddresses()!.publicKey;
 
     const feedTopicData = await fileManager.getFeedData(REFERENCE_LIST_TOPIC, 0, MOCK_SIGNER.publicKey().address());
     const topicHistory = await fileManager.getFeedData(REFERENCE_LIST_TOPIC, 1, MOCK_SIGNER.publicKey().address());
@@ -109,14 +107,6 @@ describe('FileManager initialization', () => {
   });
 
   it('should upload to and fetch from swarm a nested folder with files', async () => {
-    // const exptTestFileData = getTestFile('fixtures/test.txt');
-    // const expNestedPaths = await readFilesOrDirectory(path.join(__dirname, '../fixtures/nested'), 'nested');
-    // const fileDataArr: File[] = [];
-    // for (const f of expNestedPaths) {
-    //   fileDataArr.push(getTestFile(`./fixtures/${f}`));
-    // }
-    // expFileDataArr.push(fileDataArr);
-    // expFileDataArr.push([exptTestFileData]);
     const firstFile = new File(['Shh!'], 'secret.txt', { type: 'text/plain' });
     const secondFile = new File(['Hello'], 'nested/hello.txt', { type: 'text/plain' });
     const thirdFile = new File(['World'], 'nested/world.txt', { type: 'text/plain' });
@@ -140,7 +130,6 @@ describe('FileManager initialization', () => {
         actHistoryAddress: fileInfoList[0].file.historyRef,
         actPublisher: publsiherPublicKey,
       });
-      console.log('bagoy fileList', fileList);
       expect(fileList.length).toEqual(expNestedPaths.length);
       for (const [ix, f] of fileList.entries()) {
         expect(path.basename(f.path)).toEqual(path.basename(expNestedPaths[ix]));

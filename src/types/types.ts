@@ -21,7 +21,6 @@ export interface ShareItem {
   message?: string;
 }
 
-// TODO: make historyRef optional
 export interface ReferenceWithHistory {
   reference: string | Reference;
   historyRef: string | Reference;
@@ -31,7 +30,6 @@ export interface ReferenceWithHistory {
 export interface WrappedFileInfoFeed {
   topic: string | Topic;
   eGranteeRef?: string | Reference;
-  // index?: FeedIndex;
 }
 
 export interface ReferenceWithPath {
