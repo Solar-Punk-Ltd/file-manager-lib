@@ -24,16 +24,15 @@ import {
   UploadOptions,
   Utils,
 } from '@upcoming/bee-js';
-import path from 'path';
 
+// import path from 'path';
 import {
-  FILE_INFO_LOCAL_STORAGE,
   OWNER_FEED_STAMP_LABEL,
   REFERENCE_LIST_TOPIC,
   SHARED_INBOX_TOPIC,
   SWARM_ZERO_ADDRESS,
-} from './utils/constants';
-import { BeeVersionError, FileInfoError, SignerError, StampError, SubscribtionError } from './utils/errors';
+} from './types/constants';
+import { BeeVersionError, FileInfoError, SignerError, StampError, SubscribtionError } from './types/errors';
 import {
   FetchFeedUpdateResponse,
   FileInfo,
@@ -42,25 +41,25 @@ import {
   ShareItem,
   UploadProgress,
   WrappedFileInfoFeed,
-} from './utils/types';
+} from './types/types';
 import {
   assertFileInfo,
   assertShareItem,
   assertWrappedFileInoFeed,
   buyStamp,
-  getRandomBytes,
-  isDir,
+  // getRandomBytes,
+  // isDir,
   isNotFoundError,
   makeBeeRequestOptions,
   makeNumericIndex,
   numberToFeedIndex,
-  readFile,
-} from './utils/utils';
+  // readFile,
+} from './types/utils';
 
 export class FileManager {
   private bee: Bee;
   private signer: PrivateKey;
-  private nodeAddresses: NodeAddresses;
+  private nodeAddresses: NodeAddresses | undefined;
   private stampList: PostageBatch[];
   private ownerFeedList: WrappedFileInfoFeed[];
   private fileInfoList: FileInfo[];
@@ -84,10 +83,16 @@ export class FileManager {
     this.sharedWithMe = [];
     this.sharedSubscription = undefined;
     this.isInitialized = false;
+    this.nodeAddresses = undefined;
   }
 
   // Start init methods
   async initialize(): Promise<void> {
+    if (this.isInitialized) {
+      console.log('bagoy already initialized');
+      return;
+    }
+
     await this.verifySupportedVersions();
     await this.initNodeAddresses();
     await this.initStamps();
@@ -113,20 +118,37 @@ export class FileManager {
 
   // fetches the node addresses neccessary for feed and ACT handling
   private async initNodeAddresses(): Promise<void> {
-    this.nodeAddresses = await this.bee.getNodeAddresses();
+    const addr = await this.bee.getNodeAddresses();
+    console.log('bagoy addresses: ', addr);
+    this.nodeAddresses = addr;
   }
 
   // fetches the owner feed topic and creates it if it does not exist, protected by ACT
   private async initOwnerFeedTopic(): Promise<void> {
+    if (this.nodeAddresses === undefined) {
+      throw new SignerError('Node addresses not found');
+    }
+    console.log('bagoy REFERENCE_LIST_TOPIC 127: ', REFERENCE_LIST_TOPIC);
     const feedTopicData = await this.getFeedData(REFERENCE_LIST_TOPIC, 0);
 
     if (feedTopicData.payload === SWARM_ZERO_ADDRESS) {
-      const ownerFeedStamp = this.getOwnerFeedStamp();
+      let ownerFeedStamp = this.getOwnerFeedStamp();
+      if (ownerFeedStamp === undefined) {
+        const DEFAULT_BATCH_DEPTH = 21;
+        const DEFAULT_BATCH_AMOUNT = '500000000';
+        await this.buyOwnerStamp(DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH);
+        throw new StampError('Owner stamp not found');
+      }
+
+      await this.getUsableStamps();
+      ownerFeedStamp = this.getOwnerFeedStamp();
       if (ownerFeedStamp === undefined) {
         throw new StampError('Owner stamp not found');
       }
 
-      this.ownerFeedTopic = new Topic(getRandomBytes(Topic.LENGTH));
+      // this.ownerFeedTopic = new Topic(getRandomBytes(Topic.LENGTH));
+      this.ownerFeedTopic = Topic.fromString('TODO owner bagoy');
+      console.log('bagoy if ownerFeedTopic: ', this.ownerFeedTopic.toString());
       const topicDataRes = await this.bee.uploadData(ownerFeedStamp.batchID, this.ownerFeedTopic.toUint8Array(), {
         act: true,
       });
@@ -137,6 +159,7 @@ export class FileManager {
         index: numberToFeedIndex(1),
       });
     } else {
+      console.log('bagoy else 158 ');
       const topicHistory = await this.getFeedData(REFERENCE_LIST_TOPIC, 1);
       const topicBytes = await this.bee.downloadData(new Reference(feedTopicData.payload), {
         actHistoryAddress: new Reference(topicHistory.payload),
@@ -144,6 +167,7 @@ export class FileManager {
       });
 
       this.ownerFeedTopic = new Topic(topicBytes);
+      console.log('bagoy else ownerFeedTopic: ', this.ownerFeedTopic.toString());
     }
 
     console.log('Owner feed topic successfully initialized: ', this.ownerFeedTopic.toString());
@@ -161,6 +185,11 @@ export class FileManager {
 
   // fetches the latest list of fileinfo from the owner feed
   private async initOwnerFeedList(): Promise<void> {
+    if (this.nodeAddresses === undefined) {
+      throw new SignerError('Node addresses not found');
+    }
+
+    console.log('bagoy 158 ');
     const latestFeedData = await this.getFeedData(this.ownerFeedTopic);
     if (latestFeedData.payload === SWARM_ZERO_ADDRESS) {
       console.log("Owner fileInfo feed list doesn't exist yet.");
@@ -190,7 +219,12 @@ export class FileManager {
 
   // fetches the file info list from the owner feed and unwraps the data encrypted with ACT
   private async initFileInfoList(): Promise<void> {
+    if (this.nodeAddresses === undefined) {
+      throw new SignerError('Node addresses not found');
+    }
+
     for (const feedItem of this.ownerFeedList) {
+      console.log('bagoy 223 ');
       const rawFeedData = await this.getFeedData(new Topic(feedItem.topic));
       const fileInfoFeedData = rawFeedData.payload.toJSON() as ReferenceWithHistory;
 
@@ -278,7 +312,7 @@ export class FileManager {
     return this.sharedWithMe;
   }
 
-  getNodeAddresses(): NodeAddresses {
+  getNodeAddresses(): NodeAddresses | undefined {
     return this.nodeAddresses;
   }
   // End getter methods
@@ -318,7 +352,8 @@ export class FileManager {
       );
     }
 
-    const topic = infoTopic ? Topic.fromString(infoTopic) : new Topic(getRandomBytes(Topic.LENGTH));
+    // const topic = infoTopic ? Topic.fromString(infoTopic) : new Topic(getRandomBytes(Topic.LENGTH));
+    const topic = infoTopic ? Topic.fromString(infoTopic) : Topic.fromString('TODO bagoy');
     const feedIndex = index !== undefined ? index : 0;
     const fileInfoResult = await this.uploadFileInfo({
       batchId: batchId.toString(),
@@ -365,78 +400,78 @@ export class FileManager {
     };
   }
 
-  private async uploadFileOrDirectory(
-    batchId: BatchId,
-    resolvedPath: string,
-    uploadOptions?: CollectionUploadOptions | FileUploadOptions,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<ReferenceWithHistory> {
-    if (isDir(resolvedPath)) {
-      return this.uploadDirectory(batchId, resolvedPath, uploadOptions, requestOptions);
-    } else {
-      return this.uploadFile(batchId, resolvedPath, uploadOptions, requestOptions);
-    }
-  }
+  // private async uploadFileOrDirectory(
+  //   batchId: BatchId,
+  //   resolvedPath: string,
+  //   uploadOptions?: CollectionUploadOptions | FileUploadOptions,
+  //   requestOptions?: BeeRequestOptions,
+  // ): Promise<ReferenceWithHistory> {
+  //   if (isDir(resolvedPath)) {
+  //     return this.uploadDirectory(batchId, resolvedPath, uploadOptions, requestOptions);
+  //   } else {
+  //     return this.uploadFile(batchId, resolvedPath, uploadOptions, requestOptions);
+  //   }
+  // }
 
-  private async uploadFile(
-    batchId: BatchId,
-    resolvedPath: string,
-    uploadOptions?: FileUploadOptions,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<ReferenceWithHistory> {
-    try {
-      const { data, name, contentType } = readFile(resolvedPath);
-      console.log(`Uploading file: ${name}`);
+  // private async uploadFile(
+  //   batchId: BatchId,
+  //   resolvedPath: string,
+  //   uploadOptions?: FileUploadOptions,
+  //   requestOptions?: BeeRequestOptions,
+  // ): Promise<ReferenceWithHistory> {
+  //   try {
+  //     const { data, name, contentType } = readFile(resolvedPath);
+  //     console.log(`Uploading file: ${name}`);
 
-      const uploadFileRes = await this.bee.uploadFile(
-        batchId,
-        data,
-        name,
-        {
-          ...uploadOptions,
-          contentType: contentType,
-        },
-        requestOptions,
-      );
+  //     const uploadFileRes = await this.bee.uploadFile(
+  //       batchId,
+  //       data,
+  //       name,
+  //       {
+  //         ...uploadOptions,
+  //         contentType: contentType,
+  //       },
+  //       requestOptions,
+  //     );
 
-      console.log(`File uploaded successfully: ${name}, reference: ${uploadFileRes.reference.toString()}`);
-      return {
-        reference: uploadFileRes.reference.toString(),
-        historyRef: uploadFileRes.historyAddress.getOrThrow().toString(),
-      };
-    } catch (error: any) {
-      throw `Failed to upload file ${resolvedPath}: ${error}`;
-    }
-  }
+  //     console.log(`File uploaded successfully: ${name}, reference: ${uploadFileRes.reference.toString()}`);
+  //     return {
+  //       reference: uploadFileRes.reference.toString(),
+  //       historyRef: uploadFileRes.historyAddress.getOrThrow().toString(),
+  //     };
+  //   } catch (error: any) {
+  //     throw `Failed to upload file ${resolvedPath}: ${error}`;
+  //   }
+  // }
 
-  private async uploadDirectory(
-    batchId: BatchId,
-    resolvedPath: string,
-    uploadOptions?: CollectionUploadOptions,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<ReferenceWithHistory> {
-    console.log(`Uploading directory: ${path.basename(resolvedPath)}`);
-    try {
-      const uploadFilesRes = await this.bee.uploadFilesFromDirectory(
-        batchId,
-        resolvedPath,
-        uploadOptions,
-        requestOptions,
-      );
+  // private async uploadDirectory(
+  //   batchId: BatchId,
+  //   resolvedPath: string,
+  //   uploadOptions?: CollectionUploadOptions,
+  //   requestOptions?: BeeRequestOptions,
+  // ): Promise<ReferenceWithHistory> {
+  //   console.log(`Uploading directory: ${path.basename(resolvedPath)}`);
+  //   try {
+  //     const uploadFilesRes = await this.bee.uploadFilesFromDirectory(
+  //       batchId,
+  //       resolvedPath,
+  //       uploadOptions,
+  //       requestOptions,
+  //     );
 
-      console.log(
-        `Directory uploaded successfully: ${path.basename(
-          resolvedPath,
-        )}, reference: ${uploadFilesRes.reference.toString()}`,
-      );
-      return {
-        reference: uploadFilesRes.reference.toString(),
-        historyRef: uploadFilesRes.historyAddress.getOrThrow().toString(),
-      };
-    } catch (error: any) {
-      throw `Failed to upload directory ${resolvedPath}: ${error}`;
-    }
-  }
+  //     console.log(
+  //       `Directory uploaded successfully: ${path.basename(
+  //         resolvedPath,
+  //       )}, reference: ${uploadFilesRes.reference.toString()}`,
+  //     );
+  //     return {
+  //       reference: uploadFilesRes.reference.toString(),
+  //       historyRef: uploadFilesRes.historyAddress.getOrThrow().toString(),
+  //     };
+  //   } catch (error: any) {
+  //     throw `Failed to upload directory ${resolvedPath}: ${error}`;
+  //   }
+  // }
 
   private async uploadFileInfo(fileInfo: FileInfo): Promise<ReferenceWithHistory> {
     try {
@@ -491,6 +526,7 @@ export class FileManager {
     if (!ownerFeedStamp) {
       throw 'Owner feed stamp is not found.';
     }
+
     try {
       const fileInfoFeedListData = await this.bee.uploadData(
         ownerFeedStamp.batchID,
@@ -736,6 +772,19 @@ export class FileManager {
 
   // Start helper methods
   // Fetches the feed data for the given topic, index and address
+
+  //   Cannot read properties of undefined (reading 'toString')
+  // TypeError: Cannot read properties of undefined (reading 'toString')
+  //     at http://localhost:3002/static/js/bundle.js:65674:35
+  //     at Array.map (<anonymous>)
+  //     at Object.uint8ArrayToHex (http://localhost:3002/static/js/bundle.js:65674:24)
+  //     at Reference.toHex (http://localhost:3002/static/js/bundle.js:62728:61)
+  //     at ResourceLocator.toString (http://localhost:3002/static/js/bundle.js:63664:81)
+  //     at Module.download (http://localhost:3002/static/js/bundle.js:60062:25)
+  //     at BeeDev.downloadData (http://localhost:3002/static/js/bundle.js:57852:59)
+  //     at FileManager.initOwnerFeedTopic (http://localhost:3002/static/js/bundle.js:108:41)
+  //     at async FileManager.initialize (http://localhost:3002/static/js/bundle.js:52:5)
+  //     at async init (http://localhost:3002/static/js/bundle.js:201692:7)
   async getFeedData(
     topic: Topic,
     index?: number,
@@ -743,7 +792,16 @@ export class FileManager {
     options?: BeeRequestOptions,
   ): Promise<FetchFeedUpdateResponse> {
     try {
-      const feedReader = this.bee.makeFeedReader(topic, address || this.signer.publicKey().address(), options);
+      console.log('bagoy topic: ', topic.toString());
+      console.log('bagoy signer.address: ', this.signer.publicKey().address().toString());
+      console.log('bagoy address: ', address?.toString());
+      console.log('bagoy options: ', options);
+      console.log('bagoy index: ', index);
+      const feedReader = this.bee.makeFeedReader(
+        topic,
+        address || this.signer.publicKey().address().toString(),
+        options,
+      );
       if (index !== undefined) {
         return await feedReader.download({ index: numberToFeedIndex(index) });
       }
@@ -756,21 +814,6 @@ export class FileManager {
           payload: SWARM_ZERO_ADDRESS,
         };
       }
-      throw error;
-    }
-  }
-  // TODO: saveFileInfo only exists for testing now
-  async saveFileInfo(fileInfo: FileInfo): Promise<string> {
-    try {
-      const index = this.fileInfoList.length;
-      this.fileInfoList.push(fileInfo);
-
-      const data = JSON.stringify(this.fileInfoList);
-      localStorage.setItem(FILE_INFO_LOCAL_STORAGE, data);
-
-      return index.toString(16).padStart(64, '0');
-    } catch (error) {
-      console.error('Error saving file info:', error);
       throw error;
     }
   }

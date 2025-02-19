@@ -1,0 +1,15 @@
+{
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"],
+  "compilerOptions": {
+    "alwaysStrict": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "moduleResolution": "node",
+    "strict": true,
+    "skipLibCheck": false,
+    "typeRoots": ["./src/types", "node_modules/@types"],
+    "target": "es2020",
+    "rootDirs": ["src"]
+  }
+}

@@ -7,9 +7,9 @@ import { BeeDev, Reference } from '@upcoming/bee-js';
 import path from 'path';
 
 import { FileManager } from '../../src/fileManager';
-import { OWNER_FEED_STAMP_LABEL, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
-import { StampError } from '../../src/utils/errors';
-import { buyStamp } from '../../src/utils/utils';
+import { OWNER_FEED_STAMP_LABEL, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/types/constants';
+import { StampError } from '../../src/types/errors';
+import { buyStamp } from '../../src/types/utils';
 import {
   BEE_URL,
   DEFAULT_BATCH_AMOUNT,
@@ -43,7 +43,7 @@ describe('FileManager initialization', () => {
     expect(stamps).toEqual([]);
     expect(fileManager.getFileInfoList()).toEqual([]);
     expect(fileManager.getSharedWithMe()).toEqual([]);
-    expect(fileManager.getNodeAddresses().publicKey).not.toEqual(undefined);
+    expect(fileManager.getNodeAddresses()).not.toBeUndefined();
   });
 
   it('should fetch the owner stamp and initialize the owner feed and topic', async () => {
@@ -128,7 +128,7 @@ describe('FileManager initialization', () => {
     {
       const fileManager = new FileManager(bee);
       await fileManager.initialize();
-      const publsiherPublicKey = fileManager.getNodeAddresses().publicKey.toCompressedHex();
+      const publsiherPublicKey = fileManager.getNodeAddresses()!.publicKey.toCompressedHex();
       await fileManager.upload(testStampId, [firstFile]);
       await fileManager.upload(testStampId, [secondFile, thirdFile]);
 
@@ -149,7 +149,7 @@ describe('FileManager initialization', () => {
     // re-init fileManager after it goes out of scope to test if the file is saved on the feed
     const fileManager = new FileManager(bee);
     await fileManager.initialize();
-    const publsiherPublicKey = fileManager.getNodeAddresses().publicKey.toCompressedHex();
+    const publsiherPublicKey = fileManager.getNodeAddresses()!.publicKey.toCompressedHex();
 
     const fileInfoList = fileManager.getFileInfoList();
     await dowloadAndCompareFiles(fileManager, publsiherPublicKey, fileInfoList, expFileDataArr);

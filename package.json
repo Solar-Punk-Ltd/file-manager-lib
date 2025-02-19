@@ -2,11 +2,19 @@
   "name": "@solarpunkltd/file-manager-lib",
   "version": "0.0.8",
   "description": "A file manager for storing and handling data on Swarm.",
-  "main": "dist/src/index.js",
-  "types": "dist/src/index.d.ts",
+  "main": "dist/cjs/index.js",
+  "module": "dist/mjs/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/mjs/index.js",
+      "require": "./dist/cjs/index.js",
+      "types": "./dist/types/index.d.ts"
+    }
+  },
   "scripts": {
-    "build": "rimraf dist && npm run build:node",
-    "build:node": "tsc -p tsconfig.json",
+    "build": "rimraf dist && npm run build:node && npm run build:types && npm run build:browser",
+    "build:node": "tsc -p tsconfig.json && tsc -p tsconfig-mjs.json && ./build-fixup && babel --plugins \"babel-plugin-add-import-extension\" --out-dir dist/mjs/ dist/mjs/",
+    "build:types": "tsc --emitDeclarationOnly --declaration --outDir dist/types",
     "build:browser": "webpack --progress",
     "test": "jest --config=jest.config.ts --runInBand --verbose",
     "test:coverage": "jest --coverage",
@@ -15,21 +23,34 @@
     "lint:fix": "npm run lint -- --fix",
     "prepare": "npm run lint"
   },
+  "types": "dist/types/index.d.ts",
+  "browser": {
+    "stream": false,
+    "fs": false
+  },
+  "files": [
+    "dist"
+  ],
   "keywords": [
     "swarm",
     "mantaray",
     "file-manager",
     "bee-js",
-    "typescript"
+    "typescript",
+    "browser"
   ],
   "author": "TODO",
   "license": "Apache-2.0",
   "dependencies": {
-    "@upcoming/bee-js": "^0.5.5"
+    "@upcoming/bee-js": "^0.8.1"
   },
   "devDependencies": {
-    "@babel/preset-env": "^7.26.0",
-    "@babel/preset-typescript": "^7.26.0",
+    "@babel/cli": "^7.19.3",
+    "@babel/core": "^7.20.5",
+    "@babel/plugin-proposal-class-properties": "^7.16.7",
+    "@babel/plugin-transform-runtime": "^7.17.0",
+    "@babel/preset-env": "^7.20.2",
+    "@babel/preset-typescript": "^7.18.6",
     "@eslint/js": "^8.55.0",
     "@jest/globals": "^29.7.0",
     "@types/fs-extra": "^9.0.13",
@@ -37,6 +58,8 @@
     "@types/node": "^22.7.5",
     "@typescript-eslint/eslint-plugin": "^6.14.0",
     "@typescript-eslint/parser": "^6.14.0",
+    "babel-loader": "^9.2.1",
+    "babel-plugin-add-import-extension": "^1.6.0",
     "eslint": "^8.55.0",
     "eslint-config-prettier": "^8.10.0",
     "eslint-plugin-import": "^2.29.1",
@@ -49,6 +72,7 @@
     "jest-cli": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
     "prettier": "^2.8.8",
+    "terser-webpack-plugin": "^5.3.1",
     "ts-jest": "^29.2.5",
     "ts-node": "^10.9.2",
     "typescript": "^5.2.2",
