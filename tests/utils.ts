@@ -1,4 +1,4 @@
-import { BatchId, Bee, PrivateKey, Reference } from '@upcoming/bee-js';
+import { PrivateKey, Reference } from '@upcoming/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
@@ -48,7 +48,7 @@ export async function dowloadAndCompareFiles(
   fileManager: FileManager,
   publicKey: string,
   fiList: FileInfo[],
-  expArr: File[][],
+  expArr: string[][],
 ): Promise<void> {
   if (fiList.length !== expArr.length) {
     expect(fiList.length).toEqual(expArr.length);

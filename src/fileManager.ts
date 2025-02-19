@@ -17,7 +17,6 @@ import {
   PrivateKey,
   PssSubscription,
   RedundancyLevel,
-  RedundantUploadOptions,
   Reference,
   STAMPS_DEPTH_MAX,
   Topic,
@@ -27,7 +26,6 @@ import {
 import path from 'path';
 
 import {
-  FILE_INFO_LOCAL_STORAGE,
   OWNER_FEED_STAMP_LABEL,
   REFERENCE_LIST_TOPIC,
   SHARED_INBOX_TOPIC,
@@ -40,7 +38,6 @@ import {
   ReferenceWithHistory,
   ReferenceWithPath,
   ShareItem,
-  UploadProgress,
   WrappedFileInfoFeed,
 } from './utils/types';
 import {
@@ -60,7 +57,7 @@ import {
 export class FileManager {
   private bee: Bee;
   private signer: PrivateKey;
-  private nodeAddresses: NodeAddresses;
+  private nodeAddresses: NodeAddresses | undefined;
   private stampList: PostageBatch[];
   private ownerFeedList: WrappedFileInfoFeed[];
   private fileInfoList: FileInfo[];
@@ -84,10 +81,16 @@ export class FileManager {
     this.sharedWithMe = [];
     this.sharedSubscription = undefined;
     this.isInitialized = false;
+    this.nodeAddresses = undefined;
   }
 
   // Start init methods
   async initialize(): Promise<void> {
+    if (this.isInitialized) {
+      console.log('FileManager is already initialized');
+      return;
+    }
+
     await this.verifySupportedVersions();
     await this.initNodeAddresses();
     await this.initStamps();
@@ -118,6 +121,9 @@ export class FileManager {
 
   // fetches the owner feed topic and creates it if it does not exist, protected by ACT
   private async initOwnerFeedTopic(): Promise<void> {
+    if (this.nodeAddresses === undefined) {
+      throw new SignerError('Node addresses not found');
+    }
     const feedTopicData = await this.getFeedData(REFERENCE_LIST_TOPIC, 0);
 
     if (feedTopicData.payload === SWARM_ZERO_ADDRESS) {
@@ -161,6 +167,10 @@ export class FileManager {
 
   // fetches the latest list of fileinfo from the owner feed
   private async initOwnerFeedList(): Promise<void> {
+    if (this.nodeAddresses === undefined) {
+      throw new SignerError('Node addresses not found');
+    }
+
     const latestFeedData = await this.getFeedData(this.ownerFeedTopic);
     if (latestFeedData.payload === SWARM_ZERO_ADDRESS) {
       console.log("Owner fileInfo feed list doesn't exist yet.");
@@ -190,6 +200,10 @@ export class FileManager {
 
   // fetches the file info list from the owner feed and unwraps the data encrypted with ACT
   private async initFileInfoList(): Promise<void> {
+    if (this.nodeAddresses === undefined) {
+      throw new SignerError('Node addresses not found');
+    }
+
     for (const feedItem of this.ownerFeedList) {
       const rawFeedData = await this.getFeedData(new Topic(feedItem.topic));
       const fileInfoFeedData = rawFeedData.payload.toJSON() as ReferenceWithHistory;
@@ -278,7 +292,7 @@ export class FileManager {
     return this.sharedWithMe;
   }
 
-  getNodeAddresses(): NodeAddresses {
+  getNodeAddresses(): NodeAddresses | undefined {
     return this.nodeAddresses;
   }
   // End getter methods
@@ -287,32 +301,30 @@ export class FileManager {
   // TODO: event emitter integration
   async upload(
     batchId: BatchId,
-    files: File[] | FileList,
-    customMetadata?: Record<string, string>,
+    resolvedPath: string,
+    previewPath?: string,
     historyRef?: Reference,
     infoTopic?: string,
     index?: number | undefined,
-    preview?: File,
     redundancyLevel?: RedundancyLevel,
+    customMetadata?: Record<string, string>,
   ): Promise<void> {
     if ((infoTopic && !historyRef) || (!infoTopic && historyRef)) {
       throw new FileInfoError('infoTopic and historyRef have to be provided at the same time.');
     }
 
     const requestOptions = historyRef ? makeBeeRequestOptions({ historyRef }) : undefined;
-    const uploadFilesRes = await this.streamFiles(
+    const uploadFilesRes = await this.uploadFileOrDirectory(
       batchId,
-      files,
-      (p) => console.log(`progress: ${p.processed}/${p.total}`),
+      resolvedPath,
       { act: true, redundancyLevel },
       requestOptions,
     );
     let uploadPreviewRes: ReferenceWithHistory | undefined;
-    if (preview) {
-      uploadPreviewRes = await this.streamFiles(
+    if (previewPath) {
+      uploadPreviewRes = await this.uploadFileOrDirectory(
         batchId,
-        [preview],
-        (p) => console.log(`progress: ${p.processed}/${p.total}`),
+        previewPath,
         { act: true, redundancyLevel },
         requestOptions,
       );
@@ -325,7 +337,7 @@ export class FileManager {
       file: uploadFilesRes,
       topic: topic.toString(),
       owner: this.signer.publicKey().address().toString(),
-      name: 'TODO bagoy',
+      name: path.basename(resolvedPath),
       timestamp: new Date().getTime(),
       shared: false,
       preview: uploadPreviewRes,
@@ -350,21 +362,6 @@ export class FileManager {
   }
   // TODO: streamFiles & uploadFiles  - streamDirectory & uploadFilesFromDirectory -> browser vs nodejs
   // TODO: redundancyLevel missing from uploadoptions
-  private async streamFiles(
-    batchId: BatchId,
-    files: File[] | FileList,
-    onUploadProgress?: (progress: UploadProgress) => void,
-    uploadOptions?: RedundantUploadOptions,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<ReferenceWithHistory> {
-    const reuslt = await this.bee.streamFiles(batchId, files, onUploadProgress, uploadOptions, requestOptions);
-
-    return {
-      reference: reuslt.reference.toString(),
-      historyRef: reuslt.historyAddress.getOrThrow().toString(),
-    };
-  }
-
   private async uploadFileOrDirectory(
     batchId: BatchId,
     resolvedPath: string,
@@ -491,6 +488,7 @@ export class FileManager {
     if (!ownerFeedStamp) {
       throw 'Owner feed stamp is not found.';
     }
+
     try {
       const fileInfoFeedListData = await this.bee.uploadData(
         ownerFeedStamp.batchID,
@@ -756,21 +754,6 @@ export class FileManager {
           payload: SWARM_ZERO_ADDRESS,
         };
       }
-      throw error;
-    }
-  }
-  // TODO: saveFileInfo only exists for testing now
-  async saveFileInfo(fileInfo: FileInfo): Promise<string> {
-    try {
-      const index = this.fileInfoList.length;
-      this.fileInfoList.push(fileInfo);
-
-      const data = JSON.stringify(this.fileInfoList);
-      localStorage.setItem(FILE_INFO_LOCAL_STORAGE, data);
-
-      return index.toString(16).padStart(64, '0');
-    } catch (error) {
-      console.error('Error saving file info:', error);
       throw error;
     }
   }

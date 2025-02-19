@@ -113,9 +113,6 @@ export function assertWrappedFileInoFeed(value: unknown): asserts value is Wrapp
 
   const wmf = value as unknown as WrappedFileInfoFeed;
 
-  // new Reference(wmf.reference);
-  // new Reference(wmf.historyRef);
-
   if (wmf.eGranteeRef !== undefined) {
     new Reference(wmf.eGranteeRef);
   }
