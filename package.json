@@ -26,7 +26,8 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@upcoming/bee-js": "0.8.1",
-    "cafe-utility": "^27.9.1"
+    "cafe-utility": "^27.9.1",
+    "nock": "^14.0.1"
   },
   "devDependencies": {
     "@babel/preset-env": "^7.26.0",

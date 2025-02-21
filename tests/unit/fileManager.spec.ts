@@ -1,10 +1,15 @@
-import { BatchId, Bee, Bytes, MantarayNode, Reference } from '@upcoming/bee-js';
+import { BatchId, Bee, BeeVersions, Bytes, EthAddress, MantarayNode, NodeAddresses, NULL_TOPIC, NumberString, PeerAddress, PublicKey, Reference, UploadResult } from '@upcoming/bee-js';
 import { Optional } from 'cafe-utility';
 
 import { FileManager } from '../../src/fileManager';
 import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { FileInfo, ReferenceWithPath } from '../../src/utils/types';
 import {
+  createInitMocks,
+  createMockFeedWriter,
+  createMockGetFeedDataResult,
+  createMockNodeAddresses,
+  createMockPostageBatch,
   emptyFileInfoTxt,
   extendedFileInfoTxt,
   fileInfoTxt,
@@ -15,6 +20,7 @@ import {
   setupGlobalLocalStorage,
 } from '../mockHelpers';
 import { BEE_URL, MOCK_SIGNER } from '../utils';
+import { numberToFeedIndex } from '../../src/utils/utils';
 
 // Set up the global localStorage mock
 setupGlobalLocalStorage();
@@ -57,6 +63,33 @@ describe('FileManager', () => {
       expect(fm.getSharedWithMe()).toEqual([]);
       expect(fm.getIsInitialized()).toEqual(false);
       expect(fm.getNodeAddresses()).toEqual(undefined);
+    });
+  });
+  
+  describe('initialize', () => {
+    it('should initialize FileManager', async () => {
+      createInitMocks();
+
+      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const fm = new FileManager(bee);
+
+      await fm.initialize();
+
+      expect(fm.getIsInitialized()).toBe(true);
+    });
+
+    it('should not initialize, if already initialized', async () => {
+      createInitMocks();
+      const logSpy = jest.spyOn(console, 'log');
+
+      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const fm = new FileManager(bee);
+
+      await fm.initialize();
+      expect(fm.getIsInitialized()).toBe(true);
+
+      await fm.initialize();
+      expect(logSpy).toHaveBeenCalledWith('FileManager is already initialized')
     });
   });
 
