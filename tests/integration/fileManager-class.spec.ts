@@ -261,10 +261,10 @@ describe('FileManager saveMantaray', () => {
     child.metadata = { fork: 'child' };
 
     // Manually add a fork using an inline object conforming to the Fork interface.
-    parent.forks.set(100, { 
-      prefix: new Uint8Array([100]), 
+    parent.forks.set(100, {
+      prefix: new Uint8Array([100]),
       node: child,
-      marshal: () => child.targetAddress
+      marshal: () => child.targetAddress,
     });
 
     const result = await fileManager.saveMantaray(batchId, parent, { act: true });
@@ -297,15 +297,15 @@ describe('FileManager saveMantaray', () => {
     child2.metadata = { name: 'child2' };
 
     // Manually add forks for both children using inline fork objects.
-    parent.forks.set(50, { 
-      prefix: new Uint8Array([50]), 
+    parent.forks.set(50, {
+      prefix: new Uint8Array([50]),
       node: child1,
-      marshal: () => child1.targetAddress
+      marshal: () => child1.targetAddress,
     });
-    parent.forks.set(51, { 
-      prefix: new Uint8Array([51]), 
+    parent.forks.set(51, {
+      prefix: new Uint8Array([51]),
       node: child2,
-      marshal: () => child2.targetAddress
+      marshal: () => child2.targetAddress,
     });
 
     const result = await fileManager.saveMantaray(batchId, parent, { act: true });
@@ -321,5 +321,138 @@ describe('FileManager saveMantaray', () => {
     });
     expect(downloaded).toBeDefined();
     expect(downloaded.length).toBeGreaterThan(0);
+  });
+});
+
+describe('FileManager downloadFork', () => {
+  let bee: BeeDev;
+  let fileManager: FileManager;
+  let batchId: BatchId;
+  let parent: MantarayNode;
+  let child: MantarayNode;
+  let childHistoryRef: string; // store child's history reference
+
+  // Define paths and dummy content.
+  const folderPath = 'folder/';
+  const fileName = 'file.txt';
+  const fullPath = folderPath + fileName;
+  const dummyContentStr = 'fork dummy file content';
+
+  beforeAll(async () => {
+    // Create BeeDev instance.
+    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    // Purchase (or ensure) a test stamp.
+    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'testStamp');
+    // Create and initialize the FileManager.
+    fileManager = new FileManager(bee);
+    await fileManager.initialize();
+
+    // Create a parent node with an explicit path "folder/".
+    parent = new MantarayNode({ path: new TextEncoder().encode(folderPath) });
+    // Create a child node with an explicit path "file.txt".
+    child = new MantarayNode({ path: new TextEncoder().encode(fileName) });
+    // Set child's parent so that fullPath computes as "folder/file.txt".
+    child.parent = parent;
+
+    // Upload dummy content to Bee for the child.
+    const dummyContent = Buffer.from(dummyContentStr);
+    const uploadRes = await bee.uploadData(batchId, dummyContent, { act: true });
+    // Save the child's history reference.
+    childHistoryRef = uploadRes.historyAddress.getOrThrow().toString();
+    // Set the child's targetAddress using the uploaded reference.
+    child.targetAddress = new Reference(uploadRes.reference).toUint8Array();
+    child.metadata = { info: 'dummy file' };
+
+    // Manually add a fork to the parent.
+    // Create an inline fork object with required properties.
+    parent.forks.set(child.path[0], {
+      prefix: child.path,
+      node: child,
+      marshal: () => child.targetAddress,
+    });
+  });
+
+  it('should download the fork content when the path exists', async () => {
+    const options = {
+      actHistoryAddress: new Reference(childHistoryRef),
+      actPublisher: fileManager.getNodeAddresses()!.publicKey,
+    };
+    const downloaded = await fileManager.downloadFork(parent, fullPath, options);
+    const downloadedStr = downloaded.toUtf8();
+    expect(downloadedStr).toEqual(dummyContentStr);
+  });
+
+  it('should return SWARM_ZERO_ADDRESS when the parent has no forks', async () => {
+    // Create a new node without any forks.
+    const emptyNode = new MantarayNode({ path: new TextEncoder().encode('emptyFolder/') });
+    const options = {
+      actHistoryAddress: new Reference(childHistoryRef),
+      actPublisher: fileManager.getNodeAddresses()!.publicKey,
+    };
+    const result = await fileManager.downloadFork(emptyNode, 'emptyFolder/file.txt', options);
+    expect(result).toEqual(SWARM_ZERO_ADDRESS);
+  });
+
+  it('should return SWARM_ZERO_ADDRESS when the fork exists but its targetAddress is NULL_ADDRESS', async () => {
+    // Create a node with a fork that has a NULL_ADDRESS.
+    const nodeWithNullFork = new MantarayNode({ path: new TextEncoder().encode('nullFolder/') });
+    const fakeChild = new MantarayNode({ path: new TextEncoder().encode('file.txt') });
+    fakeChild.parent = nodeWithNullFork;
+    fakeChild.targetAddress = new Reference(SWARM_ZERO_ADDRESS).toUint8Array();
+    fakeChild.metadata = { info: 'should be empty' };
+    nodeWithNullFork.forks.set(fakeChild.path[0], {
+      prefix: fakeChild.path,
+      node: fakeChild,
+      marshal: () => new Reference(SWARM_ZERO_ADDRESS).toUint8Array(),
+    });
+    const options = {
+      actHistoryAddress: new Reference(childHistoryRef),
+      actPublisher: fileManager.getNodeAddresses()!.publicKey,
+    };
+    const result = await fileManager.downloadFork(nodeWithNullFork, 'nullFolder/file.txt', options);
+    expect(result).toEqual(SWARM_ZERO_ADDRESS);
+  });
+
+  it('should correctly handle a nested fork structure', async () => {
+    // Create a nested structure: parent -> intermediate -> child.
+    const nestedParent = new MantarayNode({ path: new TextEncoder().encode('nestedFolder/') });
+    const intermediate = new MantarayNode({ path: new TextEncoder().encode('subfolder/') });
+    // Set intermediate's parent.
+    intermediate.parent = nestedParent;
+    const nestedChild = new MantarayNode({ path: new TextEncoder().encode('nestedFile.txt') });
+    nestedChild.parent = intermediate;
+
+    const nestedContentStr = 'nested fork dummy content';
+    const nestedContent = Buffer.from(nestedContentStr);
+    const uploadResNested = await bee.uploadData(batchId, nestedContent, { act: true });
+    const nestedChildHistory = uploadResNested.historyAddress.getOrThrow().toString();
+    nestedChild.targetAddress = new Reference(uploadResNested.reference).toUint8Array();
+    nestedChild.metadata = { info: 'nested file' };
+
+    // Add the nestedChild as a fork to the intermediate node.
+    intermediate.forks.set(nestedChild.path[0], {
+      prefix: nestedChild.path,
+      node: nestedChild,
+      marshal: () => nestedChild.targetAddress,
+    });
+    // Add intermediate as a fork to the nestedParent.
+    nestedParent.forks.set(intermediate.path[0], {
+      prefix: intermediate.path,
+      node: intermediate,
+      marshal: () => {
+        // For simplicity, use intermediate's targetAddress if set; otherwise, use an empty array.
+        return intermediate.targetAddress;
+      },
+    });
+
+    // Now the full path should be "nestedFolder/subfolder/nestedFile.txt"
+    const fullNestedPath = 'nestedFolder/subfolder/nestedFile.txt';
+    const options = {
+      actHistoryAddress: new Reference(nestedChildHistory),
+      actPublisher: fileManager.getNodeAddresses()!.publicKey,
+    };
+    const downloadedNested = await fileManager.downloadFork(nestedParent, fullNestedPath, options);
+    const downloadedNestedStr = downloadedNested.toUtf8();
+    expect(downloadedNestedStr).toEqual(nestedContentStr);
   });
 });
