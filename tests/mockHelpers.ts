@@ -1,8 +1,22 @@
-import { BatchId, Bee, BeeVersions, Bytes, EthAddress, NodeAddresses, NULL_TOPIC, NumberString, PeerAddress, PublicKey, Reference, UploadResult } from '@upcoming/bee-js';
-import { SWARM_ZERO_ADDRESS } from '../src/utils/constants';
-import { numberToFeedIndex } from '../src/utils';
-import { FileManager } from '../src/fileManager';
+import {
+  BatchId,
+  Bee,
+  BeeVersions,
+  Bytes,
+  EthAddress,
+  NodeAddresses,
+  NULL_TOPIC,
+  NumberString,
+  PeerAddress,
+  PublicKey,
+  Reference,
+  UploadResult,
+} from '@upcoming/bee-js';
 import { Optional } from 'cafe-utility';
+
+import { FileManager } from '../src/fileManager';
+import { numberToFeedIndex } from '../src/utils';
+import { SWARM_ZERO_ADDRESS } from '../src/utils/constants';
 
 export const MOCK_BATCH_ID = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
 
@@ -144,25 +158,25 @@ export function createMockPostageBatch() {
     batchID: new BatchId(SWARM_ZERO_ADDRESS),
     utilization: 3,
     usable: true,
-    label: "very-good-stamp",
+    label: 'very-good-stamp',
     depth: 22,
-    amount: "480000000" as NumberString,
+    amount: '480000000' as NumberString,
     bucketDepth: 22,
     blockNumber: 111,
     immutableFlag: true,
     exists: true,
-    batchTTL: 100
-  }
+    batchTTL: 100,
+  };
 }
 
 export function createMockNodeAddresses() {
   return {
     overlay: SWARM_ZERO_ADDRESS as PeerAddress,
-    underlay: ["mock-underlay"],
-    ethereum: "mock-address" as unknown as EthAddress,
+    underlay: ['mock-underlay'],
+    ethereum: 'mock-address' as unknown as EthAddress,
     publicKey: SWARM_ZERO_ADDRESS.toString().repeat(2) as unknown as PublicKey,
-    pssPublicKey: "mock-pss-public-key"
-  } as unknown as NodeAddresses
+    pssPublicKey: 'mock-pss-public-key',
+  } as unknown as NodeAddresses;
 }
 
 export function createMockGetFeedDataResult(currentIndex = 0, nextIndex = 1) {
@@ -170,26 +184,31 @@ export function createMockGetFeedDataResult(currentIndex = 0, nextIndex = 1) {
     feedIndex: numberToFeedIndex(currentIndex),
     feedIndexNext: numberToFeedIndex(nextIndex),
     payload: SWARM_ZERO_ADDRESS,
-  }
+  };
 }
 
 export function createMockFeedWriter() {
   return {
     upload: jest.fn(),
-    owner: "" as unknown as EthAddress,
+    owner: '' as unknown as EthAddress,
     download: jest.fn(),
-    topic: NULL_TOPIC
-  }
+    topic: NULL_TOPIC,
+  };
 }
 
 export function createInitMocks() {
-  jest.spyOn(Bee.prototype, 'getVersions').mockResolvedValue({beeApiVersion: "0.0.0", beeVersion: "0.0.0"} as BeeVersions);
+  jest
+    .spyOn(Bee.prototype, 'getVersions')
+    .mockResolvedValue({ beeApiVersion: '0.0.0', beeVersion: '0.0.0' } as BeeVersions);
   jest.spyOn(Bee.prototype, 'isSupportedApiVersion').mockResolvedValue(true);
   jest.spyOn(Bee.prototype, 'getNodeAddresses').mockResolvedValue(createMockNodeAddresses());
   jest.spyOn(Bee.prototype, 'getAllPostageBatch').mockResolvedValue([createMockPostageBatch()]);
   jest.spyOn(FileManager.prototype, 'getFeedData').mockResolvedValue(createMockGetFeedDataResult());
   jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(new Bytes(SWARM_ZERO_ADDRESS));
   jest.spyOn(FileManager.prototype, 'getOwnerFeedStamp').mockReturnValue(createMockPostageBatch());
-  jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValue({ reference: SWARM_ZERO_ADDRESS, historyAddress: Optional.of(SWARM_ZERO_ADDRESS) } as unknown as UploadResult);
+  jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValue({
+    reference: SWARM_ZERO_ADDRESS,
+    historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
+  } as unknown as UploadResult);
   jest.spyOn(Bee.prototype, 'makeFeedWriter').mockReturnValue(createMockFeedWriter());
 }

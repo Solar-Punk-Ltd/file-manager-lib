@@ -98,5 +98,5 @@ export function socPostMock(
 }
 
 export function getVersionsMock() {
-    return nock(MOCK_SERVER_URL).get(`${HEALTH}`);
+  return nock(MOCK_SERVER_URL).get(`${HEALTH}`);
 }

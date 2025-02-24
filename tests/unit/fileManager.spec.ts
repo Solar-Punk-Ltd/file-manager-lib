@@ -4,11 +4,7 @@ import { Optional } from 'cafe-utility';
 import { FileManager } from '../../src/fileManager';
 import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { ReferenceWithHistory } from '../../src/utils/types';
-import {
-  createInitMocks,
-  MOCK_BATCH_ID,
-  setupGlobalLocalStorage,
-} from '../mockHelpers';
+import { createInitMocks, MOCK_BATCH_ID, setupGlobalLocalStorage } from '../mockHelpers';
 import { BEE_URL, MOCK_SIGNER } from '../utils';
 
 // Set up the global localStorage mock
@@ -54,7 +50,7 @@ describe('FileManager', () => {
       expect(fm.getNodeAddresses()).toEqual(undefined);
     });
   });
-  
+
   describe('initialize', () => {
     it('should initialize FileManager', async () => {
       createInitMocks();
@@ -78,7 +74,7 @@ describe('FileManager', () => {
       expect(fm.getIsInitialized()).toBe(true);
 
       await fm.initialize();
-      expect(logSpy).toHaveBeenCalledWith('FileManager is already initialized')
+      expect(logSpy).toHaveBeenCalledWith('FileManager is already initialized');
     });
   });
 
@@ -86,12 +82,12 @@ describe('FileManager', () => {
     it('should call saveRecursively', async () => {
       createInitMocks();
       const saveRecursivelySpy = jest.spyOn(MantarayNode.prototype, 'saveRecursively').mockResolvedValue({
-        reference: new Reference(('1'.repeat(64))),
-        historyAddress: Optional.of(new Reference(SWARM_ZERO_ADDRESS))
+        reference: new Reference('1'.repeat(64)),
+        historyAddress: Optional.of(new Reference(SWARM_ZERO_ADDRESS)),
       });
 
       const fm = await createInitializedFileManager();
-      fm.saveMantaray(new BatchId(MOCK_BATCH_ID), new MantarayNode())
+      fm.saveMantaray(new BatchId(MOCK_BATCH_ID), new MantarayNode());
 
       expect(saveRecursivelySpy).toHaveBeenCalled();
     });
@@ -99,17 +95,19 @@ describe('FileManager', () => {
     it('should return ReferenceWithHistory', async () => {
       createInitMocks();
       const saveRecursivelySpy = jest.spyOn(MantarayNode.prototype, 'saveRecursively').mockResolvedValue({
-        reference: new Reference(('1'.repeat(64))),
-        historyAddress: Optional.of(new Reference(SWARM_ZERO_ADDRESS))
+        reference: new Reference('1'.repeat(64)),
+        historyAddress: Optional.of(new Reference(SWARM_ZERO_ADDRESS)),
       });
       const fm = await createInitializedFileManager();
 
       const expectedReturnValue: ReferenceWithHistory = {
-        reference: new Reference(('1'.repeat(64))).toString(),
-        historyRef: new Reference(SWARM_ZERO_ADDRESS).toString()
-      }
+        reference: new Reference('1'.repeat(64)).toString(),
+        historyRef: new Reference(SWARM_ZERO_ADDRESS).toString(),
+      };
 
-      await expect(fm.saveMantaray(new BatchId(MOCK_BATCH_ID), new MantarayNode())).resolves.toEqual(expectedReturnValue);
+      await expect(fm.saveMantaray(new BatchId(MOCK_BATCH_ID), new MantarayNode())).resolves.toEqual(
+        expectedReturnValue,
+      );
     });
   });
 
