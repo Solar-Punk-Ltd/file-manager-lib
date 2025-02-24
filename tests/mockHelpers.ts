@@ -4,18 +4,18 @@ import { numberToFeedIndex } from '../src/utils';
 import { FileManager } from '../src/fileManager';
 import { Optional } from 'cafe-utility';
 
-export const mockBatchId = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
+export const MOCK_BATCH_ID = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
 
 export const fileInfoTxt = `[
   {
-    "batchId": "${mockBatchId}",
+    "batchId": "${MOCK_BATCH_ID}",
     "file": {
       "reference": "1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68",
       "historyRef": "0000000000000000000000000000000000000000000000000000000000000000"
     }
   },
   {
-    "batchId": "${mockBatchId}",
+    "batchId": "${MOCK_BATCH_ID}",
     "file": {
       "reference": "2222222222222222222222222222222222222222222222222222222222222222",
       "historyRef": "0000000000000000000000000000000000000000000000000000000000000000"
@@ -23,7 +23,7 @@ export const fileInfoTxt = `[
   }
 ]`;
 
-export const extendedFileInfoTxt = `[{"batchId":"${mockBatchId}","file":{"reference":"1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68","historyRef":"0000000000000000000000000000000000000000000000000000000000000000"}},{"batchId":"${mockBatchId}","file":{"reference":"2222222222222222222222222222222222222222222222222222222222222222","historyRef":"0000000000000000000000000000000000000000000000000000000000000000"}},{"batchId":"${mockBatchId}","file":{"reference":"3333333333333333333333333333333333333333333333333333333333333333","historyRef":"0000000000000000000000000000000000000000000000000000000000000000"}}]`;
+export const extendedFileInfoTxt = `[{"batchId":"${MOCK_BATCH_ID}","file":{"reference":"1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68","historyRef":"0000000000000000000000000000000000000000000000000000000000000000"}},{"batchId":"${MOCK_BATCH_ID}","file":{"reference":"2222222222222222222222222222222222222222222222222222222222222222","historyRef":"0000000000000000000000000000000000000000000000000000000000000000"}},{"batchId":"${MOCK_BATCH_ID}","file":{"reference":"3333333333333333333333333333333333333333333333333333333333333333","historyRef":"0000000000000000000000000000000000000000000000000000000000000000"}}]`;
 
 export const emptyFileInfoTxt = `[]`;
 
