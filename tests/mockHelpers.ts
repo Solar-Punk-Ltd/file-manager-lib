@@ -42,14 +42,19 @@ export const extendedFileInfoTxt = `[{"batchId":"${MOCK_BATCH_ID}","file":{"refe
 
 export const emptyFileInfoTxt = `[]`;
 
-export function createMockMantarayNode(customForks: Record<string, any> = {}, excludeDefaultForks = false): MantarayNode {
+export function createMockMantarayNode(all = true): MantarayNode {
   const mn = new MantarayNode();
-  mn.addFork('/root', new Reference('0'.repeat(64)));
-  mn.addFork('/root/1.txt', new Reference('1'.repeat(64)));
-  mn.addFork('/root/2.txt', new Reference('2'.repeat(64)));
+  if (all) {
+    mn.addFork('/root', new Reference('0'.repeat(64)));
+    mn.addFork('/root/1.txt', new Reference('1'.repeat(64)));
+    mn.addFork('/root/2.txt', new Reference('2'.repeat(64)));
+    mn.addFork('/root/subfolder/3.txt', new Reference('3'.repeat(64)));
+  } else {
+    mn.addFork('/root/2.txt', new Reference('2'.repeat(64)));
+  }
 
   mn.calculateSelfAddress();
-  console.error("Collect: ", mn.collect());
+
   return mn;
 }
 

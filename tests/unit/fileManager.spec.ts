@@ -6,6 +6,8 @@ import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { ReferenceWithHistory } from '../../src/utils/types';
 import { createInitMocks, createMockMantarayNode, MOCK_BATCH_ID, setupGlobalLocalStorage } from '../mockHelpers';
 import { BEE_URL, MOCK_SIGNER } from '../utils';
+import { Fork } from '@upcoming/bee-js/dist/types/manifest/manifest';
+import { mock } from 'node:test';
 
 // Set up the global localStorage mock
 setupGlobalLocalStorage();
@@ -94,7 +96,7 @@ describe('FileManager', () => {
 
     it('should return ReferenceWithHistory', async () => {
       createInitMocks();
-      const saveRecursivelySpy = jest.spyOn(MantarayNode.prototype, 'saveRecursively').mockResolvedValue({
+      jest.spyOn(MantarayNode.prototype, 'saveRecursively').mockResolvedValue({
         reference: new Reference('1'.repeat(64)),
         historyAddress: Optional.of(new Reference(SWARM_ZERO_ADDRESS)),
       });
@@ -140,6 +142,33 @@ describe('FileManager', () => {
       expect(downloadDataSpy).toHaveBeenCalledWith(expectedReference, undefined);    
     });
   });
+
+  describe('listFiles', () => {
+    it('should return correct ReferenceWithPath', async () => {
+      createInitMocks();
+      const fm = await createInitializedFileManager();
+      const mockMantarayNode = createMockMantarayNode(false);
+      jest.spyOn(MantarayNode, 'unmarshal').mockResolvedValue(new MantarayNode());
+      jest.spyOn(MantarayNode.prototype, 'collect').mockReturnValue(mockMantarayNode.collect()) ;
+
+      const fileInfo = {
+        batchId: new BatchId(MOCK_BATCH_ID),
+        file: {
+          reference: new Reference('1'.repeat(64)),
+          historyRef: new Reference(SWARM_ZERO_ADDRESS),
+        },
+      };
+
+      const result = await fm.listFiles(fileInfo);
+      expect(result).toEqual([
+        {
+          path: "/root/2.txt",
+          reference: new Reference('2'.repeat(64))
+        }
+      ]);
+    });
+  });
+
   // describe('initialize', () => {
   //   it('should log no data found if data.txt entry does not exist', async () => {
   //     jest.spyOn(localStorage, 'getItem').mockReturnValue(null);
