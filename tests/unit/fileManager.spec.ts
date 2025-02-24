@@ -4,7 +4,7 @@ import { Optional } from 'cafe-utility';
 import { FileManager } from '../../src/fileManager';
 import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { ReferenceWithHistory } from '../../src/utils/types';
-import { createInitMocks, MOCK_BATCH_ID, setupGlobalLocalStorage } from '../mockHelpers';
+import { createInitMocks, createMockMantarayNode, MOCK_BATCH_ID, setupGlobalLocalStorage } from '../mockHelpers';
 import { BEE_URL, MOCK_SIGNER } from '../utils';
 
 // Set up the global localStorage mock
@@ -111,6 +111,35 @@ describe('FileManager', () => {
     });
   });
 
+  describe('downloadFork', () => {
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('should call mantaray.collect()', async () => {
+      createInitMocks();
+      const fm = await createInitializedFileManager();
+      const mockMantarayNode = createMockMantarayNode();
+      const mantarayCollectSpy = jest.spyOn(MantarayNode.prototype, 'collect');
+
+      await fm.downloadFork(mockMantarayNode, "/root/1.txt");
+
+      expect(mantarayCollectSpy).toHaveBeenCalled();
+    });
+
+    it('should call bee.downloadData with correct reference', async () => {
+      createInitMocks();
+      const fm = await createInitializedFileManager();
+      const mockMantarayNode = createMockMantarayNode();
+      const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
+
+      await fm.downloadFork(mockMantarayNode, "/root/1.txt");
+
+      const expectedReference = new Reference('1'.repeat(64)).toUint8Array();
+
+      expect(downloadDataSpy).toHaveBeenCalledWith(expectedReference, undefined);    
+    });
+  });
   // describe('initialize', () => {
   //   it('should log no data found if data.txt entry does not exist', async () => {
   //     jest.spyOn(localStorage, 'getItem').mockReturnValue(null);

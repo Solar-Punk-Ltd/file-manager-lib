@@ -4,6 +4,7 @@ import {
   BeeVersions,
   Bytes,
   EthAddress,
+  MantarayNode,
   NodeAddresses,
   NULL_TOPIC,
   NumberString,
@@ -41,56 +42,15 @@ export const extendedFileInfoTxt = `[{"batchId":"${MOCK_BATCH_ID}","file":{"refe
 
 export const emptyFileInfoTxt = `[]`;
 
-export function createMockMantarayNode(customForks: Record<string, any> = {}, excludeDefaultForks = false): any {
-  const defaultForks: Record<string, any> = {
-    file: {
-      prefix: Bytes.fromUtf8('file'),
-      node: {
-        forks: {
-          '1.txt': {
-            prefix: Bytes.fromUtf8('1.txt'),
-            node: {
-              isValueType: () => true,
-              getEntry: 'a'.repeat(64),
-              getMetadata: {
-                Filename: '1.txt',
-                'Content-Type': 'text/plain',
-              },
-            },
-          },
-          '2.txt': {
-            prefix: Bytes.fromUtf8('2.txt'),
-            node: {
-              isValueType: () => true,
-              getEntry: 'b'.repeat(64),
-              getMetadata: {
-                Filename: '2.txt',
-                'Content-Type': 'text/plain',
-              },
-            },
-          },
-        },
-        isValueType: () => false,
-      },
-    },
-  };
+export function createMockMantarayNode(customForks: Record<string, any> = {}, excludeDefaultForks = false): MantarayNode {
+  const mn = new MantarayNode();
+  mn.addFork('/root', new Reference('0'.repeat(64)));
+  mn.addFork('/root/1.txt', new Reference('1'.repeat(64)));
+  mn.addFork('/root/2.txt', new Reference('2'.repeat(64)));
 
-  const forks = excludeDefaultForks ? customForks : { ...defaultForks, ...customForks };
-
-  return {
-    forks,
-    addFork: jest.fn((path: Uint8Array, reference: Uint8Array) => {
-      const decodedPath = new TextDecoder().decode(path);
-      forks[decodedPath] = {
-        prefix: path,
-        node: { isValueType: () => true, getEntry: reference },
-      };
-    }),
-    save: jest.fn(async (callback: any) => {
-      const mockData = new Uint8Array(Buffer.from('mocked-mantaray-data'));
-      return callback(mockData);
-    }),
-  };
+  mn.calculateSelfAddress();
+  console.error("Collect: ", mn.collect());
+  return mn;
 }
 
 export class MockLocalStorage {
