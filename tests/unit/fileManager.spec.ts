@@ -3,6 +3,7 @@ import { Optional } from 'cafe-utility';
 
 import { FileManager } from '../../src/fileManager';
 import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
+import { SignerError } from '../../src/utils/errors';
 import { ReferenceWithHistory } from '../../src/utils/types';
 import { createInitMocks, createMockFeedWriter, createMockMantarayNode, createUploadDataSpy, createUploadFilesFromDirectorySpy, createUploadFileSpy, MOCK_BATCH_ID, setupGlobalLocalStorage } from '../mockHelpers';
 import { BEE_URL, MOCK_SIGNER } from '../utils';
@@ -33,8 +34,9 @@ describe('FileManager', () => {
     it('should throw error, if Signer is not provided', () => {
       const bee = new Bee(BEE_URL);
       try {
-        const fm = new FileManager(bee);
+        new FileManager(bee);
       } catch (error) {
+        expect(error).toBeInstanceOf(SignerError);
         expect((error as any).message).toBe('Signer required');
       }
     });
@@ -122,7 +124,7 @@ describe('FileManager', () => {
       const mockMantarayNode = createMockMantarayNode();
       const mantarayCollectSpy = jest.spyOn(MantarayNode.prototype, 'collect');
 
-      await fm.downloadFork(mockMantarayNode, "/root/1.txt");
+      await fm.downloadFork(mockMantarayNode, '/root/1.txt');
 
       expect(mantarayCollectSpy).toHaveBeenCalled();
     });
@@ -133,11 +135,11 @@ describe('FileManager', () => {
       const mockMantarayNode = createMockMantarayNode();
       const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
 
-      await fm.downloadFork(mockMantarayNode, "/root/1.txt");
+      await fm.downloadFork(mockMantarayNode, '/root/1.txt');
 
       const expectedReference = new Reference('1'.repeat(64)).toUint8Array();
 
-      expect(downloadDataSpy).toHaveBeenCalledWith(expectedReference, undefined);    
+      expect(downloadDataSpy).toHaveBeenCalledWith(expectedReference, undefined);
     });
   });
 
@@ -160,9 +162,9 @@ describe('FileManager', () => {
       const result = await fm.listFiles(fileInfo);
       expect(result).toEqual([
         {
-          path: "/root/2.txt",
-          reference: new Reference('2'.repeat(64))
-        }
+          path: '/root/2.txt',
+          reference: new Reference('2'.repeat(64)),
+        },
       ]);
     });
   });
@@ -178,13 +180,13 @@ describe('FileManager', () => {
       const mockMantarayNode = createMockMantarayNode(false);
       jest.spyOn(MantarayNode, 'unmarshal').mockResolvedValue(new MantarayNode());
       jest.spyOn(MantarayNode.prototype, 'collect').mockReturnValue(mockMantarayNode.collect());
-      jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(new Bytes('46696c6520617320737472696e67'));   // this is "File as string" encoded in hexadecimal
-      
+      jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(new Bytes('46696c6520617320737472696e67')); // this is "File as string" encoded in hexadecimal
+
       const eFileRef = new Reference('1'.repeat(64));
 
       const fileStrings = await fm.downloadFiles(eFileRef);
 
-      expect(fileStrings).toEqual(["File as string"]);
+      expect(fileStrings).toEqual(['File as string']);
     });
   });
 
