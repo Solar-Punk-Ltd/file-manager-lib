@@ -290,6 +290,7 @@ export class FileManager {
 
     for (const node of unmarshalled.collect()) {
       const file = (await this.bee.downloadData(node.targetAddress)).toUtf8();
+      console.log(`Downloaded file: ${file}`);
       files.push(file);
     }
     return files;

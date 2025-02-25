@@ -5,8 +5,8 @@ import path from 'path';
 import { FileManager } from '../src/fileManager';
 import { FileInfo } from '../src/types/types';
 
-export const BEE_URL = 'http://localhost:1633';
-export const OTHER_BEE_URL = 'http://localhost:1733';
+export const BEE_URL = 'http://127.0.0.1:1633';
+export const OTHER_BEE_URL = 'http://127.0.0.1:1733';
 export const DEFAULT_BATCH_DEPTH = 21;
 export const DEFAULT_BATCH_AMOUNT = '500000000';
 export const MOCK_SIGNER = new PrivateKey('634fb5a872396d9693e5c9f9d7233cfa93f395c093371017ff44aa9ae6564cdd');

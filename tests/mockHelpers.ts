@@ -1,17 +1,39 @@
-import { Bytes, Reference } from '@upcoming/bee-js';
+import {
+  BatchId,
+  Bee,
+  BeeVersions,
+  Bytes,
+  EthAddress,
+  FeedWriter,
+  MantarayNode,
+  NodeAddresses,
+  NULL_TOPIC,
+  NumberString,
+  PeerAddress,
+  PostageBatch,
+  PublicKey,
+  Reference,
+  UploadResult,
+} from '@upcoming/bee-js';
+import { Optional } from 'cafe-utility';
 
-export const mockBatchId = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
+import { FileManager } from '../src/fileManager';
+import { numberToFeedIndex } from '../src/utils';
+import { SWARM_ZERO_ADDRESS } from '../src/utils/constants';
+import { FetchFeedUpdateResponse } from '../src/utils/types';
+
+export const MOCK_BATCH_ID = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
 
 export const fileInfoTxt = `[
   {
-    "batchId": "${mockBatchId}",
+    "batchId": "${MOCK_BATCH_ID}",
     "file": {
       "reference": "1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68",
       "historyRef": "0000000000000000000000000000000000000000000000000000000000000000"
     }
   },
   {
-    "batchId": "${mockBatchId}",
+    "batchId": "${MOCK_BATCH_ID}",
     "file": {
       "reference": "2222222222222222222222222222222222222222222222222222222222222222",
       "historyRef": "0000000000000000000000000000000000000000000000000000000000000000"
@@ -19,60 +41,24 @@ export const fileInfoTxt = `[
   }
 ]`;
 
-export const extendedFileInfoTxt = `[{"batchId":"${mockBatchId}","file":{"reference":"1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68","historyRef":"0000000000000000000000000000000000000000000000000000000000000000"}},{"batchId":"${mockBatchId}","file":{"reference":"2222222222222222222222222222222222222222222222222222222222222222","historyRef":"0000000000000000000000000000000000000000000000000000000000000000"}},{"batchId":"${mockBatchId}","file":{"reference":"3333333333333333333333333333333333333333333333333333333333333333","historyRef":"0000000000000000000000000000000000000000000000000000000000000000"}}]`;
+export const extendedFileInfoTxt = `[{"batchId":"${MOCK_BATCH_ID}","file":{"reference":"1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68","historyRef":"0000000000000000000000000000000000000000000000000000000000000000"}},{"batchId":"${MOCK_BATCH_ID}","file":{"reference":"2222222222222222222222222222222222222222222222222222222222222222","historyRef":"0000000000000000000000000000000000000000000000000000000000000000"}},{"batchId":"${MOCK_BATCH_ID}","file":{"reference":"3333333333333333333333333333333333333333333333333333333333333333","historyRef":"0000000000000000000000000000000000000000000000000000000000000000"}}]`;
 
 export const emptyFileInfoTxt = `[]`;
 
-export function createMockMantarayNode(customForks: Record<string, any> = {}, excludeDefaultForks = false): any {
-  const defaultForks: Record<string, any> = {
-    file: {
-      prefix: Bytes.fromUtf8('file'),
-      node: {
-        forks: {
-          '1.txt': {
-            prefix: Bytes.fromUtf8('1.txt'),
-            node: {
-              isValueType: () => true,
-              getEntry: 'a'.repeat(64),
-              getMetadata: {
-                Filename: '1.txt',
-                'Content-Type': 'text/plain',
-              },
-            },
-          },
-          '2.txt': {
-            prefix: Bytes.fromUtf8('2.txt'),
-            node: {
-              isValueType: () => true,
-              getEntry: 'b'.repeat(64),
-              getMetadata: {
-                Filename: '2.txt',
-                'Content-Type': 'text/plain',
-              },
-            },
-          },
-        },
-        isValueType: () => false,
-      },
-    },
-  };
+export function createMockMantarayNode(all = true): MantarayNode {
+  const mn = new MantarayNode();
+  if (all) {
+    mn.addFork('/root', new Reference('0'.repeat(64)));
+    mn.addFork('/root/1.txt', new Reference('1'.repeat(64)));
+    mn.addFork('/root/2.txt', new Reference('2'.repeat(64)));
+    mn.addFork('/root/subfolder/3.txt', new Reference('3'.repeat(64)));
+  } else {
+    mn.addFork('/root/2.txt', new Reference('2'.repeat(64)));
+  }
 
-  const forks = excludeDefaultForks ? customForks : { ...defaultForks, ...customForks };
+  mn.calculateSelfAddress();
 
-  return {
-    forks,
-    addFork: jest.fn((path: Uint8Array, reference: Uint8Array) => {
-      const decodedPath = new TextDecoder().decode(path);
-      forks[decodedPath] = {
-        prefix: path,
-        node: { isValueType: () => true, getEntry: reference },
-      };
-    }),
-    save: jest.fn(async (callback: any) => {
-      const mockData = new Uint8Array(Buffer.from('mocked-mantaray-data'));
-      return callback(mockData);
-    }),
-  };
+  return mn;
 }
 
 export class MockLocalStorage {
@@ -134,3 +120,87 @@ export const secondByteArray = new Uint8Array([
   120, 116, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 148, 0, 17, 119, 248, 231, 159, 158, 240, 146, 107, 58, 95, 110,
   135, 168, 220, 196, 216, 79, 98, 210, 143, 97, 225, 35, 59, 60, 200, 178, 218, 27,
 ]);
+
+export function createMockPostageBatch(): PostageBatch {
+  return {
+    batchID: new BatchId(SWARM_ZERO_ADDRESS),
+    utilization: 3,
+    usable: true,
+    label: 'very-good-stamp',
+    depth: 22,
+    amount: '480000000' as NumberString,
+    bucketDepth: 22,
+    blockNumber: 111,
+    immutableFlag: true,
+    exists: true,
+    batchTTL: 100,
+  };
+}
+
+export function createMockNodeAddresses(): NodeAddresses {
+  return {
+    overlay: SWARM_ZERO_ADDRESS as PeerAddress,
+    underlay: ['mock-underlay'],
+    ethereum: 'mock-address' as unknown as EthAddress,
+    publicKey: SWARM_ZERO_ADDRESS.toString().repeat(2) as unknown as PublicKey,
+    pssPublicKey: 'mock-pss-public-key',
+  } as unknown as NodeAddresses;
+}
+
+export function createMockGetFeedDataResult(currentIndex = 0, nextIndex = 1): FetchFeedUpdateResponse {
+  return {
+    feedIndex: numberToFeedIndex(currentIndex),
+    feedIndexNext: numberToFeedIndex(nextIndex),
+    payload: SWARM_ZERO_ADDRESS,
+  };
+}
+
+export function createMockFeedWriter(char: string = '0') {
+  return {
+    upload: jest.fn().mockResolvedValue({
+      reference: new Reference(char.repeat(64)),
+      historyAddress: Optional.of(SWARM_ZERO_ADDRESS)
+    } as UploadResult),
+    owner: '' as unknown as EthAddress,
+    download: jest.fn(),
+    topic: NULL_TOPIC,
+  };
+}
+
+export function createInitMocks(): any {
+  jest
+    .spyOn(Bee.prototype, 'getVersions')
+    .mockResolvedValue({ beeApiVersion: '0.0.0', beeVersion: '0.0.0' } as BeeVersions);
+  jest.spyOn(Bee.prototype, 'isSupportedApiVersion').mockResolvedValue(true);
+  jest.spyOn(Bee.prototype, 'getNodeAddresses').mockResolvedValue(createMockNodeAddresses());
+  jest.spyOn(Bee.prototype, 'getAllPostageBatch').mockResolvedValue([createMockPostageBatch()]);
+  jest.spyOn(FileManager.prototype, 'getFeedData').mockResolvedValue(createMockGetFeedDataResult());
+  jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(new Bytes(SWARM_ZERO_ADDRESS));
+  jest.spyOn(FileManager.prototype, 'getOwnerFeedStamp').mockReturnValue(createMockPostageBatch());
+  jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValue({
+    reference: SWARM_ZERO_ADDRESS,
+    historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
+  } as unknown as UploadResult);
+  jest.spyOn(Bee.prototype, 'makeFeedWriter').mockReturnValue(createMockFeedWriter());
+}
+
+export function createUploadFilesFromDirectorySpy(char: string) {
+  return jest.spyOn(Bee.prototype, 'uploadFilesFromDirectory').mockResolvedValueOnce({
+    reference: new Reference(char.repeat(64)),
+    historyAddress: Optional.of(SWARM_ZERO_ADDRESS)
+  });
+}
+
+export function createUploadFileSpy(char: string) {
+  return jest.spyOn(Bee.prototype, 'uploadFile').mockResolvedValueOnce({
+    reference: new Reference(char.repeat(64)),
+    historyAddress: Optional.of(SWARM_ZERO_ADDRESS)
+  });
+}
+
+export function createUploadDataSpy(char: string) {
+  return jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValueOnce({
+    reference: new Reference(char.repeat(64)),
+    historyAddress: Optional.of(SWARM_ZERO_ADDRESS)
+  });
+}
