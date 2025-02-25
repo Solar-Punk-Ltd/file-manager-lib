@@ -5,7 +5,16 @@ import { FileManager } from '../../src/fileManager';
 import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
 import { ReferenceWithHistory } from '../../src/utils/types';
-import { createInitMocks, createMockFeedWriter, createMockMantarayNode, createUploadDataSpy, createUploadFilesFromDirectorySpy, createUploadFileSpy, MOCK_BATCH_ID, setupGlobalLocalStorage } from '../mockHelpers';
+import {
+  createInitMocks,
+  createMockFeedWriter,
+  createMockMantarayNode,
+  createUploadDataSpy,
+  createUploadFilesFromDirectorySpy,
+  createUploadFileSpy,
+  MOCK_BATCH_ID,
+  setupGlobalLocalStorage,
+} from '../mockHelpers';
 import { BEE_URL, MOCK_SIGNER } from '../utils';
 
 // Set up the global localStorage mock
@@ -201,7 +210,7 @@ describe('FileManager', () => {
       createMockFeedWriter('5');
 
       fm.upload(new BatchId(MOCK_BATCH_ID), './tests');
-      
+
       expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
     });
 
@@ -216,17 +225,17 @@ describe('FileManager', () => {
       createMockFeedWriter('5');
 
       fm.upload(new BatchId(MOCK_BATCH_ID), './tests', './tests/coverage');
-      
+
       expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
-      expect(uploadFileOrDirectoryPreviewSpy).toHaveBeenCalled()
+      expect(uploadFileOrDirectoryPreviewSpy).toHaveBeenCalled();
     });
 
     it('should throw error if infoTopic and historyRef are not provided at the same time', async () => {
       createInitMocks();
       const fm = await createInitializedFileManager();
-      
+
       await expect(async () => {
-        await fm.upload(new BatchId(MOCK_BATCH_ID), './tests', undefined, undefined, "infoTopic");
+        await fm.upload(new BatchId(MOCK_BATCH_ID), './tests', undefined, undefined, 'infoTopic');
       }).rejects.toThrow('infoTopic and historyRef have to be provided at the same time.');
     });
   });
