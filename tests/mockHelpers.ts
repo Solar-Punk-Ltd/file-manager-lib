@@ -4,11 +4,13 @@ import {
   BeeVersions,
   Bytes,
   EthAddress,
+  FeedWriter,
   MantarayNode,
   NodeAddresses,
   NULL_TOPIC,
   NumberString,
   PeerAddress,
+  PostageBatch,
   PublicKey,
   Reference,
   UploadResult,
@@ -18,6 +20,7 @@ import { Optional } from 'cafe-utility';
 import { FileManager } from '../src/fileManager';
 import { numberToFeedIndex } from '../src/utils';
 import { SWARM_ZERO_ADDRESS } from '../src/utils/constants';
+import { FetchFeedUpdateResponse } from '../src/utils/types';
 
 export const MOCK_BATCH_ID = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
 
@@ -118,7 +121,7 @@ export const secondByteArray = new Uint8Array([
   135, 168, 220, 196, 216, 79, 98, 210, 143, 97, 225, 35, 59, 60, 200, 178, 218, 27,
 ]);
 
-export function createMockPostageBatch() {
+export function createMockPostageBatch(): PostageBatch {
   return {
     batchID: new BatchId(SWARM_ZERO_ADDRESS),
     utilization: 3,
@@ -134,7 +137,7 @@ export function createMockPostageBatch() {
   };
 }
 
-export function createMockNodeAddresses() {
+export function createMockNodeAddresses(): NodeAddresses {
   return {
     overlay: SWARM_ZERO_ADDRESS as PeerAddress,
     underlay: ['mock-underlay'],
@@ -144,7 +147,7 @@ export function createMockNodeAddresses() {
   } as unknown as NodeAddresses;
 }
 
-export function createMockGetFeedDataResult(currentIndex = 0, nextIndex = 1) {
+export function createMockGetFeedDataResult(currentIndex = 0, nextIndex = 1): FetchFeedUpdateResponse {
   return {
     feedIndex: numberToFeedIndex(currentIndex),
     feedIndexNext: numberToFeedIndex(nextIndex),
@@ -152,7 +155,7 @@ export function createMockGetFeedDataResult(currentIndex = 0, nextIndex = 1) {
   };
 }
 
-export function createMockFeedWriter() {
+export function createMockFeedWriter(): FeedWriter {
   return {
     upload: jest.fn(),
     owner: '' as unknown as EthAddress,
@@ -161,7 +164,7 @@ export function createMockFeedWriter() {
   };
 }
 
-export function createInitMocks() {
+export function createInitMocks(): any {
   jest
     .spyOn(Bee.prototype, 'getVersions')
     .mockResolvedValue({ beeApiVersion: '0.0.0', beeVersion: '0.0.0' } as BeeVersions);
