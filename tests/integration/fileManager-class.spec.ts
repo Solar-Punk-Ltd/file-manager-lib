@@ -7,9 +7,9 @@ import { BatchId, BeeDev, MantarayNode, Reference } from '@upcoming/bee-js';
 import path from 'path';
 
 import { FileManager } from '../../src/fileManager';
-import { OWNER_FEED_STAMP_LABEL, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/types/constants';
-import { StampError } from '../../src/types/errors';
-import { buyStamp } from '../../src/types/utils';
+import { OWNER_FEED_STAMP_LABEL, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utlis/constants';
+import { StampError } from '../../src/utlis/errors';
+import { buyStamp } from '../../src/utlis/utils';
 import {
   BEE_URL,
   DEFAULT_BATCH_AMOUNT,

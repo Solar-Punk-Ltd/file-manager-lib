@@ -3,6 +3,7 @@ import {
   Bee,
   BeeVersions,
   Bytes,
+  Duration,
   EthAddress,
   FeedWriter,
   MantarayNode,
@@ -18,9 +19,9 @@ import {
 import { Optional } from 'cafe-utility';
 
 import { FileManager } from '../src/fileManager';
-import { numberToFeedIndex } from '../src/utils';
-import { SWARM_ZERO_ADDRESS } from '../src/utils/constants';
-import { FetchFeedUpdateResponse } from '../src/utils/types';
+import { numberToFeedIndex } from '../src/utlis';
+import { SWARM_ZERO_ADDRESS } from '../src/utlis/constants';
+import { FetchFeedUpdateResponse } from '../src/utlis/types';
 
 export const MOCK_BATCH_ID = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
 
@@ -132,8 +133,11 @@ export function createMockPostageBatch(): PostageBatch {
     bucketDepth: 22,
     blockNumber: 111,
     immutableFlag: true,
-    exists: true,
-    batchTTL: 100,
+    duration: Duration.fromWeeks(1),
+    usage: 0,
+    size: 100000,
+    remainingSize: 100000,
+    theoreticalSize: 100000,
   };
 }
 
@@ -155,11 +159,11 @@ export function createMockGetFeedDataResult(currentIndex = 0, nextIndex = 1): Fe
   };
 }
 
-export function createMockFeedWriter(char: string = '0') {
+export function createMockFeedWriter(char: string = '0'): FeedWriter {
   return {
     upload: jest.fn().mockResolvedValue({
       reference: new Reference(char.repeat(64)),
-      historyAddress: Optional.of(SWARM_ZERO_ADDRESS)
+      historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
     } as UploadResult),
     owner: '' as unknown as EthAddress,
     download: jest.fn(),
@@ -184,23 +188,23 @@ export function createInitMocks(): any {
   jest.spyOn(Bee.prototype, 'makeFeedWriter').mockReturnValue(createMockFeedWriter());
 }
 
-export function createUploadFilesFromDirectorySpy(char: string) {
+export function createUploadFilesFromDirectorySpy(char: string): jest.SpyInstance {
   return jest.spyOn(Bee.prototype, 'uploadFilesFromDirectory').mockResolvedValueOnce({
     reference: new Reference(char.repeat(64)),
-    historyAddress: Optional.of(SWARM_ZERO_ADDRESS)
+    historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
   });
 }
 
-export function createUploadFileSpy(char: string) {
+export function createUploadFileSpy(char: string): jest.SpyInstance {
   return jest.spyOn(Bee.prototype, 'uploadFile').mockResolvedValueOnce({
     reference: new Reference(char.repeat(64)),
-    historyAddress: Optional.of(SWARM_ZERO_ADDRESS)
+    historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
   });
 }
 
-export function createUploadDataSpy(char: string) {
+export function createUploadDataSpy(char: string): jest.SpyInstance {
   return jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValueOnce({
     reference: new Reference(char.repeat(64)),
-    historyAddress: Optional.of(SWARM_ZERO_ADDRESS)
+    historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
   });
 }

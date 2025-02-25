@@ -1,10 +1,14 @@
+import { TextDecoder as NodeTextDecoder, TextEncoder } from 'util';
+global.TextDecoder = NodeTextDecoder as typeof TextDecoder;
+global.TextEncoder = TextEncoder;
+
 import { BatchId, Bee, Bytes, MantarayNode, Reference } from '@upcoming/bee-js';
 import { Optional } from 'cafe-utility';
 
 import { FileManager } from '../../src/fileManager';
-import { SWARM_ZERO_ADDRESS } from '../../src/types/constants';
-import { SignerError } from '../../src/types/errors';
-import { ReferenceWithHistory } from '../../src/types/types';
+import { SWARM_ZERO_ADDRESS } from '../../src/utlis/constants';
+import { SignerError } from '../../src/utlis/errors';
+import { ReferenceWithHistory } from '../../src/utlis/types';
 import {
   createInitMocks,
   createMockFeedWriter,
@@ -209,7 +213,8 @@ describe('FileManager', () => {
       createUploadDataSpy('4');
       createMockFeedWriter('5');
 
-      fm.upload(new BatchId(MOCK_BATCH_ID), './tests');
+      const firstFile = new File(['Shh!'], 'secret.txt', { type: 'text/plain' });
+      fm.upload(new BatchId(MOCK_BATCH_ID), [firstFile]);
 
       expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
     });
@@ -224,7 +229,8 @@ describe('FileManager', () => {
       createUploadDataSpy('4');
       createMockFeedWriter('5');
 
-      fm.upload(new BatchId(MOCK_BATCH_ID), './tests', './tests/coverage');
+      const firstFile = new File(['Shh!'], 'secret.txt', { type: 'text/plain' });
+      fm.upload(new BatchId(MOCK_BATCH_ID), [firstFile]);
 
       expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
       expect(uploadFileOrDirectoryPreviewSpy).toHaveBeenCalled();
@@ -233,9 +239,10 @@ describe('FileManager', () => {
     it('should throw error if infoTopic and historyRef are not provided at the same time', async () => {
       createInitMocks();
       const fm = await createInitializedFileManager();
+      const firstFile = new File(['Shh!'], 'secret.txt', { type: 'text/plain' });
 
       await expect(async () => {
-        await fm.upload(new BatchId(MOCK_BATCH_ID), './tests', undefined, undefined, 'infoTopic');
+        await fm.upload(new BatchId(MOCK_BATCH_ID), [firstFile], undefined, undefined, 'infoTopic');
       }).rejects.toThrow('infoTopic and historyRef have to be provided at the same time.');
     });
   });

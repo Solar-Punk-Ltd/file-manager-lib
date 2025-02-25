@@ -1,4 +1,4 @@
 import { FileManager } from './fileManager';
 
-export * from './types';
+export * from './utlis';
 export { FileManager };
