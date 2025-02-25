@@ -152,9 +152,12 @@ export function createMockGetFeedDataResult(currentIndex = 0, nextIndex = 1) {
   };
 }
 
-export function createMockFeedWriter() {
+export function createMockFeedWriter(char: string = '0') {
   return {
-    upload: jest.fn(),
+    upload: jest.fn().mockResolvedValue({
+      reference: new Reference(char.repeat(64)),
+      historyAddress: Optional.of(SWARM_ZERO_ADDRESS)
+    } as UploadResult),
     owner: '' as unknown as EthAddress,
     download: jest.fn(),
     topic: NULL_TOPIC,
@@ -176,4 +179,25 @@ export function createInitMocks() {
     historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
   } as unknown as UploadResult);
   jest.spyOn(Bee.prototype, 'makeFeedWriter').mockReturnValue(createMockFeedWriter());
+}
+
+export function createUploadFilesFromDirectorySpy(char: string) {
+  return jest.spyOn(Bee.prototype, 'uploadFilesFromDirectory').mockResolvedValueOnce({
+    reference: new Reference(char.repeat(64)),
+    historyAddress: Optional.of(SWARM_ZERO_ADDRESS)
+  });
+}
+
+export function createUploadFileSpy(char: string) {
+  return jest.spyOn(Bee.prototype, 'uploadFile').mockResolvedValueOnce({
+    reference: new Reference(char.repeat(64)),
+    historyAddress: Optional.of(SWARM_ZERO_ADDRESS)
+  });
+}
+
+export function createUploadDataSpy(char: string) {
+  return jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValueOnce({
+    reference: new Reference(char.repeat(64)),
+    historyAddress: Optional.of(SWARM_ZERO_ADDRESS)
+  });
 }

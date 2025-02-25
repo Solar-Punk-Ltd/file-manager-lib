@@ -4,10 +4,8 @@ import { Optional } from 'cafe-utility';
 import { FileManager } from '../../src/fileManager';
 import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { ReferenceWithHistory } from '../../src/utils/types';
-import { createInitMocks, createMockMantarayNode, MOCK_BATCH_ID, setupGlobalLocalStorage } from '../mockHelpers';
+import { createInitMocks, createMockFeedWriter, createMockMantarayNode, createUploadDataSpy, createUploadFilesFromDirectorySpy, createUploadFileSpy, MOCK_BATCH_ID, setupGlobalLocalStorage } from '../mockHelpers';
 import { BEE_URL, MOCK_SIGNER } from '../utils';
-import { Fork } from '@upcoming/bee-js/dist/types/manifest/manifest';
-import { mock } from 'node:test';
 
 // Set up the global localStorage mock
 setupGlobalLocalStorage();
@@ -187,6 +185,47 @@ describe('FileManager', () => {
       const fileStrings = await fm.downloadFiles(eFileRef);
 
       expect(fileStrings).toEqual(["File as string"]);
+    });
+  });
+
+  describe('upload', () => {
+    it('should call uploadFilesFromDirectory', async () => {
+      createInitMocks();
+      const fm = await createInitializedFileManager();
+      const uploadFileOrDirectorySpy = createUploadFilesFromDirectorySpy('1');
+      createUploadFileSpy('2');
+      createUploadDataSpy('3');
+      createUploadDataSpy('4');
+      createMockFeedWriter('5');
+
+      fm.upload(new BatchId(MOCK_BATCH_ID), './tests');
+      
+      expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
+    });
+
+    it('should call uploadFileOrDirectory if previewPath is provided', async () => {
+      createInitMocks();
+      const fm = await createInitializedFileManager();
+      const uploadFileOrDirectorySpy = createUploadFilesFromDirectorySpy('1');
+      const uploadFileOrDirectoryPreviewSpy = createUploadFilesFromDirectorySpy('6');
+      createUploadFileSpy('2');
+      createUploadDataSpy('3');
+      createUploadDataSpy('4');
+      createMockFeedWriter('5');
+
+      fm.upload(new BatchId(MOCK_BATCH_ID), './tests', './tests/coverage');
+      
+      expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
+      expect(uploadFileOrDirectoryPreviewSpy).toHaveBeenCalled()
+    });
+
+    it('should throw error if infoTopic and historyRef are not provided at the same time', async () => {
+      createInitMocks();
+      const fm = await createInitializedFileManager();
+      
+      await expect(async () => {
+        await fm.upload(new BatchId(MOCK_BATCH_ID), './tests', undefined, undefined, "infoTopic");
+      }).rejects.toThrow('infoTopic and historyRef have to be provided at the same time.');
     });
   });
 });
