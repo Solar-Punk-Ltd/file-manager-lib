@@ -1,9 +1,5 @@
-import { TextDecoder as NodeTextDecoder, TextEncoder } from 'util';
-global.TextDecoder = NodeTextDecoder as typeof TextDecoder;
-global.TextEncoder = TextEncoder;
-
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { BatchId, BeeDev, MantarayNode, Reference } from '@upcoming/bee-js';
+import { BatchId, BeeDev, Bytes, MantarayNode, Reference } from '@upcoming/bee-js';
 import path from 'path';
 
 import { FileManager } from '../../src/fileManager';
@@ -347,9 +343,9 @@ describe('FileManager downloadFork', () => {
     await fileManager.initialize();
 
     // Create a parent node with an explicit path "folder/".
-    parent = new MantarayNode({ path: new TextEncoder().encode(folderPath) });
+    parent = new MantarayNode({ path: Bytes.fromUtf8(folderPath).toUint8Array() });
     // Create a child node with an explicit path "file.txt".
-    child = new MantarayNode({ path: new TextEncoder().encode(fileName) });
+    child = new MantarayNode({ path: Bytes.fromUtf8(fileName).toUint8Array() });
     // Set child's parent so that fullPath computes as "folder/file.txt".
     child.parent = parent;
 
@@ -383,7 +379,7 @@ describe('FileManager downloadFork', () => {
 
   it('should return SWARM_ZERO_ADDRESS when the parent has no forks', async () => {
     // Create a new node without any forks.
-    const emptyNode = new MantarayNode({ path: new TextEncoder().encode('emptyFolder/') });
+    const emptyNode = new MantarayNode({ path: Bytes.fromUtf8('emptyFolder/').toUint8Array() });
     const options = {
       actHistoryAddress: new Reference(childHistoryRef),
       actPublisher: fileManager.getNodeAddresses()!.publicKey,
@@ -394,8 +390,8 @@ describe('FileManager downloadFork', () => {
 
   it('should return SWARM_ZERO_ADDRESS when the fork exists but its targetAddress is NULL_ADDRESS', async () => {
     // Create a node with a fork that has a NULL_ADDRESS.
-    const nodeWithNullFork = new MantarayNode({ path: new TextEncoder().encode('nullFolder/') });
-    const fakeChild = new MantarayNode({ path: new TextEncoder().encode('file.txt') });
+    const nodeWithNullFork = new MantarayNode({ path: Bytes.fromUtf8('nullFolder/').toUint8Array() });
+    const fakeChild = new MantarayNode({ path: Bytes.fromUtf8('file.txt').toUint8Array() });
     fakeChild.parent = nodeWithNullFork;
     fakeChild.targetAddress = new Reference(SWARM_ZERO_ADDRESS).toUint8Array();
     fakeChild.metadata = { info: 'should be empty' };
@@ -414,11 +410,11 @@ describe('FileManager downloadFork', () => {
 
   it('should correctly handle a nested fork structure', async () => {
     // Create a nested structure: parent -> intermediate -> child.
-    const nestedParent = new MantarayNode({ path: new TextEncoder().encode('nestedFolder/') });
-    const intermediate = new MantarayNode({ path: new TextEncoder().encode('subfolder/') });
+    const nestedParent = new MantarayNode({ path: Bytes.fromUtf8('nestedFolder/').toUint8Array() });
+    const intermediate = new MantarayNode({ path: Bytes.fromUtf8('subfolder/').toUint8Array() });
     // Set intermediate's parent.
     intermediate.parent = nestedParent;
-    const nestedChild = new MantarayNode({ path: new TextEncoder().encode('nestedFile.txt') });
+    const nestedChild = new MantarayNode({ path: Bytes.fromUtf8('nestedFile.txt').toUint8Array() });
     nestedChild.parent = intermediate;
 
     const nestedContentStr = 'nested fork dummy content';

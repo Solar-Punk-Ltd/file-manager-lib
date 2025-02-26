@@ -242,7 +242,7 @@ describe('FileManager', () => {
       const firstFile = new File(['Shh!'], 'secret.txt', { type: 'text/plain' });
 
       await expect(async () => {
-        await fm.upload(new BatchId(MOCK_BATCH_ID), [firstFile], undefined, undefined, 'infoTopic');
+        await fm.upload(new BatchId(MOCK_BATCH_ID), [firstFile], undefined, undefined, undefined, 'infoTopic');
       }).rejects.toThrow('infoTopic and historyRef have to be provided at the same time.');
     });
   });

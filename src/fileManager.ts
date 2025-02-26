@@ -20,7 +20,6 @@ import {
   Reference,
   STAMPS_DEPTH_MAX,
   Topic,
-  UploadOptions,
   Utils,
 } from '@upcoming/bee-js';
 
@@ -236,7 +235,11 @@ export class FileManager {
   // End init methods
 
   // Start mantaray methods
-  async saveMantaray(batchId: BatchId, mantaray: MantarayNode, options?: UploadOptions): Promise<ReferenceWithHistory> {
+  async saveMantaray(
+    batchId: BatchId,
+    mantaray: MantarayNode,
+    options?: RedundantUploadOptions,
+  ): Promise<ReferenceWithHistory> {
     const result = await mantaray.saveRecursively(this.bee, batchId, options);
     return {
       reference: result.reference.toString(),
@@ -312,6 +315,7 @@ export class FileManager {
     batchId: BatchId,
     files: File[] | FileList,
     customMetadata?: Record<string, string>,
+    onUploadProgress?: (progress: UploadProgress) => void,
     historyRef?: Reference,
     infoTopic?: string,
     index?: number | undefined,
@@ -326,7 +330,7 @@ export class FileManager {
     const uploadFilesRes = await this.streamFiles(
       batchId,
       files,
-      (p) => console.log(`progress: ${p.processed}/${p.total}`),
+      onUploadProgress,
       { act: true, redundancyLevel },
       requestOptions,
     );
@@ -335,7 +339,7 @@ export class FileManager {
       uploadPreviewRes = await this.streamFiles(
         batchId,
         [preview],
-        (p) => console.log(`progress: ${p.processed}/${p.total}`),
+        onUploadProgress,
         { act: true, redundancyLevel },
         requestOptions,
       );

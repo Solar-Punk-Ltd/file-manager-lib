@@ -36,8 +36,8 @@
   "author": "TODO",
   "license": "Apache-2.0",
   "dependencies": {
-    "@upcoming/bee-js": "^0.10.0",
-    "cafe-utility": "^27.9.1"
+    "@upcoming/bee-js": "^0.10.1",
+    "cafe-utility": "^27.12.1"
   },
   "devDependencies": {
     "@babel/cli": "^7.19.3",
