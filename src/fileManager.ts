@@ -532,7 +532,7 @@ export class FileManager {
     }
   }
 
-  async filterBatches(ttl?: number, utilization?: number, capacity?: number): Promise<PostageBatch[]> {
+  filterBatches(ttl?: number, utilization?: number, capacity?: number): PostageBatch[] {
     // TODO: clarify depth vs capacity
     return this.stampList.filter((s) => {
       if (utilization !== undefined && s.utilization <= utilization) {

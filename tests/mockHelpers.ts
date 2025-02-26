@@ -173,7 +173,8 @@ export function createInitMocks(): any {
     .mockResolvedValue({ beeApiVersion: '0.0.0', beeVersion: '0.0.0' } as BeeVersions);
   jest.spyOn(Bee.prototype, 'isSupportedApiVersion').mockResolvedValue(true);
   jest.spyOn(Bee.prototype, 'getNodeAddresses').mockResolvedValue(createMockNodeAddresses());
-  jest.spyOn(Bee.prototype, 'getAllPostageBatch').mockResolvedValue([createMockPostageBatch()]);
+  //jest.spyOn(Bee.prototype, 'getAllPostageBatch').mockResolvedValue([createMockPostageBatch()]);
+  loadStampListMock();
   jest.spyOn(FileManager.prototype, 'getFeedData').mockResolvedValue(createMockGetFeedDataResult());
   jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(new Bytes(SWARM_ZERO_ADDRESS));
   jest.spyOn(FileManager.prototype, 'getOwnerFeedStamp').mockReturnValue(createMockPostageBatch());
@@ -203,4 +204,48 @@ export function createUploadDataSpy(char: string): jest.SpyInstance {
     reference: new Reference(char.repeat(64)),
     historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
   });
+}
+
+export function loadStampListMock(): jest.SpyInstance {
+  return jest.spyOn(Bee.prototype, 'getAllPostageBatch').mockResolvedValueOnce([
+    {
+      batchID: new BatchId('1234'.repeat(16)),
+      utilization: 2,
+      usable: true,
+      label: 'one',
+      depth: 22,
+      amount: '480' as NumberString,
+      bucketDepth: 30,
+      blockNumber: 980,
+      immutableFlag: true,
+      exists: true,
+      batchTTL: 3,
+    },
+    {
+      batchID: new BatchId('2345'.repeat(16)),
+      utilization: 3,
+      usable: true,
+      label: 'two',
+      depth: 22,
+      amount: '570' as NumberString,
+      bucketDepth: 30,
+      blockNumber: 1000,
+      immutableFlag: true,
+      exists: true,
+      batchTTL: 5,
+    },
+    {
+      batchID: new BatchId('3456'.repeat(16)),
+      utilization: 5,
+      usable: true,
+      label: 'three',
+      depth: 22,
+      amount: '990' as NumberString,
+      bucketDepth: 30,
+      blockNumber: 1020,
+      immutableFlag: false,
+      exists: true,
+      batchTTL: 8,
+    },
+  ]);
 }

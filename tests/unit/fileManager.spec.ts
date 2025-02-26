@@ -239,4 +239,27 @@ describe('FileManager', () => {
       }).rejects.toThrow('infoTopic and historyRef have to be provided at the same time.');
     });
   });
+
+  describe('filterBatches', () => {
+    it('should filter by utilization', async () => {
+      createInitMocks();
+      const fm = await createInitializedFileManager();
+
+      const result = fm.filterBatches(undefined, 3, undefined);
+
+      expect(result.length).toBe(1);
+      expect(result[0].label).toBe('three');
+    });
+
+    it('should filter by ttl and capacity', async () => {
+      createInitMocks();
+      const fm = await createInitializedFileManager();
+
+      const result = fm.filterBatches(4, undefined, 18);
+
+      expect(result.length).toBe(2);
+      expect(result[0].label).toBe('two');
+      expect(result[1].label).toBe('three');
+    });
+  });
 });
