@@ -554,7 +554,7 @@ export class FileManager {
     });
   }
 
-  async getStamps(): Promise<PostageBatch[]> {
+  getStamps(): PostageBatch[] {
     return this.stampList;
   }
 
@@ -580,20 +580,20 @@ export class FileManager {
   }
 
   async destroyVolume(batchId: BatchId): Promise<void> {
-    if (batchId === this.getOwnerFeedStamp()?.batchID) {
+    if (batchId.toString() === this.getOwnerFeedStamp()?.batchID.toString()) {
       throw new StampError(`Cannot destroy owner stamp, batchId: ${batchId.toString()}`);
     }
 
     await this.bee.diluteBatch(batchId, STAMPS_DEPTH_MAX);
 
     for (let i = 0; i < this.stampList.length; i++) {
-      if (this.stampList[i].batchID === batchId) {
+      if (this.stampList[i].batchID.toString() === batchId.toString()) {
         this.stampList.splice(i, 1);
         break;
       }
     }
 
-    for (let i = 0; i < this.fileInfoList.length, ++i; ) {
+    for (let i = this.fileInfoList.length - 1; i >= 0; --i) {
       const fileInfo = this.fileInfoList[i];
       if (fileInfo.batchId === batchId) {
         this.fileInfoList.splice(i, 1);
