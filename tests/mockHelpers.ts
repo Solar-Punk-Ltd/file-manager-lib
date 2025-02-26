@@ -3,6 +3,7 @@ import {
   Bee,
   BeeVersions,
   Bytes,
+  Duration,
   EthAddress,
   FeedWriter,
   MantarayNode,
@@ -19,7 +20,7 @@ import { Optional } from 'cafe-utility';
 
 import { FileManager } from '../src/fileManager';
 import { numberToFeedIndex } from '../src/utils';
-import { SWARM_ZERO_ADDRESS } from '../src/utils/constants';
+import { OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
 import { FetchFeedUpdateResponse } from '../src/utils/types';
 
 export const MOCK_BATCH_ID = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
@@ -132,8 +133,11 @@ export function createMockPostageBatch(): PostageBatch {
     bucketDepth: 22,
     blockNumber: 111,
     immutableFlag: true,
-    exists: true,
-    batchTTL: 100,
+    duration: Duration.fromSeconds(100),
+    usage: 0,
+    size: 100,
+    remainingSize: 100,
+    theoreticalSize: 100,
   };
 }
 
@@ -177,7 +181,7 @@ export function createInitMocks(): any {
   loadStampListMock();
   jest.spyOn(FileManager.prototype, 'getFeedData').mockResolvedValue(createMockGetFeedDataResult());
   jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(new Bytes(SWARM_ZERO_ADDRESS));
-  jest.spyOn(FileManager.prototype, 'getOwnerFeedStamp').mockReturnValue(createMockPostageBatch());
+  //jest.spyOn(FileManager.prototype, 'getOwnerFeedStamp').mockReturnValue(createMockPostageBatch());
   jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValue({
     reference: SWARM_ZERO_ADDRESS,
     historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
@@ -207,7 +211,7 @@ export function createUploadDataSpy(char: string): jest.SpyInstance {
 }
 
 export function loadStampListMock(): jest.SpyInstance {
-  return jest.spyOn(Bee.prototype, 'getAllPostageBatch').mockResolvedValueOnce([
+  return jest.spyOn(Bee.prototype, 'getAllPostageBatch').mockResolvedValue([
     {
       batchID: new BatchId('1234'.repeat(16)),
       utilization: 2,
@@ -218,8 +222,11 @@ export function loadStampListMock(): jest.SpyInstance {
       bucketDepth: 30,
       blockNumber: 980,
       immutableFlag: true,
-      exists: true,
-      batchTTL: 3,
+      duration: Duration.fromSeconds(3),
+      usage: 0,
+      size: 100,
+      remainingSize: 100,
+      theoreticalSize: 100,
     },
     {
       batchID: new BatchId('2345'.repeat(16)),
@@ -231,21 +238,27 @@ export function loadStampListMock(): jest.SpyInstance {
       bucketDepth: 30,
       blockNumber: 1000,
       immutableFlag: true,
-      exists: true,
-      batchTTL: 5,
+      duration: Duration.fromSeconds(5),
+      usage: 0,
+      size: 100,
+      remainingSize: 100,
+      theoreticalSize: 100,
     },
     {
       batchID: new BatchId('3456'.repeat(16)),
       utilization: 5,
       usable: true,
-      label: 'three',
+      label: OWNER_FEED_STAMP_LABEL,
       depth: 22,
       amount: '990' as NumberString,
       bucketDepth: 30,
       blockNumber: 1020,
       immutableFlag: false,
-      exists: true,
-      batchTTL: 8,
+      duration: Duration.fromSeconds(8),
+      usage: 0,
+      size: 100,
+      remainingSize: 100,
+      theoreticalSize: 100,
     },
   ]);
 }

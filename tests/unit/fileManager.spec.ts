@@ -1,8 +1,8 @@
-import { BatchId, Bee, Bytes, MantarayNode, Reference } from '@upcoming/bee-js';
+import { BatchId, Bee, Bytes, Duration, MantarayNode, Reference } from '@upcoming/bee-js';
 import { Optional } from 'cafe-utility';
 
 import { FileManager } from '../../src/fileManager';
-import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
+import { OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
 import { ReferenceWithHistory } from '../../src/utils/types';
 import {
@@ -248,18 +248,31 @@ describe('FileManager', () => {
       const result = fm.filterBatches(undefined, 3, undefined);
 
       expect(result.length).toBe(1);
-      expect(result[0].label).toBe('three');
+      expect(result[0].label).toBe(OWNER_FEED_STAMP_LABEL);
     });
 
     it('should filter by ttl and capacity', async () => {
       createInitMocks();
       const fm = await createInitializedFileManager();
 
-      const result = fm.filterBatches(4, undefined, 18);
+      const result = fm.filterBatches(Duration.fromSeconds(4), undefined, 18);
 
       expect(result.length).toBe(2);
       expect(result[0].label).toBe('two');
-      expect(result[1].label).toBe('three');
+      expect(result[1].label).toBe(OWNER_FEED_STAMP_LABEL);
+    });
+  });
+
+  describe('getOwnerFeedStamp', () => {
+    it('should give back the OwnerFeedStamp', async () => {
+      createInitMocks();
+      const fm = await createInitializedFileManager();
+
+      const result = fm.getOwnerFeedStamp();
+
+      expect(result?.amount).toBe('990');
+      expect(result?.label).toBe(OWNER_FEED_STAMP_LABEL);
+      expect(result?.depth).toBe(22);
     });
   });
 });

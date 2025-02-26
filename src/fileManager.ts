@@ -6,6 +6,7 @@ import {
   Bytes,
   CollectionUploadOptions,
   DownloadOptions,
+  Duration,
   EthAddress,
   FileUploadOptions,
   GetGranteesResult,
@@ -532,7 +533,7 @@ export class FileManager {
     }
   }
 
-  filterBatches(ttl?: number, utilization?: number, capacity?: number): PostageBatch[] {
+  filterBatches(duration?: Duration, utilization?: number, capacity?: number): PostageBatch[] {
     // TODO: clarify depth vs capacity
     return this.stampList.filter((s) => {
       if (utilization !== undefined && s.utilization <= utilization) {
@@ -543,7 +544,9 @@ export class FileManager {
         return false;
       }
 
-      if (ttl !== undefined && s.batchTTL <= ttl) {
+      if (duration !== undefined && s.duration.toSeconds() <= duration.toSeconds()) {
+        console.log('duration ', duration);
+        console.log('s.duration ', s.duration);
         return false;
       }
 
@@ -567,7 +570,7 @@ export class FileManager {
   async fetchStamp(batchId: string | BatchId): Promise<PostageBatch | undefined> {
     try {
       const newStamp = await this.bee.getPostageBatch(batchId);
-      if (newStamp?.exists && newStamp.usable) {
+      if (newStamp.usable) {
         this.stampList.push(newStamp);
         return newStamp;
       }
