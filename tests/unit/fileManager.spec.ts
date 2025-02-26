@@ -1,4 +1,4 @@
-import { BatchId, Bee, Bytes, Duration, MantarayNode, Reference, STAMPS_DEPTH_MAX } from '@upcoming/bee-js';
+import { BatchId, Bee, Bytes, Duration, MantarayNode, Reference, STAMPS_DEPTH_MAX, Topic } from '@upcoming/bee-js';
 import { Optional } from 'cafe-utility';
 
 import { FileManager } from '../../src/fileManager';
@@ -313,6 +313,26 @@ describe('FileManager', () => {
       await expect(async () => {
         await fm.destroyVolume(batchId);
       }).rejects.toThrow(`Cannot destroy owner stamp, batchId: ${batchId.toString()}`);
+    });
+  });
+
+  describe('getGranteesOfFile', () => {
+    it('should throw grantee list not found if the topic not found in ownerFeedList', async () => {
+      createInitMocks();
+      const fm = await createInitializedFileManager();
+
+      const fileInfo = {
+        batchId: new BatchId(MOCK_BATCH_ID),
+        topic: Topic.fromString('example'),
+        file: {
+          reference: new Reference('1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68'),
+          historyRef: new Reference(SWARM_ZERO_ADDRESS),
+        },
+      };
+
+      await expect(async () => {
+        await fm.getGranteesOfFile(fileInfo);
+      }).rejects.toThrow(`Grantee list not found for file eReference: ${fileInfo.topic.toString()}`);
     });
   });
 });

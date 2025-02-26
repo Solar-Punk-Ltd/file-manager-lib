@@ -32,7 +32,14 @@ import {
   SHARED_INBOX_TOPIC,
   SWARM_ZERO_ADDRESS,
 } from './utils/constants';
-import { BeeVersionError, FileInfoError, SignerError, StampError, SubscribtionError } from './utils/errors';
+import {
+  BeeVersionError,
+  FileInfoError,
+  GranteeError,
+  SignerError,
+  StampError,
+  SubscribtionError,
+} from './utils/errors';
 import {
   FetchFeedUpdateResponse,
   FileInfo,
@@ -614,9 +621,11 @@ export class FileManager {
   // fetches the list of grantees who can access the file reference
   async getGranteesOfFile(fileInfo: FileInfo): Promise<GetGranteesResult> {
     const mfIx = this.ownerFeedList.findIndex((mf) => mf.topic === fileInfo.topic);
-    const eglRef = this.ownerFeedList[mfIx].eGranteeRef;
-    if (mfIx === -1 || !eglRef) {
-      throw `Grantee list not found for file eReference: ${fileInfo.topic}`;
+    let eglRef = undefined;
+    if (mfIx === -1 || !this.ownerFeedList[mfIx].eGranteeRef) {
+      throw new GranteeError(`Grantee list not found for file eReference: ${fileInfo.topic}`);
+    } else {
+      eglRef = this.ownerFeedList[mfIx].eGranteeRef;
     }
 
     return this.bee.getGrantees(new Reference(eglRef));

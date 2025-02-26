@@ -33,3 +33,9 @@ export class SubscribtionError extends Error {
     super(message);
   }
 }
+
+export class GranteeError extends Error {
+  public constructor(message: string) {
+    super(message);
+  }
+}
