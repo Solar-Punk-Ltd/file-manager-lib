@@ -1,4 +1,5 @@
 import { BatchId, BeeDev, MantarayNode, Reference } from '@upcoming/bee-js';
+import * as fs from 'fs';
 import path from 'path';
 
 import { FileManager } from '../../src/fileManager';
@@ -454,5 +455,99 @@ describe('FileManager downloadFork', () => {
     const downloadedNested = await fileManager.downloadFork(nestedParent, fullNestedPath, options);
     const downloadedNestedStr = downloadedNested.toUtf8();
     expect(downloadedNestedStr).toEqual(nestedContentStr);
+  });
+
+  it('should upload 2 files, verify, add a 3rd file, save again, and then download forks to verify all files', async () => {
+    // Create a folder node with 2 files and save it
+    const folderPathOnDisk = path.join(__dirname, '../fixtures/folder');
+    const file1Path = path.join(folderPathOnDisk, '1.txt');
+    const file2Path = path.join(folderPathOnDisk, '2.txt');
+
+    // Read file contents.
+    const file1Content = fs.readFileSync(file1Path);
+    const file2Content = fs.readFileSync(file2Path);
+
+    // Create a folder node with a designated integration folder path.
+    const integrationFolderPath = 'integrationFolder/';
+    const folderNode = new MantarayNode({ path: new TextEncoder().encode(integrationFolderPath) });
+
+    // Create and add 1.txt.
+    const child1 = new MantarayNode({ path: new TextEncoder().encode('1.txt') });
+    child1.parent = folderNode;
+    const uploadRes1 = await bee.uploadData(batchId, file1Content, { act: true });
+    child1.targetAddress = new Reference(uploadRes1.reference).toUint8Array();
+    child1.metadata = { info: 'file 1' };
+    folderNode.forks.set(child1.path[0], {
+      prefix: child1.path,
+      node: child1,
+      marshal: () => child1.targetAddress,
+    });
+
+    // Create and add 2.txt.
+    const child2 = new MantarayNode({ path: new TextEncoder().encode('2.txt') });
+    child2.parent = folderNode;
+    const uploadRes2 = await bee.uploadData(batchId, file2Content, { act: true });
+    child2.targetAddress = new Reference(uploadRes2.reference).toUint8Array();
+    child2.metadata = { info: 'file 2' };
+    folderNode.forks.set(child2.path[0], {
+      prefix: child2.path,
+      node: child2,
+      marshal: () => child2.targetAddress,
+    });
+
+    // Save the initial mantaray structure (with 2 files).
+    const savedMantaray = await fileManager.saveMantaray(batchId, folderNode, { act: true });
+    console.log('Initial state saved:', savedMantaray);
+
+    // Download the 2 files to verify the initial state
+    const options1 = {
+      actHistoryAddress: new Reference(uploadRes1.historyAddress.getOrThrow().toString()),
+      actPublisher: fileManager.getNodeAddresses()!.publicKey,
+    };
+    const downloaded1 = await fileManager.downloadFork(folderNode, integrationFolderPath + '1.txt', options1);
+    expect(downloaded1.toUtf8()).toEqual(file1Content.toString());
+
+    const options2 = {
+      actHistoryAddress: new Reference(uploadRes2.historyAddress.getOrThrow().toString()),
+      actPublisher: fileManager.getNodeAddresses()!.publicKey,
+    };
+    const downloaded2 = await fileManager.downloadFork(folderNode, integrationFolderPath + '2.txt', options2);
+    expect(downloaded2.toUtf8()).toEqual(file2Content.toString());
+
+    // Add a 3rd file to the same folder node and save again
+    const file3Name = '3.txt';
+    const file3ContentStr = 'new file 3 content';
+    const file3Content = Buffer.from(file3ContentStr);
+
+    // Create and add 3.txt.
+    const child3 = new MantarayNode({ path: new TextEncoder().encode(file3Name) });
+    child3.parent = folderNode;
+    const uploadRes3 = await bee.uploadData(batchId, file3Content, { act: true });
+    child3.targetAddress = new Reference(uploadRes3.reference).toUint8Array();
+    child3.metadata = { info: 'file 3' };
+    folderNode.forks.set(child3.path[0], {
+      prefix: child3.path,
+      node: child3,
+      marshal: () => child3.targetAddress,
+    });
+
+    // Save the updated mantaray (now including the 3rd file).
+    const updatedMantaraySaved = await fileManager.saveMantaray(batchId, folderNode, { act: true });
+    console.log('Updated state saved:', updatedMantaraySaved);
+
+    // Download each file using downloadFork to verify the final state
+    const options3 = {
+      actHistoryAddress: new Reference(uploadRes3.historyAddress.getOrThrow().toString()),
+      actPublisher: fileManager.getNodeAddresses()!.publicKey,
+    };
+    const downloaded3 = await fileManager.downloadFork(folderNode, integrationFolderPath + file3Name, options3);
+    expect(downloaded3.toUtf8()).toEqual(file3ContentStr);
+
+    // We re-download 1.txt and 2.txt to verify
+    const reDownloaded1 = await fileManager.downloadFork(folderNode, integrationFolderPath + '1.txt', options1);
+    expect(reDownloaded1.toUtf8()).toEqual(file1Content.toString());
+
+    const reDownloaded2 = await fileManager.downloadFork(folderNode, integrationFolderPath + '2.txt', options2);
+    expect(reDownloaded2.toUtf8()).toEqual(file2Content.toString());
   });
 });
