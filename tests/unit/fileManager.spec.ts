@@ -1,7 +1,18 @@
-import { BatchId, Bee, Bytes, Duration, MantarayNode, Reference, STAMPS_DEPTH_MAX, Topic } from '@upcoming/bee-js';
+import {
+  BatchId,
+  Bee,
+  Bytes,
+  Duration,
+  EthAddress,
+  MantarayNode,
+  Reference,
+  STAMPS_DEPTH_MAX,
+  Topic,
+} from '@upcoming/bee-js';
 import { Optional } from 'cafe-utility';
 
 import { FileManager } from '../../src/fileManager';
+import { numberToFeedIndex } from '../../src/utils';
 import { OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
 import { ReferenceWithHistory } from '../../src/utils/types';
@@ -333,6 +344,58 @@ describe('FileManager', () => {
       await expect(async () => {
         await fm.getGranteesOfFile(fileInfo);
       }).rejects.toThrow(`Grantee list not found for file eReference: ${fileInfo.topic.toString()}`);
+    });
+  });
+
+  describe('getFeedData', () => {
+    beforeEach(() => jest.restoreAllMocks());
+    afterEach(() => jest.resetAllMocks());
+
+    it('should call makeFeedReader', async () => {
+      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const fm = new FileManager(bee);
+      const topic = Topic.fromString('example');
+      const makeFeedReaderSpy = jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue({
+        download: jest.fn(),
+        owner: new EthAddress('0000000000000000000000000000000000000000'),
+        topic: topic,
+      });
+
+      await fm.getFeedData(topic);
+
+      expect(makeFeedReaderSpy).toHaveBeenCalled();
+    });
+
+    it('should call download with correct index, is index is provided', async () => {
+      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const fm = new FileManager(bee);
+      const topic = Topic.fromString('example');
+      const downloadSpy = jest.fn();
+      jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue({
+        download: downloadSpy,
+        owner: new EthAddress('0000000000000000000000000000000000000000'),
+        topic: topic,
+      });
+
+      await fm.getFeedData(topic, 8);
+
+      expect(downloadSpy).toHaveBeenCalledWith({ index: numberToFeedIndex(8) });
+    });
+
+    it('should call download without parameters, if index is not provided', async () => {
+      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const fm = new FileManager(bee);
+      const topic = Topic.fromString('example');
+      const downloadSpy = jest.fn();
+      jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue({
+        download: downloadSpy,
+        owner: new EthAddress('0000000000000000000000000000000000000000'),
+        topic: topic,
+      });
+
+      await fm.getFeedData(topic);
+
+      expect(downloadSpy).toHaveBeenCalledWith();
     });
   });
 });
