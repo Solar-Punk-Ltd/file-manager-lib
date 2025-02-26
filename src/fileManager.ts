@@ -28,8 +28,15 @@ import {
   REFERENCE_LIST_TOPIC,
   SHARED_INBOX_TOPIC,
   SWARM_ZERO_ADDRESS,
-} from './utlis/constants';
-import { BeeVersionError, FileInfoError, SignerError, StampError, SubscribtionError } from './utlis/errors';
+} from './utils/constants';
+import {
+  BeeVersionError,
+  FileInfoError,
+  GranteeError,
+  SignerError,
+  StampError,
+  SubscribtionError,
+} from './utils/errors';
 import {
   FetchFeedUpdateResponse,
   FileInfo,
@@ -38,7 +45,7 @@ import {
   ShareItem,
   UploadProgress,
   WrappedFileInfoFeed,
-} from './utlis/types';
+} from './utils/types';
 import {
   assertFileInfo,
   assertShareItem,
@@ -48,7 +55,7 @@ import {
   makeBeeRequestOptions,
   makeNumericIndex,
   numberToFeedIndex,
-} from './utlis/utils';
+} from './utils/utils';
 
 export class FileManager {
   private bee: Bee;
@@ -489,7 +496,7 @@ export class FileManager {
     }
   }
 
-  async filterBatches(duration?: Duration, utilization?: number, capacity?: number): Promise<PostageBatch[]> {
+  filterBatches(duration?: Duration, utilization?: number, capacity?: number): PostageBatch[] {
     // TODO: clarify depth vs capacity
     return this.stampList.filter((s) => {
       if (utilization !== undefined && s.utilization <= utilization) {
@@ -500,7 +507,9 @@ export class FileManager {
         return false;
       }
 
-      if (duration !== undefined && s.duration <= duration) {
+      if (duration !== undefined && s.duration.toSeconds() <= duration.toSeconds()) {
+        console.log('duration ', duration);
+        console.log('s.duration ', s.duration);
         return false;
       }
 
@@ -508,7 +517,7 @@ export class FileManager {
     });
   }
 
-  async getStamps(): Promise<PostageBatch[]> {
+  getStamps(): PostageBatch[] {
     return this.stampList;
   }
 
@@ -536,20 +545,20 @@ export class FileManager {
   }
 
   async destroyVolume(batchId: BatchId): Promise<void> {
-    if (batchId === this.getOwnerFeedStamp()?.batchID) {
+    if (batchId.toString() === this.getOwnerFeedStamp()?.batchID.toString()) {
       throw new StampError(`Cannot destroy owner stamp, batchId: ${batchId.toString()}`);
     }
 
     await this.bee.diluteBatch(batchId, STAMPS_DEPTH_MAX);
 
     for (let i = 0; i < this.stampList.length; i++) {
-      if (this.stampList[i].batchID === batchId) {
+      if (this.stampList[i].batchID.toString() === batchId.toString()) {
         this.stampList.splice(i, 1);
         break;
       }
     }
 
-    for (let i = 0; i < this.fileInfoList.length, ++i; ) {
+    for (let i = this.fileInfoList.length - 1; i >= 0; --i) {
       const fileInfo = this.fileInfoList[i];
       if (fileInfo.batchId === batchId) {
         this.fileInfoList.splice(i, 1);
@@ -570,10 +579,11 @@ export class FileManager {
   // fetches the list of grantees who can access the file reference
   async getGranteesOfFile(fileInfo: FileInfo): Promise<GetGranteesResult> {
     const mfIx = this.ownerFeedList.findIndex((mf) => mf.topic === fileInfo.topic);
-    const eglRef = this.ownerFeedList[mfIx].eGranteeRef;
-    if (mfIx === -1 || !eglRef) {
-      throw `Grantee list not found for file eReference: ${fileInfo.topic}`;
+    let eglRef = undefined;
+    if (mfIx === -1 || !this.ownerFeedList[mfIx].eGranteeRef) {
+      throw new GranteeError(`Grantee list not found for file eReference: ${fileInfo.topic}`);
     }
+    eglRef = this.ownerFeedList[mfIx].eGranteeRef;
 
     return this.bee.getGrantees(new Reference(eglRef));
   }

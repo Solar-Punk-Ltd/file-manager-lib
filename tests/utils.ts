@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import path from 'path';
 
 import { FileManager } from '../src/fileManager';
-import { FileInfo } from '../src/utlis/types';
+import { FileInfo } from '../src/utils/types';
 
 export const BEE_URL = 'http://127.0.0.1:1633';
 export const OTHER_BEE_URL = 'http://127.0.0.1:1733';

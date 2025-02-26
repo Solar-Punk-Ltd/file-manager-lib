@@ -11,7 +11,6 @@ import {
   NULL_TOPIC,
   NumberString,
   PeerAddress,
-  PostageBatch,
   PublicKey,
   Reference,
   UploadResult,
@@ -19,9 +18,9 @@ import {
 import { Optional } from 'cafe-utility';
 
 import { FileManager } from '../src/fileManager';
-import { numberToFeedIndex } from '../src/utlis';
-import { SWARM_ZERO_ADDRESS } from '../src/utlis/constants';
-import { FetchFeedUpdateResponse } from '../src/utlis/types';
+import { numberToFeedIndex } from '../src/utils';
+import { OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
+import { FetchFeedUpdateResponse } from '../src/utils/types';
 
 export const MOCK_BATCH_ID = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
 
@@ -122,25 +121,6 @@ export const secondByteArray = new Uint8Array([
   135, 168, 220, 196, 216, 79, 98, 210, 143, 97, 225, 35, 59, 60, 200, 178, 218, 27,
 ]);
 
-export function createMockPostageBatch(): PostageBatch {
-  return {
-    batchID: new BatchId(SWARM_ZERO_ADDRESS),
-    utilization: 3,
-    usable: true,
-    label: 'very-good-stamp',
-    depth: 22,
-    amount: '480000000' as NumberString,
-    bucketDepth: 22,
-    blockNumber: 111,
-    immutableFlag: true,
-    duration: Duration.fromWeeks(1),
-    usage: 0,
-    size: 100000,
-    remainingSize: 100000,
-    theoreticalSize: 100000,
-  };
-}
-
 export function createMockNodeAddresses(): NodeAddresses {
   return {
     overlay: SWARM_ZERO_ADDRESS as PeerAddress,
@@ -177,10 +157,9 @@ export function createInitMocks(): any {
     .mockResolvedValue({ beeApiVersion: '0.0.0', beeVersion: '0.0.0' } as BeeVersions);
   jest.spyOn(Bee.prototype, 'isSupportedApiVersion').mockResolvedValue(true);
   jest.spyOn(Bee.prototype, 'getNodeAddresses').mockResolvedValue(createMockNodeAddresses());
-  jest.spyOn(Bee.prototype, 'getAllPostageBatch').mockResolvedValue([createMockPostageBatch()]);
+  loadStampListMock();
   jest.spyOn(FileManager.prototype, 'getFeedData').mockResolvedValue(createMockGetFeedDataResult());
   jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(new Bytes(SWARM_ZERO_ADDRESS));
-  jest.spyOn(FileManager.prototype, 'getOwnerFeedStamp').mockReturnValue(createMockPostageBatch());
   jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValue({
     reference: SWARM_ZERO_ADDRESS,
     historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
@@ -207,4 +186,57 @@ export function createUploadDataSpy(char: string): jest.SpyInstance {
     reference: new Reference(char.repeat(64)),
     historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
   });
+}
+
+export function loadStampListMock(): jest.SpyInstance {
+  return jest.spyOn(Bee.prototype, 'getAllPostageBatch').mockResolvedValue([
+    {
+      batchID: new BatchId('1234'.repeat(16)),
+      utilization: 2,
+      usable: true,
+      label: 'one',
+      depth: 22,
+      amount: '480' as NumberString,
+      bucketDepth: 30,
+      blockNumber: 980,
+      immutableFlag: true,
+      duration: Duration.fromSeconds(3),
+      usage: 0,
+      size: 100,
+      remainingSize: 100,
+      theoreticalSize: 100,
+    },
+    {
+      batchID: new BatchId('2345'.repeat(16)),
+      utilization: 3,
+      usable: true,
+      label: 'two',
+      depth: 22,
+      amount: '570' as NumberString,
+      bucketDepth: 30,
+      blockNumber: 1000,
+      immutableFlag: true,
+      duration: Duration.fromSeconds(5),
+      usage: 0,
+      size: 100,
+      remainingSize: 100,
+      theoreticalSize: 100,
+    },
+    {
+      batchID: new BatchId('3456'.repeat(16)),
+      utilization: 5,
+      usable: true,
+      label: OWNER_FEED_STAMP_LABEL,
+      depth: 22,
+      amount: '990' as NumberString,
+      bucketDepth: 30,
+      blockNumber: 1020,
+      immutableFlag: false,
+      duration: Duration.fromSeconds(8),
+      usage: 0,
+      size: 100,
+      remainingSize: 100,
+      theoreticalSize: 100,
+    },
+  ]);
 }

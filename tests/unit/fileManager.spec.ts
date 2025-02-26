@@ -1,14 +1,21 @@
-import { TextDecoder as NodeTextDecoder, TextEncoder } from 'util';
-global.TextDecoder = NodeTextDecoder as typeof TextDecoder;
-global.TextEncoder = TextEncoder;
-
-import { BatchId, Bee, Bytes, MantarayNode, Reference } from '@upcoming/bee-js';
+import {
+  BatchId,
+  Bee,
+  Bytes,
+  Duration,
+  EthAddress,
+  MantarayNode,
+  Reference,
+  STAMPS_DEPTH_MAX,
+  Topic,
+} from '@upcoming/bee-js';
 import { Optional } from 'cafe-utility';
 
 import { FileManager } from '../../src/fileManager';
-import { SWARM_ZERO_ADDRESS } from '../../src/utlis/constants';
-import { SignerError } from '../../src/utlis/errors';
-import { ReferenceWithHistory } from '../../src/utlis/types';
+import { numberToFeedIndex } from '../../src/utils';
+import { OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
+import { SignerError } from '../../src/utils/errors';
+import { ReferenceWithHistory } from '../../src/utils/types';
 import {
   createInitMocks,
   createMockFeedWriter,
@@ -244,6 +251,154 @@ describe('FileManager', () => {
       await expect(async () => {
         await fm.upload(new BatchId(MOCK_BATCH_ID), [firstFile], undefined, undefined, undefined, 'infoTopic');
       }).rejects.toThrow('infoTopic and historyRef have to be provided at the same time.');
+    });
+  });
+
+  describe('filterBatches', () => {
+    it('should filter by utilization', async () => {
+      createInitMocks();
+      const fm = await createInitializedFileManager();
+
+      const result = fm.filterBatches(undefined, 3, undefined);
+
+      expect(result.length).toBe(1);
+      expect(result[0].label).toBe(OWNER_FEED_STAMP_LABEL);
+    });
+
+    it('should filter by ttl and capacity', async () => {
+      createInitMocks();
+      const fm = await createInitializedFileManager();
+
+      const result = fm.filterBatches(Duration.fromSeconds(4), undefined, 18);
+
+      expect(result.length).toBe(2);
+      expect(result[0].label).toBe('two');
+      expect(result[1].label).toBe(OWNER_FEED_STAMP_LABEL);
+    });
+  });
+
+  describe('getOwnerFeedStamp', () => {
+    it('should give back the OwnerFeedStamp', async () => {
+      createInitMocks();
+      const fm = await createInitializedFileManager();
+
+      const result = fm.getOwnerFeedStamp();
+
+      expect(result?.amount).toBe('990');
+      expect(result?.label).toBe(OWNER_FEED_STAMP_LABEL);
+      expect(result?.depth).toBe(22);
+    });
+  });
+
+  describe('destroyVolume', () => {
+    beforeEach(() => {
+      jest.resetAllMocks();
+    });
+
+    it('should call diluteBatch with batchId and MAX_DEPTH', async () => {
+      createInitMocks();
+      const diluteSpy = jest.spyOn(Bee.prototype, 'diluteBatch').mockResolvedValue(new BatchId('1234'.repeat(16)));
+      const fm = await createInitializedFileManager();
+
+      fm.destroyVolume(new BatchId('1234'.repeat(16)));
+
+      expect(diluteSpy).toHaveBeenCalledWith(new BatchId('1234'.repeat(16)), STAMPS_DEPTH_MAX);
+    });
+
+    it('should remove batchId from stamp list', async () => {
+      createInitMocks();
+      jest.spyOn(Bee.prototype, 'diluteBatch').mockResolvedValue(new BatchId('1234'.repeat(16)));
+      const fm = await createInitializedFileManager();
+
+      expect(fm.getStamps().length).toBe(3);
+      await fm.destroyVolume(new BatchId('1234'.repeat(16)));
+
+      expect(fm.getStamps().length).toBe(2);
+      expect(fm.getStamps()[0].label).toBe('two');
+      expect(fm.getStamps()[1].label).toBe(OWNER_FEED_STAMP_LABEL);
+    });
+
+    it('should throw error if trying to destroy OwnerFeedStamp', async () => {
+      const batchId = new BatchId('3456'.repeat(16));
+      createInitMocks();
+      jest.spyOn(Bee.prototype, 'diluteBatch').mockResolvedValue(new BatchId('1234'.repeat(16)));
+      const fm = await createInitializedFileManager();
+
+      await expect(async () => {
+        await fm.destroyVolume(batchId);
+      }).rejects.toThrow(`Cannot destroy owner stamp, batchId: ${batchId.toString()}`);
+    });
+  });
+
+  describe('getGranteesOfFile', () => {
+    it('should throw grantee list not found if the topic not found in ownerFeedList', async () => {
+      createInitMocks();
+      const fm = await createInitializedFileManager();
+
+      const fileInfo = {
+        batchId: new BatchId(MOCK_BATCH_ID),
+        topic: Topic.fromString('example'),
+        file: {
+          reference: new Reference('1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68'),
+          historyRef: new Reference(SWARM_ZERO_ADDRESS),
+        },
+      };
+
+      await expect(async () => {
+        await fm.getGranteesOfFile(fileInfo);
+      }).rejects.toThrow(`Grantee list not found for file eReference: ${fileInfo.topic.toString()}`);
+    });
+  });
+
+  describe('getFeedData', () => {
+    beforeEach(() => jest.restoreAllMocks());
+    afterEach(() => jest.resetAllMocks());
+
+    it('should call makeFeedReader', async () => {
+      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const fm = new FileManager(bee);
+      const topic = Topic.fromString('example');
+      const makeFeedReaderSpy = jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue({
+        download: jest.fn(),
+        owner: new EthAddress('0000000000000000000000000000000000000000'),
+        topic: topic,
+      });
+
+      await fm.getFeedData(topic);
+
+      expect(makeFeedReaderSpy).toHaveBeenCalled();
+    });
+
+    it('should call download with correct index, is index is provided', async () => {
+      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const fm = new FileManager(bee);
+      const topic = Topic.fromString('example');
+      const downloadSpy = jest.fn();
+      jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue({
+        download: downloadSpy,
+        owner: new EthAddress('0000000000000000000000000000000000000000'),
+        topic: topic,
+      });
+
+      await fm.getFeedData(topic, 8);
+
+      expect(downloadSpy).toHaveBeenCalledWith({ index: numberToFeedIndex(8) });
+    });
+
+    it('should call download without parameters, if index is not provided', async () => {
+      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const fm = new FileManager(bee);
+      const topic = Topic.fromString('example');
+      const downloadSpy = jest.fn();
+      jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue({
+        download: downloadSpy,
+        owner: new EthAddress('0000000000000000000000000000000000000000'),
+        topic: topic,
+      });
+
+      await fm.getFeedData(topic);
+
+      expect(downloadSpy).toHaveBeenCalledWith();
     });
   });
 });
