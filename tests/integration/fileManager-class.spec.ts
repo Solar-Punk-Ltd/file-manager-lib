@@ -1002,3 +1002,34 @@ describe('FileManager destroyVolume', () => {
   //   expect(updatedStamps.find((s) => s.batchID.toString() === nonOwnerStamp.toString())).toBeUndefined();
   // });
 });
+
+describe('FileManager getGranteesOfFile', () => {
+  let bee: BeeDev;
+  let fileManager: FileManager;
+
+  beforeAll(async () => {
+    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    fileManager = new FileManager(bee);
+    await fileManager.initialize();
+  });
+
+  it('should throw an error if grantee list is not found for a file', async () => {
+    // Construct a FileInfo object with a topic that is unlikely to exist in ownerFeedList.
+    const fileInfo = {
+      batchId: 'dummyBatchId',
+      topic: Topic.fromString('nonexistent-topic').toString(),
+      file: {
+        reference: new Reference('1'.repeat(64)).toString(),
+        historyRef: new Reference('0'.repeat(64)).toString(),
+      },
+      owner: MOCK_SIGNER.publicKey().address().toString(),
+      name: 'dummyFile',
+      timestamp: Date.now(),
+      shared: false,
+      index: 0,
+    };
+    await expect(fileManager.getGranteesOfFile(fileInfo as any)).rejects.toThrow(
+      `Grantee list not found for file eReference: ${fileInfo.topic}`,
+    );
+  });
+});
