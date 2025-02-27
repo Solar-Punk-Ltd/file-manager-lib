@@ -960,3 +960,45 @@ describe('FileManager getOwnerFeedStamp', () => {
     (fileManager as any).stampList = originalStamps;
   });
 });
+
+describe('FileManager destroyVolume', () => {
+  let bee: BeeDev;
+  let fileManager: FileManager;
+  let ownerStamp: PostageBatch;
+  let nonOwnerStamp: BatchId;
+
+  beforeAll(async () => {
+    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    // Purchase two non-owner stamps with unique labels BEFORE initializing the FileManager.
+    nonOwnerStamp = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'nonOwnerStampTest');
+
+    fileManager = new FileManager(bee);
+    await fileManager.initialize();
+
+    // Retrieve the owner stamp from the FileManager.
+    ownerStamp = fileManager.getOwnerFeedStamp()!;
+    expect(ownerStamp).toBeDefined();
+  });
+
+  it('should throw an error when trying to destroy the owner stamp', async () => {
+    await expect(fileManager.destroyVolume(ownerStamp.batchID)).rejects.toThrow(
+      `Cannot destroy owner stamp, batchId: ${ownerStamp.batchID.toString()}`,
+    );
+  });
+
+  // it('should remove a non-owner stamp from the stamp list after destroying volume', async () => {
+  //   const initialStamps = fileManager.getStamps();
+
+  //   // If either nonOwnerStamp equals the owner stamp, skip the test.
+  //   if (nonOwnerStamp.toString() === ownerStamp.batchID.toString()) {
+  //     console.warn('Non-owner stamp equals owner stamp; skipping non-owner destroy test.');
+  //     return;
+  //   }
+
+  //   const initialCount = initialStamps.length;
+  //   await fileManager.destroyVolume(nonOwnerStamp);
+  //   const updatedStamps = fileManager.getStamps();
+  //   expect(updatedStamps.length).toEqual(initialCount - 1);
+  //   expect(updatedStamps.find((s) => s.batchID.toString() === nonOwnerStamp.toString())).toBeUndefined();
+  // });
+});
