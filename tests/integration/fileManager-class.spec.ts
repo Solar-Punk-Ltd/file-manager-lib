@@ -921,3 +921,42 @@ describe('FileManager filterBatches', () => {
     );
   });
 });
+
+describe('FileManager getOwnerFeedStamp', () => {
+  let bee: BeeDev;
+  let fileManager: FileManager;
+
+  beforeAll(async () => {
+    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    fileManager = new FileManager(bee);
+    await fileManager.initialize();
+  });
+
+  it('should return the owner feed stamp with valid properties', async () => {
+    const ownerStamp = fileManager.getOwnerFeedStamp();
+    expect(ownerStamp).toBeDefined();
+    if (ownerStamp) {
+      // Check that the label is correct.
+      expect(ownerStamp.label).toBe(OWNER_FEED_STAMP_LABEL);
+      // Verify that amount is a non-empty string and a positive number.
+      expect(typeof ownerStamp.amount).toBe('string');
+      expect(Number(ownerStamp.amount)).toBeGreaterThan(0);
+      // Verify that depth is positive.
+      expect(ownerStamp.depth).toBeGreaterThan(0);
+      // Check that duration is defined and greater than 0 seconds.
+      // (Assuming duration is a Duration instance from luxon.)
+      expect(ownerStamp.duration.toSeconds()).toBeGreaterThan(0);
+    }
+  });
+
+  it('should return undefined if no owner feed stamp exists', async () => {
+    // Backup the original stamp list.
+    const originalStamps = (fileManager as any).stampList;
+    // Set the stamp list to an empty array.
+    (fileManager as any).stampList = [];
+    const ownerStamp = fileManager.getOwnerFeedStamp();
+    expect(ownerStamp).toBeUndefined();
+    // Restore the original stamps.
+    (fileManager as any).stampList = originalStamps;
+  });
+});
