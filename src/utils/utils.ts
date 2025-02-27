@@ -159,13 +159,10 @@ export function getRandomBytes(len: number): Bytes {
 }
 
 export async function buyStamp(bee: Bee, amount: string | bigint, depth: number, label?: string): Promise<BatchId> {
-  const stamp = (await bee.getAllPostageBatch()).find(async (b) => {
-    b.label === label;
-  });
+  const stamp = (await bee.getAllPostageBatch()).find((b) => b.label === label);
   if (stamp && stamp.usable) {
     return stamp.batchID;
   }
-
   return await bee.createPostageBatch(amount, depth, {
     waitForUsable: true,
     label: label,
