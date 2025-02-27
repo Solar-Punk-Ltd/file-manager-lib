@@ -2,7 +2,7 @@
 
 # Compute the absolute directory of this script.
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-BEE_DIR="$SCRIPT_DIR/bee-dev"
+BEE_DIR="/home/user/SolarPunk/bee"
 BEE_REPO="git@github.com:Solar-Punk-Ltd/bee.git"
 BEE_BRANCH="tmp/dev-feed"
 BEE_BINARY_PATH="$BEE_DIR/dist/bee"
