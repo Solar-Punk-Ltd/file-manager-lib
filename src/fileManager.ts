@@ -61,6 +61,7 @@ import {
   numberToFeedIndex,
   readFile,
 } from './utils/utils';
+import { EventEmitter } from './utils/eventEmitter';
 
 export class FileManager {
   private bee: Bee;
@@ -74,6 +75,7 @@ export class FileManager {
   private sharedSubscription: PssSubscription | undefined;
   private ownerFeedTopic: Topic;
   private isInitialized: boolean;
+  public emitter: EventEmitter;
 
   constructor(bee: Bee) {
     this.bee = bee;
@@ -90,6 +92,7 @@ export class FileManager {
     this.sharedSubscription = undefined;
     this.isInitialized = false;
     this.nodeAddresses = undefined;
+    this.emitter = new EventEmitter();
   }
 
   // Start init methods
