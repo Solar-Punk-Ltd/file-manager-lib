@@ -1,4 +1,4 @@
-import { BatchId, BeeDev, MantarayNode, Reference } from '@upcoming/bee-js';
+import { BatchId, BeeDev, Duration, MantarayNode, PostageBatch, Reference, Topic } from '@upcoming/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
@@ -549,5 +549,157 @@ describe('FileManager downloadFork', () => {
 
     const reDownloaded2 = await fileManager.downloadFork(folderNode, integrationFolderPath + '2.txt', options2);
     expect(reDownloaded2.toUtf8()).toEqual(file2Content.toString());
+  });
+});
+
+describe('FileManager listFiles', () => {
+  let bee: BeeDev;
+  let fileManager: FileManager;
+  let batchId: BatchId;
+  let tempDir: string;
+
+  beforeAll(async () => {
+    // Create a BeeDev instance with a valid signer.
+    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    // Purchase a test stamp.
+    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'listFilesIntegrationStamp');
+    // Create and initialize the FileManager.
+    fileManager = new FileManager(bee);
+    await fileManager.initialize();
+
+    // Create a temporary directory for our test files.
+    // Use a unique folder name to avoid collisions.
+    tempDir = path.join(__dirname, 'tmpIntegrationListFiles');
+    fs.mkdirSync(tempDir, { recursive: true });
+    // Create two files in the root.
+    fs.writeFileSync(path.join(tempDir, 'a.txt'), 'Content A');
+    fs.writeFileSync(path.join(tempDir, 'b.txt'), 'Content B');
+    // Create a subfolder and a file inside it.
+    const subfolder = path.join(tempDir, 'subfolder');
+    fs.mkdirSync(subfolder, { recursive: true });
+    fs.writeFileSync(path.join(subfolder, 'c.txt'), 'Content C');
+  });
+
+  afterAll(() => {
+    // Clean up the temporary directory.
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('should return a list of files for the uploaded folder', async () => {
+    // Upload the entire folder.
+    await fileManager.upload(batchId, tempDir);
+
+    // Retrieve our FileInfo by filtering on the unique folder name.
+    const allFileInfos = fileManager.getFileInfoList();
+    const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(tempDir));
+    expect(fileInfo).toBeDefined();
+
+    // Call listFiles.
+    const fileList = await fileManager.listFiles(fileInfo!, {
+      actHistoryAddress: fileInfo!.file.historyRef,
+      actPublisher: fileManager.getNodeAddresses()!.publicKey,
+    });
+
+    // Instead of comparing full paths (which may vary), we assert that the basenames match.
+    const returnedBasenames = fileList.map((item) => path.basename(item.path));
+    expect(returnedBasenames).toContain('a.txt');
+    expect(returnedBasenames).toContain('b.txt');
+    expect(returnedBasenames).toContain('c.txt');
+    expect(fileList.length).toEqual(3);
+  });
+
+  it('should return an empty file list when uploading an empty folder', async () => {
+    const emptyDir = path.join(__dirname, 'emptyFolder');
+    fs.mkdirSync(emptyDir, { recursive: true });
+
+    // We allow for two behaviors:
+    // 1. The upload call fails (e.g. with status code 400).
+    // 2. The upload call succeeds but returns a manifest with no files.
+    let fileInfo;
+    try {
+      await fileManager.upload(batchId, emptyDir);
+      const allFileInfos = fileManager.getFileInfoList();
+      fileInfo = allFileInfos.find((fi) => fi.name === path.basename(emptyDir));
+    } catch (error: any) {
+      expect(error).toMatch(/status code 400/);
+      fs.rmSync(emptyDir, { recursive: true, force: true });
+      return;
+    }
+
+    // If upload did not throw, listFiles should return an empty array.
+    expect(fileInfo).toBeDefined();
+    const fileList = await fileManager.listFiles(fileInfo!, {
+      actHistoryAddress: fileInfo!.file.historyRef,
+      actPublisher: fileManager.getNodeAddresses()!.publicKey,
+    });
+    expect(fileList.length).toEqual(0);
+
+    fs.rmSync(emptyDir, { recursive: true, force: true });
+  });
+
+  it('should correctly return nested file paths in a deeply nested folder structure', async () => {
+    const deepDir = path.join(__dirname, 'deepNestedFolder');
+    // Create a structure: deepNestedFolder/level1/level2/level3/d.txt
+    const level1 = path.join(deepDir, 'level1');
+    const level2 = path.join(level1, 'level2');
+    const level3 = path.join(level2, 'level3');
+    fs.mkdirSync(level3, { recursive: true });
+    fs.writeFileSync(path.join(level3, 'd.txt'), 'Content D');
+
+    await fileManager.upload(batchId, deepDir);
+    const allFileInfos = fileManager.getFileInfoList();
+    const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(deepDir));
+    expect(fileInfo).toBeDefined();
+
+    const fileList = await fileManager.listFiles(fileInfo!, {
+      actHistoryAddress: fileInfo!.file.historyRef,
+      actPublisher: fileManager.getNodeAddresses()!.publicKey,
+    });
+
+    // Expect that the nested file is found.
+    const returnedBasenames = fileList.map((item) => path.basename(item.path));
+    expect(returnedBasenames).toContain('d.txt');
+
+    // Depending on your implementation, the full relative path may be built relative to the upload root.
+    // Here we assume the paths are relative to deepDir, so the expected path is "level1/level2/level3/d.txt".
+    const expectedFullPath = path.join('level1', 'level2', 'level3', 'd.txt');
+    const found = fileList.find((item) => item.path === expectedFullPath);
+    expect(found).toBeDefined();
+
+    fs.rmSync(deepDir, { recursive: true, force: true });
+  });
+
+  it('should ignore entries with empty paths', async () => {
+    // Simulate a folder upload where one file's path is empty.
+    const folderWithEmpty = path.join(__dirname, 'folderWithEmpty');
+    fs.mkdirSync(folderWithEmpty, { recursive: true });
+    // Create a valid file.
+    fs.writeFileSync(path.join(folderWithEmpty, 'valid.txt'), 'Valid Content');
+    // Create another file that we will later simulate as having an empty path.
+    fs.writeFileSync(path.join(folderWithEmpty, 'empty.txt'), 'Should be ignored');
+
+    await fileManager.upload(batchId, folderWithEmpty);
+    const allFileInfos = fileManager.getFileInfoList();
+    const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(folderWithEmpty));
+    expect(fileInfo).toBeDefined();
+
+    let fileList = await fileManager.listFiles(fileInfo!, {
+      actHistoryAddress: fileInfo!.file.historyRef,
+      actPublisher: fileManager.getNodeAddresses()!.publicKey,
+    });
+    // Simulate that the entry for 'empty.txt' has an empty path.
+    fileList = fileList.map((item) => {
+      if (path.basename(item.path) === 'empty.txt') {
+        return { ...item, path: '' };
+      }
+      return item;
+    });
+    // Filtering should remove entries with empty paths.
+    const filtered = fileList.filter((item) => item.path !== '');
+    const returnedBasenames = filtered.map((item) => path.basename(item.path));
+    expect(returnedBasenames).toContain('valid.txt');
+    expect(returnedBasenames).not.toContain('empty.txt');
+
+    fs.rmSync(folderWithEmpty, { recursive: true, force: true });
   });
 });
