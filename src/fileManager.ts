@@ -128,23 +128,14 @@ export class FileManager {
     if (this.nodeAddresses === undefined) {
       throw new SignerError('Node addresses not found');
     }
+    const ownerFeedStamp = this.getOwnerFeedStamp();
+    if (ownerFeedStamp === undefined) {
+      throw new StampError('Owner stamp not found');
+    }
+
     const feedTopicData = await this.getFeedData(REFERENCE_LIST_TOPIC, 0);
 
     if (feedTopicData.payload === SWARM_ZERO_ADDRESS) {
-      let ownerFeedStamp = this.getOwnerFeedStamp();
-      if (ownerFeedStamp === undefined) {
-        const DEFAULT_BATCH_DEPTH = 21;
-        const DEFAULT_BATCH_AMOUNT = '500000000';
-        await this.buyOwnerStamp(DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH);
-        throw new StampError('Owner stamp not found');
-      }
-
-      await this.getUsableStamps();
-      ownerFeedStamp = this.getOwnerFeedStamp();
-      if (ownerFeedStamp === undefined) {
-        throw new StampError('Owner stamp not found');
-      }
-
       // this.ownerFeedTopic = new Topic(getRandomBytes(Topic.LENGTH));
       this.ownerFeedTopic = Topic.fromString('TODO owner bagoy');
       const topicDataRes = await this.bee.uploadData(ownerFeedStamp.batchID, this.ownerFeedTopic.toUint8Array(), {
@@ -158,8 +149,8 @@ export class FileManager {
       });
     } else {
       const topicHistory = await this.getFeedData(REFERENCE_LIST_TOPIC, 1);
-      const topicBytes = await this.bee.downloadData(new Reference(feedTopicData.payload), {
-        actHistoryAddress: new Reference(topicHistory.payload),
+      const topicBytes = await this.bee.downloadData(new Reference(feedTopicData.payload).toUint8Array(), {
+        actHistoryAddress: new Reference(topicHistory.payload).toUint8Array(),
         actPublisher: this.nodeAddresses.publicKey,
       });
 
@@ -451,7 +442,7 @@ export class FileManager {
   private async saveFileInfoFeedList(): Promise<void> {
     const ownerFeedStamp = this.getOwnerFeedStamp();
     if (!ownerFeedStamp) {
-      throw 'Owner feed stamp is not found.';
+      throw new StampError('Owner feed stamp is not found.');
     }
 
     try {
@@ -712,7 +703,7 @@ export class FileManager {
   ): Promise<FetchFeedUpdateResponse> {
     try {
       const feedReader = this.bee.makeFeedReader(
-        topic,
+        topic.toUint8Array(),
         address || this.signer.publicKey().address().toString(),
         options,
       );
