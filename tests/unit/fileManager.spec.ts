@@ -13,9 +13,9 @@ import { Optional } from 'cafe-utility';
 
 import { FileManager } from '../../src/fileManager';
 import { numberToFeedIndex } from '../../src/utils';
-import { OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
+import { FILE_MANAGER_EVENTS, OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
-import { ReferenceWithHistory } from '../../src/utils/types';
+import { FileInfo, ReferenceWithHistory } from '../../src/utils/types';
 import {
   createInitializedFileManager,
   createInitMocks,
@@ -386,6 +386,39 @@ describe('FileManager', () => {
       await fm.getFeedData(topic);
 
       expect(downloadSpy).toHaveBeenCalledWith();
+    });
+  });
+
+  describe('eventEmitter', () => {
+    it('should send event when upload happened', async () => {
+      createInitMocks();
+      const fm = await createInitializedFileManager();
+      const { on, off } = fm.emitter;
+      const uploadHandler = jest.fn((input) => {
+        console.log("Input: ", input);
+      });
+      createUploadFilesFromDirectorySpy('1');
+
+      on(FILE_MANAGER_EVENTS.FILE_UPLOADED, uploadHandler)
+
+      const expectedFileInfo = {
+        batchId: MOCK_BATCH_ID,
+        customMetadata: undefined,
+        file: {
+          historyRef: expect.anything(),
+          reference: '1'.repeat(64)
+        },
+        index: 0,
+        name: "tests"
+      }
+      
+      await fm.upload(new BatchId(MOCK_BATCH_ID), './tests');
+      
+      expect(uploadHandler).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fileInfo: expect.objectContaining(expectedFileInfo)
+        })
+      );
     });
   });
 });
