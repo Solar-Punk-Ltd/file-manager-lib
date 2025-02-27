@@ -779,3 +779,89 @@ describe('FileManager upload', () => {
     fs.rmSync(tempFile, { force: true });
   });
 });
+
+describe('FileManager downloadFiles', () => {
+  let bee: BeeDev;
+  let fileManager: FileManager;
+  let batchId: BatchId;
+  let tempDownloadDir: string;
+  const expectedContents: Record<string, string> = {};
+
+  beforeAll(async () => {
+    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'downloadFilesIntegrationStamp');
+    fileManager = new FileManager(bee);
+    await fileManager.initialize();
+
+    // Create a temporary directory for downloadFiles test.
+    tempDownloadDir = path.join(__dirname, 'tmpDownloadIntegration');
+    fs.mkdirSync(tempDownloadDir, { recursive: true });
+    // Create two files at the root.
+    const file1Path = path.join(tempDownloadDir, 'alpha.txt');
+    const file2Path = path.join(tempDownloadDir, 'beta.txt');
+    fs.writeFileSync(file1Path, 'Download Content Alpha');
+    fs.writeFileSync(file2Path, 'Download Content Beta');
+    expectedContents['alpha.txt'] = 'Download Content Alpha';
+    expectedContents['beta.txt'] = 'Download Content Beta';
+
+    // Create a subfolder and one file inside it.
+    const subfolder = path.join(tempDownloadDir, 'subfolder');
+    fs.mkdirSync(subfolder, { recursive: true });
+    const file3Path = path.join(subfolder, 'gamma.txt');
+    fs.writeFileSync(file3Path, 'Download Content Gamma');
+    expectedContents['gamma.txt'] = 'Download Content Gamma';
+
+    // Upload the folder.
+    await fileManager.upload(batchId, tempDownloadDir);
+  });
+
+  afterAll(() => {
+    fs.rmSync(tempDownloadDir, { recursive: true, force: true });
+  });
+
+  it('should download all file contents from the uploaded manifest', async () => {
+    // Retrieve the FileInfo list. (Filter by our unique folder name.)
+    const allFileInfos = fileManager.getFileInfoList();
+    const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(tempDownloadDir));
+    expect(fileInfo).toBeDefined();
+
+    // downloadFiles returns an array of strings.
+    const fileContents = await fileManager.downloadFiles(new Reference(fileInfo!.file.reference), {
+      actHistoryAddress: new Reference(fileInfo!.file.historyRef),
+      actPublisher: fileManager.getNodeAddresses()!.publicKey,
+    });
+    const expectedArray = Object.values(expectedContents);
+    expect(fileContents.sort()).toEqual(expectedArray.sort());
+  });
+
+  it('should return an empty array when the manifest is empty', async () => {
+    // Create an empty Mantaray node (with no forks).
+    const emptyNode = new (await import('@upcoming/bee-js')).MantarayNode({
+      path: new TextEncoder().encode('emptyFolder/'),
+    });
+    const saved = await fileManager.saveMantaray(batchId, emptyNode, { act: true });
+    const files = await fileManager.downloadFiles(new Reference(saved.reference), {
+      actHistoryAddress: new Reference(saved.historyRef),
+      actPublisher: fileManager.getNodeAddresses()!.publicKey,
+    });
+    expect(files.length).toEqual(0);
+  });
+
+  it('should download an empty file as an empty string', async () => {
+    const emptyFileDir = path.join(__dirname, 'emptyFileFolder');
+    fs.mkdirSync(emptyFileDir, { recursive: true });
+    // Create a file with empty content.
+    fs.writeFileSync(path.join(emptyFileDir, 'empty.txt'), '');
+    await fileManager.upload(batchId, emptyFileDir);
+    const allFileInfos = fileManager.getFileInfoList();
+    const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(emptyFileDir));
+    expect(fileInfo).toBeDefined();
+    const fileContents = await fileManager.downloadFiles(new Reference(fileInfo!.file.reference), {
+      actHistoryAddress: new Reference(fileInfo!.file.historyRef),
+      actPublisher: fileManager.getNodeAddresses()!.publicKey,
+    });
+    // We expect one of the returned file contents to be an empty string.
+    expect(fileContents).toContain('');
+    fs.rmSync(emptyFileDir, { recursive: true, force: true });
+  });
+});
