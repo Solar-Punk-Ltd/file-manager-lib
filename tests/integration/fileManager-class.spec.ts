@@ -1033,3 +1033,28 @@ describe('FileManager getGranteesOfFile', () => {
     );
   });
 });
+
+describe('FileManager getFeedData', () => {
+  let bee: BeeDev;
+  let fileManager: FileManager;
+
+  beforeAll(async () => {
+    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    fileManager = new FileManager(bee);
+    await fileManager.initialize();
+  });
+
+  it('should return a valid feed data object when index is provided', async () => {
+    // Use the owner's public key as a topic by converting it to a Topic.
+    const topic = Topic.fromString(fileManager.getNodeAddresses()!.publicKey.toString());
+    const feedData = await fileManager.getFeedData(topic, 0);
+    // feedData.payload should not be the zero address.
+    expect(feedData.payload).not.toEqual('0'.repeat(64));
+  });
+
+  it('should return a valid feed data object when index is not provided', async () => {
+    const topic = Topic.fromString(fileManager.getNodeAddresses()!.publicKey.toString());
+    const feedData = await fileManager.getFeedData(topic);
+    expect(feedData.payload).not.toEqual('0'.repeat(64));
+  });
+});
