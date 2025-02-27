@@ -346,7 +346,7 @@ export class FileManager {
 
     const topic = infoTopic ? Topic.fromString(infoTopic) : new Topic(getRandomBytes(Topic.LENGTH));
     const feedIndex = index !== undefined ? index : 0;
-    const fileInfoResult = await this.uploadFileInfo({
+    const fileInfo = {
       batchId: batchId.toString(),
       file: uploadFilesRes,
       topic: topic.toString(),
@@ -358,7 +358,8 @@ export class FileManager {
       index: feedIndex,
       redundancyLevel,
       customMetadata,
-    });
+    };
+    const fileInfoResult = await this.uploadFileInfo(fileInfo);
 
     await this.saveWrappedFileInfoFeed(batchId, fileInfoResult, topic, feedIndex, redundancyLevel);
 
@@ -373,6 +374,7 @@ export class FileManager {
     }
 
     await this.saveFileInfoFeedList();
+    this.emitter.emit(FILE_MANAGER_EVENTS.FILE_UPLOADED, { fileInfo });
   }
   // TODO: streamFiles & uploadFiles  - streamDirectory & uploadFilesFromDirectory -> browser vs nodejs
   // TODO: redundancyLevel missing from uploadoptions
