@@ -731,6 +731,7 @@ export class FileManager {
     };
 
     this.sendShareMessage(targetOverlays, item, recipients);
+    this.emitter.emit(FILE_MANAGER_EVENTS.SHARE_MESSAGE_SENT, { recipients: recipients, shareItem: item });
   }
 
   // recipient is optional, if not provided the message will be broadcasted == pss public key
