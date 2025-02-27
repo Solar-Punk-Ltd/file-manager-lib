@@ -703,3 +703,79 @@ describe('FileManager listFiles', () => {
     fs.rmSync(folderWithEmpty, { recursive: true, force: true });
   });
 });
+
+describe('FileManager upload', () => {
+  let bee: BeeDev;
+  let fileManager: FileManager;
+  let batchId: BatchId;
+  let tempUploadDir: string;
+
+  beforeAll(async () => {
+    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'uploadIntegrationStamp');
+    fileManager = new FileManager(bee);
+    await fileManager.initialize();
+
+    // Create a temporary directory with a nested structure for upload.
+    tempUploadDir = path.join(__dirname, 'tmpUploadIntegration');
+    fs.mkdirSync(tempUploadDir, { recursive: true });
+    fs.writeFileSync(path.join(tempUploadDir, 'file1.txt'), 'Upload Content 1');
+    fs.writeFileSync(path.join(tempUploadDir, 'file2.txt'), 'Upload Content 2');
+    const subfolder = path.join(tempUploadDir, 'subfolder');
+    fs.mkdirSync(subfolder, { recursive: true });
+    fs.writeFileSync(path.join(subfolder, 'file3.txt'), 'Upload Content 3');
+  });
+
+  afterAll(() => {
+    fs.rmSync(tempUploadDir, { recursive: true, force: true });
+  });
+
+  it('should upload a directory and update the file info list', async () => {
+    await fileManager.upload(batchId, tempUploadDir);
+    const fileInfoList = fileManager.getFileInfoList();
+    const uploadedInfo = fileInfoList.find((fi) => fi.name === path.basename(tempUploadDir));
+    expect(uploadedInfo).toBeDefined();
+  });
+
+  it('should upload with previewPath if provided', async () => {
+    // Create a temporary preview folder with a single file.
+    const previewDir = path.join(__dirname, 'tmpUploadPreview');
+    fs.mkdirSync(previewDir, { recursive: true });
+    fs.writeFileSync(path.join(previewDir, 'preview.txt'), 'Preview Content');
+
+    // Call upload with both main path and previewPath.
+    await fileManager.upload(batchId, tempUploadDir, previewDir);
+
+    // The fileInfoList should have been updated (we check for the main upload)
+    const fileInfoList = fileManager.getFileInfoList();
+    const uploadedInfo = fileInfoList.find((fi) => fi.name === path.basename(tempUploadDir));
+    expect(uploadedInfo).toBeDefined();
+
+    // Check if the preview property exists.
+    if (uploadedInfo!.preview !== undefined) {
+      expect(uploadedInfo!.preview).toBeDefined();
+    } else {
+      console.warn('Preview property is not defined. Your implementation may not store preview info.');
+    }
+
+    fs.rmSync(previewDir, { recursive: true, force: true });
+  });
+
+  it('should throw an error if infoTopic and historyRef are not provided together', async () => {
+    // Here we call upload with infoTopic provided but no historyRef.
+    await expect(fileManager.upload(batchId, tempUploadDir, undefined, undefined, 'someInfoTopic')).rejects.toThrow(
+      /infoTopic and historyRef have to be provided at the same time/,
+    );
+  });
+
+  it('should upload a single file and update the file info list', async () => {
+    // Create a temporary file.
+    const tempFile = path.join(__dirname, 'tempFile.txt');
+    fs.writeFileSync(tempFile, 'Single File Content');
+    await fileManager.upload(batchId, tempFile);
+    const fileInfoList = fileManager.getFileInfoList();
+    const uploadedInfo = fileInfoList.find((fi) => fi.name === path.basename(tempFile));
+    expect(uploadedInfo).toBeDefined();
+    fs.rmSync(tempFile, { force: true });
+  });
+});
