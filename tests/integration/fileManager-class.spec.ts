@@ -865,3 +865,59 @@ describe('FileManager downloadFiles', () => {
     fs.rmSync(emptyFileDir, { recursive: true, force: true });
   });
 });
+
+describe('FileManager filterBatches', () => {
+  let bee: BeeDev;
+  let fileManager: FileManager;
+  let batchId: BatchId;
+
+  beforeAll(async () => {
+    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    // Purchase a stamp for integration; if it already exists, buyStamp might throw so catch it.
+    try {
+      batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
+    } catch (e) {
+      // If already exists, you might use a fallback or fetch stamps.
+      // For integration, we assume the stamp exists.
+    }
+    fileManager = new FileManager(bee);
+    await fileManager.initialize();
+  });
+
+  it('should filter by utilization (only stamps with utilization > threshold are returned)', async () => {
+    // Get the current stamps
+    const stamps = await fileManager.getStamps();
+    expect(stamps.length).toBeGreaterThan(0);
+
+    // Call filterBatches with a utilization threshold.
+    // This filter returns only stamps with s.utilization > threshold.
+    const filtered = fileManager.filterBatches(undefined, 3, undefined);
+    // Assert that every returned stamp has a utilization greater than 3.
+    filtered.forEach((s) => {
+      expect(s.utilization).toBeGreaterThan(3);
+    });
+    // Also, expect that the owner feed stamp is among the filtered stamps.
+    const ownerStamp = filtered.find((s) => s.label === OWNER_FEED_STAMP_LABEL);
+    expect(ownerStamp).toBeDefined();
+  });
+
+  it('should filter by duration (ttl) and capacity', async () => {
+    // Get current stamps.
+    const stamps = await fileManager.getStamps();
+    expect(stamps.length).toBeGreaterThan(0);
+
+    // Use a duration threshold of 4 seconds and a capacity threshold of 18.
+    const durationThreshold = Duration.fromSeconds(4);
+    const filtered = fileManager.filterBatches(durationThreshold, undefined, 18);
+    // For each returned stamp, assert that its duration exceeds 4 seconds and its depth > 18.
+    filtered.forEach((s) => {
+      expect(s.duration.toSeconds()).toBeGreaterThan(durationThreshold.toSeconds());
+      expect(s.depth).toBeGreaterThan(18);
+    });
+    // Optionally, log the labels for inspection.
+    console.log(
+      'Filtered stamps by ttl & capacity:',
+      filtered.map((s) => s.label),
+    );
+  });
+});
