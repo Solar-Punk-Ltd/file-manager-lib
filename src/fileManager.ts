@@ -27,6 +27,7 @@ import {
 import path from 'path';
 
 import {
+  FILE_MANAGER_EVENTS,
   OWNER_FEED_STAMP_LABEL,
   REFERENCE_LIST_TOPIC,
   SHARED_INBOX_TOPIC,
@@ -110,6 +111,7 @@ export class FileManager {
     await this.initFileInfoList();
 
     this.isInitialized = true;
+    this.emitter.emit(FILE_MANAGER_EVENTS.FILE_INFO_LIST_INITIALIZED, { signer: this.signer});
   }
 
   // verifies if the bee and bee-api versions are supported
