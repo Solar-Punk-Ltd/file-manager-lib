@@ -15,7 +15,7 @@ import { FileManager } from '../../src/fileManager';
 import { numberToFeedIndex } from '../../src/utils';
 import { FILE_MANAGER_EVENTS, OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
-import { FileInfo, ReferenceWithHistory } from '../../src/utils/types';
+import { ReferenceWithHistory } from '../../src/utils/types';
 import {
   createInitializedFileManager,
   createInitMocks,
@@ -395,32 +395,31 @@ describe('FileManager', () => {
       const fm = await createInitializedFileManager();
       const { on, off } = fm.emitter;
       const uploadHandler = jest.fn((input) => {
-        console.log("Input: ", input);
+        console.log('Input: ', input);
       });
       createUploadFilesFromDirectorySpy('1');
 
-      on(FILE_MANAGER_EVENTS.FILE_UPLOADED, uploadHandler)
+      on(FILE_MANAGER_EVENTS.FILE_UPLOADED, uploadHandler);
 
       const expectedFileInfo = {
         batchId: MOCK_BATCH_ID,
         customMetadata: undefined,
         file: {
           historyRef: expect.anything(),
-          reference: '1'.repeat(64)
+          reference: '1'.repeat(64),
         },
         index: 0,
-        name: "tests"
-      }
-      
+        name: 'tests',
+      };
+
       await fm.upload(new BatchId(MOCK_BATCH_ID), './tests');
       off(FILE_MANAGER_EVENTS.FILE_UPLOADED, uploadHandler);
-      
+
       expect(uploadHandler).toHaveBeenCalledWith(
         expect.objectContaining({
-          fileInfo: expect.objectContaining(expectedFileInfo)
-        })
+          fileInfo: expect.objectContaining(expectedFileInfo),
+        }),
       );
-      
     });
 
     it('should send an event after fileInfoList is initialized', async () => {
@@ -429,13 +428,13 @@ describe('FileManager', () => {
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
       const fm = new FileManager(bee);
       const eventHandler = jest.fn((input) => {
-        console.log("Input: ", input);
+        console.log('Input: ', input);
       });
       fm.emitter.on(FILE_MANAGER_EVENTS.FILE_INFO_LIST_INITIALIZED, eventHandler);
 
       await fm.initialize();
 
-      expect(eventHandler).toHaveBeenCalledWith({ signer: MOCK_SIGNER});
+      expect(eventHandler).toHaveBeenCalledWith({ signer: MOCK_SIGNER });
     });
   });
 });
