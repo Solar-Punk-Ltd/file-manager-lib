@@ -3,23 +3,25 @@ import { BatchId, BeeDev, Bytes, MantarayNode, Reference } from '@upcoming/bee-j
 import * as fs from 'fs';
 import path from 'path';
 
-import { FileManager } from '../../src/fileManager';
+import { FileManagerNode } from '../../src/fileManager.node';
 import { OWNER_FEED_STAMP_LABEL, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { StampError } from '../../src/utils/errors';
-import { buyStamp } from '../../src/utils/utils';
+import { buyStamp } from '../../src/utils/node';
 import {
   BEE_URL,
   DEFAULT_BATCH_AMOUNT,
   DEFAULT_BATCH_DEPTH,
   dowloadAndCompareFiles,
+  getTestFile,
   MOCK_SIGNER,
   OTHER_BEE_URL,
   OTHER_MOCK_SIGNER,
+  readFilesOrDirectory,
 } from '../utils';
 
 describe('FileManager initialization', () => {
   let bee: BeeDev;
-  let fileManager: FileManager;
+  let fileManager: FileManagerNode;
 
   beforeAll(async () => {
     // Create a BeeDev instance with a valid signer.
@@ -35,14 +37,14 @@ describe('FileManager initialization', () => {
   beforeEach(async () => {
     jest.resetAllMocks();
     // For each test, create a fresh FileManager instance and initialize it.
-    fileManager = new FileManager(bee);
+    fileManager = new FileManagerNode(bee);
     await fileManager.initialize();
   });
 
   it('should create and initialize a new instance', async () => {
     // Use a different Bee instance with a different signer.
     const otherBee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
-    const fm = new FileManager(otherBee);
+    const fm = new FileManagerNode(otherBee);
     try {
       await fm.initialize();
     } catch (error: any) {
@@ -112,19 +114,23 @@ describe('FileManager initialization', () => {
   });
 
   it('should upload to and fetch from swarm a nested folder with files', async () => {
-    const firstFile = new File(['Shh!'], 'secret.txt', { type: 'text/plain' });
-    const secondFile = new File(['Hello'], 'nested/hello.txt', { type: 'text/plain' });
-    const thirdFile = new File(['World'], 'nested/world.txt', { type: 'text/plain' });
-    const expNestedPaths = ['secret.txt', 'nested/hello.txt', 'nested/world.txt'];
-    const expFileDataArr: File[][] = [[firstFile], [secondFile, thirdFile]];
+    const exptTestFileData = getTestFile('fixtures/test.txt');
+    const expNestedPaths = await readFilesOrDirectory(path.join(__dirname, '../fixtures/nested'), 'nested');
+    const expFileDataArr: string[][] = [];
+    const fileDataArr: string[] = [];
+    for (const f of expNestedPaths) {
+      fileDataArr.push(getTestFile(`./fixtures/${f}`));
+    }
+    expFileDataArr.push(fileDataArr);
+    expFileDataArr.push([exptTestFileData]);
 
     // Use a test stamp for file uploads.
     const testStampId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'testStamp');
     {
       await fileManager.initialize();
       const publsiherPublicKey = fileManager.getNodeAddresses()!.publicKey.toCompressedHex();
-      await fileManager.upload(testStampId, [firstFile]);
-      await fileManager.upload(testStampId, [secondFile, thirdFile]);
+      await fileManager.upload(testStampId, path.join(__dirname, '../fixtures/nested'));
+      await fileManager.upload(testStampId, path.join(__dirname, '../fixtures/test.txt'));
 
       const fileInfoList = fileManager.getFileInfoList();
       expect(fileInfoList.length).toEqual(expFileDataArr.length);
@@ -140,7 +146,7 @@ describe('FileManager initialization', () => {
       }
     }
     // Reinitialize fileManager after it goes out of scope to test if the file is saved on the feed.
-    const fm = new FileManager(bee);
+    const fm = new FileManagerNode(bee);
     await fm.initialize();
     const publsiherPublicKey = fm.getNodeAddresses()!.publicKey.toCompressedHex();
     const fileInfoList = fm.getFileInfoList();
@@ -190,7 +196,7 @@ describe('FileManager initialization', () => {
 
 describe('FileManager saveMantaray', () => {
   let bee: BeeDev;
-  let fileManager: FileManager;
+  let fileManager: FileManagerNode;
   let batchId: BatchId;
 
   beforeAll(async () => {
@@ -199,7 +205,7 @@ describe('FileManager saveMantaray', () => {
     // Purchase (or ensure) a test stamp is available.
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'testStamp');
     // Create and initialize the FileManager.
-    fileManager = new FileManager(bee);
+    fileManager = new FileManagerNode(bee);
     await fileManager.initialize();
   });
 
@@ -321,7 +327,7 @@ describe('FileManager saveMantaray', () => {
 
 describe('FileManager downloadFork', () => {
   let bee: BeeDev;
-  let fileManager: FileManager;
+  let fileManager: FileManagerNode;
   let batchId: BatchId;
   let parent: MantarayNode;
   let child: MantarayNode;
@@ -339,7 +345,7 @@ describe('FileManager downloadFork', () => {
     // Purchase (or ensure) a test stamp.
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'testStamp');
     // Create and initialize the FileManager.
-    fileManager = new FileManager(bee);
+    fileManager = new FileManagerNode(bee);
     await fileManager.initialize();
 
     // Create a parent node with an explicit path "folder/".

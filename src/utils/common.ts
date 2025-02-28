@@ -1,4 +1,4 @@
-import { BatchId, Bee, BeeRequestOptions, Bytes, EthAddress, Reference, Topic } from '@upcoming/bee-js';
+import { BatchId, Bee, BeeRequestOptions, EthAddress, Reference, Topic } from '@upcoming/bee-js';
 
 import { FileInfo, RequestOptions, ShareItem, WrappedFileInfoFeed } from './types';
 
@@ -113,12 +113,6 @@ export function makeBeeRequestOptions(requestOptions: RequestOptions): BeeReques
 // Determines if the error is about 'Not Found'
 export function isNotFoundError(error: any): boolean {
   return error.stack.includes('404') || error.message.includes('Not Found') || error.message.includes('404');
-}
-
-export function getRandomBytes(len: number): Bytes {
-  const arr = new Uint8Array(len);
-  window.crypto.getRandomValues(arr);
-  return new Bytes(arr);
 }
 
 export async function buyStamp(bee: Bee, amount: string | bigint, depth: number, label?: string): Promise<BatchId> {

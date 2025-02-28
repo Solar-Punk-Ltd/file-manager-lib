@@ -17,8 +17,7 @@ import {
 } from '@upcoming/bee-js';
 import { Optional } from 'cafe-utility';
 
-import { FileManager } from '../src/fileManager';
-import { numberToFeedIndex } from '../src/utils';
+import { FileManager } from '../src/fileManager.node';
 import { OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
 import { FetchFeedUpdateResponse } from '../src/utils/types';
 

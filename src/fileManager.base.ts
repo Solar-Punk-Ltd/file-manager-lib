@@ -29,23 +29,7 @@ import {
   SHARED_INBOX_TOPIC,
   SWARM_ZERO_ADDRESS,
 } from './utils/constants';
-import {
-  BeeVersionError,
-  FileInfoError,
-  GranteeError,
-  SignerError,
-  StampError,
-  SubscribtionError,
-} from './utils/errors';
-import {
-  FetchFeedUpdateResponse,
-  FileInfo,
-  ReferenceWithHistory,
-  ReferenceWithPath,
-  ShareItem,
-  UploadProgress,
-  WrappedFileInfoFeed,
-} from './utils/types';
+import { BeeVersionError, GranteeError, SignerError, StampError, SubscribtionError } from './utils/errors';
 import {
   assertFileInfo,
   assertShareItem,
@@ -54,20 +38,29 @@ import {
   getRandomBytes,
   isNotFoundError,
   makeBeeRequestOptions,
-} from './utils/utils';
+} from './utils/node';
+import {
+  FetchFeedUpdateResponse,
+  FileInfo,
+  ReferenceWithHistory,
+  ReferenceWithPath,
+  ShareItem,
+  WrappedFileInfoFeed,
+} from './utils/types';
 
-export class FileManager {
-  private bee: Bee;
-  private signer: PrivateKey;
+export abstract class FileManager {
   private nodeAddresses: NodeAddresses | undefined;
   private stampList: PostageBatch[];
-  private ownerFeedList: WrappedFileInfoFeed[];
   private fileInfoList: FileInfo[];
   private ownerFeedNextIndex: bigint;
   private sharedWithMe: ShareItem[];
   private sharedSubscription: PssSubscription | undefined;
   private ownerFeedTopic: Topic;
   private isInitialized: boolean;
+
+  protected bee: Bee;
+  protected signer: PrivateKey;
+  protected ownerFeedList: WrappedFileInfoFeed[];
 
   constructor(bee: Bee) {
     this.bee = bee;
@@ -157,7 +150,7 @@ export class FileManager {
       this.ownerFeedTopic = new Topic(topicBytes.toUint8Array());
     }
 
-    console.log('Owner feed topic successfully initialized: ', this.ownerFeedTopic.toString());
+    console.log('Owner feed topic successfully initialized');
   }
 
   // fetches the usable stamps from the node
@@ -305,92 +298,23 @@ export class FileManager {
   getNodeAddresses(): NodeAddresses | undefined {
     return this.nodeAddresses;
   }
+
   // End getter methods
 
   // Start Swarm data saving methods
-  // TODO: event emitter integration
-  async upload(
+  abstract upload(
     batchId: BatchId,
-    files: File[] | FileList,
+    filesOrPath: string | File[] | FileList,
     customMetadata?: Record<string, string>,
-    onUploadProgress?: (progress: UploadProgress) => void,
     historyRef?: Reference,
     infoTopic?: string,
     index?: number | undefined,
-    preview?: File,
+    previewFileOrPath?: string | File,
     redundancyLevel?: RedundancyLevel,
-  ): Promise<void> {
-    if ((infoTopic && !historyRef) || (!infoTopic && historyRef)) {
-      throw new FileInfoError('infoTopic and historyRef have to be provided at the same time.');
-    }
+    cb?: (T: any) => void,
+  ): Promise<void>;
 
-    const requestOptions = historyRef ? makeBeeRequestOptions({ historyRef }) : undefined;
-    const uploadFilesRes = await this.streamFiles(
-      batchId,
-      files,
-      onUploadProgress,
-      { act: true, redundancyLevel },
-      requestOptions,
-    );
-    let uploadPreviewRes: ReferenceWithHistory | undefined;
-    if (preview) {
-      uploadPreviewRes = await this.streamFiles(
-        batchId,
-        [preview],
-        onUploadProgress,
-        { act: true, redundancyLevel },
-        requestOptions,
-      );
-    }
-
-    const topic = infoTopic ? Topic.fromString(infoTopic) : new Topic(getRandomBytes(Topic.LENGTH));
-    const feedIndex = index !== undefined ? index : 0;
-    const fileInfoResult = await this.uploadFileInfo({
-      batchId: batchId.toString(),
-      file: uploadFilesRes,
-      topic: topic.toString(),
-      owner: this.signer.publicKey().address().toString(),
-      name: 'TODO bagoy',
-      timestamp: new Date().getTime(),
-      shared: false,
-      preview: uploadPreviewRes,
-      index: feedIndex,
-      redundancyLevel,
-      customMetadata,
-    });
-
-    await this.saveWrappedFileInfoFeed(batchId, fileInfoResult, topic, feedIndex, redundancyLevel);
-
-    const ix = this.ownerFeedList.findIndex((f) => f.topic.toString() === topic.toString());
-    if (ix !== -1) {
-      this.ownerFeedList[ix] = {
-        topic: topic.toString(),
-        eGranteeRef: this.ownerFeedList[ix].eGranteeRef?.toString(),
-      };
-    } else {
-      this.ownerFeedList.push({ topic: topic.toString() });
-    }
-
-    await this.saveFileInfoFeedList();
-  }
-  // TODO: streamFiles & uploadFiles  - streamDirectory & uploadFilesFromDirectory -> browser vs nodejs
-  // TODO: redundancyLevel missing from uploadoptions
-  private async streamFiles(
-    batchId: BatchId,
-    files: File[] | FileList,
-    onUploadProgress?: (progress: UploadProgress) => void,
-    uploadOptions?: RedundantUploadOptions,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<ReferenceWithHistory> {
-    const reuslt = await this.bee.streamFiles(batchId, files, onUploadProgress, uploadOptions, requestOptions);
-
-    return {
-      reference: reuslt.reference.toString(),
-      historyRef: reuslt.historyAddress.getOrThrow().toString(),
-    };
-  }
-
-  private async uploadFileInfo(fileInfo: FileInfo): Promise<ReferenceWithHistory> {
+  protected async uploadFileInfo(fileInfo: FileInfo): Promise<ReferenceWithHistory> {
     try {
       const uploadInfoRes = await this.bee.uploadData(fileInfo.batchId, JSON.stringify(fileInfo), {
         act: true,
@@ -409,7 +333,7 @@ export class FileManager {
     }
   }
 
-  private async saveWrappedFileInfoFeed(
+  protected async saveWrappedFileInfoFeed(
     batchId: BatchId,
     fileInfoResult: ReferenceWithHistory,
     topic: Topic,
@@ -438,7 +362,7 @@ export class FileManager {
     }
   }
 
-  private async saveFileInfoFeedList(): Promise<void> {
+  protected async saveFileInfoFeedList(): Promise<void> {
     const ownerFeedStamp = this.getOwnerFeedStamp();
     if (!ownerFeedStamp) {
       throw new StampError('Owner feed stamp is not found.');
