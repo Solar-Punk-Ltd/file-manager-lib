@@ -390,7 +390,7 @@ describe('FileManager', () => {
   });
 
   describe('eventEmitter', () => {
-    it('should send event when upload happened', async () => {
+    it('should send event after upload happens', async () => {
       createInitMocks();
       const fm = await createInitializedFileManager();
       const { on, off } = fm.emitter;
@@ -413,12 +413,29 @@ describe('FileManager', () => {
       }
       
       await fm.upload(new BatchId(MOCK_BATCH_ID), './tests');
+      off(FILE_MANAGER_EVENTS.FILE_UPLOADED, uploadHandler);
       
       expect(uploadHandler).toHaveBeenCalledWith(
         expect.objectContaining({
           fileInfo: expect.objectContaining(expectedFileInfo)
         })
       );
+      
+    });
+
+    it('should send an event after fileInfoList is initialized', async () => {
+      createInitMocks();
+
+      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const fm = new FileManager(bee);
+      const eventHandler = jest.fn((input) => {
+        console.log("Input: ", input);
+      });
+      fm.emitter.on(FILE_MANAGER_EVENTS.FILE_INFO_LIST_INITIALIZED, eventHandler);
+
+      await fm.initialize();
+
+      expect(eventHandler).toHaveBeenCalledWith({ signer: MOCK_SIGNER});
     });
   });
 });
