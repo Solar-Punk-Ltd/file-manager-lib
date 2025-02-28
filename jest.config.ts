@@ -19,7 +19,17 @@ module.exports = {
   coverageReporters: ['lcov'],
   coveragePathIgnorePatterns: ['/node_modules/'],
   moduleDirectories: ['node_modules'],
-  // Integration setup/teardown – files placed in tests/integration/test-node-setup folder.
-  globalSetup: '<rootDir>/integration/test-node-setup/jestSetup.ts',
-  globalTeardown: '<rootDir>/integration/test-node-setup/jestTeardown.ts',
+  projects: [
+    {
+      displayName: "unit",
+      testMatch: ["<rootDir>/tests/unit/**/*.spec.ts"],
+    },
+    {
+      // Integration setup/teardown – files placed in tests/integration/test-node-setup folder.
+      displayName: "integration",
+      testMatch: ["<rootDir>/tests/integration/**/*.spec.ts"],
+      globalSetup: "<rootDir>/tests/integration/test-node-setup/jestSetup.ts",
+      globalTeardown: "<rootDir>/tests/integration/test-node-setup/jestTeardown.ts",
+    },
+  ],
 };
