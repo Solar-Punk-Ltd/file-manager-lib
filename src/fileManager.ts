@@ -5,8 +5,8 @@ import {
   BeeRequestOptions,
   Bytes,
   DownloadOptions,
-  Duration,
   EthAddress,
+  FeedIndex,
   GetGranteesResult,
   GranteesResult,
   MantarayNode,
@@ -51,10 +51,9 @@ import {
   assertShareItem,
   assertWrappedFileInoFeed,
   buyStamp,
+  getRandomBytes,
   isNotFoundError,
   makeBeeRequestOptions,
-  makeNumericIndex,
-  numberToFeedIndex,
 } from './utils/utils';
 
 export class FileManager {
@@ -64,7 +63,7 @@ export class FileManager {
   private stampList: PostageBatch[];
   private ownerFeedList: WrappedFileInfoFeed[];
   private fileInfoList: FileInfo[];
-  private ownerFeedNextIndex: number;
+  private ownerFeedNextIndex: bigint;
   private sharedWithMe: ShareItem[];
   private sharedSubscription: PssSubscription | undefined;
   private ownerFeedTopic: Topic;
@@ -79,7 +78,7 @@ export class FileManager {
     this.stampList = [];
     this.fileInfoList = [];
     this.ownerFeedList = [];
-    this.ownerFeedNextIndex = 0;
+    this.ownerFeedNextIndex = 0n;
     this.ownerFeedTopic = NULL_TOPIC;
     this.sharedWithMe = [];
     this.sharedSubscription = undefined;
@@ -133,28 +132,29 @@ export class FileManager {
       throw new StampError('Owner stamp not found');
     }
 
-    const feedTopicData = await this.getFeedData(REFERENCE_LIST_TOPIC, 0);
+    const feedTopicData = await this.getFeedData(REFERENCE_LIST_TOPIC, 0n);
+    const topicRef = new Reference(feedTopicData.payload.toUint8Array());
 
-    if (feedTopicData.payload === SWARM_ZERO_ADDRESS) {
-      // this.ownerFeedTopic = new Topic(getRandomBytes(Topic.LENGTH));
-      this.ownerFeedTopic = Topic.fromString('TODO owner bagoy');
+    if (topicRef.equals(SWARM_ZERO_ADDRESS)) {
+      this.ownerFeedTopic = new Topic(getRandomBytes(Topic.LENGTH));
       const topicDataRes = await this.bee.uploadData(ownerFeedStamp.batchID, this.ownerFeedTopic.toUint8Array(), {
         act: true,
       });
 
-      const fw = this.bee.makeFeedWriter(REFERENCE_LIST_TOPIC, this.signer);
-      await fw.upload(ownerFeedStamp.batchID, topicDataRes.reference, { index: numberToFeedIndex(0) });
-      await fw.upload(ownerFeedStamp.batchID, topicDataRes.historyAddress.getOrThrow(), {
-        index: numberToFeedIndex(1),
+      const fw = this.bee.makeFeedWriter(REFERENCE_LIST_TOPIC.toUint8Array(), this.signer);
+      await fw.uploadReference(ownerFeedStamp.batchID, topicDataRes.reference, { index: FeedIndex.fromBigInt(0n) });
+      await fw.uploadReference(ownerFeedStamp.batchID, topicDataRes.historyAddress.getOrThrow(), {
+        index: FeedIndex.fromBigInt(1n),
       });
     } else {
-      const topicHistory = await this.getFeedData(REFERENCE_LIST_TOPIC, 1);
-      const topicBytes = await this.bee.downloadData(new Reference(feedTopicData.payload).toUint8Array(), {
-        actHistoryAddress: new Reference(topicHistory.payload).toUint8Array(),
+      const topicHistory = await this.getFeedData(REFERENCE_LIST_TOPIC, 1n);
+      const topicHistoryRef = new Reference(topicHistory.payload.toUint8Array());
+      const topicBytes = await this.bee.downloadData(topicRef.toUint8Array(), {
+        actHistoryAddress: topicHistoryRef.toUint8Array(),
         actPublisher: this.nodeAddresses.publicKey,
       });
 
-      this.ownerFeedTopic = new Topic(topicBytes);
+      this.ownerFeedTopic = new Topic(topicBytes.toUint8Array());
     }
 
     console.log('Owner feed topic successfully initialized: ', this.ownerFeedTopic.toString());
@@ -177,12 +177,12 @@ export class FileManager {
     }
 
     const latestFeedData = await this.getFeedData(this.ownerFeedTopic);
-    if (latestFeedData.payload === SWARM_ZERO_ADDRESS) {
+    if (latestFeedData.payload.equals(SWARM_ZERO_ADDRESS)) {
       console.log("Owner fileInfo feed list doesn't exist yet.");
       return;
     }
 
-    this.ownerFeedNextIndex = makeNumericIndex(latestFeedData.feedIndexNext);
+    this.ownerFeedNextIndex = latestFeedData.feedIndexNext?.toBigInt() || 0n;
     const refWithHistory = latestFeedData.payload.toJSON() as ReferenceWithHistory;
 
     const fileInfoFeedListRawData = await this.bee.downloadData(new Reference(refWithHistory.reference), {
@@ -270,7 +270,7 @@ export class FileManager {
           path: n.fullPathString,
         } as ReferenceWithPath;
       })
-      .filter((item) => item.path !== '' && item.reference !== SWARM_ZERO_ADDRESS);
+      .filter((item) => item.path !== '' && !item.reference.equals(SWARM_ZERO_ADDRESS));
 
     return fileList;
   }
@@ -343,8 +343,7 @@ export class FileManager {
       );
     }
 
-    // const topic = infoTopic ? Topic.fromString(infoTopic) : new Topic(getRandomBytes(Topic.LENGTH));
-    const topic = infoTopic ? Topic.fromString(infoTopic) : Topic.fromString('TODO bagoy');
+    const topic = infoTopic ? Topic.fromString(infoTopic) : new Topic(getRandomBytes(Topic.LENGTH));
     const feedIndex = index !== undefined ? index : 0;
     const fileInfoResult = await this.uploadFileInfo({
       batchId: batchId.toString(),
@@ -431,7 +430,7 @@ export class FileManager {
 
       const requestOptions = redundancyLevel ? makeBeeRequestOptions({ redundancyLevel }) : undefined;
       const fw = this.bee.makeFeedWriter(topic, this.signer, requestOptions);
-      await fw.upload(batchId, uploadInfoRes.reference, {
+      await fw.uploadReference(batchId, uploadInfoRes.reference, {
         index: index,
       });
     } catch (error: any) {
@@ -463,12 +462,12 @@ export class FileManager {
         }),
       );
 
-      const writeResult = await fw.upload(ownerFeedStamp.batchID, ownerFeedRawData.reference, {
-        index: this.ownerFeedNextIndex,
+      const writeResult = await fw.uploadReference(ownerFeedStamp.batchID, ownerFeedRawData.reference, {
+        index: FeedIndex.fromBigInt(this.ownerFeedNextIndex),
       });
 
       console.log('Owner feed list updated: ', writeResult.reference.toString());
-      this.ownerFeedNextIndex += 1;
+      this.ownerFeedNextIndex += 1n;
     } catch (error: any) {
       throw `Failed to save owner feed list: ${error}`;
     }
@@ -487,27 +486,6 @@ export class FileManager {
     }
   }
 
-  filterBatches(duration?: Duration, utilization?: number, capacity?: number): PostageBatch[] {
-    // TODO: clarify depth vs capacity
-    return this.stampList.filter((s) => {
-      if (utilization !== undefined && s.utilization <= utilization) {
-        return false;
-      }
-
-      if (capacity !== undefined && s.depth <= capacity) {
-        return false;
-      }
-
-      if (duration !== undefined && s.duration.toSeconds() <= duration.toSeconds()) {
-        console.log('duration ', duration);
-        console.log('s.duration ', s.duration);
-        return false;
-      }
-
-      return true;
-    });
-  }
-
   getStamps(): PostageBatch[] {
     return this.stampList;
   }
@@ -520,23 +498,9 @@ export class FileManager {
     return await buyStamp(this.bee, amount, depth, OWNER_FEED_STAMP_LABEL);
   }
 
-  // TODO: is this needed ?
-  async fetchStamp(batchId: BatchId): Promise<PostageBatch | undefined> {
-    try {
-      const newStamp = await this.bee.getPostageBatch(batchId);
-      if (newStamp.usable) {
-        this.stampList.push(newStamp);
-        return newStamp;
-      }
-    } catch (error: any) {
-      console.error(`Failed to get stamp with batchID ${batchId}: ${error.message}`);
-    }
-
-    return undefined;
-  }
-
   async destroyVolume(batchId: BatchId): Promise<void> {
-    if (batchId.toString() === this.getOwnerFeedStamp()?.batchID.toString()) {
+    const ownerFeedStamp = this.getOwnerFeedStamp();
+    if (ownerFeedStamp && batchId.equals(ownerFeedStamp.batchID)) {
       throw new StampError(`Cannot destroy owner stamp, batchId: ${batchId.toString()}`);
     }
 
@@ -551,7 +515,7 @@ export class FileManager {
 
     for (let i = this.fileInfoList.length - 1; i >= 0; --i) {
       const fileInfo = this.fileInfoList[i];
-      if (fileInfo.batchId === batchId) {
+      if (fileInfo.batchId.toString() === batchId.toString()) {
         this.fileInfoList.splice(i, 1);
         const mfIx = this.ownerFeedList.findIndex((mf) => mf.topic === fileInfo.topic);
         if (mfIx !== -1) {
@@ -650,7 +614,7 @@ export class FileManager {
   }
 
   async shareItem(fileInfo: FileInfo, targetOverlays: string[], recipients: string[], message?: string): Promise<void> {
-    const mfIx = this.ownerFeedList.findIndex((mf) => mf.topic === fileInfo.file.reference);
+    const mfIx = this.ownerFeedList.findIndex((mf) => mf.topic.toString() === fileInfo.file.reference.toString());
     if (mfIx === -1) {
       console.log('File reference not found in fileInfo feed list.');
       return;
@@ -697,7 +661,7 @@ export class FileManager {
   // Fetches the feed data for the given topic, index and address
   async getFeedData(
     topic: Topic,
-    index?: number,
+    index?: bigint,
     address?: EthAddress,
     options?: BeeRequestOptions,
   ): Promise<FetchFeedUpdateResponse> {
@@ -708,14 +672,14 @@ export class FileManager {
         options,
       );
       if (index !== undefined) {
-        return await feedReader.download({ index: numberToFeedIndex(index) });
+        return await feedReader.download({ index: FeedIndex.fromBigInt(index) });
       }
       return await feedReader.download();
     } catch (error) {
       if (isNotFoundError(error)) {
         return {
-          feedIndex: numberToFeedIndex(-1),
-          feedIndexNext: numberToFeedIndex(0),
+          feedIndex: FeedIndex.MINUS_ONE,
+          feedIndexNext: FeedIndex.fromBigInt(0n),
           payload: SWARM_ZERO_ADDRESS,
         };
       }

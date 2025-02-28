@@ -67,8 +67,8 @@ describe('FileManager initialization', () => {
     expect(fileManager.getFileInfoList()).toEqual([]);
     expect(fileManager.getSharedWithMe()).toEqual([]);
 
-    const feedTopicData = await fileManager.getFeedData(REFERENCE_LIST_TOPIC, 0);
-    const topicHistory = await fileManager.getFeedData(REFERENCE_LIST_TOPIC, 1);
+    const feedTopicData = await fileManager.getFeedData(REFERENCE_LIST_TOPIC, 0n);
+    const topicHistory = await fileManager.getFeedData(REFERENCE_LIST_TOPIC, 1n);
     const topicHex = await bee.downloadData(new Reference(feedTopicData.payload), {
       actHistoryAddress: new Reference(topicHistory.payload),
       actPublisher: publsiherPublicKey,
@@ -87,8 +87,8 @@ describe('FileManager initialization', () => {
     const otherBee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
     const publsiherPublicKey = fileManager.getNodeAddresses()!.publicKey;
 
-    const feedTopicData = await fileManager.getFeedData(REFERENCE_LIST_TOPIC, 0, MOCK_SIGNER.publicKey().address());
-    const topicHistory = await fileManager.getFeedData(REFERENCE_LIST_TOPIC, 1, MOCK_SIGNER.publicKey().address());
+    const feedTopicData = await fileManager.getFeedData(REFERENCE_LIST_TOPIC, 0n, MOCK_SIGNER.publicKey().address());
+    const topicHistory = await fileManager.getFeedData(REFERENCE_LIST_TOPIC, 1n, MOCK_SIGNER.publicKey().address());
 
     try {
       await bee.downloadData(new Reference(feedTopicData.payload), {
@@ -173,7 +173,7 @@ describe('FileManager initialization', () => {
   });
 
   it('should initialize owner feed topic and owner feed list correctly', async () => {
-    const feedTopicData = await fileManager.getFeedData(REFERENCE_LIST_TOPIC, 0);
+    const feedTopicData = await fileManager.getFeedData(REFERENCE_LIST_TOPIC, 0n);
     expect(feedTopicData.payload).not.toEqual(SWARM_ZERO_ADDRESS);
     const ownerFeedList = (fileManager as any).ownerFeedList;
     expect(Array.isArray(ownerFeedList)).toBeTruthy();
