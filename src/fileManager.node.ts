@@ -9,17 +9,16 @@ import {
   Topic,
 } from '@upcoming/bee-js';
 
+import { makeBeeRequestOptions } from './utils/common';
 import { FileInfoError } from './utils/errors';
-import { getRandomBytes, isDir, makeBeeRequestOptions, readFile } from './utils/node';
+import { getRandomBytes, isDir, readFile } from './utils/node';
 import { ReferenceWithHistory } from './utils/types';
-import { FileManager } from './fileManager.base';
+import { FileManager } from './fileManager';
 
 export class FileManagerNode extends FileManager {
   constructor(bee: Bee) {
     super(bee);
   }
-
-  // End getter methods
 
   // Start Swarm data saving methods
   // TODO: event emitter integration
@@ -55,35 +54,16 @@ export class FileManagerNode extends FileManager {
       );
     }
 
-    const topic = infoTopic ? Topic.fromString(infoTopic) : new Topic(getRandomBytes(Topic.LENGTH));
-    const feedIndex = index !== undefined ? index : 0;
-    const fileInfoResult = await this.uploadFileInfo({
-      batchId: batchId.toString(),
-      file: uploadFilesRes,
-      topic: topic.toString(),
-      owner: this.signer.publicKey().address().toString(),
-      name: 'TODO bagoy',
-      timestamp: new Date().getTime(),
-      shared: false,
-      preview: uploadPreviewRes,
-      index: feedIndex,
-      redundancyLevel,
+    const topic = infoTopic ? Topic.fromString(infoTopic) : this.generateTopic();
+    await super.saveFileInfoAndFeed(
+      batchId,
+      topic,
+      uploadFilesRes,
+      uploadPreviewRes,
+      index,
       customMetadata,
-    });
-
-    await super.saveWrappedFileInfoFeed(batchId, fileInfoResult, topic, feedIndex, redundancyLevel);
-
-    const ix = this.ownerFeedList.findIndex((f) => f.topic.toString() === topic.toString());
-    if (ix !== -1) {
-      this.ownerFeedList[ix] = {
-        topic: topic.toString(),
-        eGranteeRef: this.ownerFeedList[ix].eGranteeRef?.toString(),
-      };
-    } else {
-      this.ownerFeedList.push({ topic: topic.toString() });
-    }
-
-    await this.saveFileInfoFeedList();
+      redundancyLevel,
+    );
   }
 
   private async uploadFileOrDirectory(
@@ -152,5 +132,9 @@ export class FileManagerNode extends FileManager {
     } catch (error: any) {
       throw `Failed to upload directory ${resolvedPath}: ${error}`;
     }
+  }
+
+  protected generateTopic(): Topic {
+    return new Topic(getRandomBytes(Topic.LENGTH));
   }
 }

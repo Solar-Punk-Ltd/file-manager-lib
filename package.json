@@ -14,8 +14,8 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "prepublishOnly": "npm run build",
-    "build": "rimraf dist && npm run build:node && npm run build:types",
+    "prepublishOnly": "cross-env NODE_ENV=production npm run build",
+    "build": "rimraf dist && npm run build:node && npm run build:types && npm run build:browser",
     "build:node": "tsc -p tsconfig.json",
     "build:types": "tsc --emitDeclarationOnly --declaration --outDir dist/types",
     "build:browser": "webpack --progress",
@@ -30,7 +30,10 @@
   ],
   "browser": {
     "stream": false,
-    "fs": false
+    "fs": false,
+    "crypto": false,
+    "./dist/utils/node.js": "./dist/utils/browser.js",
+    "./dist/fileManager.node.js": "./dist/fileManager.browser.js"
   },
   "keywords": [
     "swarm",
@@ -45,7 +48,7 @@
   "author": "TODO",
   "license": "Apache-2.0",
   "dependencies": {
-    "@upcoming/bee-js": "^0.12.0",
+    "@upcoming/bee-js": "^0.13.0",
     "cafe-utility": "^27.12.1"
   },
   "devDependencies": {

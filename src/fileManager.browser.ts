@@ -8,10 +8,11 @@ import {
   Topic,
 } from '@upcoming/bee-js';
 
-import { getRandomBytes, makeBeeRequestOptions } from './utils/browser';
+import { getRandomBytes } from './utils/browser';
+import { makeBeeRequestOptions } from './utils/common';
 import { FileInfoError } from './utils/errors';
 import { ReferenceWithHistory, UploadProgress } from './utils/types';
-import { FileManager } from './fileManager.base';
+import { FileManager } from './fileManager';
 
 export class FileManagerBrowser extends FileManager {
   constructor(bee: Bee) {
@@ -54,35 +55,16 @@ export class FileManagerBrowser extends FileManager {
       );
     }
 
-    const topic = infoTopic ? Topic.fromString(infoTopic) : new Topic(getRandomBytes(Topic.LENGTH));
-    const feedIndex = index !== undefined ? index : 0;
-    const fileInfoResult = await this.uploadFileInfo({
-      batchId: batchId.toString(),
-      file: uploadFilesRes,
-      topic: topic.toString(),
-      owner: this.signer.publicKey().address().toString(),
-      name: 'TODO bagoy',
-      timestamp: new Date().getTime(),
-      shared: false,
-      preview: uploadPreviewRes,
-      index: feedIndex,
-      redundancyLevel,
+    const topic = infoTopic ? Topic.fromString(infoTopic) : this.generateTopic();
+    await super.saveFileInfoAndFeed(
+      batchId,
+      topic,
+      uploadFilesRes,
+      uploadPreviewRes,
+      index,
       customMetadata,
-    });
-
-    await this.saveWrappedFileInfoFeed(batchId, fileInfoResult, topic, feedIndex, redundancyLevel);
-
-    const ix = this.ownerFeedList.findIndex((f) => f.topic.toString() === topic.toString());
-    if (ix !== -1) {
-      this.ownerFeedList[ix] = {
-        topic: topic.toString(),
-        eGranteeRef: this.ownerFeedList[ix].eGranteeRef?.toString(),
-      };
-    } else {
-      this.ownerFeedList.push({ topic: topic.toString() });
-    }
-
-    await this.saveFileInfoFeedList();
+      redundancyLevel,
+    );
   }
 
   // TODO: redundancyLevel missing from uploadoptions
@@ -99,5 +81,9 @@ export class FileManagerBrowser extends FileManager {
       reference: reuslt.reference.toString(),
       historyRef: reuslt.historyAddress.getOrThrow().toString(),
     };
+  }
+
+  protected generateTopic(): Topic {
+    return new Topic(getRandomBytes(Topic.LENGTH));
   }
 }

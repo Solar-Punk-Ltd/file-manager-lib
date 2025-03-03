@@ -3,10 +3,11 @@ import { BatchId, BeeDev, Bytes, MantarayNode, Reference } from '@upcoming/bee-j
 import * as fs from 'fs';
 import path from 'path';
 
+import { FileManager } from '../../src/fileManager';
 import { FileManagerNode } from '../../src/fileManager.node';
+import { buyStamp } from '../../src/utils/common';
 import { OWNER_FEED_STAMP_LABEL, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { StampError } from '../../src/utils/errors';
-import { buyStamp } from '../../src/utils/node';
 import {
   BEE_URL,
   DEFAULT_BATCH_AMOUNT,
@@ -21,7 +22,7 @@ import {
 
 describe('FileManager initialization', () => {
   let bee: BeeDev;
-  let fileManager: FileManagerNode;
+  let fileManager: FileManager;
 
   beforeAll(async () => {
     // Create a BeeDev instance with a valid signer.
@@ -196,7 +197,7 @@ describe('FileManager initialization', () => {
 
 describe('FileManager saveMantaray', () => {
   let bee: BeeDev;
-  let fileManager: FileManagerNode;
+  let fileManager: FileManager;
   let batchId: BatchId;
 
   beforeAll(async () => {
@@ -327,7 +328,7 @@ describe('FileManager saveMantaray', () => {
 
 describe('FileManager downloadFork', () => {
   let bee: BeeDev;
-  let fileManager: FileManagerNode;
+  let fileManager: FileManager;
   let batchId: BatchId;
   let parent: MantarayNode;
   let child: MantarayNode;

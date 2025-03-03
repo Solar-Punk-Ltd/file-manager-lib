@@ -1,23 +1,13 @@
 import { Bytes } from '@upcoming/bee-js';
 import { randomBytes } from 'crypto';
 import * as fs from 'fs';
-import path from 'path';
+import Path from 'path';
 
-import {
-  assertFileInfo,
-  assertShareItem,
-  assertWrappedFileInoFeed,
-  buyStamp,
-  isNotFoundError,
-  makeBeeRequestOptions,
-} from './common';
 import { FileError } from './errors';
 import { FileData } from './types';
 
-export { assertFileInfo, assertShareItem, assertWrappedFileInoFeed, buyStamp, isNotFoundError, makeBeeRequestOptions };
-
 export function getContentType(filePath: string): string {
-  const ext = path.extname(filePath).toLowerCase();
+  const ext = Path.extname(filePath).toLowerCase();
   const contentTypes: Map<string, string> = new Map([
     ['.txt', 'text/plain'],
     ['.json', 'application/json'],
@@ -36,7 +26,7 @@ export function isDir(dirPath: string): boolean {
 
 export function readFile(filePath: string): FileData {
   const readable = fs.createReadStream(filePath);
-  const fileName = path.basename(filePath);
+  const fileName = Path.basename(filePath);
   const contentType = getContentType(filePath);
 
   return { data: readable, name: fileName, contentType };

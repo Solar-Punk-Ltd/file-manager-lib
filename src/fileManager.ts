@@ -24,21 +24,20 @@ import {
 } from '@upcoming/bee-js';
 
 import {
+  assertFileInfo,
+  assertShareItem,
+  assertWrappedFileInoFeed,
+  buyStamp,
+  isNotFoundError,
+  makeBeeRequestOptions,
+} from './utils/common';
+import {
   OWNER_FEED_STAMP_LABEL,
   REFERENCE_LIST_TOPIC,
   SHARED_INBOX_TOPIC,
   SWARM_ZERO_ADDRESS,
 } from './utils/constants';
 import { BeeVersionError, GranteeError, SignerError, StampError, SubscribtionError } from './utils/errors';
-import {
-  assertFileInfo,
-  assertShareItem,
-  assertWrappedFileInoFeed,
-  buyStamp,
-  getRandomBytes,
-  isNotFoundError,
-  makeBeeRequestOptions,
-} from './utils/node';
 import {
   FetchFeedUpdateResponse,
   FileInfo,
@@ -49,6 +48,7 @@ import {
 } from './utils/types';
 
 export abstract class FileManager {
+  private signer: PrivateKey;
   private nodeAddresses: NodeAddresses | undefined;
   private stampList: PostageBatch[];
   private fileInfoList: FileInfo[];
@@ -56,11 +56,10 @@ export abstract class FileManager {
   private sharedWithMe: ShareItem[];
   private sharedSubscription: PssSubscription | undefined;
   private ownerFeedTopic: Topic;
+  private ownerFeedList: WrappedFileInfoFeed[];
   private isInitialized: boolean;
 
   protected bee: Bee;
-  protected signer: PrivateKey;
-  protected ownerFeedList: WrappedFileInfoFeed[];
 
   constructor(bee: Bee) {
     this.bee = bee;
@@ -120,6 +119,7 @@ export abstract class FileManager {
     if (this.nodeAddresses === undefined) {
       throw new SignerError('Node addresses not found');
     }
+
     const ownerFeedStamp = this.getOwnerFeedStamp();
     if (ownerFeedStamp === undefined) {
       throw new StampError('Owner stamp not found');
@@ -129,7 +129,7 @@ export abstract class FileManager {
     const topicRef = new Reference(feedTopicData.payload.toUint8Array());
 
     if (topicRef.equals(SWARM_ZERO_ADDRESS)) {
-      this.ownerFeedTopic = new Topic(getRandomBytes(Topic.LENGTH));
+      this.ownerFeedTopic = this.generateTopic();
       const topicDataRes = await this.bee.uploadData(ownerFeedStamp.batchID, this.ownerFeedTopic.toUint8Array(), {
         act: true,
       });
@@ -170,7 +170,9 @@ export abstract class FileManager {
     }
 
     const latestFeedData = await this.getFeedData(this.ownerFeedTopic);
-    if (latestFeedData.payload.equals(SWARM_ZERO_ADDRESS)) {
+    const dataRef = new Reference(latestFeedData.payload.toUint8Array());
+
+    if (dataRef.equals(SWARM_ZERO_ADDRESS)) {
       console.log("Owner fileInfo feed list doesn't exist yet.");
       return;
     }
@@ -313,6 +315,45 @@ export abstract class FileManager {
     redundancyLevel?: RedundancyLevel,
     cb?: (T: any) => void,
   ): Promise<void>;
+
+  protected async saveFileInfoAndFeed(
+    batchId: BatchId,
+    topic: Topic,
+    uploadFilesRes: ReferenceWithHistory,
+    uploadPreviewRes?: ReferenceWithHistory,
+    index?: number,
+    customMetadata?: Record<string, string>,
+    redundancyLevel?: RedundancyLevel,
+  ): Promise<void> {
+    const feedIndex = index !== undefined ? index : 0;
+    const fileInfoResult = await this.uploadFileInfo({
+      batchId: batchId.toString(),
+      file: uploadFilesRes,
+      topic: topic.toString(),
+      owner: this.signer.publicKey().address().toString(),
+      name: 'TODO bagoy',
+      timestamp: new Date().getTime(),
+      shared: false,
+      preview: uploadPreviewRes,
+      index: feedIndex,
+      redundancyLevel,
+      customMetadata,
+    });
+
+    await this.saveWrappedFileInfoFeed(batchId, fileInfoResult, topic, feedIndex, redundancyLevel);
+
+    const ix = this.ownerFeedList.findIndex((f) => f.topic.toString() === topic.toString());
+    if (ix !== -1) {
+      this.ownerFeedList[ix] = {
+        topic: topic.toString(),
+        eGranteeRef: this.ownerFeedList[ix].eGranteeRef?.toString(),
+      };
+    } else {
+      this.ownerFeedList.push({ topic: topic.toString() });
+    }
+
+    await this.saveFileInfoFeedList();
+  }
 
   protected async uploadFileInfo(fileInfo: FileInfo): Promise<ReferenceWithHistory> {
     try {
@@ -610,4 +651,7 @@ export abstract class FileManager {
       throw error;
     }
   }
+
+  // generates a random topic
+  protected abstract generateTopic(): Topic;
 }
