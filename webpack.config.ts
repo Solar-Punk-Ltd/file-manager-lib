@@ -1,4 +1,5 @@
 import Path from 'path';
+import TerserPlugin from 'terser-webpack-plugin';
 import { Configuration, DefinePlugin, WebpackPluginInstance } from 'webpack';
 
 interface WebpackEnvParams {
@@ -53,6 +54,34 @@ const base = async (env?: Partial<WebpackEnvParams>): Promise<Configuration> => 
     plugins,
     performance: {
       hints: false,
+    },
+    optimization: {
+      minimize: isProduction,
+      minimizer: [
+        // This is only used in production mode
+        new TerserPlugin({
+          terserOptions: {
+            parse: {
+              // we want terser to parse ecma 8 code. However, we don't want it
+              // to apply any minfication steps that turns valid ecma 5 code
+              // into invalid ecma 5 code. This is why the 'compress' and 'output'
+              // sections only apply transformations that are ecma 5 safe
+              // https://github.com/facebook/create-react-app/pull/4234
+              ecma: 2018,
+            },
+            compress: {
+              ecma: 5,
+            },
+            mangle: {
+              safari10: true,
+            },
+            output: {
+              ecma: 5,
+              comments: false,
+            },
+          },
+        }),
+      ],
     },
   };
 };
