@@ -170,9 +170,9 @@ export abstract class FileManager {
     }
 
     const latestFeedData = await this.getFeedData(this.ownerFeedTopic);
-    const dataRef = new Reference(latestFeedData.payload.toUint8Array());
+    const dataArr = latestFeedData.payload.toUint8Array();
 
-    if (dataRef.equals(SWARM_ZERO_ADDRESS)) {
+    if (SWARM_ZERO_ADDRESS.equals(dataArr)) {
       console.log("Owner fileInfo feed list doesn't exist yet.");
       return;
     }
