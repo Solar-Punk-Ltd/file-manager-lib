@@ -5,6 +5,7 @@ import {
   Bytes,
   Duration,
   EthAddress,
+  FeedIndex,
   FeedWriter,
   MantarayNode,
   NodeAddresses,
@@ -18,7 +19,6 @@ import {
 import { Optional } from 'cafe-utility';
 
 import { FileManager } from '../src/fileManager';
-import { numberToFeedIndex } from '../src/utils';
 import { OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
 import { FetchFeedUpdateResponse } from '../src/utils/types';
 
@@ -61,8 +61,8 @@ export function createMockNodeAddresses(): NodeAddresses {
 
 export function createMockGetFeedDataResult(currentIndex = 0, nextIndex = 1): FetchFeedUpdateResponse {
   return {
-    feedIndex: numberToFeedIndex(currentIndex),
-    feedIndexNext: numberToFeedIndex(nextIndex),
+    feedIndex: FeedIndex.fromBigInt(BigInt(currentIndex)),
+    feedIndexNext: FeedIndex.fromBigInt(BigInt(nextIndex)),
     payload: SWARM_ZERO_ADDRESS,
   };
 }
@@ -73,8 +73,18 @@ export function createMockFeedWriter(char: string = '0'): FeedWriter {
       reference: new Reference(char.repeat(64)),
       historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
     } as UploadResult),
+    uploadReference: jest.fn().mockResolvedValue({
+      reference: new Reference(char.repeat(64)),
+      historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
+    } as UploadResult),
+    uploadPayload: jest.fn().mockResolvedValue({
+      reference: new Reference(char.repeat(64)),
+      historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
+    } as UploadResult),
     owner: '' as unknown as EthAddress,
     download: jest.fn(),
+    downloadReference: jest.fn(),
+    downloadPayload: jest.fn(),
     topic: NULL_TOPIC,
   };
 }

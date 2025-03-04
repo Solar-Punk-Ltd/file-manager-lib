@@ -138,29 +138,31 @@ export class FileManager {
     }
 
     const feedTopicData = await this.getFeedData(REFERENCE_LIST_TOPIC, 0n);
+    const topicRef = new Reference(feedTopicData.payload.toUint8Array());
 
-    if (feedTopicData.payload === SWARM_ZERO_ADDRESS) {
+    if (topicRef.equals(SWARM_ZERO_ADDRESS)) {
       this.ownerFeedTopic = new Topic(getRandomBytes(Topic.LENGTH));
       const topicDataRes = await this.bee.uploadData(ownerFeedStamp.batchID, this.ownerFeedTopic.toUint8Array(), {
         act: true,
       });
 
-      const fw = this.bee.makeFeedWriter(REFERENCE_LIST_TOPIC, this.signer);
+      const fw = this.bee.makeFeedWriter(REFERENCE_LIST_TOPIC.toUint8Array(), this.signer);
       await fw.uploadReference(ownerFeedStamp.batchID, topicDataRes.reference, { index: FeedIndex.fromBigInt(0n) });
       await fw.uploadReference(ownerFeedStamp.batchID, topicDataRes.historyAddress.getOrThrow(), {
         index: FeedIndex.fromBigInt(1n),
       });
     } else {
       const topicHistory = await this.getFeedData(REFERENCE_LIST_TOPIC, 1n);
-      const topicBytes = await this.bee.downloadData(new Reference(feedTopicData.payload), {
-        actHistoryAddress: new Reference(topicHistory.payload),
+      const topicHistoryRef = new Reference(topicHistory.payload.toUint8Array());
+      const topicBytes = await this.bee.downloadData(topicRef.toUint8Array(), {
+        actHistoryAddress: topicHistoryRef.toUint8Array(),
         actPublisher: this.nodeAddresses.publicKey,
       });
 
-      this.ownerFeedTopic = new Topic(topicBytes);
+      this.ownerFeedTopic = new Topic(topicBytes.toUint8Array());
     }
 
-    console.log('Owner feed topic successfully initialized: ', this.ownerFeedTopic.toString());
+    console.log('Owner feed topic successfully initialized');
   }
 
   // fetches the usable stamps from the node
@@ -180,7 +182,9 @@ export class FileManager {
     }
 
     const latestFeedData = await this.getFeedData(this.ownerFeedTopic);
-    if (latestFeedData.payload === SWARM_ZERO_ADDRESS) {
+    const dataArr = latestFeedData.payload.toUint8Array();
+
+    if (SWARM_ZERO_ADDRESS.equals(dataArr)) {
       console.log("Owner fileInfo feed list doesn't exist yet.");
       return;
     }
