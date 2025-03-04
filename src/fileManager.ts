@@ -37,7 +37,14 @@ import {
   SHARED_INBOX_TOPIC,
   SWARM_ZERO_ADDRESS,
 } from './utils/constants';
-import { BeeVersionError, GranteeError, SignerError, StampError, SubscribtionError } from './utils/errors';
+import {
+  BeeVersionError,
+  FileInfoError,
+  GranteeError,
+  SignerError,
+  StampError,
+  SubscribtionError,
+} from './utils/errors';
 import {
   FetchFeedUpdateResponse,
   FileInfo,
@@ -110,8 +117,7 @@ export abstract class FileManager {
 
   // fetches the node addresses neccessary for feed and ACT handling
   private async initNodeAddresses(): Promise<void> {
-    const addr = await this.bee.getNodeAddresses();
-    this.nodeAddresses = addr;
+    this.nodeAddresses = await this.bee.getNodeAddresses();
   }
 
   // fetches the owner feed topic and creates it if it does not exist, protected by ACT
@@ -208,12 +214,11 @@ export abstract class FileManager {
       const rawFeedData = await this.getFeedData(new Topic(feedItem.topic));
       const fileInfoFeedData = rawFeedData.payload.toJSON() as ReferenceWithHistory;
 
-      const unwrappedFileInfoData = (
-        await this.bee.downloadData(fileInfoFeedData.reference, {
-          actHistoryAddress: new Reference(fileInfoFeedData.historyRef),
-          actPublisher: this.nodeAddresses.publicKey,
-        })
-      ).toJSON() as ReferenceWithHistory;
+      const rawData = await this.bee.downloadData(fileInfoFeedData.reference, {
+        actHistoryAddress: new Reference(fileInfoFeedData.historyRef),
+        actPublisher: this.nodeAddresses.publicKey,
+      });
+      const unwrappedFileInfoData = rawData.toJSON() as ReferenceWithHistory;
 
       try {
         assertFileInfo(unwrappedFileInfoData);
@@ -247,6 +252,7 @@ export abstract class FileManager {
   }
   // TODO: use node.find() - it does not seem to work - test it
   async downloadFork(mantaray: MantarayNode, path: string, options?: DownloadOptions): Promise<Bytes> {
+    // const node = mantaray.find(path);
     const node = mantaray.collect().find((n) => n.fullPathString === path);
     if (!node) return SWARM_ZERO_ADDRESS;
 
@@ -276,7 +282,6 @@ export abstract class FileManager {
 
     for (const node of unmarshalled.collect()) {
       const file = (await this.bee.downloadData(node.targetAddress)).toUtf8();
-      console.log(`Downloaded file: ${file}`);
       files.push(file);
     }
     return files;
@@ -361,7 +366,6 @@ export abstract class FileManager {
         act: true,
         redundancyLevel: fileInfo.redundancyLevel,
       });
-      console.log('Fileinfo updated: ', uploadInfoRes.reference.toString());
 
       this.fileInfoList.push(fileInfo);
 
@@ -370,7 +374,7 @@ export abstract class FileManager {
         historyRef: uploadInfoRes.historyAddress.getOrThrow().toString(),
       };
     } catch (error: any) {
-      throw `Failed to save fileinfo: ${error}`;
+      throw new FileInfoError(`Failed to save fileinfo: ${error}`);
     }
   }
 
@@ -399,7 +403,7 @@ export abstract class FileManager {
         index: index,
       });
     } catch (error: any) {
-      throw `Failed to save wrapped fileInfo feed: ${error}`;
+      throw new FileInfoError(`Failed to save wrapped fileInfo feed: ${error}`);
     }
   }
 
@@ -427,14 +431,13 @@ export abstract class FileManager {
         }),
       );
 
-      const writeResult = await fw.uploadReference(ownerFeedStamp.batchID, ownerFeedRawData.reference, {
+      await fw.uploadReference(ownerFeedStamp.batchID, ownerFeedRawData.reference, {
         index: FeedIndex.fromBigInt(this.ownerFeedNextIndex),
       });
 
-      console.log('Owner feed list updated: ', writeResult.reference.toString());
       this.ownerFeedNextIndex += 1n;
     } catch (error: any) {
-      throw `Failed to save owner feed list: ${error}`;
+      throw new FileInfoError(`Failed to save owner feed list: ${error}`);
     }
   }
 
@@ -520,7 +523,7 @@ export abstract class FileManager {
   ): Promise<GranteesResult> {
     const fIx = this.fileInfoList.findIndex((f) => f.file === fileInfo.file);
     if (fIx === -1) {
-      throw `Provided fileinfo not found: ${fileInfo.file.reference}`;
+      throw new FileInfoError(`Provided fileinfo not found: ${fileInfo.file.reference}`);
     }
 
     let grantResult: GranteesResult;
@@ -534,7 +537,7 @@ export abstract class FileManager {
       console.log('Grantee list patched, grantee list reference: ', grantResult.ref.toString());
     } else {
       if (grantees.add === undefined || grantees.add.length === 0) {
-        throw `No grantees specified.`;
+        throw new GranteeError(`No grantees specified.`);
       }
 
       grantResult = await this.bee.createGrantees(fileInfo.batchId, grantees.add);
@@ -566,7 +569,7 @@ export abstract class FileManager {
       },
       onError: (e) => {
         console.log('Error received in shared inbox: ', e.message);
-        throw e;
+        throw new SubscribtionError(e.message);
       },
     });
   }
@@ -606,7 +609,7 @@ export abstract class FileManager {
   // recipient is optional, if not provided the message will be broadcasted == pss public key
   private async sendShareMessage(targetOverlays: string[], item: ShareItem, recipients: string[]): Promise<void> {
     if (recipients.length === 0 || recipients.length !== targetOverlays.length) {
-      throw 'Invalid recipients or  targetoverlays specified for sharing.';
+      throw new SubscribtionError('Invalid recipients or  targetoverlays specified for sharing.');
     }
 
     for (let i = 0; i < recipients.length; i++) {
@@ -654,4 +657,5 @@ export abstract class FileManager {
 
   // generates a random topic
   protected abstract generateTopic(): Topic;
+  // End helper methods
 }

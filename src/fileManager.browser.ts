@@ -1,12 +1,4 @@
-import {
-  BatchId,
-  Bee,
-  BeeRequestOptions,
-  RedundancyLevel,
-  RedundantUploadOptions,
-  Reference,
-  Topic,
-} from '@upcoming/bee-js';
+import { BatchId, Bee, BeeRequestOptions, RedundancyLevel, Reference, UploadOptions, Topic } from '@upcoming/bee-js';
 
 import { getRandomBytes } from './utils/browser';
 import { makeBeeRequestOptions } from './utils/common';
@@ -36,23 +28,11 @@ export class FileManagerBrowser extends FileManager {
       throw new FileInfoError('infoTopic and historyRef have to be provided at the same time.');
     }
 
-    const requestOptions = historyRef ? makeBeeRequestOptions({ historyRef }) : undefined;
-    const uploadFilesRes = await this.streamFiles(
-      batchId,
-      files,
-      onUploadProgress,
-      { act: true, redundancyLevel },
-      requestOptions,
-    );
+    const requestOptions = historyRef ? makeBeeRequestOptions({ historyRef, redundancyLevel }) : undefined;
+    const uploadFilesRes = await this.streamFiles(batchId, files, onUploadProgress, { act: true }, requestOptions);
     let uploadPreviewRes: ReferenceWithHistory | undefined;
     if (preview) {
-      uploadPreviewRes = await this.streamFiles(
-        batchId,
-        [preview],
-        onUploadProgress,
-        { act: true, redundancyLevel },
-        requestOptions,
-      );
+      uploadPreviewRes = await this.streamFiles(batchId, [preview], onUploadProgress, { act: true }, requestOptions);
     }
 
     const topic = infoTopic ? Topic.fromString(infoTopic) : this.generateTopic();
@@ -67,12 +47,11 @@ export class FileManagerBrowser extends FileManager {
     );
   }
 
-  // TODO: redundancyLevel missing from uploadoptions
   private async streamFiles(
     batchId: BatchId,
     files: File[] | FileList,
     onUploadProgress?: (progress: UploadProgress) => void,
-    uploadOptions?: RedundantUploadOptions,
+    uploadOptions?: UploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<ReferenceWithHistory> {
     const reuslt = await this.bee.streamFiles(batchId, files, onUploadProgress, uploadOptions, requestOptions);

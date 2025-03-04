@@ -10,7 +10,7 @@ import {
 } from '@upcoming/bee-js';
 
 import { makeBeeRequestOptions } from './utils/common';
-import { FileInfoError } from './utils/errors';
+import { FileError, FileInfoError } from './utils/errors';
 import { getRandomBytes, isDir, readFile } from './utils/node';
 import { ReferenceWithHistory } from './utils/types';
 import { FileManager } from './fileManager';
@@ -21,7 +21,6 @@ export class FileManagerNode extends FileManager {
   }
 
   // Start Swarm data saving methods
-  // TODO: event emitter integration
   async upload(
     batchId: BatchId,
     path: string,
@@ -87,8 +86,6 @@ export class FileManagerNode extends FileManager {
   ): Promise<ReferenceWithHistory> {
     try {
       const { data, name, contentType } = readFile(resolvedPath);
-      console.log(`Uploading file: ${name}`);
-
       const uploadFileRes = await this.bee.uploadFile(
         batchId,
         data,
@@ -100,13 +97,12 @@ export class FileManagerNode extends FileManager {
         requestOptions,
       );
 
-      console.log(`File uploaded successfully: ${name}, reference: ${uploadFileRes.reference.toString()}`);
       return {
         reference: uploadFileRes.reference.toString(),
         historyRef: uploadFileRes.historyAddress.getOrThrow().toString(),
       };
     } catch (error: any) {
-      throw `Failed to upload file ${resolvedPath}: ${error}`;
+      throw new FileError(`Failed to upload file ${resolvedPath}: ${error}`);
     }
   }
 
@@ -124,13 +120,12 @@ export class FileManagerNode extends FileManager {
         requestOptions,
       );
 
-      console.log(`Directory uploaded successfully, reference: ${uploadFilesRes.reference.toString()}`);
       return {
         reference: uploadFilesRes.reference.toString(),
         historyRef: uploadFilesRes.historyAddress.getOrThrow().toString(),
       };
     } catch (error: any) {
-      throw `Failed to upload directory ${resolvedPath}: ${error}`;
+      throw new FileError(`Failed to upload directory ${resolvedPath}: ${error}`);
     }
   }
 
