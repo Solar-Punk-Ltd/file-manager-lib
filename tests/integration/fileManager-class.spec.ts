@@ -1002,3 +1002,183 @@ describe('FileManager getFeedData', () => {
     expect(feedData.payload).not.toEqual('0'.repeat(64));
   });
 });
+
+describe('FileManager End-to-End User Workflow', () => {
+  let bee: BeeDev;
+  let fileManager: FileManager;
+  let batchId: BatchId;
+  let tempBaseDir: string;
+
+  beforeAll(async () => {
+    // Create a BeeDev instance and ensure the owner stamp exists.
+    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
+    fileManager = new FileManager(bee);
+    await fileManager.initialize();
+    // Create a temporary directory for this test session.
+    tempBaseDir = path.join(__dirname, 'e2eTestSession');
+    fs.mkdirSync(tempBaseDir, { recursive: true });
+  });
+
+  afterAll(() => {
+    // Clean up after tests.
+    fs.rmSync(tempBaseDir, { recursive: true, force: true });
+  });
+
+  // Scenario 1: In-Place Folder Update Simulation
+  it('should simulate a complete workflow - in-place folder update simulation', async () => {
+    // ----- Step 1: Upload a Single File -----
+    const singleFilePath = path.join(tempBaseDir, 'initial.txt');
+    fs.writeFileSync(singleFilePath, 'Hello, this is the initial file.');
+    await fileManager.upload(batchId, singleFilePath);
+    let fileInfos = fileManager.getFileInfoList();
+    expect(fileInfos.find(fi => fi.name === path.basename(singleFilePath))).toBeDefined();
+
+    // ----- Step 2: Upload a Project Folder with Multiple Files -----
+    const projectFolder = path.join(tempBaseDir, 'projectFolder');
+    fs.mkdirSync(projectFolder, { recursive: true });
+    fs.writeFileSync(path.join(projectFolder, 'doc1.txt'), 'Project document 1');
+    fs.writeFileSync(path.join(projectFolder, 'doc2.txt'), 'Project document 2');
+    // Create a nested subfolder for assets.
+    const assetsFolder = path.join(projectFolder, 'assets');
+    fs.mkdirSync(assetsFolder, { recursive: true });
+    fs.writeFileSync(path.join(assetsFolder, 'image.png'), 'Fake image content');
+    await fileManager.upload(batchId, projectFolder);
+    fileInfos = fileManager.getFileInfoList();
+    const projectInfo = fileInfos.find(fi => fi.name === path.basename(projectFolder));
+    expect(projectInfo).toBeDefined();
+
+    // ----- Step 3: "Update" the Folder by Adding a New File (simulate in-place update) -----
+    // On-chain, you cannot update a folder in place; the manifest remains the same.
+    fs.writeFileSync(path.join(projectFolder, 'readme.txt'), 'This is the project readme.');
+    // Wait a moment so that the file system registers the change.
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    await fileManager.upload(batchId, projectFolder);
+
+    // Force a reload of the FileManager (which loads the manifest as originally published)
+    fileManager = new FileManager(bee);
+    await fileManager.initialize();
+    fileInfos = fileManager.getFileInfoList();
+    const updatedProjectInfo = fileInfos.find(fi => fi.name === path.basename(projectFolder));
+    expect(updatedProjectInfo).toBeDefined();
+
+    // ----- Step 4: List Files and Check that the Manifest Has NOT Been Updated -----
+    const listedFiles = await fileManager.listFiles(updatedProjectInfo!, {
+      actHistoryAddress: new Reference(updatedProjectInfo!.file.historyRef),
+      actPublisher: fileManager.getNodeAddresses()!.publicKey,
+    });
+    const basenames = listedFiles.map(item => path.basename(item.path));
+    // Since in-place updates aren’t supported, we expect the manifest to contain only the original files.
+    expect(basenames).toContain('doc1.txt');
+    expect(basenames).toContain('doc2.txt');
+    expect(basenames).toContain('image.png');
+    expect(basenames).not.toContain('readme.txt');
+    expect(listedFiles.length).toEqual(3);
+  });
+
+  // Scenario 2: New Version Folder Upload
+  it('should simulate a complete workflow - new version folder upload', async () => {
+    // Step 1: Upload a single file.
+    const singleFilePath = path.join(tempBaseDir, 'initial.txt');
+    fs.writeFileSync(singleFilePath, 'Hello, this is the initial file.');
+    await fileManager.upload(batchId, singleFilePath);
+    let fileInfos = fileManager.getFileInfoList();
+    expect(fileInfos.find(fi => fi.name === path.basename(singleFilePath))).toBeDefined();
+
+    // Step 2: Upload original project folder.
+    const projectFolder = path.join(tempBaseDir, 'projectFolder');
+    fs.mkdirSync(projectFolder, { recursive: true });
+    fs.writeFileSync(path.join(projectFolder, 'doc1.txt'), 'Project document 1');
+    fs.writeFileSync(path.join(projectFolder, 'doc2.txt'), 'Project document 2');
+    const assetsFolder = path.join(projectFolder, 'assets');
+    fs.mkdirSync(assetsFolder, { recursive: true });
+    fs.writeFileSync(path.join(assetsFolder, 'image.png'), 'Fake image content');
+    await fileManager.upload(batchId, projectFolder);
+    fileInfos = fileManager.getFileInfoList();
+    const projectInfo = fileInfos.find(fi => fi.name === path.basename(projectFolder));
+    expect(projectInfo).toBeDefined();
+
+    // Step 3: Instead of updating the same folder, create a new version folder.
+    const projectFolderNew = path.join(tempBaseDir, 'projectFolder_new');
+    fs.mkdirSync(projectFolderNew, { recursive: true });
+    fs.writeFileSync(path.join(projectFolderNew, 'doc1.txt'), 'Project document 1');
+    fs.writeFileSync(path.join(projectFolderNew, 'doc2.txt'), 'Project document 2');
+    const assetsFolderNew = path.join(projectFolderNew, 'assets');
+    fs.mkdirSync(assetsFolderNew, { recursive: true });
+    fs.writeFileSync(path.join(assetsFolderNew, 'image.png'), 'Fake image content');
+    fs.writeFileSync(path.join(projectFolderNew, 'readme.txt'), 'This is the project readme.');
+    // Also add a nested folder with a new file.
+    const nestedFolder = path.join(projectFolderNew, 'nested');
+    fs.mkdirSync(nestedFolder, { recursive: true });
+    fs.writeFileSync(path.join(nestedFolder, 'subdoc.txt'), 'Nested document content');
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    await fileManager.upload(batchId, projectFolderNew);
+    fileInfos = fileManager.getFileInfoList();
+    const newVersionInfo = fileInfos.find(fi => fi.name === path.basename(projectFolderNew));
+    expect(newVersionInfo).toBeDefined();
+
+    // Step 4: List files in the new version folder and check full paths.
+    const listedFiles_newVersion = await fileManager.listFiles(newVersionInfo!, {
+      actHistoryAddress: new Reference(newVersionInfo!.file.historyRef),
+      actPublisher: fileManager.getNodeAddresses()!.publicKey,
+    });
+    const basenames_newVersion = listedFiles_newVersion.map(item => path.basename(item.path));
+    const fullPaths_newVersion = listedFiles_newVersion.map(item => item.path);
+    expect(basenames_newVersion).toContain('doc1.txt');
+    expect(basenames_newVersion).toContain('doc2.txt');
+    expect(basenames_newVersion).toContain('image.png');
+    expect(basenames_newVersion).toContain('readme.txt');
+    expect(basenames_newVersion).toContain('subdoc.txt');
+    // For example, we expect the nested file to be in a folder called "nested".
+    expect(fullPaths_newVersion).toContain('nested/subdoc.txt');
+    expect(listedFiles_newVersion.length).toEqual(5);
+
+    // Step 5: Download all files and verify their content.
+    const downloadedContents = await fileManager.downloadFiles(new Reference(newVersionInfo!.file.reference), {
+      actHistoryAddress: new Reference(newVersionInfo!.file.historyRef),
+      actPublisher: fileManager.getNodeAddresses()!.publicKey,
+    });
+    expect(downloadedContents).toContain('Project document 1');
+    expect(downloadedContents).toContain('Project document 2');
+    expect(downloadedContents).toContain('Fake image content');
+    expect(downloadedContents).toContain('This is the project readme.');
+    expect(downloadedContents).toContain('Nested document content');
+  });
+
+  // Scenario 3: Verify File Paths in the Manifest
+  it('should list files with correct relative paths reflecting folder structure', async () => {
+    // Create a folder with a nested structure.
+    const complexFolder = path.join(tempBaseDir, 'complexFolder');
+    fs.mkdirSync(complexFolder, { recursive: true });
+    // Create files at the root.
+    fs.writeFileSync(path.join(complexFolder, 'root.txt'), 'Root file content');
+    // Create a subfolder "level1" with a file.
+    const level1 = path.join(complexFolder, 'level1');
+    fs.mkdirSync(level1, { recursive: true });
+    fs.writeFileSync(path.join(level1, 'level1.txt'), 'Level1 file content');
+    // Create a nested subfolder "level1/level2" with a file.
+    const level2 = path.join(level1, 'level2');
+    fs.mkdirSync(level2, { recursive: true });
+    fs.writeFileSync(path.join(level2, 'level2.txt'), 'Level2 file content');
+
+    // Upload the folder.
+    await fileManager.upload(batchId, complexFolder);
+    const fileInfos = fileManager.getFileInfoList();
+    const complexInfo = fileInfos.find((fi) => fi.name === path.basename(complexFolder));
+    expect(complexInfo).toBeDefined();
+
+    // List files and check full relative paths.
+    const listedFiles = await fileManager.listFiles(complexInfo!, {
+      actHistoryAddress: new Reference(complexInfo!.file.historyRef),
+      actPublisher: fileManager.getNodeAddresses()!.publicKey,
+    });
+    const fullPaths = listedFiles.map(item => item.path);
+    // We expect:
+    // - "root.txt"
+    // - "level1/level1.txt"
+    // - "level1/level2/level2.txt"
+    expect(fullPaths).toContain('root.txt');
+    expect(fullPaths).toContain('level1/level1.txt');
+    expect(fullPaths).toContain('level1/level2/level2.txt');
+  });
+});
