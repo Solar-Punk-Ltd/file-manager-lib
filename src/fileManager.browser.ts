@@ -1,4 +1,4 @@
-import { BatchId, Bee, BeeRequestOptions, RedundancyLevel, Reference, UploadOptions, Topic } from '@upcoming/bee-js';
+import { BatchId, Bee, BeeRequestOptions, RedundancyLevel, Reference, Topic, UploadOptions } from '@upcoming/bee-js';
 
 import { getRandomBytes } from './utils/browser';
 import { makeBeeRequestOptions } from './utils/common';

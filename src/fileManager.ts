@@ -582,16 +582,16 @@ export abstract class FileManager {
   }
 
   async shareItem(fileInfo: FileInfo, targetOverlays: string[], recipients: string[], message?: string): Promise<void> {
-    const mfIx = this.ownerFeedList.findIndex((mf) => mf.topic.toString() === fileInfo.file.reference.toString());
-    if (mfIx === -1) {
+    const ix = this.ownerFeedList.findIndex((mf) => mf.topic.toString() === fileInfo.file.reference.toString());
+    if (ix === -1) {
       console.log('File reference not found in fileInfo feed list.');
       return;
     }
 
-    const grantResult = await this.handleGrantees(fileInfo, { add: recipients }, this.ownerFeedList[mfIx].eGranteeRef);
+    const grantResult = await this.handleGrantees(fileInfo, { add: recipients }, this.ownerFeedList[ix].eGranteeRef);
 
-    this.ownerFeedList[mfIx] = {
-      ...this.ownerFeedList[mfIx],
+    this.ownerFeedList[ix] = {
+      ...this.ownerFeedList[ix],
       eGranteeRef: grantResult.ref.toString(),
     };
 
