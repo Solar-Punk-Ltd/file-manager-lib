@@ -1,4 +1,4 @@
 import { FileManager } from './fileManager';
 
+export * from './utils';
 export { FileManager };
-export type { FileInfo, ShareItem } from './types';

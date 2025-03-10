@@ -20,11 +20,8 @@
     "isolatedModules": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
-    "baseUrl": ".",
-    "paths": {
-      "@ethersphere/bee-js": ["node_modules/@ethersphere/bee-js/dist/types/index.d.ts"]
-    }
+    "baseUrl": "."
   },
-  "include": ["src", "tests", "**/*.test.ts"],
+  "include": ["src"],
   "exclude": ["node_modules", "dist"]
 }

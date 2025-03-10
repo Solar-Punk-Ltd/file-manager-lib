@@ -1,9 +1,10 @@
-import { BeeRequestOptions, Bytes, EthAddress, FeedIndex, Reference, Topic } from '@upcoming/bee-js';
+import { BatchId, Bee, BeeRequestOptions, Bytes, EthAddress, Reference, Topic } from '@upcoming/bee-js';
 import { randomBytes } from 'crypto';
+import * as fs from 'fs';
 import path from 'path';
 
-//import { FileError } from './errors';
-import { FileInfo, RequestOptions, ShareItem, WrappedFileInfoFeed } from './types';
+import { FileError } from './errors';
+import { FileData, FileInfo, RequestOptions, ShareItem, WrappedFileInfoFeed } from './types';
 
 export function getContentType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
@@ -16,6 +17,19 @@ export function getContentType(filePath: string): string {
     ['.png', 'image/png'],
   ]);
   return contentTypes.get(ext) || 'application/octet-stream';
+}
+
+export function isDir(dirPath: string): boolean {
+  if (!fs.existsSync(dirPath)) throw new FileError(`Path ${dirPath} does not exist!`);
+  return fs.lstatSync(dirPath).isDirectory();
+}
+
+export function readFile(filePath: string): FileData {
+  const readable = fs.createReadStream(filePath);
+  const fileName = path.basename(filePath);
+  const contentType = getContentType(filePath);
+
+  return { data: readable, name: fileName, contentType };
 }
 
 export function isObject(value: unknown): value is Record<string, unknown> {
@@ -61,8 +75,9 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
     throw new TypeError('fileName property of FileInfo has to be string!');
   }
 
-  if (fi.preview !== undefined && typeof fi.preview !== 'string') {
-    throw new TypeError('preview property of FileInfo has to be string!');
+  if (fi.preview !== undefined) {
+    new Reference(fi.preview.reference);
+    new Reference(fi.preview.historyRef);
   }
 
   if (fi.shared !== undefined && typeof fi.shared !== 'boolean') {
@@ -99,9 +114,6 @@ export function assertWrappedFileInoFeed(value: unknown): asserts value is Wrapp
 
   const wmf = value as unknown as WrappedFileInfoFeed;
 
-  new Reference(wmf.reference);
-  new Reference(wmf.historyRef);
-
   if (wmf.eGranteeRef !== undefined) {
     new Reference(wmf.eGranteeRef);
   }
@@ -128,15 +140,6 @@ export function makeBeeRequestOptions(requestOptions: RequestOptions): BeeReques
   return options;
 }
 
-export function numberToFeedIndex(index: number | Uint8Array | string | Bytes): FeedIndex {
-  index = typeof index === 'number' ? FeedIndex.fromBigInt(BigInt(index)) : index;
-  return new FeedIndex(index);
-}
-
-export function makeNumericIndex(index: FeedIndex | undefined): number {
-  return index === undefined ? 0 : Number(index.toBigInt());
-}
-
 // status is undefined in the error object
 // Determines if the error is about 'Not Found'
 export function isNotFoundError(error: any): boolean {
@@ -145,4 +148,15 @@ export function isNotFoundError(error: any): boolean {
 
 export function getRandomBytes(len: number): Bytes {
   return new Bytes(randomBytes(len));
+}
+
+export async function buyStamp(bee: Bee, amount: string | bigint, depth: number, label?: string): Promise<BatchId> {
+  const stamp = (await bee.getAllPostageBatch()).find((b) => b.label === label);
+  if (stamp && stamp.usable) {
+    return stamp.batchID;
+  }
+  return await bee.createPostageBatch(amount, depth, {
+    waitForUsable: true,
+    label,
+  });
 }
