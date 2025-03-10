@@ -203,7 +203,7 @@ describe('FileManager saveMantaray', () => {
     // Create a BeeDev instance with a valid signer.
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     // Purchase (or ensure) a test stamp is available.
-    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'owner-stamp');
+    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
     // Create and initialize the FileManager.
     fileManager = new FileManager(bee);
     await fileManager.initialize();
@@ -562,6 +562,7 @@ describe('FileManager listFiles', () => {
     // Create a BeeDev instance with a valid signer.
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     // Purchase a test stamp.
+    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'listFilesIntegrationStamp');
     // Create and initialize the FileManager.
     fileManager = new FileManager(bee);
@@ -712,6 +713,7 @@ describe('FileManager upload', () => {
 
   beforeAll(async () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'uploadIntegrationStamp');
     fileManager = new FileManager(bee);
     await fileManager.initialize();
@@ -789,6 +791,7 @@ describe('FileManager downloadFiles', () => {
 
   beforeAll(async () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'downloadFilesIntegrationStamp');
     fileManager = new FileManager(bee);
     await fileManager.initialize();
@@ -872,6 +875,7 @@ describe('FileManager getOwnerFeedStamp', () => {
 
   beforeAll(async () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
     fileManager = new FileManager(bee);
     await fileManager.initialize();
   });
@@ -952,6 +956,7 @@ describe('FileManager getGranteesOfFile', () => {
 
   beforeAll(async () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
     fileManager = new FileManager(bee);
     await fileManager.initialize();
   });
@@ -983,6 +988,7 @@ describe('FileManager getFeedData', () => {
 
   beforeAll(async () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
     fileManager = new FileManager(bee);
     await fileManager.initialize();
   });
