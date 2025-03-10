@@ -26,3 +26,4 @@ yalc.lock
 *.sln
 *.sw?
 coverage/
+*.pid

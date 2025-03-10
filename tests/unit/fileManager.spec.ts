@@ -16,6 +16,7 @@ import { OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../../src/utils/cons
 import { SignerError } from '../../src/utils/errors';
 import { ReferenceWithHistory } from '../../src/utils/types';
 import {
+  createInitializedFileManager,
   createInitMocks,
   createMockFeedWriter,
   createMockMantarayNode,
@@ -23,19 +24,8 @@ import {
   createUploadFilesFromDirectorySpy,
   createUploadFileSpy,
   MOCK_BATCH_ID,
-  setupGlobalLocalStorage,
 } from '../mockHelpers';
 import { BEE_URL, MOCK_SIGNER } from '../utils';
-
-// Set up the global localStorage mock
-setupGlobalLocalStorage();
-
-async function createInitializedFileManager(): Promise<FileManagerNode> {
-  const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-  const fileManager = new FileManagerNode(bee);
-  await fileManager.initialize();
-  return fileManager;
-}
 
 describe('FileManager', () => {
   beforeEach(() => {

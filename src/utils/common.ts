@@ -45,8 +45,9 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
     throw new TypeError('fileName property of FileInfo has to be string!');
   }
 
-  if (fi.preview !== undefined && typeof fi.preview !== 'string') {
-    throw new TypeError('preview property of FileInfo has to be string!');
+  if (fi.preview !== undefined) {
+    new Reference(fi.preview.reference);
+    new Reference(fi.preview.historyRef);
   }
 
   if (fi.shared !== undefined && typeof fi.shared !== 'boolean') {
@@ -116,15 +117,12 @@ export function isNotFoundError(error: any): boolean {
 }
 
 export async function buyStamp(bee: Bee, amount: string | bigint, depth: number, label?: string): Promise<BatchId> {
-  const stamp = (await bee.getAllPostageBatch()).find(async (b) => {
-    b.label === label;
-  });
+  const stamp = (await bee.getAllPostageBatch()).find((b) => b.label === label);
   if (stamp && stamp.usable) {
     return stamp.batchID;
   }
-
   return await bee.createPostageBatch(amount, depth, {
     waitForUsable: true,
-    label: label,
+    label,
   });
 }
