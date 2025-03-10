@@ -27,6 +27,8 @@
   "dependencies": {
     "@upcoming/bee-js": "^0.17.0",
     "cafe-utility": "^27.14.1"
+    "@upcoming/bee-js": "0.17.0",
+    "cafe-utility": "27.14.1"
   },
   "devDependencies": {
     "@babel/preset-env": "^7.26.0",
