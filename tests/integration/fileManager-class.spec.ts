@@ -909,12 +909,11 @@ describe('FileManager destroyVolume', () => {
   let bee: BeeDev;
   let fileManager: FileManager;
   let ownerStamp: PostageBatch;
-  let nonOwnerStamp: BatchId;
 
   beforeAll(async () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     // Purchase two non-owner stamps with unique labels BEFORE initializing the FileManager.
-    nonOwnerStamp = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'nonOwnerStampTest');
+    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'nonOwnerStampTest');
 
     fileManager = new FileManager(bee);
     await fileManager.initialize();

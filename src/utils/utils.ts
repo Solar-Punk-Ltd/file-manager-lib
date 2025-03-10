@@ -75,8 +75,9 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
     throw new TypeError('fileName property of FileInfo has to be string!');
   }
 
-  if (fi.preview !== undefined && typeof fi.preview !== 'string') {
-    throw new TypeError('preview property of FileInfo has to be string!');
+  if (fi.preview !== undefined) {
+    new Reference(fi.preview.reference);
+    new Reference(fi.preview.historyRef);
   }
 
   if (fi.shared !== undefined && typeof fi.shared !== 'boolean') {
