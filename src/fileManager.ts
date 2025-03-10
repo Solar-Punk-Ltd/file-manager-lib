@@ -38,6 +38,7 @@ import {
   BeeVersionError,
   FileInfoError,
   GranteeError,
+  SendShareMessageError,
   SignerError,
   StampError,
   SubscribtionError,
@@ -315,7 +316,6 @@ export class FileManager {
   // End getter methods
 
   // Start Swarm data saving methods
-  // TODO: event emitter integration
   async upload(
     batchId: BatchId,
     resolvedPath: string,
@@ -751,6 +751,7 @@ export class FileManager {
         this.bee.pssSend(item.fileInfo.batchId, SHARED_INBOX_TOPIC, target, msgData, recipients[i]);
       } catch (error: any) {
         console.log(`Failed to share item with recipient: ${recipients[i]}\n `, error);
+        throw new SendShareMessageError(`Failed to share item with recipient: ${recipients[i]}\n ${error}`);
       }
     }
   }

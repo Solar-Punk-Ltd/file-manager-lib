@@ -39,3 +39,9 @@ export class GranteeError extends Error {
     super(message);
   }
 }
+
+export class SendShareMessageError extends Error {
+  public constructor(message: string) {
+    super(message);
+  }
+}
