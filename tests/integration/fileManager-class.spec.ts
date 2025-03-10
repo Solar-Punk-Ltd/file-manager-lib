@@ -1032,7 +1032,7 @@ describe('FileManager End-to-End User Workflow', () => {
     fs.writeFileSync(singleFilePath, 'Hello, this is the initial file.');
     await fileManager.upload(batchId, singleFilePath);
     let fileInfos = fileManager.getFileInfoList();
-    expect(fileInfos.find(fi => fi.name === path.basename(singleFilePath))).toBeDefined();
+    expect(fileInfos.find((fi) => fi.name === path.basename(singleFilePath))).toBeDefined();
 
     // ----- Step 2: Upload a Project Folder with Multiple Files -----
     const projectFolder = path.join(tempBaseDir, 'projectFolder');
@@ -1045,21 +1045,21 @@ describe('FileManager End-to-End User Workflow', () => {
     fs.writeFileSync(path.join(assetsFolder, 'image.png'), 'Fake image content');
     await fileManager.upload(batchId, projectFolder);
     fileInfos = fileManager.getFileInfoList();
-    const projectInfo = fileInfos.find(fi => fi.name === path.basename(projectFolder));
+    const projectInfo = fileInfos.find((fi) => fi.name === path.basename(projectFolder));
     expect(projectInfo).toBeDefined();
 
     // ----- Step 3: "Update" the Folder by Adding a New File (simulate in-place update) -----
     // On-chain, you cannot update a folder in place; the manifest remains the same.
     fs.writeFileSync(path.join(projectFolder, 'readme.txt'), 'This is the project readme.');
     // Wait a moment so that the file system registers the change.
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     await fileManager.upload(batchId, projectFolder);
 
     // Force a reload of the FileManager (which loads the manifest as originally published)
     fileManager = new FileManager(bee);
     await fileManager.initialize();
     fileInfos = fileManager.getFileInfoList();
-    const updatedProjectInfo = fileInfos.find(fi => fi.name === path.basename(projectFolder));
+    const updatedProjectInfo = fileInfos.find((fi) => fi.name === path.basename(projectFolder));
     expect(updatedProjectInfo).toBeDefined();
 
     // ----- Step 4: List Files and Check that the Manifest Has NOT Been Updated -----
@@ -1067,7 +1067,7 @@ describe('FileManager End-to-End User Workflow', () => {
       actHistoryAddress: new Reference(updatedProjectInfo!.file.historyRef),
       actPublisher: fileManager.getNodeAddresses()!.publicKey,
     });
-    const basenames = listedFiles.map(item => path.basename(item.path));
+    const basenames = listedFiles.map((item) => path.basename(item.path));
     // Since in-place updates aren’t supported, we expect the manifest to contain only the original files.
     expect(basenames).toContain('doc1.txt');
     expect(basenames).toContain('doc2.txt');
@@ -1083,7 +1083,7 @@ describe('FileManager End-to-End User Workflow', () => {
     fs.writeFileSync(singleFilePath, 'Hello, this is the initial file.');
     await fileManager.upload(batchId, singleFilePath);
     let fileInfos = fileManager.getFileInfoList();
-    expect(fileInfos.find(fi => fi.name === path.basename(singleFilePath))).toBeDefined();
+    expect(fileInfos.find((fi) => fi.name === path.basename(singleFilePath))).toBeDefined();
 
     // Step 2: Upload original project folder.
     const projectFolder = path.join(tempBaseDir, 'projectFolder');
@@ -1095,7 +1095,7 @@ describe('FileManager End-to-End User Workflow', () => {
     fs.writeFileSync(path.join(assetsFolder, 'image.png'), 'Fake image content');
     await fileManager.upload(batchId, projectFolder);
     fileInfos = fileManager.getFileInfoList();
-    const projectInfo = fileInfos.find(fi => fi.name === path.basename(projectFolder));
+    const projectInfo = fileInfos.find((fi) => fi.name === path.basename(projectFolder));
     expect(projectInfo).toBeDefined();
 
     // Step 3: Instead of updating the same folder, create a new version folder.
@@ -1111,10 +1111,10 @@ describe('FileManager End-to-End User Workflow', () => {
     const nestedFolder = path.join(projectFolderNew, 'nested');
     fs.mkdirSync(nestedFolder, { recursive: true });
     fs.writeFileSync(path.join(nestedFolder, 'subdoc.txt'), 'Nested document content');
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     await fileManager.upload(batchId, projectFolderNew);
     fileInfos = fileManager.getFileInfoList();
-    const newVersionInfo = fileInfos.find(fi => fi.name === path.basename(projectFolderNew));
+    const newVersionInfo = fileInfos.find((fi) => fi.name === path.basename(projectFolderNew));
     expect(newVersionInfo).toBeDefined();
 
     // Step 4: List files in the new version folder and check full paths.
@@ -1122,8 +1122,8 @@ describe('FileManager End-to-End User Workflow', () => {
       actHistoryAddress: new Reference(newVersionInfo!.file.historyRef),
       actPublisher: fileManager.getNodeAddresses()!.publicKey,
     });
-    const basenames_newVersion = listedFiles_newVersion.map(item => path.basename(item.path));
-    const fullPaths_newVersion = listedFiles_newVersion.map(item => item.path);
+    const basenames_newVersion = listedFiles_newVersion.map((item) => path.basename(item.path));
+    const fullPaths_newVersion = listedFiles_newVersion.map((item) => item.path);
     expect(basenames_newVersion).toContain('doc1.txt');
     expect(basenames_newVersion).toContain('doc2.txt');
     expect(basenames_newVersion).toContain('image.png');
@@ -1172,7 +1172,7 @@ describe('FileManager End-to-End User Workflow', () => {
       actHistoryAddress: new Reference(complexInfo!.file.historyRef),
       actPublisher: fileManager.getNodeAddresses()!.publicKey,
     });
-    const fullPaths = listedFiles.map(item => item.path);
+    const fullPaths = listedFiles.map((item) => item.path);
     // We expect:
     // - "root.txt"
     // - "level1/level1.txt"
