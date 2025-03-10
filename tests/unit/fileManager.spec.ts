@@ -12,7 +12,7 @@ import {
 import { Optional } from 'cafe-utility';
 
 import { FileManager } from '../../src/fileManager';
-import { FILE_MANAGER_EVENTS, OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
+import { FileManagerEvents, OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
 import { ReferenceWithHistory } from '../../src/utils/types';
 import {
@@ -378,7 +378,7 @@ describe('FileManager', () => {
       });
       createUploadFilesFromDirectorySpy('1');
 
-      on(FILE_MANAGER_EVENTS.FILE_UPLOADED, uploadHandler);
+      on(FileManagerEvents.FILE_UPLOADED, uploadHandler);
 
       const expectedFileInfo = {
         batchId: MOCK_BATCH_ID,
@@ -392,7 +392,7 @@ describe('FileManager', () => {
       };
 
       await fm.upload(new BatchId(MOCK_BATCH_ID), './tests');
-      off(FILE_MANAGER_EVENTS.FILE_UPLOADED, uploadHandler);
+      off(FileManagerEvents.FILE_UPLOADED, uploadHandler);
 
       expect(uploadHandler).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -409,7 +409,7 @@ describe('FileManager', () => {
       const eventHandler = jest.fn((input) => {
         console.log('Input: ', input);
       });
-      fm.emitter.on(FILE_MANAGER_EVENTS.FILE_INFO_LIST_INITIALIZED, eventHandler);
+      fm.emitter.on(FileManagerEvents.FILE_INFO_LIST_INITIALIZED, eventHandler);
 
       await fm.initialize();
 
