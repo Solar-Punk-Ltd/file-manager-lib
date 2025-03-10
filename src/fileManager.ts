@@ -42,6 +42,7 @@ import {
   StampError,
   SubscribtionError,
 } from './utils/errors';
+import { EventEmitter } from './utils/eventEmitter';
 import {
   FetchFeedUpdateResponse,
   FileInfo,
@@ -61,7 +62,6 @@ import {
   makeBeeRequestOptions,
   readFile,
 } from './utils/utils';
-import { EventEmitter } from './utils/eventEmitter';
 
 export class FileManager {
   private bee: Bee;
@@ -110,7 +110,7 @@ export class FileManager {
     await this.initFileInfoList();
 
     this.isInitialized = true;
-    this.emitter.emit(FILE_MANAGER_EVENTS.FILE_INFO_LIST_INITIALIZED, { signer: this.signer});
+    this.emitter.emit(FILE_MANAGER_EVENTS.FILE_INFO_LIST_INITIALIZED, { signer: this.signer });
   }
 
   // verifies if the bee and bee-api versions are supported

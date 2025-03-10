@@ -21,15 +21,15 @@ module.exports = {
   moduleDirectories: ['node_modules'],
   projects: [
     {
-      displayName: "unit",
-      testMatch: ["<rootDir>/tests/unit/**/*.spec.ts"],
+      displayName: 'unit',
+      testMatch: ['<rootDir>/tests/unit/**/*.spec.ts'],
     },
     {
       // Integration setup/teardown – files placed in tests/integration/test-node-setup folder.
-      displayName: "integration",
-      testMatch: ["<rootDir>/tests/integration/**/*.spec.ts"],
-      globalSetup: "<rootDir>/tests/integration/test-node-setup/jestSetup.ts",
-      globalTeardown: "<rootDir>/tests/integration/test-node-setup/jestTeardown.ts",
+      displayName: 'integration',
+      testMatch: ['<rootDir>/tests/integration/**/*.spec.ts'],
+      globalSetup: '<rootDir>/tests/integration/test-node-setup/jestSetup.ts',
+      globalTeardown: '<rootDir>/tests/integration/test-node-setup/jestTeardown.ts',
     },
   ],
 };
