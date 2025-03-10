@@ -5,6 +5,7 @@ import {
   Bytes,
   Duration,
   EthAddress,
+  FeedIndex,
   FeedWriter,
   MantarayNode,
   NodeAddresses,
@@ -13,12 +14,12 @@ import {
   PeerAddress,
   PublicKey,
   Reference,
+  Size,
   UploadResult,
 } from '@upcoming/bee-js';
 import { Optional } from 'cafe-utility';
 
 import { FileManager } from '../src/fileManager';
-import { numberToFeedIndex } from '../src/utils';
 import { OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
 import { FetchFeedUpdateResponse } from '../src/utils/types';
 
@@ -61,8 +62,8 @@ export function createMockNodeAddresses(): NodeAddresses {
 
 export function createMockGetFeedDataResult(currentIndex = 0, nextIndex = 1): FetchFeedUpdateResponse {
   return {
-    feedIndex: numberToFeedIndex(currentIndex),
-    feedIndexNext: numberToFeedIndex(nextIndex),
+    feedIndex: FeedIndex.fromBigInt(BigInt(currentIndex)),
+    feedIndexNext: FeedIndex.fromBigInt(BigInt(nextIndex)),
     payload: SWARM_ZERO_ADDRESS,
   };
 }
@@ -73,8 +74,18 @@ export function createMockFeedWriter(char: string = '0'): FeedWriter {
       reference: new Reference(char.repeat(64)),
       historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
     } as UploadResult),
+    uploadReference: jest.fn().mockResolvedValue({
+      reference: new Reference(char.repeat(64)),
+      historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
+    } as UploadResult),
+    uploadPayload: jest.fn().mockResolvedValue({
+      reference: new Reference(char.repeat(64)),
+      historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
+    } as UploadResult),
     owner: '' as unknown as EthAddress,
     download: jest.fn(),
+    downloadReference: jest.fn(),
+    downloadPayload: jest.fn(),
     topic: NULL_TOPIC,
   };
 }
@@ -122,6 +133,7 @@ export function loadStampListMock(): jest.SpyInstance {
       batchID: new BatchId('1234'.repeat(16)),
       utilization: 2,
       usable: true,
+      usageText: '2%',
       label: 'one',
       depth: 22,
       amount: '480' as NumberString,
@@ -130,14 +142,15 @@ export function loadStampListMock(): jest.SpyInstance {
       immutableFlag: true,
       duration: Duration.fromSeconds(3),
       usage: 0,
-      size: 100,
-      remainingSize: 100,
-      theoreticalSize: 100,
+      size: Size.fromGigabytes(100),
+      remainingSize: Size.fromGigabytes(100),
+      theoreticalSize: Size.fromGigabytes(100),
     },
     {
       batchID: new BatchId('2345'.repeat(16)),
       utilization: 3,
       usable: true,
+      usageText: '2%',
       label: 'two',
       depth: 22,
       amount: '570' as NumberString,
@@ -146,14 +159,15 @@ export function loadStampListMock(): jest.SpyInstance {
       immutableFlag: true,
       duration: Duration.fromSeconds(5),
       usage: 0,
-      size: 100,
-      remainingSize: 100,
-      theoreticalSize: 100,
+      size: Size.fromGigabytes(100),
+      remainingSize: Size.fromGigabytes(100),
+      theoreticalSize: Size.fromGigabytes(100),
     },
     {
       batchID: new BatchId('3456'.repeat(16)),
       utilization: 5,
       usable: true,
+      usageText: '2%',
       label: OWNER_FEED_STAMP_LABEL,
       depth: 22,
       amount: '990' as NumberString,
@@ -162,9 +176,9 @@ export function loadStampListMock(): jest.SpyInstance {
       immutableFlag: false,
       duration: Duration.fromSeconds(8),
       usage: 0,
-      size: 100,
-      remainingSize: 100,
-      theoreticalSize: 100,
+      size: Size.fromGigabytes(100),
+      remainingSize: Size.fromGigabytes(100),
+      theoreticalSize: Size.fromGigabytes(100),
     },
   ]);
 }

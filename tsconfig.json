@@ -22,6 +22,6 @@
     "esModuleInterop": true,
     "baseUrl": "."
   },
-  "include": ["src", "tests", "**/*.test.ts"],
+  "include": ["src"],
   "exclude": ["node_modules", "dist"]
 }

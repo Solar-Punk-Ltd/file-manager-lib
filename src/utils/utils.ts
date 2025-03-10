@@ -1,4 +1,4 @@
-import { BatchId, Bee, BeeRequestOptions, Bytes, EthAddress, FeedIndex, Reference, Topic } from '@upcoming/bee-js';
+import { BatchId, Bee, BeeRequestOptions, Bytes, EthAddress, Reference, Topic } from '@upcoming/bee-js';
 import { randomBytes } from 'crypto';
 import * as fs from 'fs';
 import path from 'path';
@@ -75,8 +75,9 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
     throw new TypeError('fileName property of FileInfo has to be string!');
   }
 
-  if (fi.preview !== undefined && typeof fi.preview !== 'string') {
-    throw new TypeError('preview property of FileInfo has to be string!');
+  if (fi.preview !== undefined) {
+    new Reference(fi.preview.reference);
+    new Reference(fi.preview.historyRef);
   }
 
   if (fi.shared !== undefined && typeof fi.shared !== 'boolean') {
@@ -139,15 +140,6 @@ export function makeBeeRequestOptions(requestOptions: RequestOptions): BeeReques
   return options;
 }
 
-export function numberToFeedIndex(index: number | Uint8Array | string | Bytes): FeedIndex {
-  index = typeof index === 'number' ? FeedIndex.fromBigInt(BigInt(index)) : index;
-  return new FeedIndex(index);
-}
-
-export function makeNumericIndex(index: FeedIndex | undefined): number {
-  return index === undefined ? 0 : Number(index.toBigInt());
-}
-
 // status is undefined in the error object
 // Determines if the error is about 'Not Found'
 export function isNotFoundError(error: any): boolean {
@@ -165,6 +157,6 @@ export async function buyStamp(bee: Bee, amount: string | bigint, depth: number,
   }
   return await bee.createPostageBatch(amount, depth, {
     waitForUsable: true,
-    label: label,
+    label,
   });
 }

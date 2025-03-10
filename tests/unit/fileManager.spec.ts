@@ -2,8 +2,8 @@ import {
   BatchId,
   Bee,
   Bytes,
-  Duration,
   EthAddress,
+  FeedIndex,
   MantarayNode,
   Reference,
   STAMPS_DEPTH_MAX,
@@ -12,7 +12,6 @@ import {
 import { Optional } from 'cafe-utility';
 
 import { FileManager } from '../../src/fileManager';
-import { numberToFeedIndex } from '../../src/utils';
 import { FILE_MANAGER_EVENTS, OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
 import { ReferenceWithHistory } from '../../src/utils/types';
@@ -225,7 +224,7 @@ describe('FileManager', () => {
       createUploadDataSpy('4');
       createMockFeedWriter('5');
 
-      fm.upload(new BatchId(MOCK_BATCH_ID), './tests', './tests/coverage');
+      fm.upload(new BatchId(MOCK_BATCH_ID), './tests');
 
       expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
       expect(uploadFileOrDirectoryPreviewSpy).toHaveBeenCalled();
@@ -238,29 +237,6 @@ describe('FileManager', () => {
       await expect(async () => {
         await fm.upload(new BatchId(MOCK_BATCH_ID), './tests', undefined, undefined, 'infoTopic');
       }).rejects.toThrow('infoTopic and historyRef have to be provided at the same time.');
-    });
-  });
-
-  describe('filterBatches', () => {
-    it('should filter by utilization', async () => {
-      createInitMocks();
-      const fm = await createInitializedFileManager();
-
-      const result = fm.filterBatches(undefined, 3, undefined);
-
-      expect(result.length).toBe(1);
-      expect(result[0].label).toBe(OWNER_FEED_STAMP_LABEL);
-    });
-
-    it('should filter by ttl and capacity', async () => {
-      createInitMocks();
-      const fm = await createInitializedFileManager();
-
-      const result = fm.filterBatches(Duration.fromSeconds(4), undefined, 18);
-
-      expect(result.length).toBe(2);
-      expect(result[0].label).toBe('two');
-      expect(result[1].label).toBe(OWNER_FEED_STAMP_LABEL);
     });
   });
 
@@ -347,6 +323,8 @@ describe('FileManager', () => {
       const topic = Topic.fromString('example');
       const makeFeedReaderSpy = jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue({
         download: jest.fn(),
+        downloadReference: jest.fn(),
+        downloadPayload: jest.fn(),
         owner: new EthAddress('0000000000000000000000000000000000000000'),
         topic: topic,
       });
@@ -356,36 +334,37 @@ describe('FileManager', () => {
       expect(makeFeedReaderSpy).toHaveBeenCalled();
     });
 
-    it('should call download with correct index, is index is provided', async () => {
+    it('should call download with correct index, if index is provided', async () => {
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
       const fm = new FileManager(bee);
       const topic = Topic.fromString('example');
-      const downloadSpy = jest.fn();
+      const downloadSpy = { download: jest.fn(), downloadReference: jest.fn(), downloadPayload: jest.fn() };
       jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue({
-        download: downloadSpy,
+        ...downloadSpy,
         owner: new EthAddress('0000000000000000000000000000000000000000'),
         topic: topic,
       });
 
-      await fm.getFeedData(topic, 8);
+      await fm.getFeedData(topic, 8n);
 
-      expect(downloadSpy).toHaveBeenCalledWith({ index: numberToFeedIndex(8) });
+      expect(downloadSpy.download).toHaveBeenCalledWith({ index: FeedIndex.fromBigInt(8n) });
     });
 
     it('should call download without parameters, if index is not provided', async () => {
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
       const fm = new FileManager(bee);
       const topic = Topic.fromString('example');
-      const downloadSpy = jest.fn();
+      const downloadSpy = { download: jest.fn(), downloadReference: jest.fn(), downloadPayload: jest.fn() };
+
       jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue({
-        download: downloadSpy,
+        ...downloadSpy,
         owner: new EthAddress('0000000000000000000000000000000000000000'),
         topic: topic,
       });
 
       await fm.getFeedData(topic);
 
-      expect(downloadSpy).toHaveBeenCalledWith();
+      expect(downloadSpy.download).toHaveBeenCalledWith();
     });
   });
 
