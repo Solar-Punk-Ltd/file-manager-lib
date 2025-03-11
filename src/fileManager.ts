@@ -32,6 +32,7 @@ import {
   makeBeeRequestOptions,
 } from './utils/common';
 import {
+  FileManagerEvents,
   OWNER_FEED_STAMP_LABEL,
   REFERENCE_LIST_TOPIC,
   SHARED_INBOX_TOPIC,
@@ -41,10 +42,12 @@ import {
   BeeVersionError,
   FileInfoError,
   GranteeError,
+  SendShareMessageError,
   SignerError,
   StampError,
   SubscribtionError,
 } from './utils/errors';
+import { EventEmitter } from './utils/eventEmitter';
 import {
   FetchFeedUpdateResponse,
   FileInfo,
@@ -65,6 +68,7 @@ export abstract class FileManager {
   private ownerFeedTopic: Topic;
   private ownerFeedList: WrappedFileInfoFeed[];
   private isInitialized: boolean;
+  readonly emitter: EventEmitter = new EventEmitter();
 
   protected bee: Bee;
 
@@ -100,6 +104,7 @@ export abstract class FileManager {
     await this.initFileInfoList();
 
     this.isInitialized = true;
+    this.emitter.emit(FileManagerEvents.FILE_INFO_LIST_INITIALIZED, { signer: this.signer });
   }
 
   // verifies if the bee and bee-api versions are supported
@@ -331,7 +336,7 @@ export abstract class FileManager {
     redundancyLevel?: RedundancyLevel,
   ): Promise<void> {
     const feedIndex = index !== undefined ? index : 0;
-    const fileInfoResult = await this.uploadFileInfo({
+    const fileInfo = {
       batchId: batchId.toString(),
       file: uploadFilesRes,
       topic: topic.toString(),
@@ -343,7 +348,8 @@ export abstract class FileManager {
       index: feedIndex,
       redundancyLevel,
       customMetadata,
-    });
+    };
+    const fileInfoResult = await this.uploadFileInfo(fileInfo);
 
     await this.saveWrappedFileInfoFeed(batchId, fileInfoResult, topic, feedIndex, redundancyLevel);
 
@@ -358,6 +364,7 @@ export abstract class FileManager {
     }
 
     await this.saveFileInfoFeedList();
+    this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
   }
 
   protected async uploadFileInfo(fileInfo: FileInfo): Promise<ReferenceWithHistory> {
@@ -604,6 +611,7 @@ export abstract class FileManager {
     };
 
     this.sendShareMessage(targetOverlays, item, recipients);
+    this.emitter.emit(FileManagerEvents.SHARE_MESSAGE_SENT, { recipients: recipients, shareItem: item });
   }
 
   // recipient is optional, if not provided the message will be broadcasted == pss public key
@@ -620,6 +628,7 @@ export abstract class FileManager {
         this.bee.pssSend(item.fileInfo.batchId, SHARED_INBOX_TOPIC, target, msgData, recipients[i]);
       } catch (error: any) {
         console.log(`Failed to share item with recipient: ${recipients[i]}\n `, error);
+        throw new SendShareMessageError(`Failed to share item with recipient: ${recipients[i]}\n ${error}`);
       }
     }
   }
