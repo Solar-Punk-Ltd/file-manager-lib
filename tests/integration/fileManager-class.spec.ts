@@ -133,14 +133,14 @@ describe('FileManager initialization', () => {
       await fm.upload(testStampId, path.join(__dirname, '../fixtures/test.txt'));
 
       const fileInfoList = fm.getFileInfoList();
-      expect(fileInfoList.length).toEqual(expFileDataArr.length);
+      expect(fileInfoList).toHaveLength(expFileDataArr.length);
       await dowloadAndCompareFiles(fm, publsiherPublicKey, fileInfoList, expFileDataArr);
 
       const fileList = await fm.listFiles(fileInfoList[0], {
         actHistoryAddress: fileInfoList[0].file.historyRef,
         actPublisher: publsiherPublicKey,
       });
-      expect(fileList.length).toEqual(expNestedPaths.length);
+      expect(fileList).toHaveLength(expNestedPaths.length);
       for (const [ix, f] of fileList.entries()) {
         expect(path.basename(f.path)).toEqual(path.basename(expNestedPaths[ix]));
       }
@@ -606,7 +606,7 @@ describe('FileManager listFiles', () => {
     expect(returnedBasenames).toContain('a.txt');
     expect(returnedBasenames).toContain('b.txt');
     expect(returnedBasenames).toContain('c.txt');
-    expect(fileList.length).toEqual(3);
+    expect(fileList).toHaveLength(3);
   });
 
   it('should return an empty file list when uploading an empty folder', async () => {
@@ -633,7 +633,7 @@ describe('FileManager listFiles', () => {
       actHistoryAddress: fileInfo!.file.historyRef,
       actPublisher: fileManager.getNodeAddresses()!.publicKey,
     });
-    expect(fileList.length).toEqual(0);
+    expect(fileList).toHaveLength(0);
 
     fs.rmSync(emptyDir, { recursive: true, force: true });
   });
@@ -847,7 +847,7 @@ describe('FileManager downloadFiles', () => {
       actHistoryAddress: new Reference(saved.historyRef),
       actPublisher: fileManager.getNodeAddresses()!.publicKey,
     });
-    expect(files.length).toEqual(0);
+    expect(files).toHaveLength(0);
   });
 
   it('should download an empty file as an empty string', async () => {
@@ -1078,7 +1078,7 @@ describe('FileManager End-to-End User Workflow', () => {
     expect(basenames).toContain('doc2.txt');
     expect(basenames).toContain('image.png');
     expect(basenames).not.toContain('readme.txt');
-    expect(listedFiles.length).toEqual(3);
+    expect(listedFiles).toHaveLength(3);
   });
 
   // Scenario 2: New Version Folder Upload
@@ -1136,7 +1136,7 @@ describe('FileManager End-to-End User Workflow', () => {
     expect(basenames_newVersion).toContain('subdoc.txt');
     // For example, we expect the nested file to be in a folder called "nested".
     expect(fullPaths_newVersion).toContain('nested/subdoc.txt');
-    expect(listedFiles_newVersion.length).toEqual(5);
+    expect(listedFiles_newVersion).toHaveLength(5);
 
     // Step 5: Download all files and verify their content.
     const downloadedContents = await fileManager.downloadFiles(new Reference(newVersionInfo!.file.reference), {
