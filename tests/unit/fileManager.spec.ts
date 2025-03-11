@@ -12,7 +12,7 @@ import {
 import { Optional } from 'cafe-utility';
 
 import { FileManager } from '../../src/fileManager';
-import { OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
+import { FileManagerEvents, OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
 import { ReferenceWithHistory } from '../../src/utils/types';
 import {
@@ -365,6 +365,55 @@ describe('FileManager', () => {
       await fm.getFeedData(topic);
 
       expect(downloadSpy.download).toHaveBeenCalledWith();
+    });
+  });
+
+  describe('eventEmitter', () => {
+    it('should send event after upload happens', async () => {
+      createInitMocks();
+      const fm = await createInitializedFileManager();
+      const { on, off } = fm.emitter;
+      const uploadHandler = jest.fn((input) => {
+        console.log('Input: ', input);
+      });
+      createUploadFilesFromDirectorySpy('1');
+
+      on(FileManagerEvents.FILE_UPLOADED, uploadHandler);
+
+      const expectedFileInfo = {
+        batchId: MOCK_BATCH_ID,
+        customMetadata: undefined,
+        file: {
+          historyRef: expect.anything(),
+          reference: '1'.repeat(64),
+        },
+        index: 0,
+        name: 'tests',
+      };
+
+      await fm.upload(new BatchId(MOCK_BATCH_ID), './tests');
+      off(FileManagerEvents.FILE_UPLOADED, uploadHandler);
+
+      expect(uploadHandler).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fileInfo: expect.objectContaining(expectedFileInfo),
+        }),
+      );
+    });
+
+    it('should send an event after fileInfoList is initialized', async () => {
+      createInitMocks();
+
+      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const fm = new FileManager(bee);
+      const eventHandler = jest.fn((input) => {
+        console.log('Input: ', input);
+      });
+      fm.emitter.on(FileManagerEvents.FILE_INFO_LIST_INITIALIZED, eventHandler);
+
+      await fm.initialize();
+
+      expect(eventHandler).toHaveBeenCalledWith({ signer: MOCK_SIGNER });
     });
   });
 });

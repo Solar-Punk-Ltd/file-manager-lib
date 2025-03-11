@@ -28,6 +28,7 @@ import {
 import path from 'path';
 
 import {
+  FileManagerEvents,
   OWNER_FEED_STAMP_LABEL,
   REFERENCE_LIST_TOPIC,
   SHARED_INBOX_TOPIC,
@@ -37,10 +38,12 @@ import {
   BeeVersionError,
   FileInfoError,
   GranteeError,
+  SendShareMessageError,
   SignerError,
   StampError,
   SubscribtionError,
 } from './utils/errors';
+import { EventEmitter } from './utils/eventEmitter';
 import {
   FetchFeedUpdateResponse,
   FileInfo,
@@ -73,6 +76,7 @@ export class FileManager {
   private sharedSubscription: PssSubscription | undefined;
   private ownerFeedTopic: Topic;
   private isInitialized: boolean;
+  readonly emitter: EventEmitter = new EventEmitter();
 
   constructor(bee: Bee) {
     this.bee = bee;
@@ -106,6 +110,7 @@ export class FileManager {
     await this.initFileInfoList();
 
     this.isInitialized = true;
+    this.emitter.emit(FileManagerEvents.FILE_INFO_LIST_INITIALIZED, { signer: this.signer });
   }
 
   // verifies if the bee and bee-api versions are supported
@@ -311,7 +316,6 @@ export class FileManager {
   // End getter methods
 
   // Start Swarm data saving methods
-  // TODO: event emitter integration
   async upload(
     batchId: BatchId,
     resolvedPath: string,
@@ -345,7 +349,7 @@ export class FileManager {
 
     const topic = infoTopic ? Topic.fromString(infoTopic) : new Topic(getRandomBytes(Topic.LENGTH));
     const feedIndex = index !== undefined ? index : 0;
-    const fileInfoResult = await this.uploadFileInfo({
+    const fileInfo = {
       batchId: batchId.toString(),
       file: uploadFilesRes,
       topic: topic.toString(),
@@ -357,7 +361,8 @@ export class FileManager {
       index: feedIndex,
       redundancyLevel,
       customMetadata,
-    });
+    };
+    const fileInfoResult = await this.uploadFileInfo(fileInfo);
 
     await this.saveWrappedFileInfoFeed(batchId, fileInfoResult, topic, feedIndex, redundancyLevel);
 
@@ -372,6 +377,7 @@ export class FileManager {
     }
 
     await this.saveFileInfoFeedList();
+    this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
   }
   // TODO: streamFiles & uploadFiles  - streamDirectory & uploadFilesFromDirectory -> browser vs nodejs
   // TODO: redundancyLevel missing from uploadoptions
@@ -728,6 +734,7 @@ export class FileManager {
     };
 
     this.sendShareMessage(targetOverlays, item, recipients);
+    this.emitter.emit(FileManagerEvents.SHARE_MESSAGE_SENT, { recipients: recipients, shareItem: item });
   }
 
   // recipient is optional, if not provided the message will be broadcasted == pss public key
@@ -744,6 +751,7 @@ export class FileManager {
         this.bee.pssSend(item.fileInfo.batchId, SHARED_INBOX_TOPIC, target, msgData, recipients[i]);
       } catch (error: any) {
         console.log(`Failed to share item with recipient: ${recipients[i]}\n `, error);
+        throw new SendShareMessageError(`Failed to share item with recipient: ${recipients[i]}\n ${error}`);
       }
     }
   }
