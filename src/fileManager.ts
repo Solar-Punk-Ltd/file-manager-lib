@@ -67,15 +67,15 @@ import {
 export class FileManager {
   private bee: Bee;
   private signer: PrivateKey;
-  private nodeAddresses: NodeAddresses | undefined;
-  private stampList: PostageBatch[];
-  private ownerFeedList: WrappedFileInfoFeed[];
-  private fileInfoList: FileInfo[];
-  private ownerFeedNextIndex: bigint;
-  private sharedWithMe: ShareItem[];
-  private sharedSubscription: PssSubscription | undefined;
-  private ownerFeedTopic: Topic;
-  private isInitialized: boolean;
+  private nodeAddresses: NodeAddresses | undefined = undefined;
+  private stampList: PostageBatch[] = [];
+  private ownerFeedList: WrappedFileInfoFeed[] = [];
+  private fileInfoList: FileInfo[] = [];
+  private ownerFeedNextIndex: bigint = 0n;
+  private sharedWithMe: ShareItem[] = [];
+  private sharedSubscription: PssSubscription | undefined = undefined;
+  private ownerFeedTopic: Topic = NULL_TOPIC;
+  private isInitialized: boolean = false;
   readonly emitter: EventEmitter = new EventEmitter();
 
   constructor(bee: Bee) {
@@ -84,15 +84,6 @@ export class FileManager {
       throw new SignerError('Signer required');
     }
     this.signer = this.bee.signer;
-    this.stampList = [];
-    this.fileInfoList = [];
-    this.ownerFeedList = [];
-    this.ownerFeedNextIndex = 0n;
-    this.ownerFeedTopic = NULL_TOPIC;
-    this.sharedWithMe = [];
-    this.sharedSubscription = undefined;
-    this.isInitialized = false;
-    this.nodeAddresses = undefined;
   }
 
   // Start init methods
