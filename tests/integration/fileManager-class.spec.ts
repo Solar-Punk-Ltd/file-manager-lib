@@ -593,7 +593,6 @@ describe('FileManager listFiles', () => {
 
     // Retrieve our FileInfo by filtering on the unique folder name.
     const allFileInfos = fileManager.getFileInfoList();
-    console.log('bagoy allFileInfos', allFileInfos);
     const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(tempDir));
     expect(fileInfo).toBeDefined();
 

@@ -10,8 +10,8 @@ export function isStrictlyObject(value: unknown): value is Record<string, unknow
   return isObject(value) && !Array.isArray(value);
 }
 
-export function isRecord(value: Record<string, string> | string[]): value is Record<string, string> {
-  return typeof value === 'object' && 'key' in value;
+export function isRecord(value: unknown): value is Record<string, string> {
+  return isStrictlyObject(value) && Object.values(value).every((v) => typeof v === 'string');
 }
 
 export function assertFileInfo(value: unknown): asserts value is FileInfo {
@@ -121,6 +121,7 @@ export async function buyStamp(bee: Bee, amount: string | bigint, depth: number,
   if (stamp && stamp.usable) {
     return stamp.batchID;
   }
+
   return await bee.createPostageBatch(amount, depth, {
     waitForUsable: true,
     label,

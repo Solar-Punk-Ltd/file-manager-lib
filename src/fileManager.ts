@@ -207,8 +207,8 @@ export abstract class FileManager {
     this.ownerFeedNextIndex = latestFeedData.feedIndexNext?.toBigInt() || 0n;
     const refWithHistory = latestFeedData.payload.toJSON() as ReferenceWithHistory;
 
-    const fileInfoFeedListRawData = await this.bee.downloadData(new Reference(refWithHistory.reference), {
-      actHistoryAddress: new Reference(refWithHistory.historyRef),
+    const fileInfoFeedListRawData = await this.bee.downloadData(refWithHistory.reference, {
+      actHistoryAddress: refWithHistory.historyRef,
       actPublisher: this.nodeAddresses.publicKey,
     });
     const fileInfoFeedListData = fileInfoFeedListRawData.toJSON() as WrappedFileInfoFeed[];
@@ -222,7 +222,7 @@ export abstract class FileManager {
       }
     }
 
-    console.log('FileInfo feed list fetched successfully.');
+    console.debug('FileInfo feed list fetched successfully.');
   }
 
   // fetches the file info list from the owner feed and unwraps the data encrypted with ACT
@@ -235,8 +235,8 @@ export abstract class FileManager {
       const rawFeedData = await this.getFeedData(new Topic(feedItem.topic));
       const fileInfoFeedData = rawFeedData.payload.toJSON() as ReferenceWithHistory;
 
-      const rawData = await this.bee.downloadData(fileInfoFeedData.reference, {
-        actHistoryAddress: new Reference(fileInfoFeedData.historyRef),
+      const rawData = await this.bee.downloadData(fileInfoFeedData.reference.toString(), {
+        actHistoryAddress: fileInfoFeedData.historyRef,
         actPublisher: this.nodeAddresses.publicKey,
       });
       const unwrappedFileInfoData = rawData.toJSON() as ReferenceWithHistory;
@@ -421,7 +421,7 @@ export abstract class FileManager {
       );
 
       const requestOptions = redundancyLevel ? makeBeeRequestOptions({ redundancyLevel }) : undefined;
-      const fw = this.bee.makeFeedWriter(topic, this.signer, requestOptions);
+      const fw = this.bee.makeFeedWriter(topic.toUint8Array(), this.signer, requestOptions);
       await fw.uploadReference(batchId, uploadInfoRes.reference, {
         index: index,
       });
