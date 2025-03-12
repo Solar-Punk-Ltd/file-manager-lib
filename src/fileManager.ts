@@ -68,6 +68,7 @@ export abstract class FileManager {
   private ownerFeedTopic: Topic;
   private ownerFeedList: WrappedFileInfoFeed[];
   private isInitialized: boolean;
+  private isInitializing: boolean;
   readonly emitter: EventEmitter = new EventEmitter();
 
   protected bee: Bee;
@@ -86,6 +87,7 @@ export abstract class FileManager {
     this.sharedWithMe = [];
     this.sharedSubscription = undefined;
     this.isInitialized = false;
+    this.isInitializing = false;
     this.nodeAddresses = undefined;
   }
 
@@ -96,26 +98,40 @@ export abstract class FileManager {
       return;
     }
 
-    await this.verifySupportedVersions();
-    await this.initNodeAddresses();
-    await this.initStamps();
-    await this.initOwnerFeedTopic();
-    await this.initOwnerFeedList();
-    await this.initFileInfoList();
+    if (this.isInitializing) {
+      console.log('FileManager is being initialized');
+      return;
+    }
+    this.isInitializing = true;
 
-    this.isInitialized = true;
-    this.emitter.emit(FileManagerEvents.FILE_INFO_LIST_INITIALIZED, { signer: this.signer });
+    try {
+      await this.verifySupportedVersions();
+      await this.initNodeAddresses();
+      await this.initStamps();
+      await this.initOwnerFeedTopic();
+      await this.initOwnerFeedList();
+      await this.initFileInfoList();
+
+      this.isInitialized = true;
+      this.emitter.emit(FileManagerEvents.FILEMANAGER_INITIALIZED, true);
+    } catch (error) {
+      console.error(`Failed to initialize FileManager: ${error}`);
+      this.isInitialized = false;
+      this.emitter.emit(FileManagerEvents.FILEMANAGER_INITIALIZED, false);
+    }
+
+    this.isInitializing = false;
   }
 
   // verifies if the bee and bee-api versions are supported
   private async verifySupportedVersions(): Promise<void> {
     const beeVersions = await this.bee.getVersions();
-    console.log(`Bee version: ${beeVersions.beeVersion}`);
-    console.log(`Bee API version: ${beeVersions.beeApiVersion}`);
+    console.debug(`Bee version: ${beeVersions.beeVersion}`);
+    console.debug(`Bee API version: ${beeVersions.beeApiVersion}`);
     const supportedApi = await this.bee.isSupportedApiVersion();
     if (!supportedApi) {
-      console.log('Supported bee API version: ', beeVersions.supportedBeeApiVersion);
-      console.log('Supported bee version: ', beeVersions.supportedBeeVersion);
+      console.error('Supported bee API version: ', beeVersions.supportedBeeApiVersion);
+      console.error('Supported bee version: ', beeVersions.supportedBeeVersion);
       throw new BeeVersionError('Bee or Bee API version not supported');
     }
   }
@@ -161,14 +177,14 @@ export abstract class FileManager {
       this.ownerFeedTopic = new Topic(topicBytes.toUint8Array());
     }
 
-    console.log('Owner feed topic successfully initialized');
+    console.debug('Owner feed topic successfully initialized');
   }
 
   // fetches the usable stamps from the node
   private async initStamps(): Promise<void> {
     try {
       await this.getUsableStamps();
-      console.log('Usable stamps fetched successfully.');
+      console.debug('Usable stamps fetched successfully.');
     } catch (error: any) {
       console.error(`Failed to fetch stamps: ${error}`);
     }
@@ -184,7 +200,7 @@ export abstract class FileManager {
     const dataArr = latestFeedData.payload.toUint8Array();
 
     if (SWARM_ZERO_ADDRESS.equals(dataArr)) {
-      console.log("Owner fileInfo feed list doesn't exist yet.");
+      console.debug("Owner fileInfo feed list doesn't exist yet.");
       return;
     }
 
@@ -233,7 +249,7 @@ export abstract class FileManager {
       }
     }
 
-    console.log('File info lists fetched successfully.');
+    console.debug('File info lists fetched successfully.');
   }
   // End init methods
 
@@ -295,10 +311,6 @@ export abstract class FileManager {
   // End mantaray methods
 
   // Start getter methods
-  getIsInitialized(): boolean {
-    return this.isInitialized;
-  }
-
   getFileInfoList(): FileInfo[] {
     return this.fileInfoList;
   }
@@ -314,9 +326,11 @@ export abstract class FileManager {
   // End getter methods
 
   // Start Swarm data saving methods
+  // TODO: refactor params and name handling
   abstract upload(
     batchId: BatchId,
     filesOrPath: string | File[] | FileList,
+    name: string,
     customMetadata?: Record<string, string>,
     historyRef?: Reference,
     infoTopic?: string,
@@ -329,6 +343,7 @@ export abstract class FileManager {
   protected async saveFileInfoAndFeed(
     batchId: BatchId,
     topic: Topic,
+    name: string,
     uploadFilesRes: ReferenceWithHistory,
     uploadPreviewRes?: ReferenceWithHistory,
     index?: number,
@@ -341,7 +356,7 @@ export abstract class FileManager {
       file: uploadFilesRes,
       topic: topic.toString(),
       owner: this.signer.publicKey().address().toString(),
-      name: 'TODO bagoy',
+      name,
       timestamp: new Date().getTime(),
       shared: false,
       preview: uploadPreviewRes,
@@ -430,7 +445,7 @@ export abstract class FileManager {
         },
       );
 
-      const fw = this.bee.makeFeedWriter(this.ownerFeedTopic, this.signer);
+      const fw = this.bee.makeFeedWriter(this.ownerFeedTopic.toUint8Array(), this.signer);
       const ownerFeedRawData = await this.bee.uploadData(
         ownerFeedStamp.batchID,
         JSON.stringify({
@@ -502,7 +517,7 @@ export abstract class FileManager {
 
     this.saveFileInfoFeedList();
 
-    console.log(`Volume destroyed: ${batchId.toString()}`);
+    console.debug(`Volume destroyed: ${batchId.toString()}`);
   }
   // End stamp handler methods
 
@@ -531,7 +546,7 @@ export abstract class FileManager {
   ): Promise<GranteesResult> {
     const fIx = this.fileInfoList.findIndex((f) => f.file === fileInfo.file);
     if (fIx === -1) {
-      throw new FileInfoError(`Provided fileinfo not found: ${fileInfo.file.reference}`);
+      throw new FileInfoError(`Provided fileinfo not found: ${fileInfo.file.reference.toString()}`);
     }
 
     let grantResult: GranteesResult;
@@ -542,14 +557,14 @@ export abstract class FileManager {
         fileInfo.file.historyRef || SWARM_ZERO_ADDRESS,
         grantees,
       );
-      console.log('Grantee list patched, grantee list reference: ', grantResult.ref.toString());
+      console.debug('Grantee list patched, grantee list reference: ', grantResult.ref.toString());
     } else {
       if (grantees.add === undefined || grantees.add.length === 0) {
         throw new GranteeError(`No grantees specified.`);
       }
 
       grantResult = await this.bee.createGrantees(fileInfo.batchId, grantees.add);
-      console.log('Access granted, new grantee list reference: ', grantResult.ref.toString());
+      console.debug('Access granted, new grantee list reference: ', grantResult.ref.toString());
     }
 
     return grantResult;
@@ -565,10 +580,10 @@ export abstract class FileManager {
       );
     }
 
-    console.log('Subscribing to shared inbox, topic: ', topic);
+    console.debug('Subscribing to shared inbox, topic: ', topic);
     this.sharedSubscription = this.bee.pssSubscribe(Topic.fromString(topic), {
       onMessage: (message) => {
-        console.log('Received shared inbox message: ', message);
+        console.debug('Received shared inbox message: ', message);
         assertShareItem(message);
         this.sharedWithMe.push(message);
         if (callback) {
@@ -576,7 +591,7 @@ export abstract class FileManager {
         }
       },
       onError: (e) => {
-        console.log('Error received in shared inbox: ', e.message);
+        console.debug('Error received in shared inbox: ', e.message);
         throw new SubscribtionError(e.message);
       },
     });
@@ -584,7 +599,7 @@ export abstract class FileManager {
 
   unsubscribeFromSharedInbox(): void {
     if (this.sharedSubscription) {
-      console.log('Unsubscribed from shared inbox, topic: ', this.sharedSubscription.topic.toString());
+      console.debug('Unsubscribed from shared inbox, topic: ', this.sharedSubscription.topic.toString());
       this.sharedSubscription.cancel();
     }
   }
@@ -592,7 +607,7 @@ export abstract class FileManager {
   async shareItem(fileInfo: FileInfo, targetOverlays: string[], recipients: string[], message?: string): Promise<void> {
     const ix = this.ownerFeedList.findIndex((mf) => mf.topic.toString() === fileInfo.file.reference.toString());
     if (ix === -1) {
-      console.log('File reference not found in fileInfo feed list.');
+      console.error('File reference not found in fileInfo feed list.');
       return;
     }
 
@@ -628,7 +643,7 @@ export abstract class FileManager {
         const msgData = Bytes.fromUtf8(JSON.stringify(item)).toUint8Array();
         this.bee.pssSend(item.fileInfo.batchId, SHARED_INBOX_TOPIC, target, msgData, recipients[i]);
       } catch (error: any) {
-        console.log(`Failed to share item with recipient: ${recipients[i]}\n `, error);
+        console.error(`Failed to share item with recipient: ${recipients[i]}\n `, error);
         throw new SendShareMessageError(`Failed to share item with recipient: ${recipients[i]}\n ${error}`);
       }
     }

@@ -16,6 +16,7 @@ export class FileManagerBrowser extends FileManager {
   async upload(
     batchId: BatchId,
     files: File[] | FileList,
+    name: string,
     customMetadata?: Record<string, string>,
     historyRef?: Reference,
     infoTopic?: string,
@@ -39,6 +40,7 @@ export class FileManagerBrowser extends FileManager {
     await super.saveFileInfoAndFeed(
       batchId,
       topic,
+      name,
       uploadFilesRes,
       uploadPreviewRes,
       index,

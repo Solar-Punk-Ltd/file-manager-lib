@@ -24,6 +24,7 @@ export class FileManagerNode extends FileManager {
   async upload(
     batchId: BatchId,
     path: string,
+    name: string,
     customMetadata?: Record<string, string>,
     historyRef?: Reference,
     infoTopic?: string,
@@ -57,6 +58,7 @@ export class FileManagerNode extends FileManager {
     await super.saveFileInfoAndFeed(
       batchId,
       topic,
+      name,
       uploadFilesRes,
       uploadPreviewRes,
       index,

@@ -58,7 +58,6 @@ describe('FileManager', () => {
       //expect(fm.getStamps()).toEqual([]); // we get {} instead of []
       expect(fm.getFileInfoList()).toEqual([]);
       expect(fm.getSharedWithMe()).toEqual([]);
-      expect(fm.getIsInitialized()).toEqual(false);
       expect(fm.getNodeAddresses()).toEqual(undefined);
     });
   });
@@ -70,9 +69,14 @@ describe('FileManager', () => {
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
       const fm = new FileManagerNode(bee);
 
+      const eventHandler = jest.fn((input) => {
+        console.log('Input: ', input);
+      });
+      fm.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
+
       await fm.initialize();
 
-      expect(fm.getIsInitialized()).toBe(true);
+      expect(eventHandler).toHaveBeenCalledWith(true);
     });
 
     it('should not initialize, if already initialized', async () => {
@@ -82,11 +86,35 @@ describe('FileManager', () => {
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
       const fm = new FileManagerNode(bee);
 
+      const eventHandler = jest.fn((input) => {
+        console.log('Input: ', input);
+      });
+      fm.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
+
       await fm.initialize();
-      expect(fm.getIsInitialized()).toBe(true);
+
+      expect(eventHandler).toHaveBeenCalledWith(true);
 
       await fm.initialize();
       expect(logSpy).toHaveBeenCalledWith('FileManager is already initialized');
+    });
+
+    it('should not initialize, if currently being initialized', async () => {
+      createInitMocks();
+      const logSpy = jest.spyOn(console, 'log');
+
+      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const fm = new FileManagerNode(bee);
+
+      const eventHandler = jest.fn((input) => {
+        console.log('Input: ', input);
+      });
+      fm.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
+
+      fm.initialize();
+      fm.initialize();
+
+      expect(logSpy).toHaveBeenCalledWith('FileManager is being initialized');
     });
   });
 
@@ -210,7 +238,7 @@ describe('FileManager', () => {
       createUploadDataSpy('4');
       createMockFeedWriter('5');
 
-      fm.upload(new BatchId(MOCK_BATCH_ID), './tests');
+      fm.upload(new BatchId(MOCK_BATCH_ID), './tests', 'tests');
 
       expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
     });
@@ -225,7 +253,7 @@ describe('FileManager', () => {
       createUploadDataSpy('4');
       createMockFeedWriter('5');
 
-      fm.upload(new BatchId(MOCK_BATCH_ID), './tests');
+      fm.upload(new BatchId(MOCK_BATCH_ID), './tests', 'tests');
 
       expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
       expect(uploadFileOrDirectoryPreviewSpy).toHaveBeenCalled();
@@ -236,7 +264,7 @@ describe('FileManager', () => {
       const fm = await createInitializedFileManager();
 
       await expect(async () => {
-        await fm.upload(new BatchId(MOCK_BATCH_ID), './tests', undefined, undefined, 'infoTopic', undefined);
+        await fm.upload(new BatchId(MOCK_BATCH_ID), './tests', 'tests', undefined, undefined, 'infoTopic', undefined);
       }).rejects.toThrow('infoTopic and historyRef have to be provided at the same time.');
     });
   });
@@ -398,7 +426,7 @@ describe('FileManager', () => {
         topic: expect.any(String),
       };
 
-      await fm.upload(new BatchId(MOCK_BATCH_ID), './tests');
+      await fm.upload(new BatchId(MOCK_BATCH_ID), './tests', 'tests');
       off(FileManagerEvents.FILE_UPLOADED, uploadHandler);
 
       expect(uploadHandler).toHaveBeenCalledWith({
@@ -414,11 +442,11 @@ describe('FileManager', () => {
       const eventHandler = jest.fn((input) => {
         console.log('Input: ', input);
       });
-      fm.emitter.on(FileManagerEvents.FILE_INFO_LIST_INITIALIZED, eventHandler);
+      fm.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
 
       await fm.initialize();
 
-      expect(eventHandler).toHaveBeenCalledWith({ signer: MOCK_SIGNER });
+      expect(eventHandler).toHaveBeenCalledWith(true);
     });
   });
 });
