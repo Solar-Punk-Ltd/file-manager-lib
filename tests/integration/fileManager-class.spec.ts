@@ -30,6 +30,7 @@ describe('FileManager initialization', () => {
       await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
     } catch (e) {
       // Stamp already exists; ignore error.
+      void e;
     }
   });
 
