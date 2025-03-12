@@ -1,11 +1,19 @@
-import js from '@eslint/js';
-import ts from '@typescript-eslint/eslint-plugin';
-import tsParser from '@typescript-eslint/parser';
-import prettier from 'eslint-config-prettier';
-import importPlugin from 'eslint-plugin-import';
-import pluginJest from 'eslint-plugin-jest';
-import prettierPlugin from 'eslint-plugin-prettier';
-import simpleImportSort from 'eslint-plugin-simple-import-sort';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
+
+// Calculate current directory for proper file path resolution
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Import the modules from our CommonJS compatibility wrapper
+const compat = await import(`${__dirname}/eslint-compat.cjs`);
+const js = compat.default.js;
+const ts = compat.default.ts;
+const tsParser = compat.default.tsParser;
+const prettier = compat.default.prettier;
+const importPlugin = compat.default.importPlugin;
+const pluginJest = compat.default.pluginJest;
+const prettierPlugin = compat.default.prettierPlugin;
+const simpleImportSort = compat.default.simpleImportSort;
 
 // Recreate eslint:recommended
 const eslintRecommended = js.configs.recommended;
@@ -45,7 +53,7 @@ const prettierRecommended = {
 
 export default [
   {
-    ignores: ['**/node_modules/**', '**/dist/**', 'eslint.config.mjs', '**/*commitlint.config.js'],
+    ignores: ['**/node_modules/**', '**/dist/**', 'eslint.config.mjs', 'eslint-compat.cjs', '**/*commitlint.config.js'],
   },
   {
     settings: {
