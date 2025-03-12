@@ -32,7 +32,6 @@ import {
   makeBeeRequestOptions,
 } from './utils/common';
 import {
-  FileManagerEvents,
   OWNER_FEED_STAMP_LABEL,
   REFERENCE_LIST_TOPIC,
   SHARED_INBOX_TOPIC,
@@ -48,6 +47,7 @@ import {
   SubscribtionError,
 } from './utils/errors';
 import { EventEmitter } from './utils/eventEmitter';
+import { FileManagerEvents } from './utils/events';
 import {
   FetchFeedUpdateResponse,
   FileInfo,
@@ -364,6 +364,7 @@ export abstract class FileManager {
     }
 
     await this.saveFileInfoFeedList();
+
     this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
   }
 
@@ -416,7 +417,7 @@ export abstract class FileManager {
 
   protected async saveFileInfoFeedList(): Promise<void> {
     const ownerFeedStamp = this.getOwnerFeedStamp();
-    if (!ownerFeedStamp) {
+    if (ownerFeedStamp === undefined) {
       throw new StampError('Owner feed stamp is not found.');
     }
 

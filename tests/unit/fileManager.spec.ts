@@ -12,8 +12,9 @@ import {
 import { Optional } from 'cafe-utility';
 
 import { FileManagerNode } from '../../src/fileManager.node';
-import { FileManagerEvents, OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
+import { OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
+import { FileManagerEvents } from '../../src/utils/events';
 import { ReferenceWithHistory } from '../../src/utils/types';
 import {
   createInitializedFileManager,
@@ -384,28 +385,32 @@ describe('FileManager', () => {
         batchId: MOCK_BATCH_ID,
         customMetadata: undefined,
         file: {
-          historyRef: expect.anything(),
+          historyRef: SWARM_ZERO_ADDRESS.toString(),
           reference: '1'.repeat(64),
         },
         index: 0,
-        name: 'tests',
+        name: expect.any(String),
+        owner: MOCK_SIGNER.publicKey().address().toString(),
+        preview: undefined,
+        redundancyLevel: undefined,
+        shared: false,
+        timestamp: expect.any(Number),
+        topic: expect.any(String),
       };
 
       await fm.upload(new BatchId(MOCK_BATCH_ID), './tests');
       off(FileManagerEvents.FILE_UPLOADED, uploadHandler);
 
-      expect(uploadHandler).toHaveBeenCalledWith(
-        expect.objectContaining({
-          fileInfo: expect.objectContaining(expectedFileInfo),
-        }),
-      );
+      expect(uploadHandler).toHaveBeenCalledWith({
+        fileInfo: expectedFileInfo,
+      });
     });
 
     it('should send an event after fileInfoList is initialized', async () => {
       createInitMocks();
 
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = new FileManager(bee);
+      const fm = new FileManagerNode(bee);
       const eventHandler = jest.fn((input) => {
         console.log('Input: ', input);
       });
