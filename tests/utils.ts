@@ -51,7 +51,7 @@ export async function dowloadAndCompareFiles(
   expArr: string[][],
 ): Promise<void> {
   if (fiList.length !== expArr.length) {
-    expect(fiList.length).toEqual(expArr.length);
+    expect(fiList).toHaveLength(expArr.length);
     return;
   }
 

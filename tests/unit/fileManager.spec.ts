@@ -273,10 +273,10 @@ describe('FileManager', () => {
       jest.spyOn(Bee.prototype, 'diluteBatch').mockResolvedValue(new BatchId('1234'.repeat(16)));
       const fm = await createInitializedFileManager();
 
-      expect(fm.getStamps().length).toBe(3);
+      expect(fm.getStamps()).toHaveLength(3);
       await fm.destroyVolume(new BatchId('1234'.repeat(16)));
 
-      expect(fm.getStamps().length).toBe(2);
+      expect(fm.getStamps()).toHaveLength(2);
       expect(fm.getStamps()[0].label).toBe('two');
       expect(fm.getStamps()[1].label).toBe(OWNER_FEED_STAMP_LABEL);
     });
