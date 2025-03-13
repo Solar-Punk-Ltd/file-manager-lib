@@ -1,5 +1,23 @@
-import { BatchId, Bytes, EthAddress, FeedIndex, PublicKey, RedundancyLevel, Reference, Topic } from '@upcoming/bee-js';
+import {
+  BatchId,
+  Bytes,
+  DownloadOptions,
+  EthAddress,
+  FeedIndex,
+  PublicKey,
+  RedundancyLevel,
+  Reference,
+  Topic,
+} from '@upcoming/bee-js';
 import { ReadStream } from 'fs';
+
+// TODO: discuss interface functions
+export interface IFileManager {
+  upload(options: FileManagerUploadOptions): Promise<void>;
+  listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<ReferenceWithPath[]>;
+  download(eRef: Reference, options?: DownloadOptions): Promise<string[]>;
+  shareItem(fileInfo: FileInfo, targetOverlays: string[], recipients: string[], message?: string): Promise<void>;
+}
 
 export interface FileInfo {
   batchId: string | BatchId;
@@ -13,6 +31,21 @@ export interface FileInfo {
   index?: number | undefined;
   redundancyLevel?: RedundancyLevel;
   customMetadata?: Record<string, string>;
+}
+
+export interface FileManagerUploadOptions {
+  batchId: BatchId;
+  name: string;
+  files?: File[] | FileList;
+  path?: string;
+  customMetadata?: Record<string, string>;
+  historyRef?: Reference;
+  infoTopic?: string;
+  index?: number | undefined;
+  preview?: File;
+  previewPath?: string;
+  redundancyLevel?: RedundancyLevel;
+  onUploadProgress?: (T: any) => void;
 }
 
 export interface ShareItem {

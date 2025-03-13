@@ -51,13 +51,15 @@ import { FileManagerEvents } from './utils/events';
 import {
   FetchFeedUpdateResponse,
   FileInfo,
+  FileManagerUploadOptions,
+  IFileManager,
   ReferenceWithHistory,
   ReferenceWithPath,
   ShareItem,
   WrappedFileInfoFeed,
 } from './utils/types';
 
-export abstract class FileManager {
+export abstract class FileManager implements IFileManager {
   private signer: PrivateKey;
   private nodeAddresses: NodeAddresses | undefined;
   private stampList: PostageBatch[];
@@ -297,7 +299,7 @@ export abstract class FileManager {
     return fileList;
   }
 
-  async downloadFiles(eRef: Reference, options?: DownloadOptions): Promise<string[]> {
+  async download(eRef: Reference, options?: DownloadOptions): Promise<string[]> {
     const unmarshalled = await this.loadMantaray(eRef, options);
     const files: string[] = [];
 
@@ -326,19 +328,7 @@ export abstract class FileManager {
   // End getter methods
 
   // Start Swarm data saving methods
-  // TODO: refactor params and name handling
-  abstract upload(
-    batchId: BatchId,
-    filesOrPath: string | File[] | FileList,
-    name: string,
-    customMetadata?: Record<string, string>,
-    historyRef?: Reference,
-    infoTopic?: string,
-    index?: number | undefined,
-    previewFileOrPath?: string | File,
-    redundancyLevel?: RedundancyLevel,
-    cb?: (T: any) => void,
-  ): Promise<void>;
+  abstract upload(options: FileManagerUploadOptions): Promise<void>;
 
   protected async saveFileInfoAndFeed(
     batchId: BatchId,

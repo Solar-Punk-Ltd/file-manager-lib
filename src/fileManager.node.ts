@@ -1,18 +1,9 @@
-import {
-  BatchId,
-  Bee,
-  BeeRequestOptions,
-  CollectionUploadOptions,
-  FileUploadOptions,
-  RedundancyLevel,
-  Reference,
-  Topic,
-} from '@upcoming/bee-js';
+import { BatchId, Bee, BeeRequestOptions, CollectionUploadOptions, FileUploadOptions, Topic } from '@upcoming/bee-js';
 
 import { makeBeeRequestOptions } from './utils/common';
 import { FileError, FileInfoError } from './utils/errors';
 import { getRandomBytes, isDir, readFile } from './utils/node';
-import { ReferenceWithHistory } from './utils/types';
+import { FileManagerUploadOptions, ReferenceWithHistory } from './utils/types';
 import { FileManager } from './fileManager';
 
 export class FileManagerNode extends FileManager {
@@ -21,49 +12,44 @@ export class FileManagerNode extends FileManager {
   }
 
   // Start Swarm data saving methods
-  async upload(
-    batchId: BatchId,
-    path: string,
-    name: string,
-    customMetadata?: Record<string, string>,
-    historyRef?: Reference,
-    infoTopic?: string,
-    index?: number | undefined,
-    previewPath?: string,
-    redundancyLevel?: RedundancyLevel,
-    _cb?: (T: any) => void,
-  ): Promise<void> {
-    if ((infoTopic && !historyRef) || (!infoTopic && historyRef)) {
-      throw new FileInfoError('infoTopic and historyRef have to be provided at the same time.');
+  async upload(options: FileManagerUploadOptions): Promise<void> {
+    if (!options.path) {
+      throw new FileInfoError('Path option has to be provided.');
     }
 
-    const requestOptions = historyRef ? makeBeeRequestOptions({ historyRef }) : undefined;
+    if ((options.infoTopic && !options.historyRef) || (!options.infoTopic && options.historyRef)) {
+      throw new FileInfoError('Options infoTopic and historyRef have to be provided at the same time.');
+    }
+
+    const requestOptions = options.historyRef
+      ? makeBeeRequestOptions({ historyRef: options.historyRef, redundancyLevel: options.redundancyLevel })
+      : undefined;
     const uploadFilesRes = await this.uploadFileOrDirectory(
-      batchId,
-      path,
-      { act: true, redundancyLevel },
+      options.batchId,
+      options.path,
+      { act: true, redundancyLevel: options.redundancyLevel },
       requestOptions,
     );
     let uploadPreviewRes: ReferenceWithHistory | undefined;
-    if (previewPath) {
+    if (options.previewPath) {
       uploadPreviewRes = await this.uploadFileOrDirectory(
-        batchId,
-        previewPath,
-        { act: true, redundancyLevel },
+        options.batchId,
+        options.previewPath,
+        { act: true, redundancyLevel: options.redundancyLevel },
         requestOptions,
       );
     }
 
-    const topic = infoTopic ? Topic.fromString(infoTopic) : this.generateTopic();
+    const topic = options.infoTopic ? Topic.fromString(options.infoTopic) : this.generateTopic();
     await super.saveFileInfoAndFeed(
-      batchId,
+      options.batchId,
       topic,
-      name,
+      options.name,
       uploadFilesRes,
       uploadPreviewRes,
-      index,
-      customMetadata,
-      redundancyLevel,
+      options.index,
+      options.customMetadata,
+      options.redundancyLevel,
     );
   }
 

@@ -56,7 +56,7 @@ export async function dowloadAndCompareFiles(
   }
 
   for (const [ix, fi] of fiList.entries()) {
-    const fetchedFiles = await fileManager.downloadFiles(fi.file.reference as Reference, {
+    const fetchedFiles = await fileManager.download(fi.file.reference as Reference, {
       actHistoryAddress: fi.file.historyRef,
       actPublisher: publicKey,
     });

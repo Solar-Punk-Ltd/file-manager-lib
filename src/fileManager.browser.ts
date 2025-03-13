@@ -1,9 +1,9 @@
-import { BatchId, Bee, BeeRequestOptions, RedundancyLevel, Reference, Topic, UploadOptions } from '@upcoming/bee-js';
+import { BatchId, Bee, BeeRequestOptions, Topic, UploadOptions } from '@upcoming/bee-js';
 
 import { getRandomBytes } from './utils/browser';
 import { makeBeeRequestOptions } from './utils/common';
 import { FileInfoError } from './utils/errors';
-import { ReferenceWithHistory, UploadProgress } from './utils/types';
+import { FileManagerUploadOptions, ReferenceWithHistory, UploadProgress } from './utils/types';
 import { FileManager } from './fileManager';
 
 export class FileManagerBrowser extends FileManager {
@@ -12,40 +12,46 @@ export class FileManagerBrowser extends FileManager {
   }
 
   // Start Swarm data saving methods
-  // TODO: event emitter integration
-  async upload(
-    batchId: BatchId,
-    files: File[] | FileList,
-    name: string,
-    customMetadata?: Record<string, string>,
-    historyRef?: Reference,
-    infoTopic?: string,
-    index?: number | undefined,
-    preview?: File,
-    redundancyLevel?: RedundancyLevel,
-    onUploadProgress?: (progress: UploadProgress) => void,
-  ): Promise<void> {
-    if ((infoTopic && !historyRef) || (!infoTopic && historyRef)) {
+  async upload(options: FileManagerUploadOptions): Promise<void> {
+    if (!options.files) {
+      throw new FileInfoError('Files option has to be provided.');
+    }
+
+    if ((options.infoTopic && !options.historyRef) || (!options.infoTopic && options.historyRef)) {
       throw new FileInfoError('infoTopic and historyRef have to be provided at the same time.');
     }
 
-    const requestOptions = historyRef ? makeBeeRequestOptions({ historyRef, redundancyLevel }) : undefined;
-    const uploadFilesRes = await this.streamFiles(batchId, files, onUploadProgress, { act: true }, requestOptions);
+    const requestOptions = options.historyRef
+      ? makeBeeRequestOptions({ historyRef: options.historyRef, redundancyLevel: options.redundancyLevel })
+      : undefined;
+    const uploadFilesRes = await this.streamFiles(
+      options.batchId,
+      options.files,
+      options.onUploadProgress,
+      { act: true },
+      requestOptions,
+    );
     let uploadPreviewRes: ReferenceWithHistory | undefined;
-    if (preview) {
-      uploadPreviewRes = await this.streamFiles(batchId, [preview], onUploadProgress, { act: true }, requestOptions);
+    if (options.preview) {
+      uploadPreviewRes = await this.streamFiles(
+        options.batchId,
+        [options.preview],
+        options.onUploadProgress,
+        { act: true },
+        requestOptions,
+      );
     }
 
-    const topic = infoTopic ? Topic.fromString(infoTopic) : this.generateTopic();
+    const topic = options.infoTopic ? Topic.fromString(options.infoTopic) : this.generateTopic();
     await super.saveFileInfoAndFeed(
-      batchId,
+      options.batchId,
       topic,
-      name,
+      options.name,
       uploadFilesRes,
       uploadPreviewRes,
-      index,
-      customMetadata,
-      redundancyLevel,
+      options.index,
+      options.customMetadata,
+      options.redundancyLevel,
     );
   }
 
