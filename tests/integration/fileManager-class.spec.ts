@@ -52,7 +52,7 @@ describe('FileManager initialization', () => {
       expect(error).toBeInstanceOf(StampError);
       expect(error.message).toContain('Owner stamp not found');
     }
-    const stamps = await fm.getStamps();
+    const stamps = fm.getStamps();
     expect(stamps).toEqual([]);
     expect(fm.getFileInfoList()).toEqual([]);
     expect(fm.getSharedWithMe()).toEqual([]);
@@ -64,7 +64,7 @@ describe('FileManager initialization', () => {
     const batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
     const publsiherPublicKey = fileManager.getNodeAddresses()!.publicKey;
 
-    const stamps = await fileManager.getStamps();
+    const stamps = fileManager.getStamps();
     expect(stamps[0].batchID).toEqual(batchId);
     expect(stamps[0].label).toEqual(OWNER_FEED_STAMP_LABEL);
     expect(fileManager.getFileInfoList()).toEqual([]);
@@ -178,7 +178,7 @@ describe('FileManager initialization', () => {
   });
 
   it('should fetch and store usable stamps', async () => {
-    const stamps = await fileManager.getStamps();
+    const stamps = fileManager.getStamps();
     expect(stamps.length).toBeGreaterThan(0);
     const ownerStamp = fileManager.getOwnerFeedStamp();
     expect(ownerStamp).toBeDefined();
@@ -196,10 +196,10 @@ describe('FileManager initialization', () => {
 
   it('should not reinitialize if already initialized', async () => {
     const fileInfoListBefore = [...fileManager.getFileInfoList()];
-    const stampsBefore = await fileManager.getStamps();
+    const stampsBefore = fileManager.getStamps();
     await fileManager.initialize();
     expect(fileManager.getFileInfoList()).toEqual(fileInfoListBefore);
-    expect(await fileManager.getStamps()).toEqual(stampsBefore);
+    expect(fileManager.getStamps()).toEqual(stampsBefore);
   });
 });
 

@@ -1,4 +1,4 @@
-import { BatchId, Bee, BeeRequestOptions, Topic, UploadOptions } from '@upcoming/bee-js';
+import { BatchId, BeeRequestOptions, Topic, UploadOptions } from '@upcoming/bee-js';
 
 import { getRandomBytes } from './utils/browser';
 import { makeBeeRequestOptions } from './utils/common';
@@ -7,10 +7,6 @@ import { FileManagerUploadOptions, ReferenceWithHistory, UploadProgress } from '
 import { FileManager } from './fileManager';
 
 export class FileManagerBrowser extends FileManager {
-  constructor(bee: Bee) {
-    super(bee);
-  }
-
   // Start Swarm data saving methods
   async upload(options: FileManagerUploadOptions): Promise<void> {
     if (!options.files) {
