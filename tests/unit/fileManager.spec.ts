@@ -11,7 +11,7 @@ import {
 } from '@upcoming/bee-js';
 import { Optional } from 'cafe-utility';
 
-import { FileManager } from '../../src/fileManager';
+import { FileManagerBase } from '../../src/fileManager';
 import { fileManagerFactory, FileManagerType } from '../../src/fileManagerFactory';
 import { OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
@@ -37,15 +37,15 @@ describe('FileManager', () => {
   describe('constructor', () => {
     it('should create new instance of FileManager', () => {
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = fileManagerFactory(FileManagerType.Node, bee);
+      const fm = fileManagerFactory(FileManagerType.Node, bee) as FileManagerBase;
 
-      expect(fm).toBeInstanceOf(FileManager);
+      expect(fm).toBeInstanceOf(FileManagerBase);
     });
 
     it('should throw error, if Signer is not provided', () => {
       const bee = new Bee(BEE_URL);
       try {
-        fileManagerFactory(FileManagerType.Node, bee);
+        fileManagerFactory(FileManagerType.Node, bee) as FileManagerBase;
       } catch (error) {
         expect(error).toBeInstanceOf(SignerError);
         expect((error as any).message).toBe('Signer required');
@@ -54,7 +54,7 @@ describe('FileManager', () => {
 
     it('should initialize FileManager instance with correct values', () => {
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = fileManagerFactory(FileManagerType.Node, bee);
+      const fm = fileManagerFactory(FileManagerType.Node, bee) as FileManagerBase;
 
       //expect(fm.getStamps()).toEqual([]); // we get {} instead of []
       expect(fm.getFileInfoList()).toEqual([]);
@@ -68,7 +68,7 @@ describe('FileManager', () => {
       createInitMocks();
 
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = fileManagerFactory(FileManagerType.Node, bee);
+      const fm = fileManagerFactory(FileManagerType.Node, bee) as FileManagerBase;
 
       const eventHandler = jest.fn((input) => {
         console.log('Input: ', input);
@@ -85,7 +85,7 @@ describe('FileManager', () => {
       const logSpy = jest.spyOn(console, 'log');
 
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = fileManagerFactory(FileManagerType.Node, bee);
+      const fm = fileManagerFactory(FileManagerType.Node, bee) as FileManagerBase;
 
       const eventHandler = jest.fn((input) => {
         console.log('Input: ', input);
@@ -105,7 +105,7 @@ describe('FileManager', () => {
       const logSpy = jest.spyOn(console, 'log');
 
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = fileManagerFactory(FileManagerType.Node, bee);
+      const fm = fileManagerFactory(FileManagerType.Node, bee) as FileManagerBase;
 
       const eventHandler = jest.fn((input) => {
         console.log('Input: ', input);
@@ -343,7 +343,7 @@ describe('FileManager', () => {
       };
 
       await expect(async () => {
-        await fm.getGranteesOfFile(fileInfo);
+        await fm.getGrantees(fileInfo);
       }).rejects.toThrow(`Grantee list not found for file eReference: ${fileInfo.topic.toString()}`);
     });
   });
@@ -354,7 +354,7 @@ describe('FileManager', () => {
 
     it('should call makeFeedReader', async () => {
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = fileManagerFactory(FileManagerType.Node, bee);
+      const fm = fileManagerFactory(FileManagerType.Node, bee) as FileManagerBase;
       const topic = Topic.fromString('example');
       const makeFeedReaderSpy = jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue({
         download: jest.fn(),
@@ -371,7 +371,7 @@ describe('FileManager', () => {
 
     it('should call download with correct index, if index is provided', async () => {
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = fileManagerFactory(FileManagerType.Node, bee);
+      const fm = fileManagerFactory(FileManagerType.Node, bee) as FileManagerBase;
       const topic = Topic.fromString('example');
       const downloadSpy = { download: jest.fn(), downloadReference: jest.fn(), downloadPayload: jest.fn() };
       jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue({
@@ -387,7 +387,7 @@ describe('FileManager', () => {
 
     it('should call download without parameters, if index is not provided', async () => {
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = fileManagerFactory(FileManagerType.Node, bee);
+      const fm = fileManagerFactory(FileManagerType.Node, bee) as FileManagerBase;
       const topic = Topic.fromString('example');
       const downloadSpy = { download: jest.fn(), downloadReference: jest.fn(), downloadPayload: jest.fn() };
 
@@ -444,7 +444,7 @@ describe('FileManager', () => {
       createInitMocks();
 
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = fileManagerFactory(FileManagerType.Node, bee);
+      const fm = fileManagerFactory(FileManagerType.Node, bee) as FileManagerBase;
       const eventHandler = jest.fn((input) => {
         console.log('Input: ', input);
       });

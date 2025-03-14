@@ -1,7 +1,7 @@
 import { Bee } from '@upcoming/bee-js';
 
 import { FactoryError } from './utils/errors';
-import { FileManager } from './fileManager';
+import { FileManager } from './utils/types';
 import { FileManagerBrowser } from './fileManager.browser';
 import { FileManagerNode } from './fileManager.node';
 

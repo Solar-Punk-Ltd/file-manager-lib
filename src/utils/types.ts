@@ -4,6 +4,7 @@ import {
   DownloadOptions,
   EthAddress,
   FeedIndex,
+  GetGranteesResult,
   PublicKey,
   RedundancyLevel,
   Reference,
@@ -14,7 +15,13 @@ import { ReadStream } from 'fs';
 /**
  * Interface representing a file manager with various file operations.
  */
-export interface IFileManager {
+export interface FileManager {
+  /**
+   * Initializes the file manager.
+   * @returns A promise that resolves when the initialization is complete.
+   */
+  initialize(): Promise<void>;
+
   /**
    * Uploads a file with the given options.
    * @param options - The options for the upload operation.
@@ -79,6 +86,13 @@ export interface IFileManager {
    * @returns An array of shared items.
    */
   getSharedWithMe(): ShareItem[];
+
+  /**
+   * Retrieves the grantees of a file.
+   * @param fileInfo - Information about the file.
+   * @returns A promise that resolves to list of grantee public keys.
+   */
+  getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult>;
 }
 
 export interface FileInfo {

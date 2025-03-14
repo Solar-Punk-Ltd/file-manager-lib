@@ -4,9 +4,9 @@ import { makeBeeRequestOptions } from './utils/common';
 import { FileError, FileInfoError } from './utils/errors';
 import { getRandomBytes, isDir, readFile } from './utils/node';
 import { FileManagerUploadOptions, ReferenceWithHistory } from './utils/types';
-import { FileManager } from './fileManager';
+import { FileManagerBase } from './fileManager';
 
-export class FileManagerNode extends FileManager {
+export class FileManagerNode extends FileManagerBase {
   async upload(options: FileManagerUploadOptions): Promise<void> {
     if (!options.path) {
       throw new FileInfoError('Path option has to be provided.');

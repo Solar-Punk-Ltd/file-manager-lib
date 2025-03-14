@@ -4,9 +4,9 @@ import { getRandomBytes } from './utils/browser';
 import { makeBeeRequestOptions } from './utils/common';
 import { FileInfoError } from './utils/errors';
 import { FileManagerUploadOptions, ReferenceWithHistory, UploadProgress } from './utils/types';
-import { FileManager } from './fileManager';
+import { FileManagerBase } from './fileManager';
 
-export class FileManagerBrowser extends FileManager {
+export class FileManagerBrowser extends FileManagerBase {
   async upload(options: FileManagerUploadOptions): Promise<void> {
     if (!options.files) {
       throw new FileInfoError('Files option has to be provided.');

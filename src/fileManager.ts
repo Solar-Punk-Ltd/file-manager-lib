@@ -51,15 +51,15 @@ import { FileManagerEvents } from './utils/events';
 import {
   FetchFeedUpdateResponse,
   FileInfo,
+  FileManager,
   FileManagerUploadOptions,
-  IFileManager,
   ReferenceWithHistory,
   ReferenceWithPath,
   ShareItem,
   WrappedFileInfoFeed,
 } from './utils/types';
 
-export abstract class FileManager implements IFileManager {
+export abstract class FileManagerBase implements FileManager {
   private signer: PrivateKey;
   private nodeAddresses: NodeAddresses | undefined;
   private stampList: PostageBatch[];
@@ -514,7 +514,7 @@ export abstract class FileManager implements IFileManager {
 
   // Start grantee handler methods
   // fetches the list of grantees who can access the file reference
-  async getGranteesOfFile(fileInfo: FileInfo): Promise<GetGranteesResult> {
+  async getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult> {
     const mfIx = this.ownerFeedList.findIndex((mf) => mf.topic === fileInfo.topic);
     let eglRef = undefined;
     if (mfIx === -1 || !this.ownerFeedList[mfIx].eGranteeRef) {
