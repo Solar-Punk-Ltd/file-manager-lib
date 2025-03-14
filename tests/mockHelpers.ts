@@ -21,7 +21,7 @@ import { Optional } from 'cafe-utility';
 
 import { FileManagerBase } from '../src/fileManager';
 import { FileManagerFactory, FileManagerType } from '../src/fileManagerFactory';
-import { OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
+import { OWNER_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
 import { EventEmitterBase } from '../src/utils/eventEmitter';
 import { FetchFeedUpdateResponse } from '../src/utils/types';
 
@@ -171,7 +171,7 @@ export function loadStampListMock(): jest.SpyInstance {
       utilization: 5,
       usable: true,
       usageText: '2%',
-      label: OWNER_FEED_STAMP_LABEL,
+      label: OWNER_STAMP_LABEL,
       depth: 22,
       amount: '990' as NumberString,
       bucketDepth: 30,

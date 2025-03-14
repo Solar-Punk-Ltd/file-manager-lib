@@ -27,16 +27,10 @@ import {
   assertFileInfo,
   assertShareItem,
   assertWrappedFileInoFeed,
-  buyStamp,
   isNotFoundError,
   makeBeeRequestOptions,
 } from './utils/common';
-import {
-  OWNER_FEED_STAMP_LABEL,
-  REFERENCE_LIST_TOPIC,
-  SHARED_INBOX_TOPIC,
-  SWARM_ZERO_ADDRESS,
-} from './utils/constants';
+import { OWNER_STAMP_LABEL, REFERENCE_LIST_TOPIC, SHARED_INBOX_TOPIC, SWARM_ZERO_ADDRESS } from './utils/constants';
 import {
   BeeVersionError,
   FileInfoError,
@@ -62,7 +56,7 @@ import {
 export abstract class FileManagerBase implements FileManager {
   private signer: PrivateKey;
   private nodeAddresses: NodeAddresses | undefined;
-  private stampList: PostageBatch[];
+  private ownerStamp: PostageBatch | undefined;
   private fileInfoList: FileInfo[];
   private ownerFeedNextIndex: bigint;
   private sharedWithMe: ShareItem[];
@@ -82,7 +76,7 @@ export abstract class FileManagerBase implements FileManager {
     }
     this.emitter = emitter;
     this.signer = this.bee.signer;
-    this.stampList = [];
+    this.ownerStamp = undefined;
     this.fileInfoList = [];
     this.ownerFeedList = [];
     this.ownerFeedNextIndex = 0n;
@@ -111,7 +105,7 @@ export abstract class FileManagerBase implements FileManager {
     try {
       await this.verifySupportedVersions();
       await this.initNodeAddresses();
-      await this.initStamps();
+      await this.getOwnerStamp();
       await this.initOwnerFeedTopic();
       await this.initOwnerFeedList();
       await this.initFileInfoList();
@@ -151,8 +145,8 @@ export abstract class FileManagerBase implements FileManager {
       throw new SignerError('Node addresses not found');
     }
 
-    const ownerFeedStamp = this.getOwnerFeedStamp();
-    if (ownerFeedStamp === undefined) {
+    const ownerStamp = await this.getOwnerStamp();
+    if (ownerStamp === undefined) {
       throw new StampError('Owner stamp not found');
     }
 
@@ -161,13 +155,13 @@ export abstract class FileManagerBase implements FileManager {
 
     if (topicRef.equals(SWARM_ZERO_ADDRESS)) {
       this.ownerFeedTopic = this.generateTopic();
-      const topicDataRes = await this.bee.uploadData(ownerFeedStamp.batchID, this.ownerFeedTopic.toUint8Array(), {
+      const topicDataRes = await this.bee.uploadData(ownerStamp.batchID, this.ownerFeedTopic.toUint8Array(), {
         act: true,
       });
 
       const fw = this.bee.makeFeedWriter(REFERENCE_LIST_TOPIC.toUint8Array(), this.signer);
-      await fw.uploadReference(ownerFeedStamp.batchID, topicDataRes.reference, { index: FeedIndex.fromBigInt(0n) });
-      await fw.uploadReference(ownerFeedStamp.batchID, topicDataRes.historyAddress.getOrThrow(), {
+      await fw.uploadReference(ownerStamp.batchID, topicDataRes.reference, { index: FeedIndex.fromBigInt(0n) });
+      await fw.uploadReference(ownerStamp.batchID, topicDataRes.historyAddress.getOrThrow(), {
         index: FeedIndex.fromBigInt(1n),
       });
     } else {
@@ -182,16 +176,6 @@ export abstract class FileManagerBase implements FileManager {
     }
 
     console.debug('Owner feed topic successfully initialized');
-  }
-
-  // fetches the usable stamps from the node
-  private async initStamps(): Promise<void> {
-    try {
-      await this.getUsableStamps();
-      console.debug('Usable stamps fetched successfully.');
-    } catch (error: any) {
-      console.error(`Failed to fetch stamps: ${error}`);
-    }
   }
 
   // fetches the latest list of fileinfo from the owner feed
@@ -286,7 +270,7 @@ export abstract class FileManagerBase implements FileManager {
 
   // lists all the files found under the reference of the provided fileInfo
   async listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<ReferenceWithPath[]> {
-    const mantaray = await this.loadMantaray(new Reference(fileInfo.file.reference), options);
+    const mantaray = await this.loadMantaray(new Reference(fileInfo.file.reference.toString()), options);
     // TODO: is filter needed ?
     const fileList = mantaray
       .collect()
@@ -325,10 +309,6 @@ export abstract class FileManagerBase implements FileManager {
 
   getNodeAddresses(): NodeAddresses | undefined {
     return this.nodeAddresses;
-  }
-
-  getStamps(): PostageBatch[] {
-    return this.stampList;
   }
 
   // End getter methods
@@ -427,30 +407,26 @@ export abstract class FileManagerBase implements FileManager {
   }
 
   protected async saveFileInfoFeedList(): Promise<void> {
-    const ownerFeedStamp = this.getOwnerFeedStamp();
-    if (ownerFeedStamp === undefined) {
-      throw new StampError('Owner feed stamp is not found.');
+    const ownerStamp = await this.getOwnerStamp();
+    if (ownerStamp === undefined) {
+      throw new StampError('Owner stamp not found');
     }
 
     try {
-      const fileInfoFeedListData = await this.bee.uploadData(
-        ownerFeedStamp.batchID,
-        JSON.stringify(this.ownerFeedList),
-        {
-          act: true,
-        },
-      );
+      const fileInfoFeedListData = await this.bee.uploadData(ownerStamp.batchID, JSON.stringify(this.ownerFeedList), {
+        act: true,
+      });
 
       const fw = this.bee.makeFeedWriter(this.ownerFeedTopic.toUint8Array(), this.signer);
       const ownerFeedRawData = await this.bee.uploadData(
-        ownerFeedStamp.batchID,
+        ownerStamp.batchID,
         JSON.stringify({
           reference: fileInfoFeedListData.reference.toString(),
           historyRef: fileInfoFeedListData.historyAddress.getOrThrow().toString(),
         }),
       );
 
-      await fw.uploadReference(ownerFeedStamp.batchID, ownerFeedRawData.reference, {
+      await fw.uploadReference(ownerStamp.batchID, ownerFeedRawData.reference, {
         index: FeedIndex.fromBigInt(this.ownerFeedNextIndex),
       });
 
@@ -463,38 +439,28 @@ export abstract class FileManagerBase implements FileManager {
   // End Swarm data saving methods
 
   // Start stamp handler methods
-  private async getUsableStamps(): Promise<PostageBatch[]> {
+  private async getOwnerStamp(): Promise<PostageBatch | undefined> {
+    if (this.ownerStamp) return this.ownerStamp;
+
     try {
-      this.stampList = (await this.bee.getAllPostageBatch()).filter((s) => s.usable);
-      return this.stampList;
+      const ownerStamp = (await this.bee.getAllPostageBatch()).find((s) => s.label === OWNER_STAMP_LABEL);
+      if (ownerStamp && ownerStamp.usable) {
+        this.ownerStamp = ownerStamp;
+      }
+      return ownerStamp;
     } catch (error: any) {
-      console.error(`Failed to get usable stamps: ${error}`);
-      return [];
+      console.error(`Failed to get owner stamp: ${error}`);
+      return undefined;
     }
   }
 
-  getOwnerFeedStamp(): PostageBatch | undefined {
-    return this.stampList.find((s) => s.label === OWNER_FEED_STAMP_LABEL);
-  }
-
-  async buyOwnerStamp(amount: string | bigint, depth: number): Promise<BatchId> {
-    return await buyStamp(this.bee, amount, depth, OWNER_FEED_STAMP_LABEL);
-  }
-
   async destroyVolume(batchId: BatchId): Promise<void> {
-    const ownerFeedStamp = this.getOwnerFeedStamp();
-    if (ownerFeedStamp && batchId.equals(ownerFeedStamp.batchID)) {
+    const ownerStamp = await this.getOwnerStamp();
+    if (ownerStamp && batchId.equals(ownerStamp.batchID)) {
       throw new StampError(`Cannot destroy owner stamp, batchId: ${batchId.toString()}`);
     }
 
     await this.bee.diluteBatch(batchId, STAMPS_DEPTH_MAX);
-
-    for (let i = 0; i < this.stampList.length; i++) {
-      if (this.stampList[i].batchID.toString() === batchId.toString()) {
-        this.stampList.splice(i, 1);
-        break;
-      }
-    }
 
     for (let i = this.fileInfoList.length - 1; i >= 0; --i) {
       const fileInfo = this.fileInfoList[i];
@@ -517,13 +483,12 @@ export abstract class FileManagerBase implements FileManager {
   // fetches the list of grantees who can access the file reference
   async getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult> {
     const mfIx = this.ownerFeedList.findIndex((mf) => mf.topic === fileInfo.topic);
-    let eglRef = undefined;
     if (mfIx === -1 || !this.ownerFeedList[mfIx].eGranteeRef) {
       throw new GranteeError(`Grantee list not found for file eReference: ${fileInfo.topic}`);
     }
-    eglRef = this.ownerFeedList[mfIx].eGranteeRef;
+    const eglRef = this.ownerFeedList[mfIx].eGranteeRef;
 
-    return this.bee.getGrantees(new Reference(eglRef));
+    return this.bee.getGrantees(eglRef);
   }
 
   // updates the list of grantees who can access the file reference under the history reference

@@ -13,7 +13,7 @@ import { Optional } from 'cafe-utility';
 
 import { FileManagerBase } from '../../src/fileManager';
 import { FileManagerNode } from '../../src/fileManager.node';
-import { OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
+import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
 import { EventEmitter } from '../../src/utils/eventEmitter';
 import { FileManagerEvents } from '../../src/utils/events';
@@ -253,19 +253,6 @@ describe('FileManager', () => {
     });
   });
 
-  describe('getOwnerFeedStamp', () => {
-    it('should give back the OwnerFeedStamp', async () => {
-      createInitMocks();
-      const fm = await createInitializedFileManager();
-
-      const result = fm.getOwnerFeedStamp();
-
-      expect(result?.amount).toBe('990');
-      expect(result?.label).toBe(OWNER_FEED_STAMP_LABEL);
-      expect(result?.depth).toBe(22);
-    });
-  });
-
   describe('destroyVolume', () => {
     beforeEach(() => {
       jest.resetAllMocks();
@@ -276,22 +263,9 @@ describe('FileManager', () => {
       const diluteSpy = jest.spyOn(Bee.prototype, 'diluteBatch').mockResolvedValue(new BatchId('1234'.repeat(16)));
       const fm = await createInitializedFileManager();
 
-      fm.destroyVolume(new BatchId('1234'.repeat(16)));
-
-      expect(diluteSpy).toHaveBeenCalledWith(new BatchId('1234'.repeat(16)), STAMPS_DEPTH_MAX);
-    });
-
-    it('should remove batchId from stamp list', async () => {
-      createInitMocks();
-      jest.spyOn(Bee.prototype, 'diluteBatch').mockResolvedValue(new BatchId('1234'.repeat(16)));
-      const fm = await createInitializedFileManager();
-
-      expect(fm.getStamps().length).toBe(3);
       await fm.destroyVolume(new BatchId('1234'.repeat(16)));
 
-      expect(fm.getStamps().length).toBe(2);
-      expect(fm.getStamps()[0].label).toBe('two');
-      expect(fm.getStamps()[1].label).toBe(OWNER_FEED_STAMP_LABEL);
+      expect(diluteSpy).toHaveBeenCalledWith(new BatchId('1234'.repeat(16)), STAMPS_DEPTH_MAX);
     });
 
     it('should throw error if trying to destroy OwnerFeedStamp', async () => {

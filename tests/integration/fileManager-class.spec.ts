@@ -1,10 +1,10 @@
-import { BatchId, BeeDev, Bytes, MantarayNode, PostageBatch, Reference, Topic } from '@upcoming/bee-js';
+import { BatchId, BeeDev, Bytes, MantarayNode, Reference, Topic } from '@upcoming/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
 import { FileManagerBase } from '../../src/fileManager';
 import { buyStamp } from '../../src/utils/common';
-import { OWNER_FEED_STAMP_LABEL, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
+import { OWNER_STAMP_LABEL, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { StampError } from '../../src/utils/errors';
 import { FileInfo } from '../../src/utils/types';
 import { createInitializedFileManager } from '../mockHelpers';
@@ -29,7 +29,7 @@ describe('FileManager initialization', () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     // Ensure the owner stamp is available (buyStamp may throw if already exists)
     try {
-      await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
+      await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
     } catch (e) {
       // Stamp already exists; ignore error.
     }
@@ -51,21 +51,17 @@ describe('FileManager initialization', () => {
       expect(error).toBeInstanceOf(StampError);
       expect(error.message).toContain('Owner stamp not found');
     }
-    const stamps = fm.getStamps();
-    expect(stamps).toEqual([]);
+
     expect(fm.getFileInfoList()).toEqual([]);
     expect(fm.getSharedWithMe()).toEqual([]);
     expect(fm.getNodeAddresses()).not.toEqual(undefined);
   });
 
-  it('should fetch the owner stamp and initialize the owner feed and topic', async () => {
+  it('should initialize the owner feed and topic', async () => {
     // Ensure the owner stamp exists by buying it.
-    const batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
+    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
     const publsiherPublicKey = fileManager.getNodeAddresses()!.publicKey;
 
-    const stamps = fileManager.getStamps();
-    expect(stamps[0].batchID).toEqual(batchId);
-    expect(stamps[0].label).toEqual(OWNER_FEED_STAMP_LABEL);
     expect(fileManager.getFileInfoList()).toEqual([]);
     expect(fileManager.getSharedWithMe()).toEqual([]);
 
@@ -176,16 +172,6 @@ describe('FileManager initialization', () => {
     expect(nodeAddresses?.publicKey).toBeDefined();
   });
 
-  it('should fetch and store usable stamps', async () => {
-    const stamps = fileManager.getStamps();
-    expect(stamps.length).toBeGreaterThan(0);
-    const ownerStamp = fileManager.getOwnerFeedStamp();
-    expect(ownerStamp).toBeDefined();
-    if (ownerStamp) {
-      expect(ownerStamp.label).toEqual(OWNER_FEED_STAMP_LABEL);
-    }
-  });
-
   it('should initialize owner feed topic and owner feed list correctly', async () => {
     const feedTopicData = await fileManager.getFeedData(REFERENCE_LIST_TOPIC, 0n);
     expect(feedTopicData.payload).not.toEqual(SWARM_ZERO_ADDRESS);
@@ -195,10 +181,8 @@ describe('FileManager initialization', () => {
 
   it('should not reinitialize if already initialized', async () => {
     const fileInfoListBefore = [...fileManager.getFileInfoList()];
-    const stampsBefore = fileManager.getStamps();
     await fileManager.initialize();
     expect(fileManager.getFileInfoList()).toEqual(fileInfoListBefore);
-    expect(fileManager.getStamps()).toEqual(stampsBefore);
   });
 });
 
@@ -211,7 +195,7 @@ describe('FileManager saveMantaray', () => {
     // Create a BeeDev instance with a valid signer.
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     // Purchase (or ensure) a test stamp is available.
-    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
+    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
     // Create and initialize the FileManager.
     fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
@@ -570,7 +554,7 @@ describe('FileManager listFiles', () => {
     // Create a BeeDev instance with a valid signer.
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     // Purchase a test stamp.
-    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
+    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'listFilesIntegrationStamp');
     // Create and initialize the FileManager.
     fileManager = await createInitializedFileManager(bee);
@@ -721,7 +705,7 @@ describe('FileManager upload', () => {
 
   beforeAll(async () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
-    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
+    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'uploadIntegrationStamp');
     fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
@@ -809,7 +793,7 @@ describe('FileManager download', () => {
 
   beforeAll(async () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
-    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
+    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'downloadFilesIntegrationStamp');
     fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
@@ -887,67 +871,24 @@ describe('FileManager download', () => {
   });
 });
 
-describe('FileManager getOwnerFeedStamp', () => {
-  let bee: BeeDev;
-  let fileManager: FileManagerBase;
-
-  beforeAll(async () => {
-    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
-    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
-    fileManager = await createInitializedFileManager(bee);
-    await fileManager.initialize();
-  });
-
-  it('should return the owner feed stamp with valid properties', async () => {
-    const ownerStamp = fileManager.getOwnerFeedStamp();
-    expect(ownerStamp).toBeDefined();
-    if (ownerStamp) {
-      // Check that the label is correct.
-      expect(ownerStamp.label).toBe(OWNER_FEED_STAMP_LABEL);
-      // Verify that amount is a non-empty string and a positive number.
-      expect(typeof ownerStamp.amount).toBe('string');
-      expect(Number(ownerStamp.amount)).toBeGreaterThan(0);
-      // Verify that depth is positive.
-      expect(ownerStamp.depth).toBeGreaterThan(0);
-      // Check that duration is defined and greater than 0 seconds.
-      // (Assuming duration is a Duration instance from luxon.)
-      expect(ownerStamp.duration.toSeconds()).toBeGreaterThan(0);
-    }
-  });
-
-  it('should return undefined if no owner feed stamp exists', async () => {
-    // Backup the original stamp list.
-    const originalStamps = (fileManager as any).stampList;
-    // Set the stamp list to an empty array.
-    (fileManager as any).stampList = [];
-    const ownerStamp = fileManager.getOwnerFeedStamp();
-    expect(ownerStamp).toBeUndefined();
-    // Restore the original stamps.
-    (fileManager as any).stampList = originalStamps;
-  });
-});
-
 describe('FileManager destroyVolume', () => {
   let bee: BeeDev;
   let fileManager: FileManagerBase;
-  let ownerStamp: PostageBatch;
+  let ownerStampId: BatchId | undefined;
 
   beforeAll(async () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     // Purchase two non-owner stamps with unique labels BEFORE initializing the FileManager.
-    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'nonOwnerStampTest');
+    ownerStampId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
+    expect(ownerStampId).toBeDefined();
 
     fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
-
-    // Retrieve the owner stamp from the FileManager.
-    ownerStamp = fileManager.getOwnerFeedStamp()!;
-    expect(ownerStamp).toBeDefined();
   });
 
   it('should throw an error when trying to destroy the owner stamp', async () => {
-    await expect(fileManager.destroyVolume(ownerStamp.batchID)).rejects.toThrow(
-      `Cannot destroy owner stamp, batchId: ${ownerStamp.batchID.toString()}`,
+    expect(fileManager.destroyVolume(ownerStampId!)).rejects.toThrow(
+      `Cannot destroy owner stamp, batchId: ${ownerStampId!.toString()}`,
     );
   });
 
@@ -974,7 +915,7 @@ describe('FileManager getGranteesOfFile', () => {
 
   beforeAll(async () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
-    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
+    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
     fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
   });
@@ -1006,7 +947,7 @@ describe('FileManager getFeedData', () => {
 
   beforeAll(async () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
-    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
+    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
     fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
   });
@@ -1035,7 +976,7 @@ describe('FileManager End-to-End User Workflow', () => {
   beforeAll(async () => {
     // Create a BeeDev instance and ensure the owner stamp exists.
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
-    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
+    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
     fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
     // Create a temporary directory for this test session.
