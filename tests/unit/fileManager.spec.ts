@@ -11,8 +11,8 @@ import {
 } from '@upcoming/bee-js';
 import { Optional } from 'cafe-utility';
 
-import { FileManagerBase } from '../../src/fileManager';
-import { FileManagerNode } from '../../src/fileManager.node';
+import { FileManagerBase } from '../../src/fileManager/fileManager';
+import { FileManagerNode } from '../../src/fileManager/fileManager.node';
 import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
 import { EventEmitter } from '../../src/utils/eventEmitter';

@@ -2,10 +2,10 @@ import { BatchId, BeeDev, Bytes, MantarayNode, Reference, Topic } from '@upcomin
 import * as fs from 'fs';
 import path from 'path';
 
-import { FileManagerBase } from '../../src/fileManager';
+import { FileManagerBase } from '../../src/fileManager/fileManager';
 import { buyStamp } from '../../src/utils/common';
 import { OWNER_STAMP_LABEL, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
-import { StampError } from '../../src/utils/errors';
+import { FileInfoError, GranteeError, StampError } from '../../src/utils/errors';
 import { FileInfo } from '../../src/utils/types';
 import { createInitializedFileManager } from '../mockHelpers';
 import {
@@ -769,7 +769,7 @@ describe('FileManager upload', () => {
         name: path.basename(tempUploadDir),
         infoTopic: 'someInfoTopic',
       }),
-    ).rejects.toThrow(/Options infoTopic and historyRef have to be provided at the same time/);
+    ).rejects.toThrow(new FileInfoError('Options infoTopic and historyRef have to be provided at the same time.'));
   });
 
   it('should upload a single file and update the file info list', async () => {
@@ -888,7 +888,7 @@ describe('FileManager destroyVolume', () => {
 
   it('should throw an error when trying to destroy the owner stamp', async () => {
     expect(fileManager.destroyVolume(ownerStampId!)).rejects.toThrow(
-      `Cannot destroy owner stamp, batchId: ${ownerStampId!.toString()}`,
+      new StampError(`Cannot destroy owner stamp, batchId: ${ownerStampId!.toString()}`),
     );
   });
 
@@ -936,7 +936,7 @@ describe('FileManager getGranteesOfFile', () => {
       index: 0,
     };
     await expect(fileManager.getGrantees(fileInfo as any)).rejects.toThrow(
-      `Grantee list not found for file eReference: ${fileInfo.topic}`,
+      new GranteeError(`Grantee list not found for file eReference: ${fileInfo.topic}`),
     );
   });
 });

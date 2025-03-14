@@ -1,9 +1,10 @@
 import { BatchId, BeeRequestOptions, Topic, UploadOptions } from '@upcoming/bee-js';
 
-import { getRandomBytes } from './utils/browser';
-import { makeBeeRequestOptions } from './utils/common';
-import { FileInfoError } from './utils/errors';
-import { FileManagerUploadOptions, ReferenceWithHistory, UploadProgress } from './utils/types';
+import { getRandomBytes } from '../utils/browser';
+import { makeBeeRequestOptions } from '../utils/common';
+import { FileInfoError } from '../utils/errors';
+import { FileManagerUploadOptions, ReferenceWithHistory, UploadProgress } from '../utils/types';
+
 import { FileManagerBase } from './fileManager';
 
 export class FileManagerBrowser extends FileManagerBase {

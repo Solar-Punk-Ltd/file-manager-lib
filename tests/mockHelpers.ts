@@ -19,7 +19,7 @@ import {
 } from '@upcoming/bee-js';
 import { Optional } from 'cafe-utility';
 
-import { FileManagerBase } from '../src/fileManager';
+import { FileManagerBase } from '../src/fileManager/fileManager';
 import { FileManagerFactory, FileManagerType } from '../src/fileManagerFactory';
 import { OWNER_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
 import { EventEmitterBase } from '../src/utils/eventEmitter';

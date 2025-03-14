@@ -29,8 +29,8 @@ import {
   assertWrappedFileInoFeed,
   isNotFoundError,
   makeBeeRequestOptions,
-} from './utils/common';
-import { OWNER_STAMP_LABEL, REFERENCE_LIST_TOPIC, SHARED_INBOX_TOPIC, SWARM_ZERO_ADDRESS } from './utils/constants';
+} from '../utils/common';
+import { OWNER_STAMP_LABEL, REFERENCE_LIST_TOPIC, SHARED_INBOX_TOPIC, SWARM_ZERO_ADDRESS } from '../utils/constants';
 import {
   BeeVersionError,
   FileInfoError,
@@ -39,9 +39,9 @@ import {
   SignerError,
   StampError,
   SubscribtionError,
-} from './utils/errors';
-import { EventEmitter, EventEmitterBase } from './utils/eventEmitter';
-import { FileManagerEvents } from './utils/events';
+} from '../utils/errors';
+import { EventEmitter, EventEmitterBase } from '../utils/eventEmitter';
+import { FileManagerEvents } from '../utils/events';
 import {
   FetchFeedUpdateResponse,
   FileInfo,
@@ -51,7 +51,7 @@ import {
   ReferenceWithPath,
   ShareItem,
   WrappedFileInfoFeed,
-} from './utils/types';
+} from '../utils/types';
 
 export abstract class FileManagerBase implements FileManager {
   private signer: PrivateKey;
