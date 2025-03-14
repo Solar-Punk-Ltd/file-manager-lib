@@ -46,7 +46,7 @@ import {
   StampError,
   SubscribtionError,
 } from './utils/errors';
-import { EventEmitter } from './utils/eventEmitter';
+import { EventEmitter, EventEmitterBase } from './utils/eventEmitter';
 import { FileManagerEvents } from './utils/events';
 import {
   FetchFeedUpdateResponse,
@@ -71,15 +71,16 @@ export abstract class FileManagerBase implements FileManager {
   private ownerFeedList: WrappedFileInfoFeed[];
   private isInitialized: boolean;
   private isInitializing: boolean;
-  readonly emitter: EventEmitter = new EventEmitter();
+  readonly emitter: EventEmitterBase;
 
   protected bee: Bee;
 
-  constructor(bee: Bee) {
+  constructor(bee: Bee, emitter: EventEmitterBase = new EventEmitter()) {
     this.bee = bee;
     if (!this.bee.signer) {
       throw new SignerError('Signer required');
     }
+    this.emitter = emitter;
     this.signer = this.bee.signer;
     this.stampList = [];
     this.fileInfoList = [];

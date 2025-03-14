@@ -20,8 +20,9 @@ import {
 import { Optional } from 'cafe-utility';
 
 import { FileManagerBase } from '../src/fileManager';
-import { FileManagerNode } from '../src/fileManager.node';
+import { FileManagerFactory, FileManagerType } from '../src/fileManagerFactory';
 import { OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
+import { EventEmitterBase } from '../src/utils/eventEmitter';
 import { FetchFeedUpdateResponse } from '../src/utils/types';
 
 import { BEE_URL, MOCK_SIGNER } from './utils';
@@ -44,10 +45,11 @@ export function createMockMantarayNode(all = true): MantarayNode {
   return mn;
 }
 
-export async function createInitializedFileManager(): Promise<FileManagerBase> {
-  const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-  const fileManager = new FileManagerNode(bee);
-  await fileManager.initialize();
+export async function createInitializedFileManager(
+  bee: Bee = new Bee(BEE_URL, { signer: MOCK_SIGNER }),
+  emitter?: EventEmitterBase,
+): Promise<FileManagerBase> {
+  const fileManager = (await FileManagerFactory.create(FileManagerType.Node, bee, emitter)) as FileManagerBase;
   return fileManager;
 }
 
