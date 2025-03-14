@@ -2,12 +2,12 @@ import { BatchId, BeeDev, Bytes, MantarayNode, PostageBatch, Reference, Topic } 
 import * as fs from 'fs';
 import path from 'path';
 
-import { FileManager } from '../../src/fileManager';
-import { FileManagerNode } from '../../src/fileManager.node';
+import { FileManagerBase } from '../../src/fileManager';
 import { buyStamp } from '../../src/utils/common';
 import { OWNER_FEED_STAMP_LABEL, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { StampError } from '../../src/utils/errors';
 import { FileInfo } from '../../src/utils/types';
+import { createInitializedFileManager } from '../mockHelpers';
 import {
   BEE_URL,
   DEFAULT_BATCH_AMOUNT,
@@ -22,7 +22,7 @@ import {
 
 describe('FileManager initialization', () => {
   let bee: BeeDev;
-  let fileManager: FileManager;
+  let fileManager: FileManagerBase;
 
   beforeAll(async () => {
     // Create a BeeDev instance with a valid signer.
@@ -38,21 +38,20 @@ describe('FileManager initialization', () => {
   beforeEach(async () => {
     jest.resetAllMocks();
     // For each test, create a fresh FileManager instance and initialize it.
-    fileManager = new FileManagerNode(bee);
-    await fileManager.initialize();
+    fileManager = await createInitializedFileManager(bee);
   });
 
   it('should create and initialize a new instance', async () => {
     // Use a different Bee instance with a different signer.
     const otherBee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
-    const fm = new FileManagerNode(otherBee);
+    const fm = await createInitializedFileManager(otherBee);
     try {
       await fm.initialize();
     } catch (error: any) {
       expect(error).toBeInstanceOf(StampError);
       expect(error.message).toContain('Owner stamp not found');
     }
-    const stamps = await fm.getStamps();
+    const stamps = fm.getStamps();
     expect(stamps).toEqual([]);
     expect(fm.getFileInfoList()).toEqual([]);
     expect(fm.getSharedWithMe()).toEqual([]);
@@ -64,7 +63,7 @@ describe('FileManager initialization', () => {
     const batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
     const publsiherPublicKey = fileManager.getNodeAddresses()!.publicKey;
 
-    const stamps = await fileManager.getStamps();
+    const stamps = fileManager.getStamps();
     expect(stamps[0].batchID).toEqual(batchId);
     expect(stamps[0].label).toEqual(OWNER_FEED_STAMP_LABEL);
     expect(fileManager.getFileInfoList()).toEqual([]);
@@ -130,8 +129,16 @@ describe('FileManager initialization', () => {
     {
       await fileManager.initialize();
       const publsiherPublicKey = fileManager.getNodeAddresses()!.publicKey.toCompressedHex();
-      await fileManager.upload(testStampId, path.join(__dirname, '../fixtures/nested'), 'nested');
-      await fileManager.upload(testStampId, path.join(__dirname, '../fixtures/test.txt'), 'test.txt');
+      await fileManager.upload({
+        batchId: testStampId,
+        path: path.join(__dirname, '../fixtures/nested'),
+        name: 'nested',
+      });
+      await fileManager.upload({
+        batchId: testStampId,
+        path: path.join(__dirname, '../fixtures/test.txt'),
+        name: 'test.txt',
+      });
 
       const fileInfoList = fileManager.getFileInfoList();
       expect(fileInfoList.length).toEqual(expFileDataArr.length);
@@ -147,7 +154,7 @@ describe('FileManager initialization', () => {
       }
     }
     // Reinitialize fileManager after it goes out of scope to test if the file is saved on the feed.
-    const fm = new FileManagerNode(bee);
+    const fm = await createInitializedFileManager(bee);
     await fm.initialize();
     const publsiherPublicKey = fm.getNodeAddresses()!.publicKey.toCompressedHex();
     const fileInfoList = fm.getFileInfoList();
@@ -170,7 +177,7 @@ describe('FileManager initialization', () => {
   });
 
   it('should fetch and store usable stamps', async () => {
-    const stamps = await fileManager.getStamps();
+    const stamps = fileManager.getStamps();
     expect(stamps.length).toBeGreaterThan(0);
     const ownerStamp = fileManager.getOwnerFeedStamp();
     expect(ownerStamp).toBeDefined();
@@ -188,16 +195,16 @@ describe('FileManager initialization', () => {
 
   it('should not reinitialize if already initialized', async () => {
     const fileInfoListBefore = [...fileManager.getFileInfoList()];
-    const stampsBefore = await fileManager.getStamps();
+    const stampsBefore = fileManager.getStamps();
     await fileManager.initialize();
     expect(fileManager.getFileInfoList()).toEqual(fileInfoListBefore);
-    expect(await fileManager.getStamps()).toEqual(stampsBefore);
+    expect(fileManager.getStamps()).toEqual(stampsBefore);
   });
 });
 
 describe('FileManager saveMantaray', () => {
   let bee: BeeDev;
-  let fileManager: FileManager;
+  let fileManager: FileManagerBase;
   let batchId: BatchId;
 
   beforeAll(async () => {
@@ -206,7 +213,7 @@ describe('FileManager saveMantaray', () => {
     // Purchase (or ensure) a test stamp is available.
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
     // Create and initialize the FileManager.
-    fileManager = new FileManagerNode(bee);
+    fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
   });
 
@@ -328,7 +335,7 @@ describe('FileManager saveMantaray', () => {
 
 describe('FileManager downloadFork', () => {
   let bee: BeeDev;
-  let fileManager: FileManager;
+  let fileManager: FileManagerBase;
   let batchId: BatchId;
   let parent: MantarayNode;
   let child: MantarayNode;
@@ -346,7 +353,7 @@ describe('FileManager downloadFork', () => {
     // Purchase (or ensure) a test stamp.
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'testStamp');
     // Create and initialize the FileManager.
-    fileManager = new FileManagerNode(bee);
+    fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
 
     // Create a parent node with an explicit path "folder/".
@@ -555,7 +562,7 @@ describe('FileManager downloadFork', () => {
 
 describe('FileManager listFiles', () => {
   let bee: BeeDev;
-  let fileManager: FileManager;
+  let fileManager: FileManagerBase;
   let batchId: BatchId;
   let tempDir: string;
 
@@ -566,7 +573,7 @@ describe('FileManager listFiles', () => {
     await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'listFilesIntegrationStamp');
     // Create and initialize the FileManager.
-    fileManager = new FileManagerNode(bee);
+    fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
 
     // Create a temporary directory for our test files.
@@ -589,7 +596,7 @@ describe('FileManager listFiles', () => {
 
   it('should return a list of files for the uploaded folder', async () => {
     // Upload the entire folder.
-    await fileManager.upload(batchId, tempDir, path.basename(tempDir));
+    await fileManager.upload({ batchId, path: tempDir, name: path.basename(tempDir) });
 
     // Retrieve our FileInfo by filtering on the unique folder name.
     const allFileInfos = fileManager.getFileInfoList();
@@ -619,7 +626,7 @@ describe('FileManager listFiles', () => {
     // 2. The upload call succeeds but returns a manifest with no files.
     let fileInfo: FileInfo | undefined;
     try {
-      await fileManager.upload(batchId, emptyDir, path.basename(emptyDir));
+      await fileManager.upload({ batchId, path: emptyDir, name: path.basename(emptyDir) });
       const allFileInfos = fileManager.getFileInfoList();
       fileInfo = allFileInfos.find((fi) => fi.name === path.basename(emptyDir));
     } catch (error: any) {
@@ -648,7 +655,7 @@ describe('FileManager listFiles', () => {
     fs.mkdirSync(level3, { recursive: true });
     fs.writeFileSync(path.join(level3, 'd.txt'), 'Content D');
 
-    await fileManager.upload(batchId, deepDir, path.basename(deepDir));
+    await fileManager.upload({ batchId, path: deepDir, name: path.basename(deepDir) });
     const allFileInfos = fileManager.getFileInfoList();
     const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(deepDir));
     expect(fileInfo).toBeDefined();
@@ -680,7 +687,7 @@ describe('FileManager listFiles', () => {
     // Create another file that we will later simulate as having an empty path.
     fs.writeFileSync(path.join(folderWithEmpty, 'empty.txt'), 'Should be ignored');
 
-    await fileManager.upload(batchId, folderWithEmpty, path.basename(folderWithEmpty));
+    await fileManager.upload({ batchId, path: folderWithEmpty, name: path.basename(folderWithEmpty) });
     const allFileInfos = fileManager.getFileInfoList();
     const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(folderWithEmpty));
     expect(fileInfo).toBeDefined();
@@ -708,7 +715,7 @@ describe('FileManager listFiles', () => {
 
 describe('FileManager upload', () => {
   let bee: BeeDev;
-  let fileManager: FileManager;
+  let fileManager: FileManagerBase;
   let batchId: BatchId;
   let tempUploadDir: string;
 
@@ -716,7 +723,7 @@ describe('FileManager upload', () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'uploadIntegrationStamp');
-    fileManager = new FileManagerNode(bee);
+    fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
 
     // Create a temporary directory with a nested structure for upload.
@@ -734,7 +741,7 @@ describe('FileManager upload', () => {
   });
 
   it('should upload a directory and update the file info list', async () => {
-    await fileManager.upload(batchId, tempUploadDir, path.basename(tempUploadDir));
+    await fileManager.upload({ batchId, path: tempUploadDir, name: path.basename(tempUploadDir) });
     const fileInfoList = fileManager.getFileInfoList();
     const uploadedInfo = fileInfoList.find((fi) => fi.name === path.basename(tempUploadDir));
     expect(uploadedInfo).toBeDefined();
@@ -747,16 +754,12 @@ describe('FileManager upload', () => {
     fs.writeFileSync(path.join(previewDir, 'preview.txt'), 'Preview Content');
 
     // Call upload with both main path and previewPath.
-    await fileManager.upload(
+    await fileManager.upload({
       batchId,
-      tempUploadDir,
-      path.basename(tempUploadDir),
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      previewDir,
-    );
+      path: tempUploadDir,
+      name: path.basename(tempUploadDir),
+      previewPath: previewDir,
+    });
 
     // The fileInfoList should have been updated (we check for the main upload)
     const fileInfoList = fileManager.getFileInfoList();
@@ -776,15 +779,20 @@ describe('FileManager upload', () => {
   it('should throw an error if infoTopic and historyRef are not provided together', async () => {
     // Here we call upload with infoTopic provided but no historyRef.
     await expect(
-      fileManager.upload(batchId, tempUploadDir, path.basename(tempUploadDir), undefined, undefined, 'someInfoTopic'),
-    ).rejects.toThrow(/infoTopic and historyRef have to be provided at the same time/);
+      fileManager.upload({
+        batchId,
+        path: tempUploadDir,
+        name: path.basename(tempUploadDir),
+        infoTopic: 'someInfoTopic',
+      }),
+    ).rejects.toThrow(/Options infoTopic and historyRef have to be provided at the same time/);
   });
 
   it('should upload a single file and update the file info list', async () => {
     // Create a temporary file.
     const tempFile = path.join(__dirname, 'tempFile.txt');
     fs.writeFileSync(tempFile, 'Single File Content');
-    await fileManager.upload(batchId, tempFile, path.basename(tempFile));
+    await fileManager.upload({ batchId, path: tempFile, name: path.basename(tempFile) });
     const fileInfoList = fileManager.getFileInfoList();
     const uploadedInfo = fileInfoList.find((fi) => fi.name === path.basename(tempFile));
     expect(uploadedInfo).toBeDefined();
@@ -792,9 +800,9 @@ describe('FileManager upload', () => {
   });
 });
 
-describe('FileManager downloadFiles', () => {
+describe('FileManager download', () => {
   let bee: BeeDev;
-  let fileManager: FileManager;
+  let fileManager: FileManagerBase;
   let batchId: BatchId;
   let tempDownloadDir: string;
   const expectedContents: Record<string, string> = {};
@@ -803,10 +811,10 @@ describe('FileManager downloadFiles', () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'downloadFilesIntegrationStamp');
-    fileManager = new FileManagerNode(bee);
+    fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
 
-    // Create a temporary directory for downloadFiles test.
+    // Create a temporary directory for download test.
     tempDownloadDir = path.join(__dirname, 'tmpDownloadIntegration');
     fs.mkdirSync(tempDownloadDir, { recursive: true });
     // Create two files at the root.
@@ -825,7 +833,7 @@ describe('FileManager downloadFiles', () => {
     expectedContents['gamma.txt'] = 'Download Content Gamma';
 
     // Upload the folder.
-    await fileManager.upload(batchId, tempDownloadDir, path.basename(tempDownloadDir));
+    await fileManager.upload({ batchId, path: tempDownloadDir, name: path.basename(tempDownloadDir) });
   });
 
   afterAll(() => {
@@ -838,8 +846,8 @@ describe('FileManager downloadFiles', () => {
     const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(tempDownloadDir));
     expect(fileInfo).toBeDefined();
 
-    // downloadFiles returns an array of strings.
-    const fileContents = await fileManager.downloadFiles(new Reference(fileInfo!.file.reference), {
+    // download returns an array of strings.
+    const fileContents = await fileManager.download(new Reference(fileInfo!.file.reference), {
       actHistoryAddress: new Reference(fileInfo!.file.historyRef),
       actPublisher: fileManager.getNodeAddresses()!.publicKey,
     });
@@ -853,7 +861,7 @@ describe('FileManager downloadFiles', () => {
       path: new TextEncoder().encode('emptyFolder/'),
     });
     const saved = await fileManager.saveMantaray(batchId, emptyNode, { act: true });
-    const files = await fileManager.downloadFiles(new Reference(saved.reference), {
+    const files = await fileManager.download(new Reference(saved.reference), {
       actHistoryAddress: new Reference(saved.historyRef),
       actPublisher: fileManager.getNodeAddresses()!.publicKey,
     });
@@ -865,11 +873,11 @@ describe('FileManager downloadFiles', () => {
     fs.mkdirSync(emptyFileDir, { recursive: true });
     // Create a file with empty content.
     fs.writeFileSync(path.join(emptyFileDir, 'empty.txt'), '');
-    await fileManager.upload(batchId, emptyFileDir, path.basename(emptyFileDir));
+    await fileManager.upload({ batchId, path: emptyFileDir, name: path.basename(emptyFileDir) });
     const allFileInfos = fileManager.getFileInfoList();
     const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(emptyFileDir));
     expect(fileInfo).toBeDefined();
-    const fileContents = await fileManager.downloadFiles(new Reference(fileInfo!.file.reference), {
+    const fileContents = await fileManager.download(new Reference(fileInfo!.file.reference), {
       actHistoryAddress: new Reference(fileInfo!.file.historyRef),
       actPublisher: fileManager.getNodeAddresses()!.publicKey,
     });
@@ -881,12 +889,12 @@ describe('FileManager downloadFiles', () => {
 
 describe('FileManager getOwnerFeedStamp', () => {
   let bee: BeeDev;
-  let fileManager: FileManager;
+  let fileManager: FileManagerBase;
 
   beforeAll(async () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
-    fileManager = new FileManagerNode(bee);
+    fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
   });
 
@@ -921,7 +929,7 @@ describe('FileManager getOwnerFeedStamp', () => {
 
 describe('FileManager destroyVolume', () => {
   let bee: BeeDev;
-  let fileManager: FileManager;
+  let fileManager: FileManagerBase;
   let ownerStamp: PostageBatch;
 
   beforeAll(async () => {
@@ -929,7 +937,7 @@ describe('FileManager destroyVolume', () => {
     // Purchase two non-owner stamps with unique labels BEFORE initializing the FileManager.
     await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'nonOwnerStampTest');
 
-    fileManager = new FileManagerNode(bee);
+    fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
 
     // Retrieve the owner stamp from the FileManager.
@@ -962,12 +970,12 @@ describe('FileManager destroyVolume', () => {
 
 describe('FileManager getGranteesOfFile', () => {
   let bee: BeeDev;
-  let fileManager: FileManager;
+  let fileManager: FileManagerBase;
 
   beforeAll(async () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
-    fileManager = new FileManagerNode(bee);
+    fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
   });
 
@@ -986,7 +994,7 @@ describe('FileManager getGranteesOfFile', () => {
       shared: false,
       index: 0,
     };
-    await expect(fileManager.getGranteesOfFile(fileInfo as any)).rejects.toThrow(
+    await expect(fileManager.getGrantees(fileInfo as any)).rejects.toThrow(
       `Grantee list not found for file eReference: ${fileInfo.topic}`,
     );
   });
@@ -994,12 +1002,12 @@ describe('FileManager getGranteesOfFile', () => {
 
 describe('FileManager getFeedData', () => {
   let bee: BeeDev;
-  let fileManager: FileManager;
+  let fileManager: FileManagerBase;
 
   beforeAll(async () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
-    fileManager = new FileManagerNode(bee);
+    fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
   });
 
@@ -1020,7 +1028,7 @@ describe('FileManager getFeedData', () => {
 
 describe('FileManager End-to-End User Workflow', () => {
   let bee: BeeDev;
-  let fileManager: FileManager;
+  let fileManager: FileManagerBase;
   let batchId: BatchId;
   let tempBaseDir: string;
 
@@ -1028,7 +1036,7 @@ describe('FileManager End-to-End User Workflow', () => {
     // Create a BeeDev instance and ensure the owner stamp exists.
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_FEED_STAMP_LABEL);
-    fileManager = new FileManagerNode(bee);
+    fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
     // Create a temporary directory for this test session.
     tempBaseDir = path.join(__dirname, 'e2eTestSession');
@@ -1045,7 +1053,7 @@ describe('FileManager End-to-End User Workflow', () => {
     // ----- Step 1: Upload a Single File -----
     const singleFilePath = path.join(tempBaseDir, 'initial.txt');
     fs.writeFileSync(singleFilePath, 'Hello, this is the initial file.');
-    await fileManager.upload(batchId, singleFilePath, path.basename(singleFilePath));
+    await fileManager.upload({ batchId, path: singleFilePath, name: path.basename(singleFilePath) });
     let fileInfos = fileManager.getFileInfoList();
     expect(fileInfos.find((fi) => fi.name === path.basename(singleFilePath))).toBeDefined();
 
@@ -1058,7 +1066,7 @@ describe('FileManager End-to-End User Workflow', () => {
     const assetsFolder = path.join(projectFolder, 'assets');
     fs.mkdirSync(assetsFolder, { recursive: true });
     fs.writeFileSync(path.join(assetsFolder, 'image.png'), 'Fake image content');
-    await fileManager.upload(batchId, projectFolder, path.basename(projectFolder));
+    await fileManager.upload({ batchId, path: projectFolder, name: path.basename(projectFolder) });
     fileInfos = fileManager.getFileInfoList();
     const projectInfo = fileInfos.find((fi) => fi.name === path.basename(projectFolder));
     expect(projectInfo).toBeDefined();
@@ -1068,10 +1076,10 @@ describe('FileManager End-to-End User Workflow', () => {
     fs.writeFileSync(path.join(projectFolder, 'readme.txt'), 'This is the project readme.');
     // Wait a moment so that the file system registers the change.
     await new Promise((resolve) => setTimeout(resolve, 1000));
-    await fileManager.upload(batchId, projectFolder, path.basename(projectFolder));
+    await fileManager.upload({ batchId, path: projectFolder, name: path.basename(projectFolder) });
 
     // Force a reload of the FileManager (which loads the manifest as originally published)
-    fileManager = new FileManagerNode(bee);
+    fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
     fileInfos = fileManager.getFileInfoList();
     const updatedProjectInfo = fileInfos.find((fi) => fi.name === path.basename(projectFolder));
@@ -1096,7 +1104,7 @@ describe('FileManager End-to-End User Workflow', () => {
     // Step 1: Upload a single file.
     const singleFilePath = path.join(tempBaseDir, 'initial.txt');
     fs.writeFileSync(singleFilePath, 'Hello, this is the initial file.');
-    await fileManager.upload(batchId, singleFilePath, path.basename(singleFilePath));
+    await fileManager.upload({ batchId, path: singleFilePath, name: path.basename(singleFilePath) });
     let fileInfos = fileManager.getFileInfoList();
     expect(fileInfos.find((fi) => fi.name === path.basename(singleFilePath))).toBeDefined();
 
@@ -1108,7 +1116,7 @@ describe('FileManager End-to-End User Workflow', () => {
     const assetsFolder = path.join(projectFolder, 'assets');
     fs.mkdirSync(assetsFolder, { recursive: true });
     fs.writeFileSync(path.join(assetsFolder, 'image.png'), 'Fake image content');
-    await fileManager.upload(batchId, projectFolder, path.basename(projectFolder));
+    await fileManager.upload({ batchId, path: projectFolder, name: path.basename(projectFolder) });
     fileInfos = fileManager.getFileInfoList();
     const projectInfo = fileInfos.find((fi) => fi.name === path.basename(projectFolder));
     expect(projectInfo).toBeDefined();
@@ -1127,7 +1135,7 @@ describe('FileManager End-to-End User Workflow', () => {
     fs.mkdirSync(nestedFolder, { recursive: true });
     fs.writeFileSync(path.join(nestedFolder, 'subdoc.txt'), 'Nested document content');
     await new Promise((resolve) => setTimeout(resolve, 1000));
-    await fileManager.upload(batchId, projectFolderNew, path.basename(projectFolderNew));
+    await fileManager.upload({ batchId, path: projectFolderNew, name: path.basename(projectFolderNew) });
     fileInfos = fileManager.getFileInfoList();
     const newVersionInfo = fileInfos.find((fi) => fi.name === path.basename(projectFolderNew));
     expect(newVersionInfo).toBeDefined();
@@ -1149,7 +1157,7 @@ describe('FileManager End-to-End User Workflow', () => {
     expect(listedFiles_newVersion.length).toEqual(5);
 
     // Step 5: Download all files and verify their content.
-    const downloadedContents = await fileManager.downloadFiles(new Reference(newVersionInfo!.file.reference), {
+    const downloadedContents = await fileManager.download(new Reference(newVersionInfo!.file.reference), {
       actHistoryAddress: new Reference(newVersionInfo!.file.historyRef),
       actPublisher: fileManager.getNodeAddresses()!.publicKey,
     });
@@ -1177,7 +1185,7 @@ describe('FileManager End-to-End User Workflow', () => {
     fs.writeFileSync(path.join(level2, 'level2.txt'), 'Level2 file content');
 
     // Upload the folder.
-    await fileManager.upload(batchId, complexFolder, path.basename(complexFolder));
+    await fileManager.upload({ batchId, path: complexFolder, name: path.basename(complexFolder) });
     const fileInfos = fileManager.getFileInfoList();
     const complexInfo = fileInfos.find((fi) => fi.name === path.basename(complexFolder));
     expect(complexInfo).toBeDefined();

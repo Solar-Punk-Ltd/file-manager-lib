@@ -1,6 +1,4 @@
-import { FileManager } from './fileManager';
-import { FileManagerBrowser } from './fileManager.browser';
-import { FileManagerNode } from './fileManager.node';
+import { FileManagerFactory, FileManagerType } from './fileManagerFactory';
 
 export * from './utils';
-export { FileManager, FileManagerNode, FileManagerBrowser };
+export { FileManagerType, FileManagerFactory };
