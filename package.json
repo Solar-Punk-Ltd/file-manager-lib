@@ -2,35 +2,63 @@
   "name": "@solarpunkltd/file-manager-lib",
   "version": "0.0.12",
   "description": "A file manager for storing and handling data on Swarm.",
-  "main": "dist/src/index.js",
-  "types": "dist/src/index.d.ts",
+  "main": "dist/index.js",
+  "types": "dist/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/types/index.d.ts",
+      "require": "./dist/index.js",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
   "scripts": {
-    "build": "rimraf dist && npm run build:node",
+    "prepublishOnly": "cross-env NODE_ENV=production npm run build",
+    "build": "rimraf dist && npm run build:node && npm run build:types && npm run build:browser",
     "build:node": "tsc -p tsconfig.json",
-    "build:browser": "webpack --progress",
+    "build:types": "tsc --emitDeclarationOnly --declaration --outDir dist/types",
+    "build:browser": "vite build",
+    "build:browser-webpack": "webpack --progress",
     "test": "jest --config=jest.config.ts --runInBand --verbose",
     "test:coverage": "jest --coverage",
-    "start": "npm run build && node dist/index.js",
     "lint": "eslint . --ext ts --report-unused-disable-directives",
     "lint:fix": "npm run lint -- --fix",
     "prepare": "npm run lint"
   },
+  "files": [
+    "dist"
+  ],
+  "browser": {
+    "stream": false,
+    "fs": false,
+    "crypto": false,
+    "./dist/utils/node.js": "./dist/utils/browser.js",
+    "./dist/fileManager.node.js": "./dist/fileManager.browser.js"
+  },
   "keywords": [
     "swarm",
+    "bee",
     "mantaray",
     "file-manager",
     "bee-js",
-    "typescript"
+    "typescript",
+    "browser",
+    "node"
   ],
-  "author": "TODO",
+  "author": "SolarPunkLtd",
   "license": "Apache-2.0",
   "dependencies": {
     "@upcoming/bee-js": "^0.17.0",
     "cafe-utility": "^27.14.1"
   },
   "devDependencies": {
-    "@babel/preset-env": "^7.26.0",
-    "@babel/preset-typescript": "^7.26.0",
+    "@babel/cli": "^7.19.3",
+    "@babel/core": "^7.20.5",
+    "@babel/plugin-proposal-class-properties": "^7.16.7",
+    "@babel/plugin-transform-runtime": "^7.17.0",
+    "@babel/preset-env": "^7.20.2",
+    "@babel/preset-typescript": "^7.18.6",
     "@eslint/js": "^8.55.0",
     "@jest/globals": "^29.7.0",
     "@types/event-emitter": "^0.3.5",
@@ -39,6 +67,9 @@
     "@types/node": "^22.7.5",
     "@typescript-eslint/eslint-plugin": "^6.14.0",
     "@typescript-eslint/parser": "^6.14.0",
+    "babel-loader": "^9.2.1",
+    "babel-plugin-add-import-extension": "^1.6.0",
+    "cross-env": "^7.0.3",
     "eslint": "^8.55.0",
     "eslint-config-prettier": "^8.10.0",
     "eslint-plugin-import": "^2.29.1",
@@ -51,9 +82,12 @@
     "jest-cli": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
     "prettier": "^2.8.8",
+    "terser-webpack-plugin": "^5.3.12",
     "ts-jest": "^29.2.5",
     "ts-node": "^10.9.2",
     "typescript": "^5.2.2",
+    "vite": "^6.2.2",
+    "vite-plugin-dts": "^4.5.3",
     "webpack": "^5.75.0",
     "webpack-cli": "^5.0.1"
   },

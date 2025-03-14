@@ -26,7 +26,6 @@ export interface ReferenceWithHistory {
   historyRef: string | Reference;
 }
 
-// TODO: sotre index for a quicker upload
 export interface WrappedFileInfoFeed {
   topic: string | Topic;
   eGranteeRef?: string | Reference;
