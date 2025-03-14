@@ -104,6 +104,7 @@ export abstract class FileManager implements IFileManager {
       console.log('FileManager is being initialized');
       return;
     }
+
     this.isInitializing = true;
 
     try {
@@ -325,6 +326,10 @@ export abstract class FileManager implements IFileManager {
     return this.nodeAddresses;
   }
 
+  getStamps(): PostageBatch[] {
+    return this.stampList;
+  }
+
   // End getter methods
 
   // Start Swarm data saving methods
@@ -467,10 +472,6 @@ export abstract class FileManager implements IFileManager {
     }
   }
 
-  getStamps(): PostageBatch[] {
-    return this.stampList;
-  }
-
   getOwnerFeedStamp(): PostageBatch | undefined {
     return this.stampList.find((s) => s.label === OWNER_FEED_STAMP_LABEL);
   }
@@ -594,7 +595,7 @@ export abstract class FileManager implements IFileManager {
     }
   }
 
-  async shareItem(fileInfo: FileInfo, targetOverlays: string[], recipients: string[], message?: string): Promise<void> {
+  async share(fileInfo: FileInfo, targetOverlays: string[], recipients: string[], message?: string): Promise<void> {
     const ix = this.ownerFeedList.findIndex((mf) => mf.topic.toString() === fileInfo.file.reference.toString());
     if (ix === -1) {
       console.error('File reference not found in fileInfo feed list.');

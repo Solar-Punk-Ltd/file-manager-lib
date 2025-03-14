@@ -7,7 +7,6 @@ import { FileManagerUploadOptions, ReferenceWithHistory } from './utils/types';
 import { FileManager } from './fileManager';
 
 export class FileManagerNode extends FileManager {
-  // Start Swarm data saving methods
   async upload(options: FileManagerUploadOptions): Promise<void> {
     if (!options.path) {
       throw new FileInfoError('Path option has to be provided.');
@@ -20,6 +19,7 @@ export class FileManagerNode extends FileManager {
     const requestOptions = options.historyRef
       ? makeBeeRequestOptions({ historyRef: options.historyRef, redundancyLevel: options.redundancyLevel })
       : undefined;
+
     const uploadFilesRes = await this.uploadFileOrDirectory(
       options.batchId,
       options.path,

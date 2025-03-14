@@ -7,7 +7,6 @@ import { FileManagerUploadOptions, ReferenceWithHistory, UploadProgress } from '
 import { FileManager } from './fileManager';
 
 export class FileManagerBrowser extends FileManager {
-  // Start Swarm data saving methods
   async upload(options: FileManagerUploadOptions): Promise<void> {
     if (!options.files) {
       throw new FileInfoError('Files option has to be provided.');
@@ -20,6 +19,7 @@ export class FileManagerBrowser extends FileManager {
     const requestOptions = options.historyRef
       ? makeBeeRequestOptions({ historyRef: options.historyRef, redundancyLevel: options.redundancyLevel })
       : undefined;
+
     const uploadFilesRes = await this.streamFiles(
       options.batchId,
       options.files,
