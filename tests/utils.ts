@@ -2,8 +2,7 @@ import { PrivateKey, Reference } from '@upcoming/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
-import { FileManagerBase } from '../src/fileManager/fileManager';
-import { FileInfo } from '../src/utils/types';
+import { FileInfo, FileManager } from '../src/utils/types';
 
 export const BEE_URL = 'http://127.0.0.1:1633';
 export const OTHER_BEE_URL = 'http://127.0.0.1:1733';
@@ -45,7 +44,7 @@ export async function readFilesOrDirectory(fullPath: string, name?: string): Pro
 }
 
 export async function dowloadAndCompareFiles(
-  fileManager: FileManagerBase,
+  fileManager: FileManager,
   publicKey: string,
   fiList: FileInfo[],
   expArr: string[][],

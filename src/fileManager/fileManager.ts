@@ -62,7 +62,7 @@ export abstract class FileManagerBase implements FileManager {
   private ownerFeedList: WrappedFileInfoFeed[];
   private isInitialized: boolean;
   private isInitializing: boolean;
-  readonly emitter: EventEmitterBase;
+  private emitter: EventEmitterBase;
 
   protected bee: Bee;
 
