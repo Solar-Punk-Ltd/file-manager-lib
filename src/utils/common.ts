@@ -1,6 +1,33 @@
-import { BatchId, Bee, BeeRequestOptions, EthAddress, Reference, Topic } from '@upcoming/bee-js';
+import { BatchId, Bee, BeeRequestOptions, EthAddress, FeedIndex, Reference, Topic } from '@upcoming/bee-js';
 
-import { FileInfo, RequestOptions, ShareItem, WrappedFileInfoFeed } from './types';
+import { SWARM_ZERO_ADDRESS } from './constants';
+import { FetchFeedUpdateResponse, FileInfo, RequestOptions, ShareItem, WrappedFileInfoFeed } from './types';
+
+// Fetches the feed data for the given topic, index and address
+export async function getFeedData(
+  bee: Bee,
+  topic: Topic,
+  address: EthAddress | string,
+  index?: bigint,
+  options?: BeeRequestOptions,
+): Promise<FetchFeedUpdateResponse> {
+  try {
+    const feedReader = bee.makeFeedReader(topic.toUint8Array(), address, options);
+    if (index !== undefined) {
+      return await feedReader.download({ index: FeedIndex.fromBigInt(index) });
+    }
+    return await feedReader.download();
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return {
+        feedIndex: FeedIndex.MINUS_ONE,
+        feedIndexNext: FeedIndex.fromBigInt(0n),
+        payload: SWARM_ZERO_ADDRESS,
+      };
+    }
+    throw error;
+  }
+}
 
 export function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
@@ -113,7 +140,7 @@ export function makeBeeRequestOptions(requestOptions: RequestOptions): BeeReques
 // status is undefined in the error object
 // Determines if the error is about 'Not Found'
 export function isNotFoundError(error: any): boolean {
-  return error.stack.includes('404') || error.message.includes('Not Found') || error.message.includes('404');
+  return error.stack?.includes('404') || error.message?.includes('Not Found') || error.message?.includes('404');
 }
 
 export async function buyStamp(bee: Bee, amount: string | bigint, depth: number, label?: string): Promise<BatchId> {

@@ -95,6 +95,7 @@ export interface FileManager {
   getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult>;
 }
 
+// TODO: use string for index
 export interface FileInfo {
   batchId: string | BatchId;
   file: ReferenceWithHistory;
@@ -109,6 +110,7 @@ export interface FileInfo {
   customMetadata?: Record<string, string>;
 }
 
+// TODO: use string for index
 export interface FileManagerUploadOptions {
   batchId: BatchId;
   name: string;

@@ -2,10 +2,8 @@ import {
   BatchId,
   Bee,
   BeeModes,
-  BeeRequestOptions,
   Bytes,
   DownloadOptions,
-  EthAddress,
   FeedIndex,
   GetGranteesResult,
   GranteesResult,
@@ -27,7 +25,7 @@ import {
   assertFileInfo,
   assertShareItem,
   assertWrappedFileInoFeed,
-  isNotFoundError,
+  getFeedData,
   makeBeeRequestOptions,
 } from '../utils/common';
 import { OWNER_STAMP_LABEL, REFERENCE_LIST_TOPIC, SHARED_INBOX_TOPIC, SWARM_ZERO_ADDRESS } from '../utils/constants';
@@ -43,7 +41,6 @@ import {
 import { EventEmitter, EventEmitterBase } from '../utils/eventEmitter';
 import { FileManagerEvents } from '../utils/events';
 import {
-  FetchFeedUpdateResponse,
   FileInfo,
   FileManager,
   FileManagerUploadOptions,
@@ -88,7 +85,7 @@ export abstract class FileManagerBase implements FileManager {
     this.nodeAddresses = undefined;
   }
 
-  // Start init methods
+  // TODO: import pins
   async initialize(): Promise<void> {
     if (this.isInitialized) {
       console.log('FileManager is already initialized');
@@ -141,16 +138,21 @@ export abstract class FileManagerBase implements FileManager {
 
   // fetches the owner feed topic and creates it if it does not exist, protected by ACT
   private async initOwnerFeedTopic(): Promise<void> {
-    if (this.nodeAddresses === undefined) {
+    if (!this.nodeAddresses) {
       throw new SignerError('Node addresses not found');
     }
 
     const ownerStamp = await this.getOwnerStamp();
-    if (ownerStamp === undefined) {
+    if (!ownerStamp) {
       throw new StampError('Owner stamp not found');
     }
 
-    const feedTopicData = await this.getFeedData(REFERENCE_LIST_TOPIC, 0n);
+    const feedTopicData = await getFeedData(
+      this.bee,
+      REFERENCE_LIST_TOPIC,
+      this.signer.publicKey().address().toString(),
+      0n,
+    );
     const topicRef = new Reference(feedTopicData.payload.toUint8Array());
 
     if (topicRef.equals(SWARM_ZERO_ADDRESS)) {
@@ -165,7 +167,12 @@ export abstract class FileManagerBase implements FileManager {
         index: FeedIndex.fromBigInt(1n),
       });
     } else {
-      const topicHistory = await this.getFeedData(REFERENCE_LIST_TOPIC, 1n);
+      const topicHistory = await getFeedData(
+        this.bee,
+        REFERENCE_LIST_TOPIC,
+        this.signer.publicKey().address().toString(),
+        1n,
+      );
       const topicHistoryRef = new Reference(topicHistory.payload.toUint8Array());
       const topicBytes = await this.bee.downloadData(topicRef.toUint8Array(), {
         actHistoryAddress: topicHistoryRef.toUint8Array(),
@@ -180,11 +187,15 @@ export abstract class FileManagerBase implements FileManager {
 
   // fetches the latest list of fileinfo from the owner feed
   private async initOwnerFeedList(): Promise<void> {
-    if (this.nodeAddresses === undefined) {
+    if (!this.nodeAddresses) {
       throw new SignerError('Node addresses not found');
     }
 
-    const latestFeedData = await this.getFeedData(this.ownerFeedTopic);
+    const latestFeedData = await getFeedData(
+      this.bee,
+      this.ownerFeedTopic,
+      this.signer.publicKey().address().toString(),
+    );
     const dataArr = latestFeedData.payload.toUint8Array();
 
     if (SWARM_ZERO_ADDRESS.equals(dataArr)) {
@@ -215,12 +226,16 @@ export abstract class FileManagerBase implements FileManager {
 
   // fetches the file info list from the owner feed and unwraps the data encrypted with ACT
   private async initFileInfoList(): Promise<void> {
-    if (this.nodeAddresses === undefined) {
+    if (!this.nodeAddresses) {
       throw new SignerError('Node addresses not found');
     }
 
     for (const feedItem of this.ownerFeedList) {
-      const rawFeedData = await this.getFeedData(new Topic(feedItem.topic));
+      const rawFeedData = await getFeedData(
+        this.bee,
+        new Topic(feedItem.topic),
+        this.signer.publicKey().address().toString(),
+      );
       const fileInfoFeedData = rawFeedData.payload.toJSON() as ReferenceWithHistory;
 
       const rawData = await this.bee.downloadData(fileInfoFeedData.reference.toString(), {
@@ -239,9 +254,7 @@ export abstract class FileManagerBase implements FileManager {
 
     console.debug('File info lists fetched successfully.');
   }
-  // End init methods
 
-  // Start mantaray methods
   async saveMantaray(
     batchId: BatchId,
     mantaray: MantarayNode,
@@ -285,6 +298,7 @@ export abstract class FileManagerBase implements FileManager {
     return fileList;
   }
 
+  // TODO: allsettled
   async download(eRef: Reference, options?: DownloadOptions): Promise<string[]> {
     const unmarshalled = await this.loadMantaray(eRef, options);
     const files: string[] = [];
@@ -296,9 +310,6 @@ export abstract class FileManagerBase implements FileManager {
     return files;
   }
 
-  // End mantaray methods
-
-  // Start getter methods
   getFileInfoList(): FileInfo[] {
     return this.fileInfoList;
   }
@@ -307,13 +318,6 @@ export abstract class FileManagerBase implements FileManager {
     return this.sharedWithMe;
   }
 
-  getNodeAddresses(): NodeAddresses | undefined {
-    return this.nodeAddresses;
-  }
-
-  // End getter methods
-
-  // Start Swarm data saving methods
   abstract upload(options: FileManagerUploadOptions): Promise<void>;
 
   protected async saveFileInfoAndFeed(
@@ -326,7 +330,6 @@ export abstract class FileManagerBase implements FileManager {
     customMetadata?: Record<string, string>,
     redundancyLevel?: RedundancyLevel,
   ): Promise<void> {
-    const feedIndex = index !== undefined ? index : 0;
     const fileInfo = {
       batchId: batchId.toString(),
       file: uploadFilesRes,
@@ -336,13 +339,13 @@ export abstract class FileManagerBase implements FileManager {
       timestamp: new Date().getTime(),
       shared: false,
       preview: uploadPreviewRes,
-      index: feedIndex,
+      index: index,
       redundancyLevel,
       customMetadata,
     };
     const fileInfoResult = await this.uploadFileInfo(fileInfo);
 
-    await this.saveWrappedFileInfoFeed(batchId, fileInfoResult, topic, feedIndex, redundancyLevel);
+    await this.saveWrappedFileInfoFeed(batchId, fileInfoResult, topic, index, redundancyLevel);
 
     const ix = this.ownerFeedList.findIndex((f) => f.topic.toString() === topic.toString());
     if (ix !== -1) {
@@ -408,7 +411,7 @@ export abstract class FileManagerBase implements FileManager {
 
   protected async saveFileInfoFeedList(): Promise<void> {
     const ownerStamp = await this.getOwnerStamp();
-    if (ownerStamp === undefined) {
+    if (!ownerStamp) {
       throw new StampError('Owner stamp not found');
     }
 
@@ -436,9 +439,6 @@ export abstract class FileManagerBase implements FileManager {
     }
   }
 
-  // End Swarm data saving methods
-
-  // Start stamp handler methods
   private async getOwnerStamp(): Promise<PostageBatch | undefined> {
     if (this.ownerStamp) return this.ownerStamp;
 
@@ -450,7 +450,7 @@ export abstract class FileManagerBase implements FileManager {
       return ownerStamp;
     } catch (error: any) {
       console.error(`Failed to get owner stamp: ${error}`);
-      return undefined;
+      return;
     }
   }
 
@@ -473,13 +473,11 @@ export abstract class FileManagerBase implements FileManager {
       }
     }
 
-    this.saveFileInfoFeedList();
+    await this.saveFileInfoFeedList();
 
     console.debug(`Volume destroyed: ${batchId.toString()}`);
   }
-  // End stamp handler methods
 
-  // Start grantee handler methods
   // fetches the list of grantees who can access the file reference
   async getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult> {
     const mfIx = this.ownerFeedList.findIndex((mf) => mf.topic === fileInfo.topic);
@@ -492,43 +490,45 @@ export abstract class FileManagerBase implements FileManager {
   }
 
   // updates the list of grantees who can access the file reference under the history reference
-  // only add is supported
+  // only add is supported as of now
   private async handleGrantees(
     fileInfo: FileInfo,
     grantees: {
-      add?: string[];
+      add: string[];
       revoke?: string[];
     },
     eGranteeRef?: string | Reference,
   ): Promise<GranteesResult> {
+    if (grantees.add.length === 0) {
+      throw new GranteeError(`No grantees specified.`);
+    }
+
     const fIx = this.fileInfoList.findIndex((f) => f.file === fileInfo.file);
     if (fIx === -1) {
-      throw new FileInfoError(`Provided fileinfo not found: ${fileInfo.file.reference.toString()}`);
+      throw new GranteeError(`Provided fileinfo not found: ${JSON.stringify(fileInfo.file)}`);
     }
 
     let grantResult: GranteesResult;
-    if (eGranteeRef !== undefined) {
-      grantResult = await this.bee.patchGrantees(
-        fileInfo.batchId,
-        eGranteeRef,
-        fileInfo.file.historyRef || SWARM_ZERO_ADDRESS,
-        grantees,
-      );
-      console.debug('Grantee list patched, grantee list reference: ', grantResult.ref.toString());
-    } else {
-      if (grantees.add === undefined || grantees.add.length === 0) {
-        throw new GranteeError(`No grantees specified.`);
+    try {
+      if (eGranteeRef) {
+        grantResult = await this.bee.patchGrantees(
+          fileInfo.batchId,
+          eGranteeRef,
+          fileInfo.file.historyRef || SWARM_ZERO_ADDRESS,
+          grantees,
+        );
+        console.debug('Grantee list patched, grantee list reference: ', grantResult.ref.toString());
+      } else {
+        grantResult = await this.bee.createGrantees(fileInfo.batchId, grantees.add);
+        console.debug('Access granted, new grantee list reference: ', grantResult.ref.toString());
       }
-
-      grantResult = await this.bee.createGrantees(fileInfo.batchId, grantees.add);
-      console.debug('Access granted, new grantee list reference: ', grantResult.ref.toString());
+    } catch (error) {
+      throw new GranteeError(`Failed to handle grantees: ${error}`);
     }
 
     return grantResult;
   }
-  // End grantee handler methods
 
-  // Start share methods
   async subscribeToSharedInbox(topic: string, callback?: (data: ShareItem) => void): Promise<void> {
     const nodeInfo = await this.bee.getNodeInfo();
     if (nodeInfo.beeMode !== BeeModes.FULL) {
@@ -564,8 +564,7 @@ export abstract class FileManagerBase implements FileManager {
   async share(fileInfo: FileInfo, targetOverlays: string[], recipients: string[], message?: string): Promise<void> {
     const ix = this.ownerFeedList.findIndex((mf) => mf.topic.toString() === fileInfo.file.reference.toString());
     if (ix === -1) {
-      console.error('File reference not found in fileInfo feed list.');
-      return;
+      throw new SendShareMessageError('File reference not found in fileInfo feed list.');
     }
 
     const grantResult = await this.handleGrantees(fileInfo, { add: recipients }, this.ownerFeedList[ix].eGranteeRef);
@@ -575,7 +574,7 @@ export abstract class FileManagerBase implements FileManager {
       eGranteeRef: grantResult.ref.toString(),
     };
 
-    this.saveFileInfoFeedList();
+    await this.saveFileInfoFeedList();
 
     const item: ShareItem = {
       fileInfo: fileInfo,
@@ -583,7 +582,7 @@ export abstract class FileManagerBase implements FileManager {
       message: message,
     };
 
-    this.sendShareMessage(targetOverlays, item, recipients);
+    await this.sendShareMessage(targetOverlays, item, recipients);
     this.emitter.emit(FileManagerEvents.SHARE_MESSAGE_SENT, { recipients: recipients, shareItem: item });
   }
 
@@ -593,6 +592,7 @@ export abstract class FileManagerBase implements FileManager {
       throw new SubscribtionError('Invalid recipients or  targetoverlays specified for sharing.');
     }
 
+    // TODO: in case of error, for loop will continue, should it throw ?
     for (let i = 0; i < recipients.length; i++) {
       try {
         // TODO: mining will take too long, 2 bytes are enough
@@ -605,39 +605,7 @@ export abstract class FileManagerBase implements FileManager {
       }
     }
   }
-  // End share methods
-
-  // Start helper methods
-  // Fetches the feed data for the given topic, index and address
-  async getFeedData(
-    topic: Topic,
-    index?: bigint,
-    address?: EthAddress,
-    options?: BeeRequestOptions,
-  ): Promise<FetchFeedUpdateResponse> {
-    try {
-      const feedReader = this.bee.makeFeedReader(
-        topic.toUint8Array(),
-        address || this.signer.publicKey().address().toString(),
-        options,
-      );
-      if (index !== undefined) {
-        return await feedReader.download({ index: FeedIndex.fromBigInt(index) });
-      }
-      return await feedReader.download();
-    } catch (error) {
-      if (isNotFoundError(error)) {
-        return {
-          feedIndex: FeedIndex.MINUS_ONE,
-          feedIndexNext: FeedIndex.fromBigInt(0n),
-          payload: SWARM_ZERO_ADDRESS,
-        };
-      }
-      throw error;
-    }
-  }
 
   // generates a random topic
   protected abstract generateTopic(): Topic;
-  // End helper methods
 }

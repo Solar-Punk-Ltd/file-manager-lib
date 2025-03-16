@@ -6,15 +6,16 @@ import {
   Duration,
   EthAddress,
   FeedIndex,
+  FeedReader,
   FeedWriter,
   MantarayNode,
   NodeAddresses,
-  NULL_TOPIC,
   NumberString,
   PeerAddress,
   PublicKey,
   Reference,
   Size,
+  Topic,
   UploadResult,
 } from '@upcoming/bee-js';
 import { Optional } from 'cafe-utility';
@@ -55,12 +56,12 @@ export async function createInitializedFileManager(
 
 export function createMockNodeAddresses(): NodeAddresses {
   return {
-    overlay: SWARM_ZERO_ADDRESS as PeerAddress,
+    overlay: new PeerAddress('1'.repeat(64)),
     underlay: ['mock-underlay'],
-    ethereum: 'mock-address' as unknown as EthAddress,
-    publicKey: SWARM_ZERO_ADDRESS.toString().repeat(2) as unknown as PublicKey,
-    pssPublicKey: 'mock-pss-public-key',
-  } as unknown as NodeAddresses;
+    ethereum: new EthAddress('33'.repeat(20)),
+    publicKey: new PublicKey('22'.repeat(64)),
+    pssPublicKey: new PublicKey('22'.repeat(64)),
+  };
 }
 
 export function createMockGetFeedDataResult(currentIndex = 0, nextIndex = 1): FetchFeedUpdateResponse {
@@ -71,7 +72,17 @@ export function createMockGetFeedDataResult(currentIndex = 0, nextIndex = 1): Fe
   };
 }
 
-export function createMockFeedWriter(char: string = '0'): FeedWriter {
+export function createMockFeedReader(char: string = '1'): FeedReader {
+  return {
+    owner: new EthAddress(char.repeat(40)),
+    download: jest.fn().mockRejectedValue({ payload: new Bytes(char.repeat(64)) }),
+    downloadReference: jest.fn().mockRejectedValue({ reference: new Reference(char.repeat(64)) }),
+    downloadPayload: jest.fn().mockResolvedValue({ payload: new Bytes(char.repeat(64)) }),
+    topic: Topic.fromString(char),
+  };
+}
+
+export function createMockFeedWriter(char: string = '1'): FeedWriter {
   return {
     upload: jest.fn().mockResolvedValue({
       reference: new Reference(char.repeat(64)),
@@ -85,11 +96,7 @@ export function createMockFeedWriter(char: string = '0'): FeedWriter {
       reference: new Reference(char.repeat(64)),
       historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
     } as UploadResult),
-    owner: '' as unknown as EthAddress,
-    download: jest.fn(),
-    downloadReference: jest.fn(),
-    downloadPayload: jest.fn(),
-    topic: NULL_TOPIC,
+    ...createMockFeedReader(char),
   };
 }
 
@@ -100,13 +107,13 @@ export function createInitMocks(): any {
   jest.spyOn(Bee.prototype, 'isSupportedApiVersion').mockResolvedValue(true);
   jest.spyOn(Bee.prototype, 'getNodeAddresses').mockResolvedValue(createMockNodeAddresses());
   loadStampListMock();
-  jest.spyOn(FileManagerBase.prototype, 'getFeedData').mockResolvedValue(createMockGetFeedDataResult());
   jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(new Bytes(SWARM_ZERO_ADDRESS));
   jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValue({
     reference: SWARM_ZERO_ADDRESS,
     historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
   } as unknown as UploadResult);
   jest.spyOn(Bee.prototype, 'makeFeedWriter').mockReturnValue(createMockFeedWriter());
+  jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue(createMockFeedReader());
 }
 
 export function createUploadFilesFromDirectorySpy(char: string): jest.SpyInstance {
