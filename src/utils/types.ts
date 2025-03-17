@@ -9,7 +9,7 @@ import {
   RedundancyLevel,
   Reference,
   Topic,
-} from '@upcoming/bee-js';
+} from '@ethersphere/bee-js';
 import { ReadStream } from 'fs';
 
 /**
@@ -95,7 +95,6 @@ export interface FileManager {
   getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult>;
 }
 
-// TODO: use string for index
 export interface FileInfo {
   batchId: string | BatchId;
   file: ReferenceWithHistory;
@@ -105,12 +104,11 @@ export interface FileInfo {
   timestamp?: number;
   shared?: boolean;
   preview?: ReferenceWithHistory;
-  index?: number | undefined;
+  index?: string | undefined;
   redundancyLevel?: RedundancyLevel;
   customMetadata?: Record<string, string>;
 }
 
-// TODO: use string for index
 export interface FileManagerUploadOptions {
   batchId: BatchId;
   name: string;
@@ -119,7 +117,7 @@ export interface FileManagerUploadOptions {
   customMetadata?: Record<string, string>;
   historyRef?: Reference;
   infoTopic?: string;
-  index?: number | undefined;
+  index?: string | undefined;
   preview?: File;
   previewPath?: string;
   redundancyLevel?: RedundancyLevel;

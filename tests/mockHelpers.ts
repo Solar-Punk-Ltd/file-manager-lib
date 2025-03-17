@@ -17,7 +17,7 @@ import {
   Size,
   Topic,
   UploadResult,
-} from '@upcoming/bee-js';
+} from '@ethersphere/bee-js';
 import { Optional } from 'cafe-utility';
 
 import { FileManagerBase } from '../src/fileManager/fileManager';
@@ -50,8 +50,7 @@ export async function createInitializedFileManager(
   bee: Bee = new Bee(BEE_URL, { signer: MOCK_SIGNER }),
   emitter?: EventEmitterBase,
 ): Promise<FileManagerBase> {
-  const fileManager = (await FileManagerFactory.create(FileManagerType.Node, bee, emitter)) as FileManagerBase;
-  return fileManager;
+  return (await FileManagerFactory.create(FileManagerType.Node, bee, emitter)) as FileManagerBase;
 }
 
 export function createMockNodeAddresses(): NodeAddresses {

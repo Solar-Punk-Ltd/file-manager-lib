@@ -1,4 +1,4 @@
-import { BatchId, BeeRequestOptions, CollectionUploadOptions, FileUploadOptions, Topic } from '@upcoming/bee-js';
+import { BatchId, BeeRequestOptions, CollectionUploadOptions, FileUploadOptions, Topic } from '@ethersphere/bee-js';
 
 import { makeBeeRequestOptions } from '../utils/common';
 import { FileError, FileInfoError } from '../utils/errors';

@@ -1,4 +1,4 @@
-import { Bee } from '@upcoming/bee-js';
+import { Bee } from '@ethersphere/bee-js';
 
 import { FileManagerBrowser } from './fileManager/fileManager.browser';
 import { FileManagerNode } from './fileManager/fileManager.node';

@@ -1,4 +1,4 @@
-import { NULL_ADDRESS, Reference, Topic } from '@upcoming/bee-js';
+import { NULL_ADDRESS, Reference, Topic } from '@ethersphere/bee-js';
 
 export const REFERENCE_LIST_TOPIC = Topic.fromString('reference-list');
 export const SHARED_INBOX_TOPIC = Topic.fromString('shared-inbox');

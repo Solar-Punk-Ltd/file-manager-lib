@@ -48,8 +48,8 @@
   "author": "SolarPunkLtd",
   "license": "Apache-2.0",
   "dependencies": {
-    "@upcoming/bee-js": "^0.17.0",
-    "cafe-utility": "^27.14.1"
+    "@ethersphere/bee-js": "^9.0.3",
+    "cafe-utility": "^27.14.2"
   },
   "devDependencies": {
     "@babel/cli": "^7.19.3",

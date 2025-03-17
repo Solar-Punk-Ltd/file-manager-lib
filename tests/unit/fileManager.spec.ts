@@ -1,4 +1,4 @@
-import { BatchId, Bee, Bytes, MantarayNode, Reference, STAMPS_DEPTH_MAX, Topic } from '@upcoming/bee-js';
+import { BatchId, Bee, Bytes, MantarayNode, Reference, STAMPS_DEPTH_MAX, Topic } from '@ethersphere/bee-js';
 import { Optional } from 'cafe-utility';
 
 import { FileManagerBase } from '../../src/fileManager/fileManager';
@@ -326,9 +326,9 @@ describe('FileManager', () => {
       const uploadHandler = jest.fn((input) => {
         console.log('Input: ', input);
       });
-      emitter.on(FileManagerEvents.FILE_UPLOADED, uploadHandler);
 
       const fm = await createInitializedFileManager(bee, emitter);
+      fm.emitter.on(FileManagerEvents.FILE_UPLOADED, uploadHandler);
       createUploadFilesFromDirectorySpy('1');
 
       const expectedFileInfo = {
@@ -349,7 +349,7 @@ describe('FileManager', () => {
       };
 
       await fm.upload({ batchId: new BatchId(MOCK_BATCH_ID), path: './tests', name: 'tests' });
-      emitter.off(FileManagerEvents.FILE_UPLOADED, uploadHandler);
+      fm.emitter.off(FileManagerEvents.FILE_UPLOADED, uploadHandler);
 
       expect(uploadHandler).toHaveBeenCalledWith({
         fileInfo: expectedFileInfo,

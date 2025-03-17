@@ -1,4 +1,4 @@
-import { Bytes } from '@upcoming/bee-js';
+import { Bytes } from '@ethersphere/bee-js';
 import { randomBytes } from 'crypto';
 import * as fs from 'fs';
 import Path from 'path';

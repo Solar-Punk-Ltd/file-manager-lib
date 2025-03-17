@@ -19,7 +19,7 @@ import {
   STAMPS_DEPTH_MAX,
   Topic,
   Utils,
-} from '@upcoming/bee-js';
+} from '@ethersphere/bee-js';
 
 import {
   assertFileInfo,
@@ -62,7 +62,7 @@ export abstract class FileManagerBase implements FileManager {
   private ownerFeedList: WrappedFileInfoFeed[];
   private isInitialized: boolean;
   private isInitializing: boolean;
-  private emitter: EventEmitterBase;
+  readonly emitter: EventEmitterBase;
 
   protected bee: Bee;
 
@@ -272,6 +272,8 @@ export abstract class FileManagerBase implements FileManager {
     await mantaray.loadRecursively(this.bee);
     return mantaray;
   }
+
+  // TODO: decide on downloadFork vs download: based on path or eRef ?
   // TODO: use node.find() - it does not seem to work - test it
   async downloadFork(mantaray: MantarayNode, path: string, options?: DownloadOptions): Promise<Bytes> {
     // const node = mantaray.find(path);
@@ -326,7 +328,7 @@ export abstract class FileManagerBase implements FileManager {
     name: string,
     uploadFilesRes: ReferenceWithHistory,
     uploadPreviewRes?: ReferenceWithHistory,
-    index?: number,
+    index?: string,
     customMetadata?: Record<string, string>,
     redundancyLevel?: RedundancyLevel,
   ): Promise<void> {
@@ -384,7 +386,7 @@ export abstract class FileManagerBase implements FileManager {
     batchId: BatchId,
     fileInfoResult: ReferenceWithHistory,
     topic: Topic,
-    index?: number,
+    index?: string,
     redundancyLevel?: RedundancyLevel,
   ): Promise<void> {
     try {
@@ -402,7 +404,7 @@ export abstract class FileManagerBase implements FileManager {
       const requestOptions = redundancyLevel ? makeBeeRequestOptions({ redundancyLevel }) : undefined;
       const fw = this.bee.makeFeedWriter(topic.toUint8Array(), this.signer, requestOptions);
       await fw.uploadReference(batchId, uploadInfoRes.reference, {
-        index: index,
+        index: index ? new FeedIndex(index) : undefined,
       });
     } catch (error: any) {
       throw new FileInfoError(`Failed to save wrapped fileInfo feed: ${error}`);

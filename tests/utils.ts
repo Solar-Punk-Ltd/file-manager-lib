@@ -1,4 +1,4 @@
-import { PrivateKey, Reference } from '@upcoming/bee-js';
+import { PrivateKey, Reference } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 

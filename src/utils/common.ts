@@ -1,4 +1,4 @@
-import { BatchId, Bee, BeeRequestOptions, EthAddress, FeedIndex, Reference, Topic } from '@upcoming/bee-js';
+import { BatchId, Bee, BeeRequestOptions, EthAddress, FeedIndex, Reference, Topic } from '@ethersphere/bee-js';
 
 import { SWARM_ZERO_ADDRESS } from './constants';
 import { FetchFeedUpdateResponse, FileInfo, RequestOptions, ShareItem, WrappedFileInfoFeed } from './types';
