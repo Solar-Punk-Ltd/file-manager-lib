@@ -1,4 +1,4 @@
-import { BatchId, Bee, BeeRequestOptions, Bytes, EthAddress, Reference, Topic } from '@upcoming/bee-js';
+import { BatchId, Bee, BeeRequestOptions, Bytes, EthAddress, Reference, Topic } from '@ethersphere/bee-js';
 import { randomBytes } from 'crypto';
 import * as fs from 'fs';
 import path from 'path';
