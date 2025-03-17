@@ -19,7 +19,6 @@
     "build:node": "tsc -p tsconfig.json",
     "build:types": "tsc --emitDeclarationOnly --declaration --outDir dist/types",
     "build:browser": "vite build",
-    "build:browser-webpack": "webpack --progress",
     "test": "jest --config=jest.config.ts --runInBand --verbose",
     "test:coverage": "jest --coverage",
     "lint": "eslint . --ext ts --report-unused-disable-directives",
