@@ -273,7 +273,7 @@ export abstract class FileManagerBase implements FileManager {
     return mantaray;
   }
 
-  // TODO: decide on downloadFork vs download: based on path or eRef ?
+  // TODO: decide on downloadFork vs download: based on path or eRef - all vs single ?
   // TODO: use node.find() - it does not seem to work - test it
   async downloadFork(mantaray: MantarayNode, path: string, options?: DownloadOptions): Promise<Bytes> {
     // const node = mantaray.find(path);
@@ -300,15 +300,24 @@ export abstract class FileManagerBase implements FileManager {
     return fileList;
   }
 
-  // TODO: allsettled
   async download(eRef: Reference, options?: DownloadOptions): Promise<string[]> {
     const unmarshalled = await this.loadMantaray(eRef, options);
     const files: string[] = [];
 
+    const dataPromises: Promise<Bytes>[] = [];
     for (const node of unmarshalled.collect()) {
-      const file = (await this.bee.downloadData(node.targetAddress)).toUtf8();
-      files.push(file);
+      dataPromises.push(this.bee.downloadData(node.targetAddress));
     }
+    await Promise.allSettled(dataPromises).then((results) => {
+      results.forEach((result) => {
+        if (result.status === 'fulfilled') {
+          files.push(result.value.toUtf8());
+        } else {
+          console.error('Failed dowload file: ', result.reason);
+        }
+      });
+    });
+
     return files;
   }
 

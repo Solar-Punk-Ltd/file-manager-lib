@@ -12,6 +12,8 @@ import {
 } from '@ethersphere/bee-js';
 import { ReadStream } from 'fs';
 
+import { EventEmitterBase } from './eventEmitter';
+
 /**
  * Interface representing a file manager with various file operations.
  */
@@ -93,6 +95,11 @@ export interface FileManager {
    * @returns A promise that resolves to list of grantee public keys.
    */
   getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult>;
+
+  /**
+   * Event emitter for handling file manager events.
+   */
+  emitter: EventEmitterBase;
 }
 
 export interface FileInfo {
