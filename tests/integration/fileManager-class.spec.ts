@@ -1,4 +1,4 @@
-import { BatchId, BeeDev, Bytes, MantarayNode, PostageBatch, Reference, Topic } from '@upcoming/bee-js';
+import { BatchId, BeeDev, Bytes, MantarayNode, PostageBatch, Reference, Topic } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
@@ -840,7 +840,7 @@ describe('FileManager downloadFiles', () => {
 
   it('should return an empty array when the manifest is empty', async () => {
     // Create an empty Mantaray node (with no forks).
-    const emptyNode = new (await import('@upcoming/bee-js')).MantarayNode({
+    const emptyNode = new (await import('@ethersphere/bee-js')).MantarayNode({
       path: new TextEncoder().encode('emptyFolder/'),
     });
     const saved = await fileManager.saveMantaray(batchId, emptyNode, { act: true });

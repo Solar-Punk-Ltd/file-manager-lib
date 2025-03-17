@@ -1,4 +1,13 @@
-import { BatchId, Bytes, EthAddress, FeedIndex, PublicKey, RedundancyLevel, Reference, Topic } from '@upcoming/bee-js';
+import {
+  BatchId,
+  Bytes,
+  EthAddress,
+  FeedIndex,
+  PublicKey,
+  RedundancyLevel,
+  Reference,
+  Topic,
+} from '@ethersphere/bee-js';
 import { ReadStream } from 'fs';
 
 export interface FileInfo {

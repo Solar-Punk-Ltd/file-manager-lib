@@ -8,7 +8,7 @@ import {
   Reference,
   STAMPS_DEPTH_MAX,
   Topic,
-} from '@upcoming/bee-js';
+} from '@ethersphere/bee-js';
 import { Optional } from 'cafe-utility';
 
 import { FileManager } from '../../src/fileManager';

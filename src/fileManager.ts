@@ -24,7 +24,7 @@ import {
   Topic,
   UploadOptions,
   Utils,
-} from '@upcoming/bee-js';
+} from '@ethersphere/bee-js';
 import path from 'path';
 
 import {
