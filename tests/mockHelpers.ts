@@ -24,7 +24,7 @@ import { FileManagerBase } from '../src/fileManager/fileManager';
 import { FileManagerFactory, FileManagerType } from '../src/fileManagerFactory';
 import { OWNER_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
 import { EventEmitterBase } from '../src/utils/eventEmitter';
-import { FetchFeedUpdateResponse } from '../src/utils/types';
+import { FeedPayloadResult } from '../src/utils/types';
 
 import { BEE_URL, MOCK_SIGNER } from './utils';
 
@@ -63,7 +63,7 @@ export function createMockNodeAddresses(): NodeAddresses {
   };
 }
 
-export function createMockGetFeedDataResult(currentIndex = 0, nextIndex = 1): FetchFeedUpdateResponse {
+export function createMockGetFeedDataResult(currentIndex = 0, nextIndex = 1): FeedPayloadResult {
   return {
     feedIndex: FeedIndex.fromBigInt(BigInt(currentIndex)),
     feedIndexNext: FeedIndex.fromBigInt(BigInt(nextIndex)),

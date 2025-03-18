@@ -162,8 +162,11 @@ interface FeedUpdateHeaders {
   feedIndex: FeedIndex;
   feedIndexNext?: FeedIndex;
 }
-export interface FetchFeedUpdateResponse extends FeedUpdateHeaders {
+export interface FeedPayloadResult extends FeedUpdateHeaders {
   payload: Bytes;
+}
+export interface FeedReferenceResult extends FeedUpdateHeaders {
+  reference: Reference;
 }
 
 export interface RequestOptions {

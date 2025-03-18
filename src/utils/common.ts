@@ -1,7 +1,7 @@
 import { BatchId, Bee, BeeRequestOptions, EthAddress, FeedIndex, Reference, Topic } from '@ethersphere/bee-js';
 
 import { SWARM_ZERO_ADDRESS } from './constants';
-import { FetchFeedUpdateResponse, FileInfo, RequestOptions, ShareItem, WrappedFileInfoFeed } from './types';
+import { FeedPayloadResult, FileInfo, RequestOptions, ShareItem, WrappedFileInfoFeed } from './types';
 
 // Fetches the feed data for the given topic, index and address
 export async function getFeedData(
@@ -10,7 +10,7 @@ export async function getFeedData(
   address: EthAddress | string,
   index?: bigint,
   options?: BeeRequestOptions,
-): Promise<FetchFeedUpdateResponse> {
+): Promise<FeedPayloadResult> {
   try {
     const feedReader = bee.makeFeedReader(topic.toUint8Array(), address, options);
     if (index !== undefined) {
