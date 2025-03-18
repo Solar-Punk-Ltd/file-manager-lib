@@ -1,4 +1,4 @@
-import { PrivateKey, Reference } from '@upcoming/bee-js';
+import { PrivateKey, Reference } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
@@ -51,7 +51,7 @@ export async function dowloadAndCompareFiles(
   expArr: string[][],
 ): Promise<void> {
   if (fiList.length !== expArr.length) {
-    expect(fiList.length).toEqual(expArr.length);
+    expect(fiList).toHaveLength(expArr.length);
     return;
   }
 

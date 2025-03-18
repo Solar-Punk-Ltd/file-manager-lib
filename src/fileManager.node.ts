@@ -7,7 +7,7 @@ import {
   RedundancyLevel,
   Reference,
   Topic,
-} from '@upcoming/bee-js';
+} from '@ethersphere/bee-js';
 
 import { makeBeeRequestOptions } from './utils/common';
 import { FileError, FileInfoError } from './utils/errors';

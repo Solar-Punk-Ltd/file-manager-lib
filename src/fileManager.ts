@@ -21,7 +21,7 @@ import {
   STAMPS_DEPTH_MAX,
   Topic,
   Utils,
-} from '@upcoming/bee-js';
+} from '@ethersphere/bee-js';
 
 import {
   assertFileInfo,

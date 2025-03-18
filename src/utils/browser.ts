@@ -1,4 +1,4 @@
-import { Bytes } from '@upcoming/bee-js';
+import { Bytes } from '@ethersphere/bee-js';
 
 export function getRandomBytes(len: number): Bytes {
   const arr = new Uint8Array(len);

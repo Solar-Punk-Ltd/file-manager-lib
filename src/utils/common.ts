@@ -1,4 +1,4 @@
-import { BatchId, Bee, BeeRequestOptions, EthAddress, Reference, Topic } from '@upcoming/bee-js';
+import { BatchId, Bee, BeeRequestOptions, EthAddress, Reference, Topic } from '@ethersphere/bee-js';
 
 import { FileInfo, RequestOptions, ShareItem, WrappedFileInfoFeed } from './types';
 

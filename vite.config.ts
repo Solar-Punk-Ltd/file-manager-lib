@@ -12,10 +12,10 @@ export default defineConfig({
     },
     sourcemap: process.env.NODE_ENV === 'production',
     rollupOptions: {
-      external: ['@upcoming/bee-js', 'cafe-utility', 'path', 'fs', 'stream', 'crypto'],
+      external: ['@ethersphere/bee-js','cafe-utility', 'path', 'fs', 'stream', 'crypto'],
       output: {
         globals: {
-          '@upcoming/bee-js': 'BeeJS',
+          '@ethersphere/bee-js': 'BeeJS',
           'cafe-utility': 'cafeUtility',
         },
       },

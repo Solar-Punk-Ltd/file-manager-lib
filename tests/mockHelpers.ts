@@ -16,7 +16,7 @@ import {
   Reference,
   Size,
   UploadResult,
-} from '@upcoming/bee-js';
+} from '@ethersphere/bee-js';
 import { Optional } from 'cafe-utility';
 
 import { FileManager } from '../src/fileManager';
