@@ -49,7 +49,7 @@ import {
 import { EventEmitter } from './utils/eventEmitter';
 import { FileManagerEvents } from './utils/events';
 import {
-  FetchFeedUpdateResponse,
+  FeedPayloadResult,
   FileInfo,
   ReferenceWithHistory,
   ReferenceWithPath,
@@ -657,7 +657,7 @@ export abstract class FileManager {
     index?: bigint,
     address?: EthAddress,
     options?: BeeRequestOptions,
-  ): Promise<FetchFeedUpdateResponse> {
+  ): Promise<FeedPayloadResult> {
     try {
       const feedReader = this.bee.makeFeedReader(
         topic.toUint8Array(),

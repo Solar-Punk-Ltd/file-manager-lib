@@ -22,7 +22,7 @@ import { Optional } from 'cafe-utility';
 import { FileManager } from '../src/fileManager';
 import { FileManagerNode } from '../src/fileManager.node';
 import { OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
-import { FetchFeedUpdateResponse } from '../src/utils/types';
+import { FeedPayloadResult } from '../src/utils/types';
 
 import { BEE_URL, MOCK_SIGNER } from './utils';
 
@@ -61,7 +61,7 @@ export function createMockNodeAddresses(): NodeAddresses {
   } as unknown as NodeAddresses;
 }
 
-export function createMockGetFeedDataResult(currentIndex = 0, nextIndex = 1): FetchFeedUpdateResponse {
+export function createMockGetFeedDataResult(currentIndex = 0, nextIndex = 1): FeedPayloadResult {
   return {
     feedIndex: FeedIndex.fromBigInt(BigInt(currentIndex)),
     feedIndexNext: FeedIndex.fromBigInt(BigInt(nextIndex)),
