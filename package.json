@@ -29,11 +29,10 @@
     "dist"
   ],
   "browser": {
-    "stream": false,
     "fs": false,
-    "crypto": false,
-    "./dist/utils/node.js": "./dist/utils/browser.js",
-    "./dist/fileManager.node.js": "./dist/fileManager.browser.js"
+    "path": false,
+    "stream": false,
+    "crypto": false
   },
   "keywords": [
     "swarm",
@@ -87,7 +86,8 @@
     "ts-node": "^10.9.2",
     "typescript": "^5.2.2",
     "vite": "^6.2.2",
-    "vite-plugin-dts": "^4.5.3"
+    "vite-plugin-dts": "^4.5.3",
+    "webpack-cli": "^6.0.1"
   },
   "engines": {
     "node": ">=14"

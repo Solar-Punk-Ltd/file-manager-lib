@@ -6,9 +6,9 @@ export default defineConfig({
     lib: {
       entry: path.resolve(__dirname, 'src/index.ts'),
       name: 'file-manager-lib',
-      fileName: (format) => `index.browser${process.env.NODE_ENV === 'production' ? '.min' : ''}.${format}.js`,
+      fileName: () => `index.js`, // always output "index.js"
       formats: ['umd'],
-    },
+    },    
     sourcemap: process.env.NODE_ENV === 'production',
     rollupOptions: {
       external: ['@ethersphere/bee-js', 'cafe-utility', 'path', 'fs', 'stream', 'crypto'],
