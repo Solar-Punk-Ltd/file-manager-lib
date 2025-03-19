@@ -1,2 +1,0 @@
-// empty.js
-export default {};
