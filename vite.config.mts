@@ -38,14 +38,6 @@ export default defineConfig(({ mode }) => {
         entryRoot: 'src',
       }),
     ],
-    resolve: {
-      alias: {
-        fs: path.resolve(__dirname, 'empty.js'),
-        path: path.resolve(__dirname, 'empty.js'),
-        stream: path.resolve(__dirname, 'empty.js'),
-        crypto: path.resolve(__dirname, 'empty.js'),
-      },
-    },
     extensions: ['.ts', '.js'],
   };
 });
