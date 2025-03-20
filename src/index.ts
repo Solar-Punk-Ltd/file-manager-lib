@@ -1,4 +1,4 @@
-import { FileManagerFactory, FileManagerType } from './fileManagerFactory';
+import { FileManagerBase } from './fileManager/fileManager';
 
 export * from './utils';
-export { FileManagerType, FileManagerFactory };
+export { FileManagerBase };

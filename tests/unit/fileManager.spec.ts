@@ -2,7 +2,6 @@ import { BatchId, Bee, Bytes, MantarayNode, Reference, STAMPS_DEPTH_MAX, Topic }
 import { Optional } from 'cafe-utility';
 
 import { FileManagerBase } from '../../src/fileManager/fileManager';
-import { FileManagerNode } from '../../src/fileManager/fileManager.node';
 import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
 import { EventEmitter } from '../../src/utils/eventEmitter';
@@ -47,8 +46,8 @@ describe('FileManager', () => {
     it('should initialize FileManager instance with correct values', async () => {
       const fm = await createInitializedFileManager();
 
-      expect(fm.getFileInfoList()).toEqual([]);
-      expect(fm.getSharedWithMe()).toEqual([]);
+      expect(fm.fileInfoList).toEqual([]);
+      expect(fm.sharedWithMe).toEqual([]);
     });
   });
 
@@ -100,7 +99,7 @@ describe('FileManager', () => {
       emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
 
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = new FileManagerNode(bee, emitter);
+      const fm = new FileManagerBase(bee, emitter);
       fm.initialize();
       await fm.initialize();
       expect(logSpy).toHaveBeenCalledWith('FileManager is being initialized');
@@ -180,6 +179,8 @@ describe('FileManager', () => {
 
       const fileInfo = {
         batchId: new BatchId(MOCK_BATCH_ID),
+        name: 'john doe',
+        owner: MOCK_SIGNER.publicKey().address().toString(),
         file: {
           reference: new Reference('1'.repeat(64)),
           historyRef: new Reference(SWARM_ZERO_ADDRESS),
@@ -297,6 +298,8 @@ describe('FileManager', () => {
 
       const fileInfo = {
         batchId: new BatchId(MOCK_BATCH_ID),
+        name: 'john doe',
+        owner: MOCK_SIGNER.publicKey().address().toString(),
         topic: Topic.fromString('example'),
         file: {
           reference: new Reference('1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68'),

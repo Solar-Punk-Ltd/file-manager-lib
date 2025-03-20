@@ -21,7 +21,6 @@ import {
 import { Optional } from 'cafe-utility';
 
 import { FileManagerBase } from '../src/fileManager/fileManager';
-import { FileManagerFactory, FileManagerType } from '../src/fileManagerFactory';
 import { OWNER_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
 import { EventEmitterBase } from '../src/utils/eventEmitter';
 import { FeedPayloadResult } from '../src/utils/types';
@@ -50,7 +49,9 @@ export async function createInitializedFileManager(
   bee: Bee = new Bee(BEE_URL, { signer: MOCK_SIGNER }),
   emitter?: EventEmitterBase,
 ): Promise<FileManagerBase> {
-  return (await FileManagerFactory.create(FileManagerType.Node, bee, emitter)) as FileManagerBase;
+  const fm = new FileManagerBase(bee, emitter);
+  await fm.initialize();
+  return fm;
 }
 
 export function createMockNodeAddresses(): NodeAddresses {

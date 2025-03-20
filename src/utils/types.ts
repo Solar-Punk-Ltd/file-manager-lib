@@ -48,12 +48,6 @@ export interface FileManager {
   listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<ReferenceWithPath[]>;
 
   /**
-   * Retrieves a list of file information.
-   * @returns An array of file information objects.
-   */
-  getFileInfoList(): FileInfo[];
-
-  /**
    * Destroys a volume identified by the given batch ID.
    * @param batchId - The ID of the batch to destroy.
    * @returns A promise that resolves when the volume is destroyed.
@@ -84,17 +78,23 @@ export interface FileManager {
   unsubscribeFromSharedInbox(): void;
 
   /**
-   * Retrieves a list of items shared with the user.
-   * @returns An array of shared items.
-   */
-  getSharedWithMe(): ShareItem[];
-
-  /**
    * Retrieves the grantees of a file.
    * @param fileInfo - Information about the file.
    * @returns A promise that resolves to list of grantee public keys.
    */
   getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult>;
+
+  /**
+   * Retrieves a list of file information.
+   * @returns An array of file information objects.
+   */
+  fileInfoList: FileInfo[];
+
+  /**
+   * Retrieves a list of items shared with the user.
+   * @returns An array of shared items.
+   */
+  sharedWithMe: ShareItem[];
 
   /**
    * Event emitter for handling file manager events.
@@ -105,9 +105,9 @@ export interface FileManager {
 export interface FileInfo {
   batchId: string | BatchId;
   file: ReferenceWithHistory;
+  name: string;
+  owner: string | EthAddress;
   topic?: string | Topic;
-  owner?: string | EthAddress;
-  name?: string;
   timestamp?: number;
   shared?: boolean;
   preview?: ReferenceWithHistory;
@@ -179,4 +179,9 @@ export interface RequestOptions {
 export interface UploadProgress {
   total: number;
   processed: number;
+}
+
+export interface UploadResult {
+  uploadFilesRes: ReferenceWithHistory;
+  uploadPreviewRes?: ReferenceWithHistory;
 }

@@ -20,6 +20,7 @@ import {
   Topic,
   Utils,
 } from '@ethersphere/bee-js';
+import { isNode } from 'std-env';
 
 import {
   assertFileInfo,
@@ -47,42 +48,40 @@ import {
   ReferenceWithHistory,
   ReferenceWithPath,
   ShareItem,
+  UploadResult,
   WrappedFileInfoFeed,
 } from '../utils/types';
+import { uploadBrowser } from './upload.browser';
+import { uploadNode } from './upload.node';
+import { getRandomBytesBrowser } from '../utils/browser';
+import { getRandomBytesNode } from '../utils/node';
 
-export abstract class FileManagerBase implements FileManager {
+export class FileManagerBase implements FileManager {
   private signer: PrivateKey;
-  private nodeAddresses: NodeAddresses | undefined;
-  private ownerStamp: PostageBatch | undefined;
-  private fileInfoList: FileInfo[];
-  private ownerFeedNextIndex: bigint;
-  private sharedWithMe: ShareItem[];
-  private sharedSubscription: PssSubscription | undefined;
-  private ownerFeedTopic: Topic;
-  private ownerFeedList: WrappedFileInfoFeed[];
-  private isInitialized: boolean;
-  private isInitializing: boolean;
+  private nodeAddresses: NodeAddresses | undefined = undefined;
+  private ownerStamp: PostageBatch | undefined = undefined;
+  private ownerFeedNextIndex: bigint = 0n;
+  private ownerFeedTopic: Topic = NULL_TOPIC;
+  private ownerFeedList: WrappedFileInfoFeed[] = [];
+  private sharedSubscription: PssSubscription | undefined = undefined;
+  private isInitialized: boolean = false;
+  private isInitializing: boolean = false;
+
+  readonly fileInfoList: FileInfo[] = [];
+  readonly sharedWithMe: ShareItem[] = [];
   readonly emitter: EventEmitterBase;
 
   protected bee: Bee;
 
+  // todo: lift out inits from ctor
   constructor(bee: Bee, emitter: EventEmitterBase = new EventEmitter()) {
     this.bee = bee;
     if (!this.bee.signer) {
       throw new SignerError('Signer required');
     }
+    // todo: discuss emitter and signer
     this.emitter = emitter;
     this.signer = this.bee.signer;
-    this.ownerStamp = undefined;
-    this.fileInfoList = [];
-    this.ownerFeedList = [];
-    this.ownerFeedNextIndex = 0n;
-    this.ownerFeedTopic = NULL_TOPIC;
-    this.sharedWithMe = [];
-    this.sharedSubscription = undefined;
-    this.isInitialized = false;
-    this.isInitializing = false;
-    this.nodeAddresses = undefined;
   }
 
   // TODO: import pins
@@ -321,15 +320,35 @@ export abstract class FileManagerBase implements FileManager {
     return files;
   }
 
-  getFileInfoList(): FileInfo[] {
-    return this.fileInfoList;
-  }
+  async upload(options: FileManagerUploadOptions): Promise<void> {
+    if ((options.infoTopic && !options.historyRef) || (!options.infoTopic && options.historyRef)) {
+      throw new FileInfoError('Options infoTopic and historyRef have to be provided at the same time.');
+    }
 
-  getSharedWithMe(): ShareItem[] {
-    return this.sharedWithMe;
-  }
+    const requestOptions = options.historyRef
+      ? makeBeeRequestOptions({ historyRef: options.historyRef, redundancyLevel: options.redundancyLevel })
+      : undefined;
 
-  abstract upload(options: FileManagerUploadOptions): Promise<void>;
+    let uploadResult: UploadResult;
+    if (isNode) {
+      uploadResult = await uploadNode(this.bee, options, requestOptions);
+    } else {
+      uploadResult = await uploadBrowser(this.bee, options, requestOptions);
+    }
+
+    const topic = options.infoTopic ? Topic.fromString(options.infoTopic) : this.generateTopic();
+
+    await this.saveFileInfoAndFeed(
+      options.batchId,
+      topic,
+      options.name,
+      uploadResult.uploadFilesRes,
+      uploadResult.uploadPreviewRes,
+      options.index,
+      options.customMetadata,
+      options.redundancyLevel,
+    );
+  }
 
   protected async saveFileInfoAndFeed(
     batchId: BatchId,
@@ -617,6 +636,10 @@ export abstract class FileManagerBase implements FileManager {
     }
   }
 
-  // generates a random topic
-  protected abstract generateTopic(): Topic;
+  private generateTopic(): Topic {
+    if (isNode) {
+      return getRandomBytesNode(Topic.LENGTH);
+    }
+    return getRandomBytesBrowser(Topic.LENGTH);
+  }
 }

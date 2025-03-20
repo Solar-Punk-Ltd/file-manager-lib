@@ -5,7 +5,7 @@ import Path from 'path';
 
 import { FileError } from './errors';
 import { FileData } from './types';
-
+// TODO: let vite rollup decide the import for fs, crypto, stream, and path
 export function getContentType(filePath: string): string {
   const ext = Path.extname(filePath).toLowerCase();
   const contentTypes: Map<string, string> = new Map([
@@ -32,6 +32,6 @@ export function readFile(filePath: string): FileData {
   return { data: readable, name: fileName, contentType };
 }
 
-export function getRandomBytes(len: number): Bytes {
+export function getRandomBytesNode(len: number): Bytes {
   return new Bytes(randomBytes(len));
 }
