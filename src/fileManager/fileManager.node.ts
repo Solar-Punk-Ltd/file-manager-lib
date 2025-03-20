@@ -1,9 +1,10 @@
 import { BatchId, BeeRequestOptions, CollectionUploadOptions, FileUploadOptions, Topic } from '@ethersphere/bee-js';
 
-import { makeBeeRequestOptions } from './utils/common';
-import { FileError, FileInfoError } from './utils/errors';
-import { getRandomBytes, isDir, readFile } from './utils/node';
-import { FileManagerUploadOptions, ReferenceWithHistory } from './utils/types';
+import { makeBeeRequestOptions } from '../utils/common';
+import { FileError, FileInfoError } from '../utils/errors';
+import { getRandomBytes, isDir, readFile } from '../utils/node';
+import { FileManagerUploadOptions, ReferenceWithHistory } from '../utils/types';
+
 import { FileManagerBase } from './fileManager';
 
 export class FileManagerNode extends FileManagerBase {

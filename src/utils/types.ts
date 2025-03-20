@@ -12,6 +12,8 @@ import {
 } from '@ethersphere/bee-js';
 import { ReadStream } from 'fs';
 
+import { EventEmitterBase } from './eventEmitter';
+
 /**
  * Interface representing a file manager with various file operations.
  */
@@ -93,6 +95,11 @@ export interface FileManager {
    * @returns A promise that resolves to list of grantee public keys.
    */
   getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult>;
+
+  /**
+   * Event emitter for handling file manager events.
+   */
+  emitter: EventEmitterBase;
 }
 
 export interface FileInfo {
@@ -104,7 +111,7 @@ export interface FileInfo {
   timestamp?: number;
   shared?: boolean;
   preview?: ReferenceWithHistory;
-  index?: number | undefined;
+  index?: string | undefined;
   redundancyLevel?: RedundancyLevel;
   customMetadata?: Record<string, string>;
 }
@@ -117,7 +124,7 @@ export interface FileManagerUploadOptions {
   customMetadata?: Record<string, string>;
   historyRef?: Reference;
   infoTopic?: string;
-  index?: number | undefined;
+  index?: string | undefined;
   preview?: File;
   previewPath?: string;
   redundancyLevel?: RedundancyLevel;
