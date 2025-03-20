@@ -2,7 +2,7 @@ import { PrivateKey, Reference } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
-import { FileManager } from '../src/fileManager';
+import { FileManagerBase } from '../src/fileManager';
 import { FileInfo } from '../src/utils/types';
 
 export const BEE_URL = 'http://127.0.0.1:1633';
@@ -45,7 +45,7 @@ export async function readFilesOrDirectory(fullPath: string, name?: string): Pro
 }
 
 export async function dowloadAndCompareFiles(
-  fileManager: FileManager,
+  fileManager: FileManagerBase,
   publicKey: string,
   fiList: FileInfo[],
   expArr: string[][],
@@ -56,7 +56,7 @@ export async function dowloadAndCompareFiles(
   }
 
   for (const [ix, fi] of fiList.entries()) {
-    const fetchedFiles = await fileManager.downloadFiles(fi.file.reference as Reference, {
+    const fetchedFiles = await fileManager.download(fi.file.reference as Reference, {
       actHistoryAddress: fi.file.historyRef,
       actPublisher: publicKey,
     });

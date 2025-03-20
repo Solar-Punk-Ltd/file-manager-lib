@@ -19,10 +19,11 @@ import {
 } from '@ethersphere/bee-js';
 import { Optional } from 'cafe-utility';
 
-import { FileManager } from '../src/fileManager';
-import { FileManagerNode } from '../src/fileManager.node';
+import { FileManagerBase } from '../src/fileManager';
+import { FileManagerFactory, FileManagerType } from '../src/fileManagerFactory';
 import { OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
 import { FeedPayloadResult } from '../src/utils/types';
+import { EventEmitterBase } from '../src/utils/eventEmitter';
 
 import { BEE_URL, MOCK_SIGNER } from './utils';
 
@@ -44,10 +45,11 @@ export function createMockMantarayNode(all = true): MantarayNode {
   return mn;
 }
 
-export async function createInitializedFileManager(): Promise<FileManager> {
-  const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-  const fileManager = new FileManagerNode(bee);
-  await fileManager.initialize();
+export async function createInitializedFileManager(
+  bee: Bee = new Bee(BEE_URL, { signer: MOCK_SIGNER }),
+  emitter?: EventEmitterBase,
+): Promise<FileManagerBase> {
+  const fileManager = (await FileManagerFactory.create(FileManagerType.Node, bee, emitter)) as FileManagerBase;
   return fileManager;
 }
 
@@ -98,7 +100,7 @@ export function createInitMocks(): any {
   jest.spyOn(Bee.prototype, 'isSupportedApiVersion').mockResolvedValue(true);
   jest.spyOn(Bee.prototype, 'getNodeAddresses').mockResolvedValue(createMockNodeAddresses());
   loadStampListMock();
-  jest.spyOn(FileManager.prototype, 'getFeedData').mockResolvedValue(createMockGetFeedDataResult());
+  jest.spyOn(FileManagerBase.prototype, 'getFeedData').mockResolvedValue(createMockGetFeedDataResult());
   jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(new Bytes(SWARM_ZERO_ADDRESS));
   jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValue({
     reference: SWARM_ZERO_ADDRESS,

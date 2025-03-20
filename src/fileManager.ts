@@ -46,18 +46,20 @@ import {
   StampError,
   SubscribtionError,
 } from './utils/errors';
-import { EventEmitter } from './utils/eventEmitter';
+import { EventEmitter, EventEmitterBase } from './utils/eventEmitter';
 import { FileManagerEvents } from './utils/events';
 import {
   FeedPayloadResult,
   FileInfo,
+  FileManager,
+  FileManagerUploadOptions,
   ReferenceWithHistory,
   ReferenceWithPath,
   ShareItem,
   WrappedFileInfoFeed,
 } from './utils/types';
 
-export abstract class FileManager {
+export abstract class FileManagerBase implements FileManager {
   private signer: PrivateKey;
   private nodeAddresses: NodeAddresses | undefined;
   private stampList: PostageBatch[];
@@ -69,15 +71,16 @@ export abstract class FileManager {
   private ownerFeedList: WrappedFileInfoFeed[];
   private isInitialized: boolean;
   private isInitializing: boolean;
-  readonly emitter: EventEmitter = new EventEmitter();
+  readonly emitter: EventEmitterBase;
 
   protected bee: Bee;
 
-  constructor(bee: Bee) {
+  constructor(bee: Bee, emitter: EventEmitterBase = new EventEmitter()) {
     this.bee = bee;
     if (!this.bee.signer) {
       throw new SignerError('Signer required');
     }
+    this.emitter = emitter;
     this.signer = this.bee.signer;
     this.stampList = [];
     this.fileInfoList = [];
@@ -102,6 +105,7 @@ export abstract class FileManager {
       console.log('FileManager is being initialized');
       return;
     }
+
     this.isInitializing = true;
 
     try {
@@ -297,7 +301,7 @@ export abstract class FileManager {
     return fileList;
   }
 
-  async downloadFiles(eRef: Reference, options?: DownloadOptions): Promise<string[]> {
+  async download(eRef: Reference, options?: DownloadOptions): Promise<string[]> {
     const unmarshalled = await this.loadMantaray(eRef, options);
     const files: string[] = [];
 
@@ -323,22 +327,14 @@ export abstract class FileManager {
     return this.nodeAddresses;
   }
 
+  getStamps(): PostageBatch[] {
+    return this.stampList;
+  }
+
   // End getter methods
 
   // Start Swarm data saving methods
-  // TODO: refactor params and name handling
-  abstract upload(
-    batchId: BatchId,
-    filesOrPath: string | File[] | FileList,
-    name: string,
-    customMetadata?: Record<string, string>,
-    historyRef?: Reference,
-    infoTopic?: string,
-    index?: number | undefined,
-    previewFileOrPath?: string | File,
-    redundancyLevel?: RedundancyLevel,
-    cb?: (T: any) => void,
-  ): Promise<void>;
+  abstract upload(options: FileManagerUploadOptions): Promise<void>;
 
   protected async saveFileInfoAndFeed(
     batchId: BatchId,
@@ -477,10 +473,6 @@ export abstract class FileManager {
     }
   }
 
-  getStamps(): PostageBatch[] {
-    return this.stampList;
-  }
-
   getOwnerFeedStamp(): PostageBatch | undefined {
     return this.stampList.find((s) => s.label === OWNER_FEED_STAMP_LABEL);
   }
@@ -523,7 +515,7 @@ export abstract class FileManager {
 
   // Start grantee handler methods
   // fetches the list of grantees who can access the file reference
-  async getGranteesOfFile(fileInfo: FileInfo): Promise<GetGranteesResult> {
+  async getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult> {
     const mfIx = this.ownerFeedList.findIndex((mf) => mf.topic === fileInfo.topic);
     let eglRef = undefined;
     if (mfIx === -1 || !this.ownerFeedList[mfIx].eGranteeRef) {
@@ -604,7 +596,7 @@ export abstract class FileManager {
     }
   }
 
-  async shareItem(fileInfo: FileInfo, targetOverlays: string[], recipients: string[], message?: string): Promise<void> {
+  async share(fileInfo: FileInfo, targetOverlays: string[], recipients: string[], message?: string): Promise<void> {
     const ix = this.ownerFeedList.findIndex((mf) => mf.topic.toString() === fileInfo.file.reference.toString());
     if (ix === -1) {
       console.error('File reference not found in fileInfo feed list.');

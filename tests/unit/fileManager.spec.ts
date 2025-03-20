@@ -11,9 +11,11 @@ import {
 } from '@ethersphere/bee-js';
 import { Optional } from 'cafe-utility';
 
+import { FileManagerBase } from '../../src/fileManager';
 import { FileManagerNode } from '../../src/fileManager.node';
 import { OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
+import { EventEmitter } from '../../src/utils/eventEmitter';
 import { FileManagerEvents } from '../../src/utils/events';
 import { ReferenceWithHistory } from '../../src/utils/types';
 import {
@@ -34,28 +36,24 @@ describe('FileManager', () => {
   });
 
   describe('constructor', () => {
-    it('should create new instance of FileManager', () => {
-      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = new FileManagerNode(bee);
+    it('should create new instance of FileManager', async () => {
+      const fm = await createInitializedFileManager();
 
-      expect(fm).toBeInstanceOf(FileManagerNode);
+      expect(fm).toBeInstanceOf(FileManagerBase);
     });
 
-    it('should throw error, if Signer is not provided', () => {
-      const bee = new Bee(BEE_URL);
+    it('should throw error, if Signer is not provided', async () => {
       try {
-        new FileManagerNode(bee);
+        await createInitializedFileManager();
       } catch (error) {
         expect(error).toBeInstanceOf(SignerError);
         expect((error as any).message).toBe('Signer required');
       }
     });
 
-    it('should initialize FileManager instance with correct values', () => {
-      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = new FileManagerNode(bee);
+    it('should initialize FileManager instance with correct values', async () => {
+      const fm = await createInitializedFileManager();
 
-      //expect(fm.getStamps()).toEqual([]); // we get {} instead of []
       expect(fm.getFileInfoList()).toEqual([]);
       expect(fm.getSharedWithMe()).toEqual([]);
       expect(fm.getNodeAddresses()).toEqual(undefined);
@@ -67,14 +65,12 @@ describe('FileManager', () => {
       createInitMocks();
 
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = new FileManagerNode(bee);
-
       const eventHandler = jest.fn((input) => {
         console.log('Input: ', input);
       });
-      fm.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
-
-      await fm.initialize();
+      const emitter = new EventEmitter();
+      emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
+      await createInitializedFileManager(bee, emitter);
 
       expect(eventHandler).toHaveBeenCalledWith(true);
     });
@@ -83,18 +79,7 @@ describe('FileManager', () => {
       createInitMocks();
       const logSpy = jest.spyOn(console, 'log');
 
-      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = new FileManagerNode(bee);
-
-      const eventHandler = jest.fn((input) => {
-        console.log('Input: ', input);
-      });
-      fm.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
-
-      await fm.initialize();
-
-      expect(eventHandler).toHaveBeenCalledWith(true);
-
+      const fm = await createInitializedFileManager();
       await fm.initialize();
       expect(logSpy).toHaveBeenCalledWith('FileManager is already initialized');
     });
@@ -105,12 +90,6 @@ describe('FileManager', () => {
 
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
       const fm = new FileManagerNode(bee);
-
-      const eventHandler = jest.fn((input) => {
-        console.log('Input: ', input);
-      });
-      fm.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
-
       fm.initialize();
       fm.initialize();
 
@@ -207,7 +186,7 @@ describe('FileManager', () => {
     });
   });
 
-  describe('downloadFiles', () => {
+  describe('download', () => {
     beforeEach(() => {
       jest.restoreAllMocks();
     });
@@ -222,7 +201,7 @@ describe('FileManager', () => {
 
       const eFileRef = new Reference('1'.repeat(64));
 
-      const fileStrings = await fm.downloadFiles(eFileRef);
+      const fileStrings = await fm.download(eFileRef);
 
       expect(fileStrings).toEqual(['File as string']);
     });
@@ -238,7 +217,7 @@ describe('FileManager', () => {
       createUploadDataSpy('4');
       createMockFeedWriter('5');
 
-      fm.upload(new BatchId(MOCK_BATCH_ID), './tests', 'tests');
+      fm.upload({ batchId: new BatchId(MOCK_BATCH_ID), path: './tests', name: 'tests' });
 
       expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
     });
@@ -253,7 +232,7 @@ describe('FileManager', () => {
       createUploadDataSpy('4');
       createMockFeedWriter('5');
 
-      fm.upload(new BatchId(MOCK_BATCH_ID), './tests', 'tests');
+      fm.upload({ batchId: new BatchId(MOCK_BATCH_ID), path: './tests', name: 'tests' });
 
       expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
       expect(uploadFileOrDirectoryPreviewSpy).toHaveBeenCalled();
@@ -264,8 +243,13 @@ describe('FileManager', () => {
       const fm = await createInitializedFileManager();
 
       await expect(async () => {
-        await fm.upload(new BatchId(MOCK_BATCH_ID), './tests', 'tests', undefined, undefined, 'infoTopic', undefined);
-      }).rejects.toThrow('infoTopic and historyRef have to be provided at the same time.');
+        await fm.upload({
+          batchId: new BatchId(MOCK_BATCH_ID),
+          path: './tests',
+          name: 'tests',
+          infoTopic: 'infoTopic',
+        });
+      }).rejects.toThrow('Options infoTopic and historyRef have to be provided at the same time.');
     });
   });
 
@@ -337,7 +321,7 @@ describe('FileManager', () => {
       };
 
       await expect(async () => {
-        await fm.getGranteesOfFile(fileInfo);
+        await fm.getGrantees(fileInfo);
       }).rejects.toThrow(`Grantee list not found for file eReference: ${fileInfo.topic.toString()}`);
     });
   });
@@ -347,8 +331,7 @@ describe('FileManager', () => {
     afterEach(() => jest.resetAllMocks());
 
     it('should call makeFeedReader', async () => {
-      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = new FileManagerNode(bee);
+      const fm = await createInitializedFileManager();
       const topic = Topic.fromString('example');
       const makeFeedReaderSpy = jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue({
         download: jest.fn(),
@@ -364,8 +347,7 @@ describe('FileManager', () => {
     });
 
     it('should call download with correct index, if index is provided', async () => {
-      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = new FileManagerNode(bee);
+      const fm = await createInitializedFileManager();
       const topic = Topic.fromString('example');
       const downloadSpy = { download: jest.fn(), downloadReference: jest.fn(), downloadPayload: jest.fn() };
       jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue({
@@ -380,8 +362,7 @@ describe('FileManager', () => {
     });
 
     it('should call download without parameters, if index is not provided', async () => {
-      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = new FileManagerNode(bee);
+      const fm = await createInitializedFileManager();
       const topic = Topic.fromString('example');
       const downloadSpy = { download: jest.fn(), downloadReference: jest.fn(), downloadPayload: jest.fn() };
 
@@ -426,7 +407,7 @@ describe('FileManager', () => {
         topic: expect.any(String),
       };
 
-      await fm.upload(new BatchId(MOCK_BATCH_ID), './tests', 'tests');
+      await fm.upload({ batchId: new BatchId(MOCK_BATCH_ID), path: './tests', name: 'tests' });
       off(FileManagerEvents.FILE_UPLOADED, uploadHandler);
 
       expect(uploadHandler).toHaveBeenCalledWith({
@@ -438,13 +419,12 @@ describe('FileManager', () => {
       createInitMocks();
 
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = new FileManagerNode(bee);
       const eventHandler = jest.fn((input) => {
         console.log('Input: ', input);
       });
-      fm.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
-
-      await fm.initialize();
+      const emitter = new EventEmitter();
+      emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
+      await createInitializedFileManager(bee, emitter);
 
       expect(eventHandler).toHaveBeenCalledWith(true);
     });
