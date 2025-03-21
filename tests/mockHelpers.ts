@@ -20,10 +20,9 @@ import {
 } from '@ethersphere/bee-js';
 import { Optional } from 'cafe-utility';
 
-import { FileManagerBase } from '../src/fileManager/fileManager';
-import { FileManagerFactory, FileManagerType } from '../src/fileManagerFactory';
+import { FileManagerBase } from '../src/fileManager';
 import { OWNER_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
-import { EventEmitterBase } from '../src/utils/eventEmitter';
+import { EventEmitter } from '../src/utils/eventEmitter';
 import { FeedPayloadResult } from '../src/utils/types';
 
 import { BEE_URL, MOCK_SIGNER } from './utils';
@@ -48,9 +47,11 @@ export function createMockMantarayNode(all = true): MantarayNode {
 
 export async function createInitializedFileManager(
   bee: Bee = new Bee(BEE_URL, { signer: MOCK_SIGNER }),
-  emitter?: EventEmitterBase,
+  emitter?: EventEmitter,
 ): Promise<FileManagerBase> {
-  return (await FileManagerFactory.create(FileManagerType.Node, bee, emitter)) as FileManagerBase;
+  const fm = new FileManagerBase(bee, emitter);
+  await fm.initialize();
+  return fm;
 }
 
 export function createMockNodeAddresses(): NodeAddresses {

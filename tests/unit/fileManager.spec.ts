@@ -1,11 +1,10 @@
 import { BatchId, Bee, Bytes, MantarayNode, Reference, STAMPS_DEPTH_MAX, Topic } from '@ethersphere/bee-js';
 import { Optional } from 'cafe-utility';
 
-import { FileManagerBase } from '../../src/fileManager/fileManager';
-import { FileManagerNode } from '../../src/fileManager/fileManager.node';
+import { FileManagerBase } from '../../src/fileManager';
 import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
-import { EventEmitter } from '../../src/utils/eventEmitter';
+import { EventEmitterBase } from '../../src/utils/eventEmitter';
 import { FileManagerEvents } from '../../src/utils/events';
 import { ReferenceWithHistory } from '../../src/utils/types';
 import {
@@ -26,6 +25,12 @@ jest.mock('../../src/utils/common');
 describe('FileManager', () => {
   beforeEach(() => {
     jest.resetAllMocks();
+    createInitMocks();
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+    const { getFeedData, generateTopic } = require('../../src/utils/common');
+    getFeedData.mockResolvedValue(createMockGetFeedDataResult(0, 1));
+    generateTopic.mockReturnValue(new Topic('1'.repeat(64)));
   });
 
   describe('constructor', () => {
@@ -47,28 +52,18 @@ describe('FileManager', () => {
     it('should initialize FileManager instance with correct values', async () => {
       const fm = await createInitializedFileManager();
 
-      expect(fm.getFileInfoList()).toEqual([]);
-      expect(fm.getSharedWithMe()).toEqual([]);
+      expect(fm.fileInfoList).toEqual([]);
+      expect(fm.sharedWithMe).toEqual([]);
     });
   });
 
   describe('initialize', () => {
-    beforeEach(() => {
-      jest.resetAllMocks();
-
-      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      const { getFeedData } = require('../../src/utils/common');
-      getFeedData.mockResolvedValue(createMockGetFeedDataResult(0, 1));
-    });
-
     it('should initialize FileManager', async () => {
-      createInitMocks();
-
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
       const eventHandler = jest.fn((input) => {
         console.log('Input: ', input);
       });
-      const emitter = new EventEmitter();
+      const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
       await createInitializedFileManager(bee, emitter);
 
@@ -76,12 +71,11 @@ describe('FileManager', () => {
     });
 
     it('should not initialize, if already initialized', async () => {
-      createInitMocks();
       const logSpy = jest.spyOn(console, 'log');
       const eventHandler = jest.fn((input) => {
         console.log('Input: ', input);
       });
-      const emitter = new EventEmitter();
+      const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
 
       const fm = await createInitializedFileManager(new Bee(BEE_URL, { signer: MOCK_SIGNER }), emitter);
@@ -91,25 +85,24 @@ describe('FileManager', () => {
     });
 
     it('should not initialize, if currently being initialized', async () => {
-      createInitMocks();
       const logSpy = jest.spyOn(console, 'log');
       const eventHandler = jest.fn((input) => {
         console.log('Input: ', input);
       });
-      const emitter = new EventEmitter();
+      const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
 
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = new FileManagerNode(bee, emitter);
+      const fm = new FileManagerBase(bee, emitter);
       fm.initialize();
-      await fm.initialize();
+      fm.initialize();
+
       expect(logSpy).toHaveBeenCalledWith('FileManager is being initialized');
     });
   });
 
   describe('saveMantaray', () => {
     it('should call saveRecursively', async () => {
-      createInitMocks();
       const saveRecursivelySpy = jest.spyOn(MantarayNode.prototype, 'saveRecursively').mockResolvedValue({
         reference: new Reference('1'.repeat(64)),
         historyAddress: Optional.of(new Reference(SWARM_ZERO_ADDRESS)),
@@ -122,7 +115,6 @@ describe('FileManager', () => {
     });
 
     it('should return ReferenceWithHistory', async () => {
-      createInitMocks();
       jest.spyOn(MantarayNode.prototype, 'saveRecursively').mockResolvedValue({
         reference: new Reference('1'.repeat(64)),
         historyAddress: Optional.of(new Reference(SWARM_ZERO_ADDRESS)),
@@ -180,6 +172,8 @@ describe('FileManager', () => {
 
       const fileInfo = {
         batchId: new BatchId(MOCK_BATCH_ID),
+        name: 'john doe',
+        owner: MOCK_SIGNER.publicKey().address().toString(),
         file: {
           reference: new Reference('1'.repeat(64)),
           historyRef: new Reference(SWARM_ZERO_ADDRESS),
@@ -219,7 +213,6 @@ describe('FileManager', () => {
 
   describe('upload', () => {
     it('should call uploadFilesFromDirectory', async () => {
-      createInitMocks();
       const fm = await createInitializedFileManager();
       const uploadFileOrDirectorySpy = createUploadFilesFromDirectorySpy('1');
       createUploadFileSpy('2');
@@ -233,7 +226,6 @@ describe('FileManager', () => {
     });
 
     it('should call uploadFileOrDirectory if previewPath is provided', async () => {
-      createInitMocks();
       const fm = await createInitializedFileManager();
       const uploadFileOrDirectorySpy = createUploadFilesFromDirectorySpy('1');
       const uploadFileOrDirectoryPreviewSpy = createUploadFilesFromDirectorySpy('6');
@@ -249,7 +241,6 @@ describe('FileManager', () => {
     });
 
     it('should throw error if infoTopic and historyRef are not provided at the same time', async () => {
-      createInitMocks();
       const fm = await createInitializedFileManager();
 
       await expect(async () => {
@@ -264,12 +255,7 @@ describe('FileManager', () => {
   });
 
   describe('destroyVolume', () => {
-    beforeEach(() => {
-      jest.resetAllMocks();
-    });
-
     it('should call diluteBatch with batchId and MAX_DEPTH', async () => {
-      createInitMocks();
       const diluteSpy = jest.spyOn(Bee.prototype, 'diluteBatch').mockResolvedValue(new BatchId('1234'.repeat(16)));
       const fm = await createInitializedFileManager();
 
@@ -280,7 +266,6 @@ describe('FileManager', () => {
 
     it('should throw error if trying to destroy OwnerFeedStamp', async () => {
       const batchId = new BatchId('3456'.repeat(16));
-      createInitMocks();
       jest.spyOn(Bee.prototype, 'diluteBatch').mockResolvedValue(new BatchId('1234'.repeat(16)));
       const fm = await createInitializedFileManager();
 
@@ -292,11 +277,12 @@ describe('FileManager', () => {
 
   describe('getGranteesOfFile', () => {
     it('should throw grantee list not found if the topic not found in ownerFeedList', async () => {
-      createInitMocks();
       const fm = await createInitializedFileManager();
 
       const fileInfo = {
         batchId: new BatchId(MOCK_BATCH_ID),
+        name: 'john doe',
+        owner: MOCK_SIGNER.publicKey().address().toString(),
         topic: Topic.fromString('example'),
         file: {
           reference: new Reference('1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68'),
@@ -311,18 +297,9 @@ describe('FileManager', () => {
   });
 
   describe('eventEmitter', () => {
-    beforeEach(() => {
-      jest.resetAllMocks();
-
-      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      const { getFeedData } = require('../../src/utils/common');
-      getFeedData.mockResolvedValue(createMockGetFeedDataResult(0, 1));
-    });
-
     it('should send event after upload happens', async () => {
-      createInitMocks();
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const emitter = new EventEmitter();
+      const emitter = new EventEmitterBase();
       const uploadHandler = jest.fn((input) => {
         console.log('Input: ', input);
       });
@@ -357,13 +334,11 @@ describe('FileManager', () => {
     });
 
     it('should send an event after the fileManager is initialized', async () => {
-      createInitMocks();
-
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
       const eventHandler = jest.fn((input) => {
         console.log('Input: ', input);
       });
-      const emitter = new EventEmitter();
+      const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
       await createInitializedFileManager(bee, emitter);
 

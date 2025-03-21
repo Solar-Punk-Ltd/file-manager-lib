@@ -1,6 +1,9 @@
 import { BatchId, Bee, BeeRequestOptions, EthAddress, FeedIndex, Reference, Topic } from '@ethersphere/bee-js';
+import { isNode } from 'std-env';
 
+import { getRandomBytesBrowser } from './browser';
 import { SWARM_ZERO_ADDRESS } from './constants';
+import { getRandomBytesNode } from './node';
 import { FeedPayloadResult, FileInfo, RequestOptions, ShareItem, WrappedFileInfoFeed } from './types';
 
 // Fetches the feed data for the given topic, index and address
@@ -27,6 +30,13 @@ export async function getFeedData(
     }
     throw error;
   }
+}
+
+export function generateTopic(): Topic {
+  if (isNode) {
+    return new Topic(getRandomBytesNode(Topic.LENGTH));
+  }
+  return new Topic(getRandomBytesBrowser(Topic.LENGTH));
 }
 
 export function isObject(value: unknown): value is Record<string, unknown> {

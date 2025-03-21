@@ -20,15 +20,17 @@ import {
   Topic,
   Utils,
 } from '@ethersphere/bee-js';
+import { isNode } from 'std-env';
 
 import {
   assertFileInfo,
   assertShareItem,
   assertWrappedFileInoFeed,
+  generateTopic,
   getFeedData,
   makeBeeRequestOptions,
-} from '../utils/common';
-import { OWNER_STAMP_LABEL, REFERENCE_LIST_TOPIC, SHARED_INBOX_TOPIC, SWARM_ZERO_ADDRESS } from '../utils/constants';
+} from './utils/common';
+import { OWNER_STAMP_LABEL, REFERENCE_LIST_TOPIC, SHARED_INBOX_TOPIC, SWARM_ZERO_ADDRESS } from './utils/constants';
 import {
   BeeVersionError,
   FileInfoError,
@@ -37,9 +39,9 @@ import {
   SignerError,
   StampError,
   SubscribtionError,
-} from '../utils/errors';
-import { EventEmitter, EventEmitterBase } from '../utils/eventEmitter';
-import { FileManagerEvents } from '../utils/events';
+} from './utils/errors';
+import { EventEmitter, EventEmitterBase } from './utils/eventEmitter';
+import { FileManagerEvents } from './utils/events';
 import {
   FileInfo,
   FileManager,
@@ -47,42 +49,36 @@ import {
   ReferenceWithHistory,
   ReferenceWithPath,
   ShareItem,
+  UploadResult,
   WrappedFileInfoFeed,
-} from '../utils/types';
+} from './utils/types';
+import { uploadBrowser } from './upload/upload.browser';
+import { uploadNode } from './upload/upload.node';
 
-export abstract class FileManagerBase implements FileManager {
+export class FileManagerBase implements FileManager {
+  private bee: Bee;
   private signer: PrivateKey;
-  private nodeAddresses: NodeAddresses | undefined;
-  private ownerStamp: PostageBatch | undefined;
-  private fileInfoList: FileInfo[];
-  private ownerFeedNextIndex: bigint;
-  private sharedWithMe: ShareItem[];
-  private sharedSubscription: PssSubscription | undefined;
-  private ownerFeedTopic: Topic;
-  private ownerFeedList: WrappedFileInfoFeed[];
-  private isInitialized: boolean;
-  private isInitializing: boolean;
-  readonly emitter: EventEmitterBase;
+  private nodeAddresses: NodeAddresses | undefined = undefined;
+  private ownerStamp: PostageBatch | undefined = undefined;
+  private ownerFeedNextIndex: bigint = 0n;
+  private ownerFeedTopic: Topic = NULL_TOPIC;
+  private ownerFeedList: WrappedFileInfoFeed[] = [];
+  private sharedSubscription: PssSubscription | undefined = undefined;
+  private isInitialized: boolean = false;
+  private isInitializing: boolean = false;
 
-  protected bee: Bee;
+  readonly fileInfoList: FileInfo[] = [];
+  readonly sharedWithMe: ShareItem[] = [];
+  readonly emitter: EventEmitter;
 
-  constructor(bee: Bee, emitter: EventEmitterBase = new EventEmitter()) {
+  constructor(bee: Bee, emitter: EventEmitter = new EventEmitterBase()) {
     this.bee = bee;
     if (!this.bee.signer) {
       throw new SignerError('Signer required');
     }
+
     this.emitter = emitter;
     this.signer = this.bee.signer;
-    this.ownerStamp = undefined;
-    this.fileInfoList = [];
-    this.ownerFeedList = [];
-    this.ownerFeedNextIndex = 0n;
-    this.ownerFeedTopic = NULL_TOPIC;
-    this.sharedWithMe = [];
-    this.sharedSubscription = undefined;
-    this.isInitialized = false;
-    this.isInitializing = false;
-    this.nodeAddresses = undefined;
   }
 
   // TODO: import pins
@@ -156,7 +152,8 @@ export abstract class FileManagerBase implements FileManager {
     const topicRef = new Reference(feedTopicData.payload.toUint8Array());
 
     if (topicRef.equals(SWARM_ZERO_ADDRESS)) {
-      this.ownerFeedTopic = this.generateTopic();
+      this.ownerFeedTopic = generateTopic();
+
       const topicDataRes = await this.bee.uploadData(ownerStamp.batchID, this.ownerFeedTopic.toUint8Array(), {
         act: true,
       });
@@ -321,17 +318,39 @@ export abstract class FileManagerBase implements FileManager {
     return files;
   }
 
-  getFileInfoList(): FileInfo[] {
-    return this.fileInfoList;
+  async upload(options: FileManagerUploadOptions): Promise<void> {
+    if ((options.infoTopic && !options.historyRef) || (!options.infoTopic && options.historyRef)) {
+      throw new FileInfoError('Options infoTopic and historyRef have to be provided at the same time.');
+    }
+
+    const requestOptions = options.historyRef
+      ? makeBeeRequestOptions({ historyRef: options.historyRef, redundancyLevel: options.redundancyLevel })
+      : undefined;
+
+    let uploadResult: UploadResult;
+    if (isNode) {
+      uploadResult = await uploadNode(this.bee, options, requestOptions);
+    } else {
+      uploadResult = await uploadBrowser(this.bee, options, requestOptions);
+    }
+
+    const topic = options.infoTopic ? Topic.fromString(options.infoTopic) : generateTopic();
+
+    const fileInfo = await this.saveFileInfoAndFeed(
+      options.batchId,
+      topic,
+      options.name,
+      uploadResult.uploadFilesRes,
+      uploadResult.uploadPreviewRes,
+      options.index,
+      options.customMetadata,
+      options.redundancyLevel,
+    );
+
+    this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
   }
 
-  getSharedWithMe(): ShareItem[] {
-    return this.sharedWithMe;
-  }
-
-  abstract upload(options: FileManagerUploadOptions): Promise<void>;
-
-  protected async saveFileInfoAndFeed(
+  private async saveFileInfoAndFeed(
     batchId: BatchId,
     topic: Topic,
     name: string,
@@ -340,7 +359,7 @@ export abstract class FileManagerBase implements FileManager {
     index?: string,
     customMetadata?: Record<string, string>,
     redundancyLevel?: RedundancyLevel,
-  ): Promise<void> {
+  ): Promise<FileInfo> {
     const fileInfo = {
       batchId: batchId.toString(),
       file: uploadFilesRes,
@@ -356,7 +375,7 @@ export abstract class FileManagerBase implements FileManager {
     };
     const fileInfoResult = await this.uploadFileInfo(fileInfo);
 
-    await this.saveWrappedFileInfoFeed(batchId, fileInfoResult, topic, index, redundancyLevel);
+    await this.saveFileInfoFeed(batchId, fileInfoResult, topic, index, redundancyLevel);
 
     const ix = this.ownerFeedList.findIndex((f) => f.topic.toString() === topic.toString());
     if (ix !== -1) {
@@ -368,12 +387,12 @@ export abstract class FileManagerBase implements FileManager {
       this.ownerFeedList.push({ topic: topic.toString() });
     }
 
-    await this.saveFileInfoFeedList();
+    await this.saveOwnerFeedList();
 
-    this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
+    return fileInfo;
   }
 
-  protected async uploadFileInfo(fileInfo: FileInfo): Promise<ReferenceWithHistory> {
+  private async uploadFileInfo(fileInfo: FileInfo): Promise<ReferenceWithHistory> {
     try {
       const uploadInfoRes = await this.bee.uploadData(fileInfo.batchId, JSON.stringify(fileInfo), {
         act: true,
@@ -391,7 +410,7 @@ export abstract class FileManagerBase implements FileManager {
     }
   }
 
-  protected async saveWrappedFileInfoFeed(
+  private async saveFileInfoFeed(
     batchId: BatchId,
     fileInfoResult: ReferenceWithHistory,
     topic: Topic,
@@ -420,7 +439,7 @@ export abstract class FileManagerBase implements FileManager {
     }
   }
 
-  protected async saveFileInfoFeedList(): Promise<void> {
+  private async saveOwnerFeedList(): Promise<void> {
     const ownerStamp = await this.getOwnerStamp();
     if (!ownerStamp) {
       throw new StampError('Owner stamp not found');
@@ -484,7 +503,7 @@ export abstract class FileManagerBase implements FileManager {
       }
     }
 
-    await this.saveFileInfoFeedList();
+    await this.saveOwnerFeedList();
 
     console.debug(`Volume destroyed: ${batchId.toString()}`);
   }
@@ -585,7 +604,7 @@ export abstract class FileManagerBase implements FileManager {
       eGranteeRef: grantResult.ref.toString(),
     };
 
-    await this.saveFileInfoFeedList();
+    await this.saveOwnerFeedList();
 
     const item: ShareItem = {
       fileInfo: fileInfo,
@@ -616,7 +635,4 @@ export abstract class FileManagerBase implements FileManager {
       }
     }
   }
-
-  // generates a random topic
-  protected abstract generateTopic(): Topic;
 }

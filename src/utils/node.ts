@@ -32,6 +32,6 @@ export function readFile(filePath: string): FileData {
   return { data: readable, name: fileName, contentType };
 }
 
-export function getRandomBytes(len: number): Bytes {
+export function getRandomBytesNode(len: number): Bytes {
   return new Bytes(randomBytes(len));
 }

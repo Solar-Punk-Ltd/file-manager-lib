@@ -4,14 +4,14 @@ interface Events {
   [key: string]: Listener<any>[];
 }
 
-export interface EventEmitterBase {
+export interface EventEmitter {
   on<T = any>(event: string, listener: Listener<T>): void;
   off<T = any>(event: string, listener: Listener<T>): void;
   cleanAll(): void;
   emit<T = any>(event: string, data: T): void;
 }
 
-export class EventEmitter implements EventEmitterBase {
+export class EventEmitterBase implements EventEmitter {
   private events: Events = {};
 
   constructor() {
