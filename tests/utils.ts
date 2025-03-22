@@ -2,8 +2,7 @@ import { PrivateKey, Reference } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
-import { FileManager } from '../src/fileManager';
-import { FileInfo } from '../src/utils/types';
+import { FileInfo, FileManager } from '../src/utils/types';
 
 export const BEE_URL = 'http://127.0.0.1:1633';
 export const OTHER_BEE_URL = 'http://127.0.0.1:1733';
@@ -56,7 +55,7 @@ export async function dowloadAndCompareFiles(
   }
 
   for (const [ix, fi] of fiList.entries()) {
-    const fetchedFiles = await fileManager.downloadFiles(fi.file.reference as Reference, {
+    const fetchedFiles = await fileManager.download(fi.file.reference as Reference, {
       actHistoryAddress: fi.file.historyRef,
       actPublisher: publicKey,
     });

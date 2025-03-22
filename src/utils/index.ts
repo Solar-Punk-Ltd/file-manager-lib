@@ -1,2 +1,10 @@
-export type { FileInfo, UploadProgress, ShareItem, RequestOptions } from './types';
-export { makeBeeRequestOptions } from './utils';
+export type {
+  FileInfo,
+  FileManager,
+  FileManagerUploadOptions,
+  ShareItem,
+  RequestOptions,
+  UploadProgress,
+} from './types';
+export { FileManagerEvents } from './events';
+export { type EventEmitter, EventEmitterBase } from './eventEmitter';

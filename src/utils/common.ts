@@ -1,35 +1,42 @@
-import { BatchId, Bee, BeeRequestOptions, Bytes, EthAddress, Reference, Topic } from '@ethersphere/bee-js';
-import { randomBytes } from 'crypto';
-import * as fs from 'fs';
-import path from 'path';
+import { BatchId, Bee, BeeRequestOptions, EthAddress, FeedIndex, Reference, Topic } from '@ethersphere/bee-js';
+import { isNode } from 'std-env';
 
-import { FileError } from './errors';
-import { FileData, FileInfo, RequestOptions, ShareItem, WrappedFileInfoFeed } from './types';
+import { getRandomBytesBrowser } from './browser';
+import { SWARM_ZERO_ADDRESS } from './constants';
+import { getRandomBytesNode } from './node';
+import { FeedPayloadResult, FileInfo, RequestOptions, ShareItem, WrappedFileInfoFeed } from './types';
 
-export function getContentType(filePath: string): string {
-  const ext = path.extname(filePath).toLowerCase();
-  const contentTypes: Map<string, string> = new Map([
-    ['.txt', 'text/plain'],
-    ['.json', 'application/json'],
-    ['.html', 'text/html'],
-    ['.jpg', 'image/jpeg'],
-    ['.jpeg', 'image/jpeg'],
-    ['.png', 'image/png'],
-  ]);
-  return contentTypes.get(ext) || 'application/octet-stream';
+// Fetches the feed data for the given topic, index and address
+export async function getFeedData(
+  bee: Bee,
+  topic: Topic,
+  address: EthAddress | string,
+  index?: bigint,
+  options?: BeeRequestOptions,
+): Promise<FeedPayloadResult> {
+  try {
+    const feedReader = bee.makeFeedReader(topic.toUint8Array(), address, options);
+    if (index !== undefined) {
+      return await feedReader.download({ index: FeedIndex.fromBigInt(index) });
+    }
+    return await feedReader.download();
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return {
+        feedIndex: FeedIndex.MINUS_ONE,
+        feedIndexNext: FeedIndex.fromBigInt(0n),
+        payload: SWARM_ZERO_ADDRESS,
+      };
+    }
+    throw error;
+  }
 }
 
-export function isDir(dirPath: string): boolean {
-  if (!fs.existsSync(dirPath)) throw new FileError(`Path ${dirPath} does not exist!`);
-  return fs.lstatSync(dirPath).isDirectory();
-}
-
-export function readFile(filePath: string): FileData {
-  const readable = fs.createReadStream(filePath);
-  const fileName = path.basename(filePath);
-  const contentType = getContentType(filePath);
-
-  return { data: readable, name: fileName, contentType };
+export function generateTopic(): Topic {
+  if (isNode) {
+    return new Topic(getRandomBytesNode(Topic.LENGTH));
+  }
+  return new Topic(getRandomBytesBrowser(Topic.LENGTH));
 }
 
 export function isObject(value: unknown): value is Record<string, unknown> {
@@ -40,8 +47,8 @@ export function isStrictlyObject(value: unknown): value is Record<string, unknow
   return isObject(value) && !Array.isArray(value);
 }
 
-export function isRecord(value: Record<string, string> | string[]): value is Record<string, string> {
-  return typeof value === 'object' && 'key' in value;
+export function isRecord(value: unknown): value is Record<string, string> {
+  return isStrictlyObject(value) && Object.values(value).every((v) => typeof v === 'string');
 }
 
 export function assertFileInfo(value: unknown): asserts value is FileInfo {
@@ -143,11 +150,7 @@ export function makeBeeRequestOptions(requestOptions: RequestOptions): BeeReques
 // status is undefined in the error object
 // Determines if the error is about 'Not Found'
 export function isNotFoundError(error: any): boolean {
-  return error.stack.includes('404') || error.message.includes('Not Found') || error.message.includes('404');
-}
-
-export function getRandomBytes(len: number): Bytes {
-  return new Bytes(randomBytes(len));
+  return error.stack?.includes('404') || error.message?.includes('Not Found') || error.message?.includes('404');
 }
 
 export async function buyStamp(bee: Bee, amount: string | bigint, depth: number, label?: string): Promise<BatchId> {
@@ -155,6 +158,7 @@ export async function buyStamp(bee: Bee, amount: string | bigint, depth: number,
   if (stamp && stamp.usable) {
     return stamp.batchID;
   }
+
   return await bee.createPostageBatch(amount, depth, {
     waitForUsable: true,
     label,

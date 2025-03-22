@@ -27,3 +27,4 @@ yalc.lock
 *.sw?
 coverage/
 *.pid
+**/bee-dev/
