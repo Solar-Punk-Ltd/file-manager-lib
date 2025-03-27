@@ -6,7 +6,7 @@ import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
 import { EventEmitterBase } from '../../src/utils/eventEmitter';
 import { FileManagerEvents } from '../../src/utils/events';
-import { ReferenceWithHistory } from '../../src/utils/types';
+import { FileInfo, ReferenceWithHistory } from '../../src/utils/types';
 import {
   createInitializedFileManager,
   createInitMocks,
@@ -165,20 +165,23 @@ describe('FileManager', () => {
   describe('listFiles', () => {
     it('should return correct ReferenceWithPath', async () => {
       createInitMocks();
-      const fm = await createInitializedFileManager();
+      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee);
       const mockMantarayNode = createMockMantarayNode(false);
       jest.spyOn(MantarayNode, 'unmarshal').mockResolvedValue(new MantarayNode());
       jest.spyOn(MantarayNode.prototype, 'collect').mockReturnValue(mockMantarayNode.collect());
 
+      const actPublisher = (await bee.getNodeAddresses()).publicKey.toCompressedHex();
       const fileInfo = {
         batchId: new BatchId(MOCK_BATCH_ID),
         name: 'john doe',
         owner: MOCK_SIGNER.publicKey().address().toString(),
+        actPublisher,
         file: {
-          reference: new Reference('1'.repeat(64)),
-          historyRef: new Reference(SWARM_ZERO_ADDRESS),
+          reference: SWARM_ZERO_ADDRESS.toString(),
+          historyRef: SWARM_ZERO_ADDRESS.toString(),
         },
-      };
+      } as FileInfo;
 
       const result = await fm.listFiles(fileInfo);
       expect(result).toEqual([
@@ -277,22 +280,25 @@ describe('FileManager', () => {
 
   describe('getGranteesOfFile', () => {
     it('should throw grantee list not found if the topic not found in ownerFeedList', async () => {
-      const fm = await createInitializedFileManager();
+      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee);
 
+      const actPublisher = (await bee.getNodeAddresses()).publicKey.toCompressedHex();
       const fileInfo = {
         batchId: new BatchId(MOCK_BATCH_ID),
         name: 'john doe',
         owner: MOCK_SIGNER.publicKey().address().toString(),
+        actPublisher,
         topic: Topic.fromString('example'),
         file: {
           reference: new Reference('1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68'),
           historyRef: new Reference(SWARM_ZERO_ADDRESS),
         },
-      };
+      } as FileInfo;
 
       await expect(async () => {
         await fm.getGrantees(fileInfo);
-      }).rejects.toThrow(`Grantee list not found for file eReference: ${fileInfo.topic.toString()}`);
+      }).rejects.toThrow(`Grantee list not found for file eReference: ${fileInfo.topic!.toString()}`);
     });
   });
 
@@ -308,6 +314,7 @@ describe('FileManager', () => {
       fm.emitter.on(FileManagerEvents.FILE_UPLOADED, uploadHandler);
       createUploadFilesFromDirectorySpy('1');
 
+      const actPublisher = (await bee.getNodeAddresses()).publicKey.toCompressedHex();
       const expectedFileInfo = {
         batchId: MOCK_BATCH_ID,
         customMetadata: undefined,
@@ -315,6 +322,7 @@ describe('FileManager', () => {
           historyRef: SWARM_ZERO_ADDRESS.toString(),
           reference: '1'.repeat(64),
         },
+        actPublisher,
         index: undefined,
         name: 'tests',
         owner: MOCK_SIGNER.publicKey().address().toString(),
@@ -323,7 +331,7 @@ describe('FileManager', () => {
         shared: false,
         timestamp: expect.any(Number),
         topic: expect.any(String),
-      };
+      } as FileInfo;
 
       await fm.upload({ batchId: new BatchId(MOCK_BATCH_ID), path: './tests', name: 'tests' });
       fm.emitter.off(FileManagerEvents.FILE_UPLOADED, uploadHandler);

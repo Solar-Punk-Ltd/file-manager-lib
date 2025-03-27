@@ -1,8 +1,7 @@
-import { BatchId, Bee, BeeRequestOptions, UploadOptions } from '@ethersphere/bee-js';
+import { BatchId, Bee, BeeRequestOptions, UploadOptions, UploadResult } from '@ethersphere/bee-js';
 
-import { FileManagerUploadOptions, ReferenceWithHistory, UploadProgress } from '../utils/types';
+import { FileManagerUploadOptions, UploadProgress /*, UploadResult*/, WrappedUploadResult } from '../utils/types';
 import { FileInfoError } from '../utils/errors';
-import { UploadResult } from '../utils/types';
 
 export async function uploadBrowser(
   bee: Bee,
@@ -18,22 +17,35 @@ export async function uploadBrowser(
     options.batchId,
     options.files,
     options.onUploadProgress,
-    { act: true },
+    { act: false },
     requestOptions,
   );
-  let uploadPreviewRes: ReferenceWithHistory | undefined;
+  let uploadPreviewRes: UploadResult | undefined;
   if (options.preview) {
     uploadPreviewRes = await streamFiles(
       bee,
       options.batchId,
       [options.preview],
       options.onUploadProgress,
-      { act: true },
+      { act: false },
       requestOptions,
     );
   }
 
-  return { uploadFilesRes, uploadPreviewRes };
+  const wrappedData: WrappedUploadResult = {
+    uploadFilesRes: uploadFilesRes.reference.toString(),
+    uploadPreviewRes: uploadPreviewRes?.reference.toString(),
+  };
+  const wrappedUploadRes = await bee.uploadData(
+    options.batchId,
+    JSON.stringify(wrappedData),
+    { act: true },
+    {
+      ...requestOptions,
+    },
+  );
+
+  return wrappedUploadRes;
 }
 
 async function streamFiles(
@@ -43,11 +55,12 @@ async function streamFiles(
   onUploadProgress?: (progress: UploadProgress) => void,
   uploadOptions?: UploadOptions,
   requestOptions?: BeeRequestOptions,
-): Promise<ReferenceWithHistory> {
+): Promise<UploadResult> {
   const reuslt = await bee.streamFiles(batchId, files, onUploadProgress, uploadOptions, requestOptions);
 
-  return {
-    reference: reuslt.reference.toString(),
-    historyRef: reuslt.historyAddress.getOrThrow().toString(),
-  };
+  // return {
+  //   reference: reuslt.reference.toString(),
+  //   historyRef: reuslt.historyAddress.getOrThrow().toString(),
+  // };
+  return reuslt;
 }

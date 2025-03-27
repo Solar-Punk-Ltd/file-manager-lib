@@ -107,6 +107,7 @@ export interface FileInfo {
   file: ReferenceWithHistory;
   name: string;
   owner: string | EthAddress;
+  actPublisher: string | PublicKey;
   topic?: string | Topic;
   timestamp?: number;
   shared?: boolean;
@@ -181,7 +182,7 @@ export interface UploadProgress {
   processed: number;
 }
 
-export interface UploadResult {
-  uploadFilesRes: ReferenceWithHistory;
-  uploadPreviewRes?: ReferenceWithHistory;
+export interface WrappedUploadResult {
+  uploadFilesRes: Reference | string;
+  uploadPreviewRes?: Reference | string;
 }
