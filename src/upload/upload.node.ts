@@ -37,7 +37,7 @@ export async function uploadNode(
       requestOptions,
     );
   }
-
+  // TODO: helper for wrapped upload data
   const wrappedData: WrappedUploadResult = {
     uploadFilesRes: uploadFilesRes.reference.toString(),
     uploadPreviewRes: uploadPreviewRes?.reference.toString(),

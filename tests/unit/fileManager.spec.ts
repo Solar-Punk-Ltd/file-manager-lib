@@ -183,6 +183,9 @@ describe('FileManager', () => {
         },
       } as FileInfo;
 
+      jest
+        .spyOn(Bee.prototype, 'downloadData')
+        .mockResolvedValueOnce(Bytes.fromUtf8(JSON.stringify({ uploadFilesRes: '1'.repeat(64) })));
       const result = await fm.listFiles(fileInfo);
       expect(result).toEqual([
         {
@@ -208,6 +211,9 @@ describe('FileManager', () => {
 
       const eFileRef = new Reference('1'.repeat(64));
 
+      jest
+        .spyOn(Bee.prototype, 'downloadData')
+        .mockResolvedValueOnce(Bytes.fromUtf8(JSON.stringify({ uploadFilesRes: '1'.repeat(64) })));
       const fileStrings = await fm.download(eFileRef);
 
       expect(fileStrings).toEqual(['File as string']);
@@ -320,7 +326,7 @@ describe('FileManager', () => {
         customMetadata: undefined,
         file: {
           historyRef: SWARM_ZERO_ADDRESS.toString(),
-          reference: '1'.repeat(64),
+          reference: SWARM_ZERO_ADDRESS.toString(),
         },
         actPublisher,
         index: undefined,
