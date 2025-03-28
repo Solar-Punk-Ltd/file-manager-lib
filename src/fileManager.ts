@@ -5,16 +5,15 @@ import {
   Bytes,
   DownloadOptions,
   FeedIndex,
+  // FileData,
   GetGranteesResult,
   GranteesResult,
-  MantarayNode,
   NodeAddresses,
   NULL_TOPIC,
   PostageBatch,
   PrivateKey,
   PssSubscription,
   RedundancyLevel,
-  RedundantUploadOptions,
   Reference,
   STAMPS_DEPTH_MAX,
   Topic,
@@ -55,6 +54,7 @@ import {
 } from './utils/types';
 import { uploadBrowser } from './upload/upload.browser';
 import { uploadNode } from './upload/upload.node';
+import { loadMantaray } from './utils/mantaray';
 
 export class FileManagerBase implements FileManager {
   private bee: Bee;
@@ -227,7 +227,7 @@ export class FileManagerBase implements FileManager {
     if (!this.nodeAddresses) {
       throw new SignerError('Node addresses not found');
     }
-
+    // TODO: allsettled
     for (const feedItem of this.ownerFeedList) {
       const rawFeedData = await getFeedData(
         this.bee,
@@ -252,41 +252,13 @@ export class FileManagerBase implements FileManager {
 
     console.debug('File info lists fetched successfully.');
   }
-  // TODO: make mantaray helpers util functions
-  async saveMantaray(
-    batchId: BatchId,
-    mantaray: MantarayNode,
-    options?: RedundantUploadOptions,
-  ): Promise<ReferenceWithHistory> {
-    const result = await mantaray.saveRecursively(this.bee, batchId, options);
-    return {
-      reference: result.reference.toString(),
-      historyRef: result.historyAddress.getOrThrow().toString(),
-    };
-  }
-
-  private async loadMantaray(mantarayRef: Reference | string, options?: DownloadOptions): Promise<MantarayNode> {
-    const mantaray = await MantarayNode.unmarshal(this.bee, mantarayRef, options);
-    await mantaray.loadRecursively(this.bee);
-    return mantaray;
-  }
-
-  // TODO: decide on downloadFork vs download: based on path or eRef - all vs single ?
-  // TODO: use node.find() - it does not seem to work - test it
-  async downloadFork(mantaray: MantarayNode, path: string, options?: DownloadOptions): Promise<Bytes> {
-    // const node = mantaray.find(path);
-    const node = mantaray.collect().find((n) => n.fullPathString === path);
-    if (!node) return SWARM_ZERO_ADDRESS;
-
-    return await this.bee.downloadData(node.targetAddress, options);
-  }
 
   // lists all the files found under the reference of the provided fileInfo
   async listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<ReferenceWithPath[]> {
     const rawData = await this.bee.downloadData(fileInfo.file.reference.toString(), options);
     const wrappedData = rawData.toJSON() as WrappedUploadResult;
 
-    const mantaray = await this.loadMantaray(wrappedData.uploadFilesRes.toString());
+    const mantaray = await loadMantaray(this.bee, wrappedData.uploadFilesRes.toString());
     // TODO: is filter needed ?
     const fileList = mantaray
       .collect()
@@ -301,28 +273,28 @@ export class FileManagerBase implements FileManager {
     return fileList;
   }
 
-  async download(eRef: Reference, options?: DownloadOptions): Promise<string[]> {
-    const rawData = await this.bee.downloadData(eRef.toString(), options);
+  async download(fileInfo: FileInfo, options?: DownloadOptions): Promise<void> {
+    const rawData = await this.bee.downloadData(fileInfo.file.reference.toString(), options);
     const wrappedData = rawData.toJSON() as WrappedUploadResult;
 
-    const unmarshalled = await this.loadMantaray(wrappedData.uploadFilesRes.toString());
-    const files: string[] = [];
+    const unmarshalled = await loadMantaray(this.bee, wrappedData.uploadFilesRes.toString());
 
     const dataPromises: Promise<Bytes>[] = [];
+    // const filePromises: Promise<FileData<Bytes>>[] = [];
     for (const node of unmarshalled.collect()) {
       dataPromises.push(this.bee.downloadData(node.targetAddress));
+      // filePromises.push(this.bee.downloadFile(node.targetAddress, fileInfo.name));
     }
+
     await Promise.allSettled(dataPromises).then((results) => {
       results.forEach((result) => {
         if (result.status === 'fulfilled') {
-          files.push(result.value.toUtf8());
+          this.emitter.emit(FileManagerEvents.FILE_DOWNLOADED, { name: fileInfo.name, files: result.value });
         } else {
-          console.error('Failed dowload file: ', result.reason);
+          console.error(`Failed to dowload file(s) ${fileInfo.name} : ${result.reason}`);
         }
       });
     });
-
-    return files;
   }
 
   async downloadData(eRef: Reference, options?: DownloadOptions): Promise<string[]> {
