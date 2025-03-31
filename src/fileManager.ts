@@ -5,9 +5,9 @@ import {
   Bytes,
   DownloadOptions,
   FeedIndex,
-  // FileData,
   GetGranteesResult,
   GranteesResult,
+  MantarayNode,
   NodeAddresses,
   NULL_TOPIC,
   PostageBatch,
@@ -273,17 +273,29 @@ export class FileManagerBase implements FileManager {
     return fileList;
   }
 
-  async download(fileInfo: FileInfo, options?: DownloadOptions): Promise<void> {
+  // TODO: implement paths handling so that we can download only the files we need with downloadFork
+  async download(fileInfo: FileInfo, paths?: string[], options?: DownloadOptions): Promise<void> {
     const rawData = await this.bee.downloadData(fileInfo.file.reference.toString(), options);
     const wrappedData = rawData.toJSON() as WrappedUploadResult;
 
     const unmarshalled = await loadMantaray(this.bee, wrappedData.uploadFilesRes.toString());
-
+    let nodes: MantarayNode[] = unmarshalled.collect();
     const dataPromises: Promise<Bytes>[] = [];
-    // const filePromises: Promise<FileData<Bytes>>[] = [];
-    for (const node of unmarshalled.collect()) {
+
+    if (paths && paths.length > 0) {
+      let tmpNodes: MantarayNode[] = [];
+      // const node = mantaray.find(path);
+      paths.forEach((path) => {
+        const node = nodes.find((n) => n.fullPathString === path);
+        if (node) {
+          tmpNodes.push(node);
+        }
+      });
+      nodes = tmpNodes;
+    }
+
+    for (const node of nodes) {
       dataPromises.push(this.bee.downloadData(node.targetAddress));
-      // filePromises.push(this.bee.downloadFile(node.targetAddress, fileInfo.name));
     }
 
     await Promise.allSettled(dataPromises).then((results) => {
@@ -295,10 +307,6 @@ export class FileManagerBase implements FileManager {
         }
       });
     });
-  }
-
-  async downloadData(eRef: Reference, options?: DownloadOptions): Promise<string[]> {
-    return [(await this.bee.downloadData(eRef, options)).toUtf8()];
   }
 
   async upload(options: FileManagerUploadOptions): Promise<void> {

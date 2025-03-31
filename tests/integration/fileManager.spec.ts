@@ -1,11 +1,13 @@
-import { BatchId, BeeDev, Bytes, MantarayNode, Reference, Topic } from '@ethersphere/bee-js';
+import { BatchId, BeeDev, Bytes, MantarayNode, PublicKey, Reference, Topic } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
+import { FileManagerEvents } from '../../src';
 import { FileManagerBase } from '../../src/fileManager';
 import { buyStamp, getFeedData } from '../../src/utils/common';
 import { OWNER_STAMP_LABEL, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { FileInfoError, GranteeError, StampError } from '../../src/utils/errors';
+import { saveMantaray } from '../../src/utils/mantaray';
 import { FileInfo } from '../../src/utils/types';
 import { createInitializedFileManager } from '../mockHelpers';
 import {
@@ -20,9 +22,11 @@ import {
   readFilesOrDirectory,
 } from '../utils';
 
+// TODO: emitter test for all events
 describe('FileManager initialization', () => {
   let bee: BeeDev;
   let fileManager: FileManagerBase;
+  let actPublisher: PublicKey;
 
   beforeAll(async () => {
     // Create a BeeDev instance with a valid signer.
@@ -34,6 +38,8 @@ describe('FileManager initialization', () => {
       // Stamp already exists; ignore error.
       void e;
     }
+
+    actPublisher = (await bee.getNodeAddresses())!.publicKey;
   });
 
   beforeEach(async () => {
@@ -60,7 +66,6 @@ describe('FileManager initialization', () => {
   it('should initialize the owner feed and topic', async () => {
     // Ensure the owner stamp exists by buying it.
     await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
-    const publsiherPublicKey = (await bee.getNodeAddresses())!.publicKey;
 
     expect(fileManager.fileInfoList).toEqual([]);
     expect(fileManager.sharedWithMe).toEqual([]);
@@ -69,21 +74,20 @@ describe('FileManager initialization', () => {
     const topicHistory = await getFeedData(bee, REFERENCE_LIST_TOPIC, MOCK_SIGNER.publicKey().address(), 1n);
     const topicHex = await bee.downloadData(new Reference(feedTopicData.payload), {
       actHistoryAddress: new Reference(topicHistory.payload),
-      actPublisher: publsiherPublicKey,
+      actPublisher,
     });
     expect(topicHex).not.toEqual(SWARM_ZERO_ADDRESS);
     // Test re-initialization; state should remain unchanged.
     await fileManager.initialize();
     const reinitTopicHex = await bee.downloadData(new Reference(feedTopicData.payload), {
       actHistoryAddress: new Reference(topicHistory.payload),
-      actPublisher: publsiherPublicKey,
+      actPublisher,
     });
     expect(topicHex).toEqual(reinitTopicHex);
   });
 
   it('should throw an error if someone else than the owner tries to read the owner feed', async () => {
     const otherBee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
-    const publsiherPublicKey = (await bee.getNodeAddresses())!.publicKey;
 
     const feedTopicData = await getFeedData(bee, REFERENCE_LIST_TOPIC, MOCK_SIGNER.publicKey().address(), 0n);
     const topicHistory = await getFeedData(bee, REFERENCE_LIST_TOPIC, MOCK_SIGNER.publicKey().address(), 1n);
@@ -101,7 +105,7 @@ describe('FileManager initialization', () => {
     try {
       await otherBee.downloadData(new Reference(feedTopicData.payload), {
         actHistoryAddress: new Reference(topicHistory.payload),
-        actPublisher: publsiherPublicKey,
+        actPublisher,
       });
     } catch (error) {
       expect(error).toBeInstanceOf(Error);
@@ -125,7 +129,6 @@ describe('FileManager initialization', () => {
     const testStampId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'testStamp');
     {
       await fileManager.initialize();
-      const publsiherPublicKey = (await bee.getNodeAddresses())!.publicKey.toCompressedHex();
       await fileManager.upload({
         batchId: testStampId,
         path: path.join(__dirname, '../fixtures/nested'),
@@ -139,11 +142,11 @@ describe('FileManager initialization', () => {
 
       const fileInfoList = fileManager.fileInfoList;
       expect(fileInfoList).toHaveLength(expFileDataArr.length);
-      await dowloadAndCompareFiles(fileManager, publsiherPublicKey, fileInfoList, expFileDataArr);
+      await dowloadAndCompareFiles(fileManager, actPublisher.toCompressedHex(), fileInfoList, expFileDataArr);
 
       const fileList = await fileManager.listFiles(fileInfoList[0], {
         actHistoryAddress: fileInfoList[0].file.historyRef,
-        actPublisher: publsiherPublicKey,
+        actPublisher,
       });
       expect(fileList).toHaveLength(expNestedPaths.length);
       for (const [ix, f] of fileList.entries()) {
@@ -153,9 +156,8 @@ describe('FileManager initialization', () => {
     // Reinitialize fileManager after it goes out of scope to test if the file is saved on the feed.
     const fm = await createInitializedFileManager(bee);
     await fm.initialize();
-    const publsiherPublicKey = (await bee.getNodeAddresses())!.publicKey.toCompressedHex();
     const fileInfoList = fm.fileInfoList;
-    await dowloadAndCompareFiles(fm, publsiherPublicKey, fileInfoList, expFileDataArr);
+    await dowloadAndCompareFiles(fm, actPublisher.toCompressedHex(), fileInfoList, expFileDataArr);
   });
 
   // Additional tests from the "Additional FileManager Initialization Integration Tests"
@@ -187,144 +189,14 @@ describe('FileManager initialization', () => {
   });
 });
 
-describe('FileManager saveMantaray', () => {
-  let bee: BeeDev;
-  let fileManager: FileManagerBase;
-  let batchId: BatchId;
-
-  beforeAll(async () => {
-    // Create a BeeDev instance with a valid signer.
-    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
-    // Purchase (or ensure) a test stamp is available.
-    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
-    // Create and initialize the FileManager.
-    fileManager = await createInitializedFileManager(bee);
-    await fileManager.initialize();
-  });
-
-  it('should save a non-empty file node and return a valid ReferenceWithHistory (ACT enabled)', async () => {
-    // Create a new MantarayNode representing a file node.
-    const node = new MantarayNode();
-    // Upload some dummy content to Bee.
-    const dummyContent = Buffer.from('dummy content');
-    const uploadRes = await bee.uploadData(batchId, dummyContent, { act: true });
-    // Set the node's targetAddress using the uploaded reference.
-    node.targetAddress = new Reference(uploadRes.reference.toString()).toUint8Array();
-    // Add some metadata so the node is not considered empty.
-    node.metadata = { dummy: 'value' };
-
-    // Call saveMantaray with { act: true } so that a history address is produced.
-    const result = await fileManager.saveMantaray(batchId, node, { act: true });
-    console.log('saveMantaray result (file node):', result);
-
-    // Verify that the returned object has non-empty strings for both reference and historyRef.
-    expect(typeof result.reference).toBe('string');
-    expect(result.reference).not.toEqual('');
-    expect(typeof result.historyRef).toBe('string');
-    expect(result.historyRef).not.toEqual('');
-
-    // Download the saved data (providing actPublisher) to confirm it was stored.
-    const downloaded = await bee.downloadData(new Reference(result.reference), {
-      actHistoryAddress: new Reference(result.historyRef),
-      actPublisher: (await bee.getNodeAddresses())!.publicKey,
-    });
-    expect(downloaded).toBeDefined();
-    expect(downloaded.length).toBeGreaterThan(0);
-  });
-
-  it('should throw an error when saving a node without ACT enabled (history address missing)', async () => {
-    const node = new MantarayNode();
-    const dummyContent = Buffer.from('dummy content');
-    const uploadRes = await bee.uploadData(batchId, dummyContent, { act: true });
-    node.targetAddress = new Reference(uploadRes.reference.toString()).toUint8Array();
-    node.metadata = { dummy: 'value' };
-
-    // Calling saveMantaray with { act: false } should result in no history address,
-    // so getOrThrow() inside saveMantaray should throw.
-    await expect(fileManager.saveMantaray(batchId, node, { act: false })).rejects.toThrow();
-  });
-
-  it('should save a node with a fork and propagate the parent selfAddress', async () => {
-    // Create a parent node (simulate a directory).
-    const parent = new MantarayNode();
-    // Create a child node (simulate a file).
-    const child = new MantarayNode();
-    const dummyContent = Buffer.from('fork dummy content');
-    const uploadRes = await bee.uploadData(batchId, dummyContent, { act: true });
-    child.targetAddress = new Reference(uploadRes.reference.toString()).toUint8Array();
-    child.metadata = { fork: 'child' };
-
-    // Manually add a fork using an inline object conforming to the Fork interface.
-    parent.forks.set(100, {
-      prefix: new Uint8Array([100]),
-      node: child,
-      marshal: () => child.targetAddress,
-    });
-
-    const result = await fileManager.saveMantaray(batchId, parent, { act: true });
-    console.log('saveMantaray result (node with fork):', result);
-
-    expect(typeof result.reference).toBe('string');
-    expect(result.reference).not.toEqual('');
-    expect(typeof result.historyRef).toBe('string');
-    expect(result.historyRef).not.toEqual('');
-
-    // Verify that parent's selfAddress is set after saving.
-    expect(parent.selfAddress).toBeDefined();
-  });
-
-  it('should correctly handle a node with multiple forks', async () => {
-    // Create a parent node.
-    const parent = new MantarayNode();
-    // Create two child nodes.
-    const child1 = new MantarayNode();
-    const child2 = new MantarayNode();
-
-    const dummyContent1 = Buffer.from('child1 content');
-    const dummyContent2 = Buffer.from('child2 content');
-
-    const uploadRes1 = await bee.uploadData(batchId, dummyContent1, { act: true });
-    const uploadRes2 = await bee.uploadData(batchId, dummyContent2, { act: true });
-    child1.targetAddress = new Reference(uploadRes1.reference.toString()).toUint8Array();
-    child2.targetAddress = new Reference(uploadRes2.reference.toString()).toUint8Array();
-    child1.metadata = { name: 'child1' };
-    child2.metadata = { name: 'child2' };
-
-    // Manually add forks for both children using inline fork objects.
-    parent.forks.set(50, {
-      prefix: new Uint8Array([50]),
-      node: child1,
-      marshal: () => child1.targetAddress,
-    });
-    parent.forks.set(51, {
-      prefix: new Uint8Array([51]),
-      node: child2,
-      marshal: () => child2.targetAddress,
-    });
-
-    const result = await fileManager.saveMantaray(batchId, parent, { act: true });
-    expect(typeof result.reference).toBe('string');
-    expect(result.reference).not.toEqual('');
-    expect(typeof result.historyRef).toBe('string');
-    expect(result.historyRef).not.toEqual('');
-
-    // Optionally, download the saved data to confirm it was stored.
-    const downloaded = await bee.downloadData(new Reference(result.reference), {
-      actHistoryAddress: new Reference(result.historyRef),
-      actPublisher: (await bee.getNodeAddresses())!.publicKey,
-    });
-    expect(downloaded).toBeDefined();
-    expect(downloaded.length).toBeGreaterThan(0);
-  });
-});
-
-describe('FileManager downloadFork', () => {
+describe('FileManager download only fork(s)', () => {
   let bee: BeeDev;
   let fileManager: FileManagerBase;
   let batchId: BatchId;
   let parent: MantarayNode;
   let child: MantarayNode;
   let childHistoryRef: string; // store child's history reference
+  let actPublisher: PublicKey;
 
   // Define paths and dummy content.
   const folderPath = 'folder/';
@@ -340,6 +212,7 @@ describe('FileManager downloadFork', () => {
     // Create and initialize the FileManager.
     fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
+    actPublisher = (await bee.getNodeAddresses())!.publicKey;
 
     // Create a parent node with an explicit path "folder/".
     parent = new MantarayNode({ path: Bytes.fromUtf8(folderPath).toUint8Array() });
@@ -369,9 +242,9 @@ describe('FileManager downloadFork', () => {
   it('should download the fork content when the path exists', async () => {
     const options = {
       actHistoryAddress: new Reference(childHistoryRef),
-      actPublisher: (await bee.getNodeAddresses())!.publicKey,
+      actPublisher,
     };
-    const downloaded = await fileManager.downloadFork(parent, fullPath, options);
+    const downloaded = await fileManager.download(parent, fullPath, options);
     const downloadedStr = downloaded.toUtf8();
     expect(downloadedStr).toEqual(dummyContentStr);
   });
@@ -381,9 +254,21 @@ describe('FileManager downloadFork', () => {
     const emptyNode = new MantarayNode({ path: Bytes.fromUtf8('emptyFolder/').toUint8Array() });
     const options = {
       actHistoryAddress: new Reference(childHistoryRef),
-      actPublisher: (await bee.getNodeAddresses())!.publicKey,
+      actPublisher,
     };
-    const result = await fileManager.downloadFork(emptyNode, 'emptyFolder/file.txt', options);
+
+    const manatarayResult = await saveMantaray(bee, batchId, emptyNode);
+    const result = await fileManager.download(
+      {
+        batchId,
+        name: 'name',
+        file: manatarayResult,
+        owner: MOCK_SIGNER.publicKey().address(),
+        actPublisher,
+      } as FileInfo,
+      ['emptyFolder/file.txt'],
+      options,
+    );
     expect(result).toEqual(SWARM_ZERO_ADDRESS);
   });
 
@@ -401,9 +286,9 @@ describe('FileManager downloadFork', () => {
     });
     const options = {
       actHistoryAddress: new Reference(childHistoryRef),
-      actPublisher: (await bee.getNodeAddresses())!.publicKey,
+      actPublisher,
     };
-    const result = await fileManager.downloadFork(nodeWithNullFork, 'nullFolder/file.txt', options);
+    const result = await fileManager.download(nodeWithNullFork, 'nullFolder/file.txt', options);
     expect(result).toEqual(SWARM_ZERO_ADDRESS);
   });
 
@@ -443,9 +328,9 @@ describe('FileManager downloadFork', () => {
     const fullNestedPath = 'nestedFolder/subfolder/nestedFile.txt';
     const options = {
       actHistoryAddress: new Reference(nestedChildHistory),
-      actPublisher: (await bee.getNodeAddresses())!.publicKey,
+      actPublisher,
     };
-    const downloadedNested = await fileManager.downloadFork(nestedParent, fullNestedPath, options);
+    const downloadedNested = await fileManager.download(nestedParent, fullNestedPath, options);
     const downloadedNestedStr = downloadedNested.toUtf8();
     expect(downloadedNestedStr).toEqual(nestedContentStr);
   });
@@ -489,22 +374,32 @@ describe('FileManager downloadFork', () => {
     });
 
     // Save the initial mantaray structure (with 2 files).
-    const savedMantaray = await fileManager.saveMantaray(batchId, folderNode, { act: true });
+    const savedMantaray = await saveMantaray(bee, batchId, folderNode, { act: false });
     console.log('Initial state saved:', savedMantaray);
 
     // Download the 2 files to verify the initial state
     const options1 = {
       actHistoryAddress: new Reference(uploadRes1.historyAddress.getOrThrow().toString()),
-      actPublisher: (await bee.getNodeAddresses())!.publicKey,
+      actPublisher,
     };
-    const downloaded1 = await fileManager.downloadFork(folderNode, integrationFolderPath + '1.txt', options1);
+    const downloaded1 = await fileManager.download(
+      {
+        batchId,
+        name: 'name',
+        file: savedMantaray,
+        owner: MOCK_SIGNER.publicKey().address(),
+        actPublisher,
+      } as FileInfo,
+      [integrationFolderPath + '1.txt'],
+      options1,
+    );
     expect(downloaded1.toUtf8()).toEqual(file1Content.toString());
 
     const options2 = {
       actHistoryAddress: new Reference(uploadRes2.historyAddress.getOrThrow().toString()),
-      actPublisher: (await bee.getNodeAddresses())!.publicKey,
+      actPublisher,
     };
-    const downloaded2 = await fileManager.downloadFork(folderNode, integrationFolderPath + '2.txt', options2);
+    const downloaded2 = await fileManager.download(folderNode, integrationFolderPath + '2.txt', options2);
     expect(downloaded2.toUtf8()).toEqual(file2Content.toString());
 
     // Add a 3rd file to the same folder node and save again
@@ -525,22 +420,22 @@ describe('FileManager downloadFork', () => {
     });
 
     // Save the updated mantaray (now including the 3rd file).
-    const updatedMantaraySaved = await fileManager.saveMantaray(batchId, folderNode, { act: true });
+    const updatedMantaraySaved = await saveMantaray(bee, batchId, folderNode, { act: true });
     console.log('Updated state saved:', updatedMantaraySaved);
 
-    // Download each file using downloadFork to verify the final state
+    // Download each file using download to verify the final state
     const options3 = {
       actHistoryAddress: new Reference(uploadRes3.historyAddress.getOrThrow().toString()),
-      actPublisher: (await bee.getNodeAddresses())!.publicKey,
+      actPublisher,
     };
-    const downloaded3 = await fileManager.downloadFork(folderNode, integrationFolderPath + file3Name, options3);
+    const downloaded3 = await fileManager.download(folderNode, integrationFolderPath + file3Name, options3);
     expect(downloaded3.toUtf8()).toEqual(file3ContentStr);
 
     // We re-download 1.txt and 2.txt to verify
-    const reDownloaded1 = await fileManager.downloadFork(folderNode, integrationFolderPath + '1.txt', options1);
+    const reDownloaded1 = await fileManager.download(folderNode, integrationFolderPath + '1.txt', options1);
     expect(reDownloaded1.toUtf8()).toEqual(file1Content.toString());
 
-    const reDownloaded2 = await fileManager.downloadFork(folderNode, integrationFolderPath + '2.txt', options2);
+    const reDownloaded2 = await fileManager.download(folderNode, integrationFolderPath + '2.txt', options2);
     expect(reDownloaded2.toUtf8()).toEqual(file2Content.toString());
   });
 });
@@ -550,6 +445,7 @@ describe('FileManager listFiles', () => {
   let fileManager: FileManagerBase;
   let batchId: BatchId;
   let tempDir: string;
+  let actPublisher: PublicKey;
 
   beforeAll(async () => {
     // Create a BeeDev instance with a valid signer.
@@ -560,6 +456,7 @@ describe('FileManager listFiles', () => {
     // Create and initialize the FileManager.
     fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
+    actPublisher = (await bee.getNodeAddresses())!.publicKey;
 
     // Create a temporary directory for our test files.
     // Use a unique folder name to avoid collisions.
@@ -591,7 +488,7 @@ describe('FileManager listFiles', () => {
     // Call listFiles.
     const fileList = await fileManager.listFiles(fileInfo!, {
       actHistoryAddress: fileInfo!.file.historyRef,
-      actPublisher: (await bee.getNodeAddresses())!.publicKey,
+      actPublisher,
     });
 
     // Instead of comparing full paths (which may vary), we assert that the basenames match.
@@ -624,7 +521,7 @@ describe('FileManager listFiles', () => {
     expect(fileInfo).toBeDefined();
     const fileList = await fileManager.listFiles(fileInfo!, {
       actHistoryAddress: fileInfo!.file.historyRef,
-      actPublisher: (await bee.getNodeAddresses())!.publicKey,
+      actPublisher,
     });
     expect(fileList).toHaveLength(0);
 
@@ -647,7 +544,7 @@ describe('FileManager listFiles', () => {
 
     const fileList = await fileManager.listFiles(fileInfo!, {
       actHistoryAddress: fileInfo!.file.historyRef,
-      actPublisher: (await bee.getNodeAddresses())!.publicKey,
+      actPublisher,
     });
 
     // Expect that the nested file is found.
@@ -679,7 +576,7 @@ describe('FileManager listFiles', () => {
 
     let fileList = await fileManager.listFiles(fileInfo!, {
       actHistoryAddress: fileInfo!.file.historyRef,
-      actPublisher: (await bee.getNodeAddresses())!.publicKey,
+      actPublisher,
     });
     // Simulate that the entry for 'empty.txt' has an empty path.
     fileList = fileList.map((item) => {
@@ -791,6 +688,7 @@ describe('FileManager download', () => {
   let batchId: BatchId;
   let tempDownloadDir: string;
   const expectedContents: Record<string, string> = {};
+  let actPublisher: PublicKey;
 
   beforeAll(async () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
@@ -798,6 +696,7 @@ describe('FileManager download', () => {
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'downloadFilesIntegrationStamp');
     fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
+    actPublisher = (await bee.getNodeAddresses())!.publicKey;
 
     // Create a temporary directory for download test.
     tempDownloadDir = path.join(__dirname, 'tmpDownloadIntegration');
@@ -831,10 +730,15 @@ describe('FileManager download', () => {
     const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(tempDownloadDir));
     expect(fileInfo).toBeDefined();
 
+    let fileContents: string[] = [];
+    // Use the fileInfo to download the contents.
+    fileManager.emitter.on(FileManagerEvents.FILE_DOWNLOADED, (data: any) => {
+      fileContents.push(data.toString());
+    });
     // download returns an array of strings.
-    const fileContents = await fileManager.download(new Reference(fileInfo!.file.reference), {
+    await fileManager.download(fileInfo!, undefined, {
       actHistoryAddress: new Reference(fileInfo!.file.historyRef),
-      actPublisher: (await bee.getNodeAddresses())!.publicKey,
+      actPublisher,
     });
     const expectedArray = Object.values(expectedContents);
     expect(fileContents.sort()).toEqual(expectedArray.sort());
@@ -845,10 +749,10 @@ describe('FileManager download', () => {
     const emptyNode = new (await import('@ethersphere/bee-js')).MantarayNode({
       path: new TextEncoder().encode('emptyFolder/'),
     });
-    const saved = await fileManager.saveMantaray(batchId, emptyNode, { act: true });
+    const saved = await saveMantaray(bee, batchId, emptyNode, { act: true });
     const files = await fileManager.download(new Reference(saved.reference), {
       actHistoryAddress: new Reference(saved.historyRef),
-      actPublisher: (await bee.getNodeAddresses())!.publicKey,
+      actPublisher,
     });
     expect(files).toHaveLength(0);
   });
@@ -862,9 +766,9 @@ describe('FileManager download', () => {
     const allFileInfos = fileManager.fileInfoList;
     const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(emptyFileDir));
     expect(fileInfo).toBeDefined();
-    const fileContents = await fileManager.download(new Reference(fileInfo!.file.reference), {
+    const fileContents = await fileManager.download(fileInfo!, undefined, {
       actHistoryAddress: new Reference(fileInfo!.file.historyRef),
-      actPublisher: (await bee.getNodeAddresses())!.publicKey,
+      actPublisher,
     });
     // We expect one of the returned file contents to be an empty string.
     expect(fileContents).toContain('');
@@ -876,7 +780,6 @@ describe('FileManager destroyVolume', () => {
   let bee: BeeDev;
   let fileManager: FileManagerBase;
   let ownerStampId: BatchId | undefined;
-
   beforeAll(async () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     // Purchase two non-owner stamps with unique labels BEFORE initializing the FileManager.
@@ -945,24 +848,26 @@ describe('FileManager getGranteesOfFile', () => {
 describe('Utils getFeedData', () => {
   let bee: BeeDev;
   let fileManager: FileManagerBase;
+  let actPublisher: PublicKey;
 
   beforeAll(async () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
     fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
+    actPublisher = (await bee.getNodeAddresses())!.publicKey;
   });
 
   it('should return a valid feed data object when index is provided', async () => {
     // Use the owner's public key as a topic by converting it to a Topic.
-    const topic = Topic.fromString((await bee.getNodeAddresses())!.publicKey.toString());
+    const topic = Topic.fromString(actPublisher.toCompressedHex());
     const feedData = await getFeedData(bee, topic, MOCK_SIGNER.publicKey().address(), 0n);
     // feedData.payload should not be the zero address.
     expect(feedData.payload).not.toEqual('0'.repeat(64));
   });
 
   it('should return a valid feed data object when index is not provided', async () => {
-    const topic = Topic.fromString((await bee.getNodeAddresses())!.publicKey.toString());
+    const topic = Topic.fromString(actPublisher.toCompressedHex());
     const feedData = await getFeedData(bee, topic, MOCK_SIGNER.publicKey().address());
     expect(feedData.payload).not.toEqual('0'.repeat(64));
   });
@@ -973,6 +878,7 @@ describe('FileManager End-to-End User Workflow', () => {
   let fileManager: FileManagerBase;
   let batchId: BatchId;
   let tempBaseDir: string;
+  let actPublisher: PublicKey;
 
   beforeAll(async () => {
     // Create a BeeDev instance and ensure the owner stamp exists.
@@ -983,6 +889,7 @@ describe('FileManager End-to-End User Workflow', () => {
     // Create a temporary directory for this test session.
     tempBaseDir = path.join(__dirname, 'e2eTestSession');
     fs.mkdirSync(tempBaseDir, { recursive: true });
+    actPublisher = (await bee.getNodeAddresses())!.publicKey;
   });
 
   afterAll(() => {
@@ -1030,7 +937,7 @@ describe('FileManager End-to-End User Workflow', () => {
     // ----- Step 4: List Files and Check that the Manifest Has NOT Been Updated -----
     const listedFiles = await fileManager.listFiles(updatedProjectInfo!, {
       actHistoryAddress: new Reference(updatedProjectInfo!.file.historyRef),
-      actPublisher: (await bee.getNodeAddresses())!.publicKey,
+      actPublisher,
     });
     const basenames = listedFiles.map((item) => path.basename(item.path));
     // Since in-place updates aren’t supported, we expect the manifest to contain only the original files.
@@ -1085,7 +992,7 @@ describe('FileManager End-to-End User Workflow', () => {
     // Step 4: List files in the new version folder and check full paths.
     const listedFiles_newVersion = await fileManager.listFiles(newVersionInfo!, {
       actHistoryAddress: new Reference(newVersionInfo!.file.historyRef),
-      actPublisher: (await bee.getNodeAddresses())!.publicKey,
+      actPublisher,
     });
     const basenames_newVersion = listedFiles_newVersion.map((item) => path.basename(item.path));
     const fullPaths_newVersion = listedFiles_newVersion.map((item) => item.path);
@@ -1101,7 +1008,7 @@ describe('FileManager End-to-End User Workflow', () => {
     // Step 5: Download all files and verify their content.
     const downloadedContents = await fileManager.download(new Reference(newVersionInfo!.file.reference), {
       actHistoryAddress: new Reference(newVersionInfo!.file.historyRef),
-      actPublisher: (await bee.getNodeAddresses())!.publicKey,
+      actPublisher,
     });
     expect(downloadedContents).toContain('Project document 1');
     expect(downloadedContents).toContain('Project document 2');
@@ -1135,7 +1042,7 @@ describe('FileManager End-to-End User Workflow', () => {
     // List files and check full relative paths.
     const listedFiles = await fileManager.listFiles(complexInfo!, {
       actHistoryAddress: new Reference(complexInfo!.file.historyRef),
-      actPublisher: (await bee.getNodeAddresses())!.publicKey,
+      actPublisher,
     });
     const fullPaths = listedFiles.map((item) => item.path);
     // We expect:

@@ -34,10 +34,11 @@ export interface FileManager {
   /**
    * Downloads a file using the given reference and options.
    * @param eRef - The encrypted reference to the file(s) to be downloaded.
+   * @param paths - Optional array of fork paths to download.
    * @param options - Optional download options for ACT.
    * @returns A promise that resolves to an array of strings representing the downloaded file(s).
    */
-  download(fileInfo: FileInfo, options?: DownloadOptions): Promise<void>;
+  download(fileInfo: FileInfo, paths?: string[], options?: DownloadOptions): Promise<void>;
 
   /**
    * Lists files based on the provided file information and options.

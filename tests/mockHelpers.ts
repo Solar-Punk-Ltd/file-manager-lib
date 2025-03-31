@@ -23,7 +23,7 @@ import { Optional } from 'cafe-utility';
 import { FileManagerBase } from '../src/fileManager';
 import { OWNER_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
 import { EventEmitter } from '../src/utils/eventEmitter';
-import { FeedPayloadResult } from '../src/utils/types';
+import { FeedPayloadResult, FileInfo } from '../src/utils/types';
 
 import { BEE_URL, MOCK_SIGNER } from './utils';
 
@@ -61,6 +61,22 @@ export function createMockNodeAddresses(): NodeAddresses {
     ethereum: new EthAddress('33'.repeat(20)),
     publicKey: new PublicKey('22'.repeat(64)),
     pssPublicKey: new PublicKey('22'.repeat(64)),
+  };
+}
+
+export async function createMockFileInfo(
+  bee: Bee = new Bee(BEE_URL, { signer: MOCK_SIGNER }),
+  ref: string = SWARM_ZERO_ADDRESS.toString(),
+): Promise<FileInfo> {
+  return {
+    batchId: new BatchId(MOCK_BATCH_ID),
+    name: 'john doe',
+    owner: MOCK_SIGNER.publicKey().address().toString(),
+    actPublisher: (await bee.getNodeAddresses()).publicKey.toCompressedHex(),
+    file: {
+      reference: ref,
+      historyRef: SWARM_ZERO_ADDRESS.toString(),
+    },
   };
 }
 

@@ -1,14 +1,5 @@
-import {
-  BatchId,
-  Bee,
-  Bytes,
-  DownloadOptions,
-  MantarayNode,
-  RedundantUploadOptions,
-  Reference,
-} from '@ethersphere/bee-js';
+import { BatchId, Bee, DownloadOptions, MantarayNode, RedundantUploadOptions, Reference } from '@ethersphere/bee-js';
 import { ReferenceWithHistory } from './types';
-import { SWARM_ZERO_ADDRESS } from './constants';
 
 export async function saveMantaray(
   bee: Bee,
@@ -31,19 +22,4 @@ export async function loadMantaray(
   const mantaray = await MantarayNode.unmarshal(bee, mantarayRef, options);
   await mantaray.loadRecursively(bee);
   return mantaray;
-}
-
-// TODO: decide on downloadFork vs download: based on path or eRef - all vs single ?
-// TODO: use node.find() - it does not seem to work - test it
-export async function downloadFork(
-  bee: Bee,
-  mantaray: MantarayNode,
-  path: string,
-  options?: DownloadOptions,
-): Promise<Bytes> {
-  // const node = mantaray.find(path);
-  const node = mantaray.collect().find((n) => n.fullPathString === path);
-  if (!node) return SWARM_ZERO_ADDRESS;
-
-  return await bee.downloadData(node.targetAddress, options);
 }

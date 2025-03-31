@@ -11,6 +11,7 @@ import {
   createInitializedFileManager,
   createInitMocks,
   createMockFeedWriter,
+  createMockFileInfo,
   createMockGetFeedDataResult,
   createMockMantarayNode,
   createUploadDataSpy,
@@ -101,49 +102,28 @@ describe('FileManager', () => {
     });
   });
 
-  describe('saveMantaray', () => {
-    it('should call saveRecursively', async () => {
-      const saveRecursivelySpy = jest.spyOn(MantarayNode.prototype, 'saveRecursively').mockResolvedValue({
-        reference: new Reference('1'.repeat(64)),
-        historyAddress: Optional.of(new Reference(SWARM_ZERO_ADDRESS)),
-      });
-
-      const fm = await createInitializedFileManager();
-      fm.saveMantaray(new BatchId(MOCK_BATCH_ID), new MantarayNode());
-
-      expect(saveRecursivelySpy).toHaveBeenCalled();
-    });
-
-    it('should return ReferenceWithHistory', async () => {
-      jest.spyOn(MantarayNode.prototype, 'saveRecursively').mockResolvedValue({
-        reference: new Reference('1'.repeat(64)),
-        historyAddress: Optional.of(new Reference(SWARM_ZERO_ADDRESS)),
-      });
-      const fm = await createInitializedFileManager();
-
-      const expectedReturnValue: ReferenceWithHistory = {
-        reference: new Reference('1'.repeat(64)).toString(),
-        historyRef: new Reference(SWARM_ZERO_ADDRESS).toString(),
-      };
-
-      await expect(fm.saveMantaray(new BatchId(MOCK_BATCH_ID), new MantarayNode())).resolves.toEqual(
-        expectedReturnValue,
-      );
-    });
-  });
-
-  describe('downloadFork', () => {
+  describe('download fork(s)', () => {
     afterEach(() => {
       jest.restoreAllMocks();
     });
 
     it('should call mantaray.collect()', async () => {
       createInitMocks();
-      const fm = await createInitializedFileManager();
-      const mockMantarayNode = createMockMantarayNode();
+      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee);
       const mantarayCollectSpy = jest.spyOn(MantarayNode.prototype, 'collect');
+      const mockMantarayNode = createMockMantarayNode(false);
+      const eFileRef = await mockMantarayNode.calculateSelfAddress();
 
-      await fm.downloadFork(mockMantarayNode, '/root/1.txt');
+      console.log('baagoy eFileRef: ', eFileRef.toString());
+      jest
+        .spyOn(Bee.prototype, 'downloadData')
+        .mockResolvedValueOnce(Bytes.fromUtf8(JSON.stringify({ uploadFilesRes: eFileRef.toString() })));
+
+      const mockFi = await createMockFileInfo(bee, eFileRef.toString());
+      jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValueOnce(eFileRef);
+
+      await fm.download(mockFi, ['/root/1.txt']);
 
       expect(mantarayCollectSpy).toHaveBeenCalled();
     });
@@ -151,10 +131,10 @@ describe('FileManager', () => {
     it('should call bee.downloadData with correct reference', async () => {
       createInitMocks();
       const fm = await createInitializedFileManager();
-      const mockMantarayNode = createMockMantarayNode();
       const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
 
-      await fm.downloadFork(mockMantarayNode, '/root/1.txt');
+      const mockFi = await createMockFileInfo();
+      await fm.download(mockFi, ['/root/1.txt']);
 
       const expectedReference = new Reference('1'.repeat(64)).toUint8Array();
 
@@ -171,22 +151,12 @@ describe('FileManager', () => {
       jest.spyOn(MantarayNode, 'unmarshal').mockResolvedValue(new MantarayNode());
       jest.spyOn(MantarayNode.prototype, 'collect').mockReturnValue(mockMantarayNode.collect());
 
-      const actPublisher = (await bee.getNodeAddresses()).publicKey.toCompressedHex();
-      const fileInfo = {
-        batchId: new BatchId(MOCK_BATCH_ID),
-        name: 'john doe',
-        owner: MOCK_SIGNER.publicKey().address().toString(),
-        actPublisher,
-        file: {
-          reference: SWARM_ZERO_ADDRESS.toString(),
-          historyRef: SWARM_ZERO_ADDRESS.toString(),
-        },
-      } as FileInfo;
+      const mockFi = await createMockFileInfo();
 
       jest
         .spyOn(Bee.prototype, 'downloadData')
         .mockResolvedValueOnce(Bytes.fromUtf8(JSON.stringify({ uploadFilesRes: '1'.repeat(64) })));
-      const result = await fm.listFiles(fileInfo);
+      const result = await fm.listFiles(mockFi);
       expect(result).toEqual([
         {
           path: '/root/2.txt',
@@ -201,20 +171,22 @@ describe('FileManager', () => {
       jest.restoreAllMocks();
     });
 
-    it('should call downloadFork for each file', async () => {
+    it('should call download for each file', async () => {
       createInitMocks();
-      const fm = await createInitializedFileManager();
+      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee);
       const mockMantarayNode = createMockMantarayNode(false);
       jest.spyOn(MantarayNode, 'unmarshal').mockResolvedValue(new MantarayNode());
       jest.spyOn(MantarayNode.prototype, 'collect').mockReturnValue(mockMantarayNode.collect());
       jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(new Bytes('46696c6520617320737472696e67')); // this is "File as string" encoded in hexadecimal
 
-      const eFileRef = new Reference('1'.repeat(64));
+      const eFileRef = await mockMantarayNode.calculateSelfAddress();
+      const mockFi = await createMockFileInfo(bee, eFileRef.toString());
 
       jest
         .spyOn(Bee.prototype, 'downloadData')
         .mockResolvedValueOnce(Bytes.fromUtf8(JSON.stringify({ uploadFilesRes: '1'.repeat(64) })));
-      const fileStrings = await fm.download(eFileRef);
+      const fileStrings = await fm.download(mockFi);
 
       expect(fileStrings).toEqual(['File as string']);
     });
