@@ -31,5 +31,11 @@ module.exports = {
       globalSetup: '<rootDir>/tests/integration/test-node-setup/jestSetup.ts',
       globalTeardown: '<rootDir>/tests/integration/test-node-setup/jestTeardown.ts',
     },
+    {
+      displayName: 'browser',
+      preset: 'jest-puppeteer',
+      testMatch: ['<rootDir>/tests/browser/**/*.spec.ts'],
+      setupFiles: ['<rootDir>/tests/browser/setupGlobals.ts'],
+    },
   ],
 };

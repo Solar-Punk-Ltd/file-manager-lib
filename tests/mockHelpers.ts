@@ -20,6 +20,7 @@ import {
 import { Optional } from 'cafe-utility';
 
 import { FileManager } from '../src/fileManager';
+import { FileManagerBrowser } from '../src/fileManager.browser';
 import { FileManagerNode } from '../src/fileManager.node';
 import { OWNER_FEED_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
 import { FeedPayloadResult } from '../src/utils/types';
@@ -44,9 +45,10 @@ export function createMockMantarayNode(all = true): MantarayNode {
   return mn;
 }
 
-export async function createInitializedFileManager(): Promise<FileManager> {
+export async function createInitializedFileManager(isBrowser = false): Promise<FileManager> {
   const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-  const fileManager = new FileManagerNode(bee);
+  // Return the browser version if isBrowser is true, otherwise use the node version.
+  const fileManager = isBrowser ? new FileManagerBrowser(bee) : new FileManagerNode(bee);
   await fileManager.initialize();
   return fileManager;
 }
@@ -67,6 +69,16 @@ export function createMockGetFeedDataResult(currentIndex = 0, nextIndex = 1): Fe
     feedIndexNext: FeedIndex.fromBigInt(BigInt(nextIndex)),
     payload: SWARM_ZERO_ADDRESS,
   };
+}
+
+// mockHelpers.ts
+
+export function createStreamFilesSpy(id: string): jest.SpyInstance {
+  // Example implementation: spy on the FileManager's streamFiles method
+  return jest.spyOn(FileManagerBrowser.prototype, 'streamFiles').mockResolvedValue({
+    reference: { toString: (): string => id },
+    historyAddress: { getOrThrow: (): { toString: () => string } => ({ toString: (): string => id }) },
+  });
 }
 
 export function createMockFeedWriter(char: string = '0'): FeedWriter {
