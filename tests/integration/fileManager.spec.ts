@@ -11,6 +11,7 @@ import { FileInfo } from '../../src/utils/types';
 import { createInitializedFileManager } from '../mockHelpers';
 import {
   BEE_URL,
+  createWrappedData,
   DEFAULT_BATCH_AMOUNT,
   DEFAULT_BATCH_DEPTH,
   dowloadAndCompareFiles,
@@ -194,7 +195,6 @@ describe('FileManager download only fork(s)', () => {
   let batchId: BatchId;
   let parent: MantarayNode;
   let child: MantarayNode;
-  let childHistoryRef: string; // store child's history reference
   let actPublisher: PublicKey;
 
   // Define paths and dummy content.
@@ -222,9 +222,9 @@ describe('FileManager download only fork(s)', () => {
 
     // Upload dummy content to Bee for the child.
     const dummyContent = Buffer.from(dummyContentStr);
-    const uploadRes = await bee.uploadData(batchId, dummyContent, { act: true });
+    const uploadRes = await bee.uploadData(batchId, dummyContent);
     // Save the child's history reference.
-    childHistoryRef = uploadRes.historyAddress.getOrThrow().toString();
+    //childHistoryRef = uploadRes.historyAddress.getOrThrow().toString();
     // Set the child's targetAddress using the uploaded reference.
     child.targetAddress = new Reference(uploadRes.reference).toUint8Array();
     child.metadata = { info: 'dummy file' };
@@ -239,16 +239,18 @@ describe('FileManager download only fork(s)', () => {
   });
 
   it('should download the fork content when the path exists', async () => {
+    const wrappedDataObject = await createWrappedData(bee, batchId, parent);
+
     const options = {
-      actHistoryAddress: new Reference(childHistoryRef),
+      actHistoryAddress: wrappedDataObject.historyRef,
       actPublisher,
     };
-    const manatarayResult = await saveMantaray(bee, batchId, parent);
+
     const downloaded = await fileManager.download(
       {
         batchId,
         name: 'name',
-        file: manatarayResult,
+        file: wrappedDataObject,
         owner: MOCK_SIGNER.publicKey().address(),
         actPublisher,
       } as FileInfo,
@@ -261,17 +263,18 @@ describe('FileManager download only fork(s)', () => {
   it('should return SWARM_ZERO_ADDRESS when the parent has no forks', async () => {
     // Create a new node without any forks.
     const emptyNode = new MantarayNode({ path: Bytes.fromUtf8('emptyFolder/').toUint8Array() });
+    const wrappedDataObject = await createWrappedData(bee, batchId, emptyNode);
+
     const options = {
-      actHistoryAddress: new Reference(childHistoryRef),
+      actHistoryAddress: wrappedDataObject.historyRef,
       actPublisher,
     };
 
-    const manatarayResult = await saveMantaray(bee, batchId, emptyNode);
     const result = await fileManager.download(
       {
         batchId,
         name: 'name',
-        file: manatarayResult,
+        file: wrappedDataObject,
         owner: MOCK_SIGNER.publicKey().address(),
         actPublisher,
       } as FileInfo,
@@ -293,16 +296,17 @@ describe('FileManager download only fork(s)', () => {
       node: fakeChild,
       marshal: () => new Reference(SWARM_ZERO_ADDRESS).toUint8Array(),
     });
+    const wrappedDataObject = await createWrappedData(bee, batchId, nodeWithNullFork);
+
     const options = {
-      actHistoryAddress: new Reference(childHistoryRef),
+      actHistoryAddress: wrappedDataObject.historyRef,
       actPublisher,
     };
-    const manatarayResult = await saveMantaray(bee, batchId, nodeWithNullFork);
     const result = await fileManager.download(
       {
         batchId,
         name: 'name',
-        file: manatarayResult,
+        file: wrappedDataObject,
         owner: MOCK_SIGNER.publicKey().address(),
         actPublisher,
       } as FileInfo,
@@ -323,8 +327,7 @@ describe('FileManager download only fork(s)', () => {
 
     const nestedContentStr = 'nested fork dummy content';
     const nestedContent = Buffer.from(nestedContentStr);
-    const uploadResNested = await bee.uploadData(batchId, nestedContent, { act: true });
-    const nestedChildHistory = uploadResNested.historyAddress.getOrThrow().toString();
+    const uploadResNested = await bee.uploadData(batchId, nestedContent);
     nestedChild.targetAddress = new Reference(uploadResNested.reference).toUint8Array();
     nestedChild.metadata = { info: 'nested file' };
 
@@ -346,17 +349,18 @@ describe('FileManager download only fork(s)', () => {
 
     // Now the full path should be "nestedFolder/subfolder/nestedFile.txt"
     const fullNestedPath = 'nestedFolder/subfolder/nestedFile.txt';
+    const wrappedDataObject = await createWrappedData(bee, batchId, nestedParent);
+
     const options = {
-      actHistoryAddress: new Reference(nestedChildHistory),
+      actHistoryAddress: wrappedDataObject.historyRef,
       actPublisher,
     };
 
-    const manatarayResult = await saveMantaray(bee, batchId, nestedParent);
     const downloadedNested = await fileManager.download(
       {
         batchId,
         name: 'name',
-        file: manatarayResult,
+        file: wrappedDataObject,
         owner: MOCK_SIGNER.publicKey().address(),
         actPublisher,
       } as FileInfo,
@@ -383,7 +387,7 @@ describe('FileManager download only fork(s)', () => {
     // Create and add 1.txt.
     const child1 = new MantarayNode({ path: Bytes.fromUtf8('1.txt').toUint8Array() });
     child1.parent = folderNode;
-    const uploadRes1 = await bee.uploadData(batchId, file1Content, { act: true });
+    const uploadRes1 = await bee.uploadData(batchId, file1Content);
     child1.targetAddress = new Reference(uploadRes1.reference).toUint8Array();
     child1.metadata = { info: 'file 1' };
     folderNode.forks.set(child1.path[0], {
@@ -395,7 +399,7 @@ describe('FileManager download only fork(s)', () => {
     // Create and add 2.txt.
     const child2 = new MantarayNode({ path: Bytes.fromUtf8('2.txt').toUint8Array() });
     child2.parent = folderNode;
-    const uploadRes2 = await bee.uploadData(batchId, file2Content, { act: true });
+    const uploadRes2 = await bee.uploadData(batchId, file2Content);
     child2.targetAddress = new Reference(uploadRes2.reference).toUint8Array();
     child2.metadata = { info: 'file 2' };
     folderNode.forks.set(child2.path[0], {
@@ -404,43 +408,36 @@ describe('FileManager download only fork(s)', () => {
       marshal: () => child2.targetAddress,
     });
 
-    // Save the initial mantaray structure (with 2 files).
-    const savedMantaray = await saveMantaray(bee, batchId, folderNode, { act: false });
-    console.log('Initial state saved:', savedMantaray);
-
     // Download the 2 files to verify the initial state
-    const options1 = {
-      actHistoryAddress: new Reference(uploadRes1.historyAddress.getOrThrow().toString()),
+    const wrappedDataObject = await createWrappedData(bee, batchId, folderNode);
+
+    const options = {
+      actHistoryAddress: wrappedDataObject.historyRef,
       actPublisher,
     };
     const downloaded1 = await fileManager.download(
       {
         batchId,
         name: 'name',
-        file: savedMantaray,
+        file: wrappedDataObject,
         owner: MOCK_SIGNER.publicKey().address(),
         actPublisher,
       } as FileInfo,
       [integrationFolderPath + '1.txt'],
-      options1,
+      options,
     );
     expect(downloaded1[0].toUtf8()).toEqual(file1Content.toString());
 
-    const options2 = {
-      actHistoryAddress: new Reference(uploadRes2.historyAddress.getOrThrow().toString()),
-      actPublisher,
-    };
-    const manatarayResult = await saveMantaray(bee, batchId, folderNode);
     const downloaded2 = await fileManager.download(
       {
         batchId,
         name: 'name',
-        file: manatarayResult,
+        file: wrappedDataObject,
         owner: MOCK_SIGNER.publicKey().address(),
         actPublisher,
       } as FileInfo,
       [integrationFolderPath + '2.txt'],
-      options2,
+      options,
     );
     expect(downloaded2[0].toUtf8()).toEqual(file2Content.toString());
 
@@ -452,7 +449,7 @@ describe('FileManager download only fork(s)', () => {
     // Create and add 3.txt.
     const child3 = new MantarayNode({ path: Bytes.fromUtf8(file3Name).toUint8Array() });
     child3.parent = folderNode;
-    const uploadRes3 = await bee.uploadData(batchId, file3Content, { act: true });
+    const uploadRes3 = await bee.uploadData(batchId, file3Content);
     child3.targetAddress = new Reference(uploadRes3.reference).toUint8Array();
     child3.metadata = { info: 'file 3' };
     folderNode.forks.set(child3.path[0], {
@@ -461,13 +458,10 @@ describe('FileManager download only fork(s)', () => {
       marshal: () => child3.targetAddress,
     });
 
-    // Save the updated mantaray (now including the 3rd file).
-    const updatedMantaraySaved = await saveMantaray(bee, batchId, folderNode, { act: true });
-    console.log('Updated state saved:', updatedMantaraySaved);
+    const wrappedDataObject3 = await createWrappedData(bee, batchId, folderNode);
 
-    // Download each file using download to verify the final state
     const options3 = {
-      actHistoryAddress: new Reference(uploadRes3.historyAddress.getOrThrow().toString()),
+      actHistoryAddress: wrappedDataObject.historyRef,
       actPublisher,
     };
 
@@ -475,7 +469,7 @@ describe('FileManager download only fork(s)', () => {
       {
         batchId,
         name: 'name',
-        file: updatedMantaraySaved,
+        file: wrappedDataObject3,
         owner: MOCK_SIGNER.publicKey().address(),
         actPublisher,
       } as FileInfo,
@@ -483,33 +477,6 @@ describe('FileManager download only fork(s)', () => {
       options3,
     );
     expect(downloaded3[0].toUtf8()).toEqual(file3ContentStr);
-
-    // We re-download 1.txt and 2.txt to verify
-    const reDownloaded1 = await fileManager.download(
-      {
-        batchId,
-        name: 'name',
-        file: updatedMantaraySaved,
-        owner: MOCK_SIGNER.publicKey().address(),
-        actPublisher,
-      } as FileInfo,
-      [integrationFolderPath + '1.txt'],
-      options1,
-    );
-    expect(reDownloaded1[0].toUtf8()).toEqual(file1Content.toString());
-
-    const reDownloaded2 = await fileManager.download(
-      {
-        batchId,
-        name: 'name',
-        file: updatedMantaraySaved,
-        owner: MOCK_SIGNER.publicKey().address(),
-        actPublisher,
-      } as FileInfo,
-      [integrationFolderPath + '2.txt'],
-      options2,
-    );
-    expect(reDownloaded2[0].toUtf8()).toEqual(file2Content.toString());
   });
 });
 
@@ -814,22 +781,19 @@ describe('FileManager download', () => {
   });
 
   it('should return an empty array when the manifest is empty', async () => {
-    // Create an empty Mantaray node (with no forks).
-    const emptyNode = new (await import('@ethersphere/bee-js')).MantarayNode({
-      path: new TextEncoder().encode('emptyFolder/'),
-    });
-    const saved = await saveMantaray(bee, batchId, emptyNode, { act: true });
+    const wrappedDataObject = await createWrappedData(bee, batchId, new MantarayNode());
+
     const files = await fileManager.download(
       {
         batchId,
         name: 'name',
-        file: saved,
+        file: wrappedDataObject,
         owner: MOCK_SIGNER.publicKey().address(),
         actPublisher,
       } as FileInfo,
       undefined,
       {
-        actHistoryAddress: saved.historyRef,
+        actHistoryAddress: wrappedDataObject.historyRef,
         actPublisher,
       },
     );

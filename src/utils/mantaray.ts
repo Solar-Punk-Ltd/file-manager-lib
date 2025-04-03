@@ -1,17 +1,20 @@
-import { BatchId, Bee, DownloadOptions, MantarayNode, RedundantUploadOptions, Reference } from '@ethersphere/bee-js';
-import { ReferenceWithHistory } from './types';
+import {
+  BatchId,
+  Bee,
+  DownloadOptions,
+  MantarayNode,
+  RedundantUploadOptions,
+  Reference,
+  UploadResult,
+} from '@ethersphere/bee-js';
 
 export async function saveMantaray(
   bee: Bee,
   batchId: BatchId,
   mantaray: MantarayNode,
   options?: RedundantUploadOptions,
-): Promise<ReferenceWithHistory> {
-  const result = await mantaray.saveRecursively(bee, batchId, options);
-  return {
-    reference: result.reference.toString(),
-    historyRef: result.historyAddress.getOrThrow().toString(),
-  };
+): Promise<UploadResult> {
+  return await mantaray.saveRecursively(bee, batchId, options);
 }
 
 export async function loadMantaray(
