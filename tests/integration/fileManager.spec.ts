@@ -1090,11 +1090,11 @@ describe('FileManager End-to-End User Workflow', () => {
       actHistoryAddress: new Reference(newVersionInfo!.file.historyRef),
       actPublisher,
     });
-    expect(downloadedContents).toContain('Project document 1');
-    expect(downloadedContents).toContain('Project document 2');
-    expect(downloadedContents).toContain('Fake image content');
-    expect(downloadedContents).toContain('This is the project readme.');
-    expect(downloadedContents).toContain('Nested document content');
+    expect(downloadedContents[1].toUtf8()).toContain('Project document 1');
+    expect(downloadedContents[2].toUtf8()).toContain('Project document 2');
+    expect(downloadedContents[0].toUtf8()).toContain('Fake image content');
+    expect(downloadedContents[4].toUtf8()).toContain('This is the project readme.');
+    expect(downloadedContents[3].toUtf8()).toContain('Nested document content');
   });
 
   // Scenario 3: Verify File Paths in the Manifest
