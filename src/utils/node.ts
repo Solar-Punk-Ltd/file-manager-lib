@@ -6,6 +6,7 @@ import Path from 'path';
 import { FileError } from './errors';
 import { FileData } from './types';
 
+// TODO: extend this to support more file types
 export function getContentType(filePath: string): string {
   const ext = Path.extname(filePath).toLowerCase();
   const contentTypes: Map<string, string> = new Map([

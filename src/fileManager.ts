@@ -28,6 +28,7 @@ import {
   assertWrappedFileInoFeed,
   generateTopic,
   getFeedData,
+  getWrappedData,
   makeBeeRequestOptions,
 } from './utils/common';
 import { OWNER_STAMP_LABEL, REFERENCE_LIST_TOPIC, SHARED_INBOX_TOPIC, SWARM_ZERO_ADDRESS } from './utils/constants';
@@ -50,7 +51,6 @@ import {
   ReferenceWithPath,
   ShareItem,
   WrappedFileInfoFeed,
-  WrappedUploadResult,
 } from './utils/types';
 import { uploadBrowser } from './upload/upload.browser';
 import { uploadNode } from './upload/upload.node';
@@ -255,8 +255,7 @@ export class FileManagerBase implements FileManager {
 
   // lists all the files found under the reference of the provided fileInfo
   async listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<ReferenceWithPath[]> {
-    const rawData = await this.bee.downloadData(fileInfo.file.reference.toString(), options);
-    const wrappedData = rawData.toJSON() as WrappedUploadResult;
+    const wrappedData = await getWrappedData(this.bee, fileInfo, options);
 
     const mantaray = await loadMantaray(this.bee, wrappedData.uploadFilesRes.toString());
     // TODO: is filter needed ?
@@ -274,39 +273,46 @@ export class FileManagerBase implements FileManager {
   }
 
   // TODO: implement paths handling so that we can download only the files we need with downloadFork
-  async download(fileInfo: FileInfo, paths?: string[], options?: DownloadOptions): Promise<void> {
-    const rawData = await this.bee.downloadData(fileInfo.file.reference.toString(), options);
-    const wrappedData = rawData.toJSON() as WrappedUploadResult;
+  // TODO: performance test for large files
+  async download(fileInfo: FileInfo, paths?: string[], options?: DownloadOptions): Promise<Bytes[]> {
+    const wrappedData = await getWrappedData(this.bee, fileInfo, options);
 
     const unmarshalled = await loadMantaray(this.bee, wrappedData.uploadFilesRes.toString());
-    let nodes: MantarayNode[] = unmarshalled.collect();
+
+    const resources = this.getResources(unmarshalled, paths);
+
     const dataPromises: Promise<Bytes>[] = [];
-
-    if (paths && paths.length > 0) {
-      let tmpNodes: MantarayNode[] = [];
-      // const node = mantaray.find(path);
-      paths.forEach((path) => {
-        const node = nodes.find((n) => n.fullPathString === path);
-        if (node) {
-          tmpNodes.push(node);
-        }
-      });
-      nodes = tmpNodes;
+    for (const resource of resources) {
+      dataPromises.push(this.bee.downloadData(resource));
     }
 
-    for (const node of nodes) {
-      dataPromises.push(this.bee.downloadData(node.targetAddress));
-    }
-
+    const files: Bytes[] = [];
     await Promise.allSettled(dataPromises).then((results) => {
       results.forEach((result) => {
         if (result.status === 'fulfilled') {
-          this.emitter.emit(FileManagerEvents.FILE_DOWNLOADED, { name: fileInfo.name, files: result.value });
+          files.push(result.value);
         } else {
-          console.error(`Failed to dowload file(s) ${fileInfo.name} : ${result.reason}`);
+          console.error('Failed dowload file: ', result.reason);
         }
       });
     });
+
+    return files;
+  }
+
+  private getResources(root: MantarayNode, paths?: string[]): Reference[] {
+    let nodes: MantarayNode[] = root.collect();
+
+    if (paths && paths.length > 0) {
+      nodes = nodes.filter((node) => paths.includes(node.fullPathString));
+    }
+
+    const resources: Reference[] = [];
+    for (const node of nodes) {
+      resources.push(new Reference(node.targetAddress));
+    }
+
+    return resources;
   }
 
   async upload(options: FileManagerUploadOptions): Promise<void> {
@@ -435,7 +441,7 @@ export class FileManagerBase implements FileManager {
       const requestOptions = redundancyLevel ? makeBeeRequestOptions({ redundancyLevel }) : undefined;
       const fw = this.bee.makeFeedWriter(topic.toUint8Array(), this.signer, requestOptions);
       await fw.uploadReference(batchId, uploadInfoRes.reference, {
-        index: index ? new FeedIndex(index) : undefined,
+        index: index !== undefined ? new FeedIndex(index) : undefined,
       });
     } catch (error: any) {
       throw new FileInfoError(`Failed to save wrapped fileInfo feed: ${error}`);

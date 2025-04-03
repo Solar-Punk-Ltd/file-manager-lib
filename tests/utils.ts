@@ -1,4 +1,4 @@
-import { PrivateKey, Reference } from '@ethersphere/bee-js';
+import { PrivateKey } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
@@ -55,7 +55,7 @@ export async function dowloadAndCompareFiles(
   }
 
   for (const [ix, fi] of fiList.entries()) {
-    const fetchedFiles = await fileManager.download(fi.file.reference as Reference, {
+    const fetchedFiles = await fileManager.download(fi, undefined, {
       actHistoryAddress: fi.file.historyRef,
       actPublisher: publicKey,
     });

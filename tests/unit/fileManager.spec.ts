@@ -1,12 +1,11 @@
 import { BatchId, Bee, Bytes, MantarayNode, Reference, STAMPS_DEPTH_MAX, Topic } from '@ethersphere/bee-js';
-import { Optional } from 'cafe-utility';
 
 import { FileManagerBase } from '../../src/fileManager';
 import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
 import { EventEmitterBase } from '../../src/utils/eventEmitter';
 import { FileManagerEvents } from '../../src/utils/events';
-import { FileInfo, ReferenceWithHistory } from '../../src/utils/types';
+import { FileInfo, WrappedUploadResult } from '../../src/utils/types';
 import {
   createInitializedFileManager,
   createInitMocks,
@@ -22,15 +21,26 @@ import {
 import { BEE_URL, MOCK_SIGNER } from '../utils';
 
 jest.mock('../../src/utils/common');
+jest.mock('../../src/utils/mantaray');
 
 describe('FileManager', () => {
-  beforeEach(() => {
+  let mockSelfAddr: Reference;
+
+  beforeEach(async () => {
     jest.resetAllMocks();
     createInitMocks();
+    const mokcMN = createMockMantarayNode(true);
+    mockSelfAddr = await mokcMN.calculateSelfAddress();
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-    const { getFeedData, generateTopic } = require('../../src/utils/common');
+    const { getFeedData, generateTopic, getWrappedData } = require('../../src/utils/common');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+    const { loadMantaray } = require('../../src/utils/mantaray');
     getFeedData.mockResolvedValue(createMockGetFeedDataResult(0, 1));
+    getWrappedData.mockResolvedValue({
+      uploadFilesRes: mockSelfAddr.toString(),
+    } as WrappedUploadResult);
+    loadMantaray.mockResolvedValue(mokcMN);
     generateTopic.mockReturnValue(new Topic('1'.repeat(64)));
   });
 
@@ -102,7 +112,7 @@ describe('FileManager', () => {
     });
   });
 
-  describe('download fork(s)', () => {
+  describe('download', () => {
     afterEach(() => {
       jest.restoreAllMocks();
     });
@@ -111,34 +121,43 @@ describe('FileManager', () => {
       createInitMocks();
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
       const fm = await createInitializedFileManager(bee);
+      const mockFi = await createMockFileInfo(bee, mockSelfAddr.toString());
       const mantarayCollectSpy = jest.spyOn(MantarayNode.prototype, 'collect');
-      const mockMantarayNode = createMockMantarayNode(false);
-      const eFileRef = await mockMantarayNode.calculateSelfAddress();
 
-      console.log('baagoy eFileRef: ', eFileRef.toString());
-      jest
-        .spyOn(Bee.prototype, 'downloadData')
-        .mockResolvedValueOnce(Bytes.fromUtf8(JSON.stringify({ uploadFilesRes: eFileRef.toString() })));
-
-      const mockFi = await createMockFileInfo(bee, eFileRef.toString());
-      jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValueOnce(eFileRef);
-
-      await fm.download(mockFi, ['/root/1.txt']);
+      await fm.download(mockFi);
 
       expect(mantarayCollectSpy).toHaveBeenCalled();
     });
 
-    it('should call bee.downloadData with correct reference', async () => {
+    it('should call bee.downloadData with only correct fork reference', async () => {
       createInitMocks();
-      const fm = await createInitializedFileManager();
+      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee);
       const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
+      const mockFi = await createMockFileInfo(bee, mockSelfAddr.toString());
 
-      const mockFi = await createMockFileInfo();
       await fm.download(mockFi, ['/root/1.txt']);
 
-      const expectedReference = new Reference('1'.repeat(64)).toUint8Array();
+      expect(downloadDataSpy).toHaveBeenCalledWith(new Reference('1'.repeat(64)));
+    });
 
-      expect(downloadDataSpy).toHaveBeenCalledWith(expectedReference, undefined);
+    it('should call download for all of forks', async () => {
+      const mockForkRef = new Reference('4'.repeat(64));
+      createInitMocks(mockForkRef);
+      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee);
+      const mockFi = await createMockFileInfo(bee, mockSelfAddr.toString());
+
+      const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
+      const fileStrings = await fm.download(mockFi);
+
+      expect(downloadDataSpy).toHaveBeenCalledWith(new Reference('1'.repeat(64)));
+      expect(downloadDataSpy).toHaveBeenCalledWith(new Reference('2'.repeat(64)));
+      expect(downloadDataSpy).toHaveBeenCalledWith(new Reference('3'.repeat(64)));
+
+      expect(fileStrings[0]).toEqual(mockForkRef);
+      expect(fileStrings[1]).toEqual(mockForkRef);
+      expect(fileStrings[2]).toEqual(mockForkRef);
     });
   });
 
@@ -163,32 +182,6 @@ describe('FileManager', () => {
           reference: new Reference('2'.repeat(64)),
         },
       ]);
-    });
-  });
-
-  describe('download', () => {
-    beforeEach(() => {
-      jest.restoreAllMocks();
-    });
-
-    it('should call download for each file', async () => {
-      createInitMocks();
-      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = await createInitializedFileManager(bee);
-      const mockMantarayNode = createMockMantarayNode(false);
-      jest.spyOn(MantarayNode, 'unmarshal').mockResolvedValue(new MantarayNode());
-      jest.spyOn(MantarayNode.prototype, 'collect').mockReturnValue(mockMantarayNode.collect());
-      jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(new Bytes('46696c6520617320737472696e67')); // this is "File as string" encoded in hexadecimal
-
-      const eFileRef = await mockMantarayNode.calculateSelfAddress();
-      const mockFi = await createMockFileInfo(bee, eFileRef.toString());
-
-      jest
-        .spyOn(Bee.prototype, 'downloadData')
-        .mockResolvedValueOnce(Bytes.fromUtf8(JSON.stringify({ uploadFilesRes: '1'.repeat(64) })));
-      const fileStrings = await fm.download(mockFi);
-
-      expect(fileStrings).toEqual(['File as string']);
     });
   });
 

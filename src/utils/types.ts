@@ -38,7 +38,7 @@ export interface FileManager {
    * @param options - Optional download options for ACT.
    * @returns A promise that resolves to an array of strings representing the downloaded file(s).
    */
-  download(fileInfo: FileInfo, paths?: string[], options?: DownloadOptions): Promise<void>;
+  download(fileInfo: FileInfo, paths?: string[], options?: DownloadOptions): Promise<Bytes[]>;
 
   /**
    * Lists files based on the provided file information and options.
@@ -130,7 +130,7 @@ export interface FileManagerUploadOptions {
   preview?: File;
   previewPath?: string;
   redundancyLevel?: RedundancyLevel;
-  onUploadProgress?: (T: any) => void;
+  onUploadProgress?: (progress: UploadProgress) => void;
 }
 
 export interface ShareItem {

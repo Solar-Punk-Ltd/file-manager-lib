@@ -2,7 +2,6 @@ import { BatchId, BeeDev, Bytes, MantarayNode, PublicKey, Reference, Topic } fro
 import * as fs from 'fs';
 import path from 'path';
 
-import { FileManagerEvents } from '../../src';
 import { FileManagerBase } from '../../src/fileManager';
 import { buyStamp, getFeedData } from '../../src/utils/common';
 import { OWNER_STAMP_LABEL, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
@@ -244,9 +243,19 @@ describe('FileManager download only fork(s)', () => {
       actHistoryAddress: new Reference(childHistoryRef),
       actPublisher,
     };
-    const downloaded = await fileManager.download(parent, fullPath, options);
-    const downloadedStr = downloaded.toUtf8();
-    expect(downloadedStr).toEqual(dummyContentStr);
+    const manatarayResult = await saveMantaray(bee, batchId, parent);
+    const downloaded = await fileManager.download(
+      {
+        batchId,
+        name: 'name',
+        file: manatarayResult,
+        owner: MOCK_SIGNER.publicKey().address(),
+        actPublisher,
+      } as FileInfo,
+      [fullPath],
+      options,
+    );
+    expect(downloaded[0].toUtf8()).toEqual(dummyContentStr);
   });
 
   it('should return SWARM_ZERO_ADDRESS when the parent has no forks', async () => {
@@ -288,7 +297,18 @@ describe('FileManager download only fork(s)', () => {
       actHistoryAddress: new Reference(childHistoryRef),
       actPublisher,
     };
-    const result = await fileManager.download(nodeWithNullFork, 'nullFolder/file.txt', options);
+    const manatarayResult = await saveMantaray(bee, batchId, nodeWithNullFork);
+    const result = await fileManager.download(
+      {
+        batchId,
+        name: 'name',
+        file: manatarayResult,
+        owner: MOCK_SIGNER.publicKey().address(),
+        actPublisher,
+      } as FileInfo,
+      ['nullFolder/file.txt'],
+      options,
+    );
     expect(result).toEqual(SWARM_ZERO_ADDRESS);
   });
 
@@ -330,9 +350,20 @@ describe('FileManager download only fork(s)', () => {
       actHistoryAddress: new Reference(nestedChildHistory),
       actPublisher,
     };
-    const downloadedNested = await fileManager.download(nestedParent, fullNestedPath, options);
-    const downloadedNestedStr = downloadedNested.toUtf8();
-    expect(downloadedNestedStr).toEqual(nestedContentStr);
+
+    const manatarayResult = await saveMantaray(bee, batchId, nestedParent);
+    const downloadedNested = await fileManager.download(
+      {
+        batchId,
+        name: 'name',
+        file: manatarayResult,
+        owner: MOCK_SIGNER.publicKey().address(),
+        actPublisher,
+      } as FileInfo,
+      [fullNestedPath],
+      options,
+    );
+    expect(downloadedNested[1].toUtf8()).toEqual(nestedContentStr);
   });
 
   it('should upload 2 files, verify, add a 3rd file, save again, and then download forks to verify all files', async () => {
@@ -393,14 +424,25 @@ describe('FileManager download only fork(s)', () => {
       [integrationFolderPath + '1.txt'],
       options1,
     );
-    expect(downloaded1.toUtf8()).toEqual(file1Content.toString());
+    expect(downloaded1[0].toUtf8()).toEqual(file1Content.toString());
 
     const options2 = {
       actHistoryAddress: new Reference(uploadRes2.historyAddress.getOrThrow().toString()),
       actPublisher,
     };
-    const downloaded2 = await fileManager.download(folderNode, integrationFolderPath + '2.txt', options2);
-    expect(downloaded2.toUtf8()).toEqual(file2Content.toString());
+    const manatarayResult = await saveMantaray(bee, batchId, folderNode);
+    const downloaded2 = await fileManager.download(
+      {
+        batchId,
+        name: 'name',
+        file: manatarayResult,
+        owner: MOCK_SIGNER.publicKey().address(),
+        actPublisher,
+      } as FileInfo,
+      [integrationFolderPath + '2.txt'],
+      options2,
+    );
+    expect(downloaded2[0].toUtf8()).toEqual(file2Content.toString());
 
     // Add a 3rd file to the same folder node and save again
     const file3Name = '3.txt';
@@ -428,15 +470,46 @@ describe('FileManager download only fork(s)', () => {
       actHistoryAddress: new Reference(uploadRes3.historyAddress.getOrThrow().toString()),
       actPublisher,
     };
-    const downloaded3 = await fileManager.download(folderNode, integrationFolderPath + file3Name, options3);
-    expect(downloaded3.toUtf8()).toEqual(file3ContentStr);
+
+    const downloaded3 = await fileManager.download(
+      {
+        batchId,
+        name: 'name',
+        file: updatedMantaraySaved,
+        owner: MOCK_SIGNER.publicKey().address(),
+        actPublisher,
+      } as FileInfo,
+      [integrationFolderPath + file3Name],
+      options3,
+    );
+    expect(downloaded3[0].toUtf8()).toEqual(file3ContentStr);
 
     // We re-download 1.txt and 2.txt to verify
-    const reDownloaded1 = await fileManager.download(folderNode, integrationFolderPath + '1.txt', options1);
-    expect(reDownloaded1.toUtf8()).toEqual(file1Content.toString());
+    const reDownloaded1 = await fileManager.download(
+      {
+        batchId,
+        name: 'name',
+        file: updatedMantaraySaved,
+        owner: MOCK_SIGNER.publicKey().address(),
+        actPublisher,
+      } as FileInfo,
+      [integrationFolderPath + '1.txt'],
+      options1,
+    );
+    expect(reDownloaded1[0].toUtf8()).toEqual(file1Content.toString());
 
-    const reDownloaded2 = await fileManager.download(folderNode, integrationFolderPath + '2.txt', options2);
-    expect(reDownloaded2.toUtf8()).toEqual(file2Content.toString());
+    const reDownloaded2 = await fileManager.download(
+      {
+        batchId,
+        name: 'name',
+        file: updatedMantaraySaved,
+        owner: MOCK_SIGNER.publicKey().address(),
+        actPublisher,
+      } as FileInfo,
+      [integrationFolderPath + '2.txt'],
+      options2,
+    );
+    expect(reDownloaded2[0].toUtf8()).toEqual(file2Content.toString());
   });
 });
 
@@ -730,13 +803,8 @@ describe('FileManager download', () => {
     const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(tempDownloadDir));
     expect(fileInfo).toBeDefined();
 
-    let fileContents: string[] = [];
-    // Use the fileInfo to download the contents.
-    fileManager.emitter.on(FileManagerEvents.FILE_DOWNLOADED, (data: any) => {
-      fileContents.push(data.toString());
-    });
     // download returns an array of strings.
-    await fileManager.download(fileInfo!, undefined, {
+    const fileContents = await fileManager.download(fileInfo!, undefined, {
       actHistoryAddress: new Reference(fileInfo!.file.historyRef),
       actPublisher,
     });
@@ -750,10 +818,20 @@ describe('FileManager download', () => {
       path: new TextEncoder().encode('emptyFolder/'),
     });
     const saved = await saveMantaray(bee, batchId, emptyNode, { act: true });
-    const files = await fileManager.download(new Reference(saved.reference), {
-      actHistoryAddress: new Reference(saved.historyRef),
-      actPublisher,
-    });
+    const files = await fileManager.download(
+      {
+        batchId,
+        name: 'name',
+        file: saved,
+        owner: MOCK_SIGNER.publicKey().address(),
+        actPublisher,
+      } as FileInfo,
+      undefined,
+      {
+        actHistoryAddress: saved.historyRef,
+        actPublisher,
+      },
+    );
     expect(files).toHaveLength(0);
   });
 
@@ -766,6 +844,7 @@ describe('FileManager download', () => {
     const allFileInfos = fileManager.fileInfoList;
     const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(emptyFileDir));
     expect(fileInfo).toBeDefined();
+
     const fileContents = await fileManager.download(fileInfo!, undefined, {
       actHistoryAddress: new Reference(fileInfo!.file.historyRef),
       actPublisher,
@@ -1006,7 +1085,7 @@ describe('FileManager End-to-End User Workflow', () => {
     expect(listedFiles_newVersion).toHaveLength(5);
 
     // Step 5: Download all files and verify their content.
-    const downloadedContents = await fileManager.download(new Reference(newVersionInfo!.file.reference), {
+    const downloadedContents = await fileManager.download(newVersionInfo!, undefined, {
       actHistoryAddress: new Reference(newVersionInfo!.file.historyRef),
       actPublisher,
     });

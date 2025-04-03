@@ -1,10 +1,27 @@
-import { BatchId, Bee, BeeRequestOptions, EthAddress, FeedIndex, Reference, Topic } from '@ethersphere/bee-js';
+import {
+  BatchId,
+  Bee,
+  BeeRequestOptions,
+  DownloadOptions,
+  EthAddress,
+  FeedIndex,
+  Reference,
+  Topic,
+} from '@ethersphere/bee-js';
 import { isNode } from 'std-env';
 
 import { getRandomBytesBrowser } from './browser';
 import { SWARM_ZERO_ADDRESS } from './constants';
 import { getRandomBytesNode } from './node';
-import { FeedPayloadResult, FileInfo, RequestOptions, ShareItem, WrappedFileInfoFeed } from './types';
+import {
+  FeedPayloadResult,
+  FileInfo,
+  RequestOptions,
+  ShareItem,
+  WrappedFileInfoFeed,
+  WrappedUploadResult,
+} from './types';
+import { FileInfoError } from './errors';
 
 // Fetches the feed data for the given topic, index and address
 export async function getFeedData(
@@ -163,4 +180,17 @@ export async function buyStamp(bee: Bee, amount: string | bigint, depth: number,
     waitForUsable: true,
     label,
   });
+}
+
+export async function getWrappedData(
+  bee: Bee,
+  fileInfo: FileInfo,
+  options?: DownloadOptions,
+): Promise<WrappedUploadResult> {
+  try {
+    const rawData = await bee.downloadData(fileInfo.file.reference.toString(), options);
+    return rawData.toJSON() as WrappedUploadResult;
+  } catch (error) {
+    throw new FileInfoError(`Failed to get wrapped data: ${error}`);
+  }
 }

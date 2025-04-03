@@ -42,7 +42,8 @@ export async function uploadNode(
     uploadFilesRes: uploadFilesRes.reference.toString(),
     uploadPreviewRes: uploadPreviewRes?.reference.toString(),
   };
-  const wrappedUploadRes = await bee.uploadData(
+
+  return await bee.uploadData(
     options.batchId,
     JSON.stringify(wrappedData),
     { act: true },
@@ -50,8 +51,6 @@ export async function uploadNode(
       ...requestOptions,
     },
   );
-
-  return wrappedUploadRes;
 }
 
 async function uploadFileOrDirectory(
@@ -77,7 +76,8 @@ async function uploadFile(
 ): Promise<UploadResult> {
   try {
     const { data, name, contentType } = readFile(resolvedPath);
-    const uploadFileRes = await bee.uploadFile(
+
+    return await bee.uploadFile(
       batchId,
       data,
       name,
@@ -87,13 +87,6 @@ async function uploadFile(
       },
       requestOptions,
     );
-
-    // return {
-    //   reference: uploadFileRes.reference.toString(),
-    //   historyRef: uploadFileRes.historyAddress.getOrThrow().toString(),
-    // };
-
-    return uploadFileRes;
   } catch (error: any) {
     throw new FileError(`Failed to upload file ${resolvedPath}: ${error}`);
   }
@@ -107,13 +100,7 @@ async function uploadDirectory(
   requestOptions?: BeeRequestOptions,
 ): Promise<UploadResult> {
   try {
-    const uploadFilesRes = await bee.uploadFilesFromDirectory(batchId, resolvedPath, uploadOptions, requestOptions);
-
-    // return {
-    //   reference: uploadFilesRes.reference.toString(),
-    //   historyRef: uploadFilesRes.historyAddress.getOrThrow().toString(),
-    // };
-    return uploadFilesRes;
+    return await bee.uploadFilesFromDirectory(batchId, resolvedPath, uploadOptions, requestOptions);
   } catch (error: any) {
     throw new FileError(`Failed to upload directory ${resolvedPath}: ${error}`);
   }
