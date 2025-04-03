@@ -809,7 +809,8 @@ describe('FileManager download', () => {
       actPublisher,
     });
     const expectedArray = Object.values(expectedContents);
-    expect(fileContents.sort()).toEqual(expectedArray.sort());
+    const fileContentsAsStrings = fileContents.map((item) => item.toUtf8());
+    expect(fileContentsAsStrings.sort()).toEqual(expectedArray.sort());
   });
 
   it('should return an empty array when the manifest is empty', async () => {
