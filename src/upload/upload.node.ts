@@ -11,6 +11,7 @@ import { FileError, FileInfoError } from '../utils/errors';
 import { isDir, readFile } from '../utils/node';
 import { FileManagerUploadOptions, WrappedUploadResult } from '../utils/types';
 
+// TODO: proper use of UploadOptions
 export async function uploadNode(
   bee: Bee,
   options: FileManagerUploadOptions,

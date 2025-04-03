@@ -272,8 +272,7 @@ export class FileManagerBase implements FileManager {
     return fileList;
   }
 
-  // TODO: implement paths handling so that we can download only the files we need with downloadFork
-  // TODO: performance test for large files
+  // TODO: performance test for large files and implement streaming
   async download(fileInfo: FileInfo, paths?: string[], options?: DownloadOptions): Promise<Bytes[]> {
     const wrappedData = await getWrappedData(this.bee, fileInfo, options);
 
@@ -292,7 +291,7 @@ export class FileManagerBase implements FileManager {
         if (result.status === 'fulfilled') {
           files.push(result.value);
         } else {
-          console.error('Failed dowload file: ', result.reason);
+          console.error('Failed to dowload file: ', result.reason);
         }
       });
     });
@@ -300,16 +299,16 @@ export class FileManagerBase implements FileManager {
     return files;
   }
 
-  private getResources(root: MantarayNode, paths?: string[]): Reference[] {
+  private getResources(root: MantarayNode, paths?: string[]): string[] {
     let nodes: MantarayNode[] = root.collect();
 
     if (paths && paths.length > 0) {
       nodes = nodes.filter((node) => paths.includes(node.fullPathString));
     }
 
-    const resources: Reference[] = [];
+    const resources: string[] = [];
     for (const node of nodes) {
-      resources.push(new Reference(node.targetAddress));
+      resources.push(new Reference(node.targetAddress).toString());
     }
 
     return resources;

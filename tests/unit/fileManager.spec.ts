@@ -138,7 +138,7 @@ describe('FileManager', () => {
 
       await fm.download(mockFi, ['/root/1.txt']);
 
-      expect(downloadDataSpy).toHaveBeenCalledWith(new Reference('1'.repeat(64)));
+      expect(downloadDataSpy).toHaveBeenCalledWith('1'.repeat(64));
     });
 
     it('should call download for all of forks', async () => {
@@ -151,9 +151,9 @@ describe('FileManager', () => {
       const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
       const fileStrings = await fm.download(mockFi);
 
-      expect(downloadDataSpy).toHaveBeenCalledWith(new Reference('1'.repeat(64)));
-      expect(downloadDataSpy).toHaveBeenCalledWith(new Reference('2'.repeat(64)));
-      expect(downloadDataSpy).toHaveBeenCalledWith(new Reference('3'.repeat(64)));
+      expect(downloadDataSpy).toHaveBeenCalledWith('1'.repeat(64));
+      expect(downloadDataSpy).toHaveBeenCalledWith('2'.repeat(64));
+      expect(downloadDataSpy).toHaveBeenCalledWith('3'.repeat(64));
 
       expect(fileStrings[0]).toEqual(mockForkRef);
       expect(fileStrings[1]).toEqual(mockForkRef);

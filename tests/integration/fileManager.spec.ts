@@ -772,7 +772,7 @@ describe('FileManager download', () => {
 
     // download returns an array of strings.
     const fileContents = await fileManager.download(fileInfo!, undefined, {
-      actHistoryAddress: new Reference(fileInfo!.file.historyRef),
+      actHistoryAddress: fileInfo!.file.historyRef,
       actPublisher,
     });
     const expectedArray = Object.values(expectedContents);

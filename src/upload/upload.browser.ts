@@ -3,6 +3,7 @@ import { Bee, BeeRequestOptions, UploadResult } from '@ethersphere/bee-js';
 import { FileManagerUploadOptions, WrappedUploadResult } from '../utils/types';
 import { FileInfoError } from '../utils/errors';
 
+// TODO: proper use of UploadOptions
 export async function uploadBrowser(
   bee: Bee,
   options: FileManagerUploadOptions,
@@ -16,7 +17,7 @@ export async function uploadBrowser(
     options.batchId,
     options.files,
     options.onUploadProgress,
-    { act: false },
+    undefined,
     requestOptions,
   );
   let uploadPreviewRes: UploadResult | undefined;
@@ -25,7 +26,7 @@ export async function uploadBrowser(
       options.batchId,
       [options.preview],
       options.onUploadProgress,
-      { act: false },
+      undefined,
       requestOptions,
     );
   }
