@@ -2,9 +2,9 @@ import { BatchId, Bee, MantarayNode, PrivateKey } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
-import { FileInfo, FileManager, ReferenceWithHistory, WrappedUploadResult } from '../src/utils/types';
-import { saveMantaray } from '../src/utils/mantaray';
 import { SWARM_ZERO_ADDRESS } from '../src/utils/constants';
+import { saveMantaray } from '../src/utils/mantaray';
+import { FileInfo, FileManager, ReferenceWithHistory, WrappedUploadResult } from '../src/utils/types';
 
 export const BEE_URL = 'http://127.0.0.1:1633';
 export const OTHER_BEE_URL = 'http://127.0.0.1:1733';
