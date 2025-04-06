@@ -1,4 +1,4 @@
-import { BatchId, BeeDev, MantarayNode, PublicKey, Reference, Topic } from '@ethersphere/bee-js';
+import { BatchId, BeeDev, Bytes, MantarayNode, PublicKey, Reference, Topic } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
@@ -771,10 +771,10 @@ describe('FileManager download', () => {
     expect(fileInfo).toBeDefined();
 
     // download returns an array of strings.
-    const fileContents = await fileManager.download(fileInfo!, undefined, {
+    const fileContents = (await fileManager.download(fileInfo!, undefined, {
       actHistoryAddress: fileInfo!.file.historyRef,
       actPublisher,
-    });
+    })) as Bytes[];
     const expectedArray = Object.values(expectedContents);
     const fileContentsAsStrings = fileContents.map((item) => item.toUtf8());
     expect(fileContentsAsStrings.sort()).toEqual(expectedArray.sort());
@@ -1031,10 +1031,10 @@ describe('FileManager End-to-End User Workflow', () => {
     expect(listedFiles_newVersion).toHaveLength(5);
 
     // Step 5: Download all files and verify their content.
-    const downloadedContents = await fileManager.download(newVersionInfo!, undefined, {
+    const downloadedContents = (await fileManager.download(newVersionInfo!, undefined, {
       actHistoryAddress: new Reference(newVersionInfo!.file.historyRef),
       actPublisher,
-    });
+    })) as Bytes[];
     expect(downloadedContents[1].toUtf8()).toContain('Project document 1');
     expect(downloadedContents[2].toUtf8()).toContain('Project document 2');
     expect(downloadedContents[0].toUtf8()).toContain('Fake image content');

@@ -1,4 +1,4 @@
-import { BatchId, Bee, MantarayNode, PrivateKey } from '@ethersphere/bee-js';
+import { BatchId, Bee, Bytes, MantarayNode, PrivateKey } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
@@ -57,10 +57,10 @@ export async function dowloadAndCompareFiles(
   }
 
   for (const [ix, fi] of fiList.entries()) {
-    const fetchedFiles = await fileManager.download(fi, undefined, {
+    const fetchedFiles = (await fileManager.download(fi, undefined, {
       actHistoryAddress: fi.file.historyRef,
       actPublisher: publicKey,
-    });
+    })) as Bytes[];
     const fetchedFilesStrings = fetchedFiles.map((f) => f.toUtf8());
     expect(expArr[ix]).toEqual(fetchedFilesStrings);
   }

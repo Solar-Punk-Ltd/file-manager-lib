@@ -38,7 +38,11 @@ export interface FileManager {
    * @param options - Optional download options for ACT.
    * @returns A promise that resolves to an array of strings representing the downloaded file(s).
    */
-  download(fileInfo: FileInfo, paths?: string[], options?: DownloadOptions): Promise<Bytes[]>;
+  download(
+    fileInfo: FileInfo,
+    paths?: string[],
+    options?: DownloadOptions,
+  ): Promise<Promise<ReadableStream<Uint8Array<ArrayBufferLike>>[]> | Bytes[]>;
 
   /**
    * Lists files based on the provided file information and options.

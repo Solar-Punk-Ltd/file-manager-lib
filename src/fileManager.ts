@@ -55,6 +55,8 @@ import {
 import { uploadBrowser } from './upload/upload.browser';
 import { uploadNode } from './upload/upload.node';
 import { loadMantaray } from './utils/mantaray';
+import { downloadBrowser } from './download/download.browser';
+import { downloadNode } from './download/download.node';
 
 export class FileManagerBase implements FileManager {
   private bee: Bee;
@@ -273,30 +275,22 @@ export class FileManagerBase implements FileManager {
   }
 
   // TODO: performance test for large files and implement streaming
-  async download(fileInfo: FileInfo, paths?: string[], options?: DownloadOptions): Promise<Bytes[]> {
+  async download(
+    fileInfo: FileInfo,
+    paths?: string[],
+    options?: DownloadOptions,
+  ): Promise<Promise<ReadableStream<Uint8Array<ArrayBufferLike>>[]> | Bytes[]> {
     const wrappedData = await getWrappedData(this.bee, fileInfo, options);
 
     const unmarshalled = await loadMantaray(this.bee, wrappedData.uploadFilesRes.toString());
 
     const resources = this.getResources(unmarshalled, paths);
 
-    const dataPromises: Promise<Bytes>[] = [];
-    for (const resource of resources) {
-      dataPromises.push(this.bee.downloadData(resource));
+    if (isNode) {
+      return downloadNode(this.bee, resources);
     }
 
-    const files: Bytes[] = [];
-    await Promise.allSettled(dataPromises).then((results) => {
-      results.forEach((result) => {
-        if (result.status === 'fulfilled') {
-          files.push(result.value);
-        } else {
-          console.error('Failed to dowload file: ', result.reason);
-        }
-      });
-    });
-
-    return files;
+    return downloadBrowser(this.bee, resources);
   }
 
   private getResources(root: MantarayNode, paths?: string[]): string[] {
