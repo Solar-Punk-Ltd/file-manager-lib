@@ -290,7 +290,7 @@ export class FileManagerBase implements FileManager {
       return downloadNode(this.bee, resources);
     }
 
-    return downloadBrowser(this.bee, resources);
+    return downloadBrowser(resources, this.bee.url, 'bytes');
   }
 
   private getResources(root: MantarayNode, paths?: string[]): string[] {
