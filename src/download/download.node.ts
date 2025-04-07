@@ -1,6 +1,5 @@
 import { Bee, Bytes, DownloadOptions, Reference } from '@ethersphere/bee-js';
 
-// TODO: decide on  web-streams-polyfill vs downloadData
 export async function downloadNode(
   bee: Bee,
   resources: string[] | Reference[],

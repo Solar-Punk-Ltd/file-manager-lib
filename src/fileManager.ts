@@ -225,6 +225,7 @@ export class FileManagerBase implements FileManager {
   }
 
   // fetches the file info list from the owner feed and unwraps the data encrypted with ACT
+  // TODO: refactor to use allSettled
   private async initFileInfoList(): Promise<void> {
     if (!this.nodeAddresses) {
       throw new SignerError('Node addresses not found');
@@ -257,7 +258,11 @@ export class FileManagerBase implements FileManager {
 
   // lists all the files found under the reference of the provided fileInfo
   async listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<ReferenceWithPath[]> {
-    const wrappedData = await getWrappedData(this.bee, fileInfo, options);
+    const wrappedData = await getWrappedData(this.bee, fileInfo.file.reference.toString(), {
+      ...options,
+      actPublisher: fileInfo.actPublisher,
+      actHistoryAddress: fileInfo.file.historyRef,
+    } as DownloadOptions);
 
     const mantaray = await loadMantaray(this.bee, wrappedData.uploadFilesRes.toString());
     // TODO: is filter needed ?
@@ -279,8 +284,12 @@ export class FileManagerBase implements FileManager {
     fileInfo: FileInfo,
     paths?: string[],
     options?: DownloadOptions,
-  ): Promise<Promise<ReadableStream<Uint8Array<ArrayBufferLike>>[]> | Bytes[]> {
-    const wrappedData = await getWrappedData(this.bee, fileInfo, options);
+  ): Promise<Promise<ReadableStream<Uint8Array>[]> | Bytes[]> {
+    const wrappedData = await getWrappedData(this.bee, fileInfo.file.reference.toString(), {
+      ...options,
+      actPublisher: fileInfo.actPublisher,
+      actHistoryAddress: fileInfo.file.historyRef,
+    } as DownloadOptions);
 
     const unmarshalled = await loadMantaray(this.bee, wrappedData.uploadFilesRes.toString());
 
@@ -328,70 +337,50 @@ export class FileManagerBase implements FileManager {
       uploadResult = await uploadBrowser(this.bee, options, requestOptions);
     }
 
-    const topic = options.infoTopic ? Topic.fromString(options.infoTopic) : generateTopic();
-    const actPublisher = this.nodeAddresses.publicKey.toCompressedHex();
-
-    const fileInfo = await this.saveFileInfoAndFeed(
-      options.batchId,
-      topic,
-      options.name,
-      actPublisher,
-      { reference: uploadResult.reference.toString(), historyRef: uploadResult.historyAddress.getOrThrow().toString() },
-      undefined,
-      options.index,
-      options.customMetadata,
-      options.redundancyLevel,
-    );
+    const fileInfo: FileInfo = {
+      batchId: options.batchId.toString(),
+      owner: this.signer.publicKey().address().toString(),
+      topic: options.infoTopic ? Topic.fromString(options.infoTopic).toString() : generateTopic().toString(),
+      name: options.name,
+      actPublisher: this.nodeAddresses.publicKey.toCompressedHex(),
+      file: {
+        reference: uploadResult.reference.toString(),
+        historyRef: uploadResult.historyAddress.getOrThrow().toString(),
+      },
+      timestamp: new Date().getTime(),
+      shared: false,
+      preview: undefined,
+      index: options.index,
+      customMetadata: options.customMetadata,
+      redundancyLevel: options.redundancyLevel,
+    };
+    await this.saveFileInfoAndFeed(fileInfo);
 
     this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
   }
 
-  private async saveFileInfoAndFeed(
-    batchId: BatchId,
-    topic: Topic,
-    name: string,
-    actPublisher: string,
-    uploadFilesRes: ReferenceWithHistory,
-    uploadPreviewRes?: ReferenceWithHistory,
-    index?: string,
-    customMetadata?: Record<string, string>,
-    redundancyLevel?: RedundancyLevel,
-  ): Promise<FileInfo> {
-    if (!this.nodeAddresses) {
-      throw new SignerError('Node addresses not found');
-    }
+  private async saveFileInfoAndFeed(info: FileInfo): Promise<void> {
+    const fileInfoResult = await this.uploadFileInfo(info);
 
-    const fileInfo = {
-      batchId: batchId.toString(),
-      file: uploadFilesRes,
-      topic: topic.toString(),
-      owner: this.signer.publicKey().address().toString(),
-      actPublisher,
-      name,
-      timestamp: new Date().getTime(),
-      shared: false,
-      preview: uploadPreviewRes,
-      index: index,
-      redundancyLevel,
-      customMetadata,
-    };
-    const fileInfoResult = await this.uploadFileInfo(fileInfo);
+    await this.saveFileInfoFeed(
+      info.batchId.toString(),
+      fileInfoResult,
+      info.topic.toString(),
+      info.index,
+      info.redundancyLevel,
+    );
 
-    await this.saveFileInfoFeed(batchId, fileInfoResult, topic, index, redundancyLevel);
-
-    const ix = this.ownerFeedList.findIndex((f) => f.topic.toString() === topic.toString());
+    const ix = this.ownerFeedList.findIndex((f) => f.topic.toString() === info.topic.toString());
     if (ix !== -1) {
       this.ownerFeedList[ix] = {
-        topic: topic.toString(),
+        topic: info.topic.toString(),
         eGranteeRef: this.ownerFeedList[ix].eGranteeRef?.toString(),
       };
     } else {
-      this.ownerFeedList.push({ topic: topic.toString() });
+      this.ownerFeedList.push({ topic: info.topic.toString() });
     }
 
     await this.saveOwnerFeedList();
-
-    return fileInfo;
   }
 
   private async uploadFileInfo(fileInfo: FileInfo): Promise<ReferenceWithHistory> {
@@ -413,9 +402,9 @@ export class FileManagerBase implements FileManager {
   }
 
   private async saveFileInfoFeed(
-    batchId: BatchId,
+    batchId: string | BatchId,
     fileInfoResult: ReferenceWithHistory,
-    topic: Topic,
+    topic: string | Topic,
     index?: string,
     redundancyLevel?: RedundancyLevel,
   ): Promise<void> {
@@ -432,7 +421,7 @@ export class FileManagerBase implements FileManager {
       );
 
       const requestOptions = redundancyLevel ? makeBeeRequestOptions({ redundancyLevel }) : undefined;
-      const fw = this.bee.makeFeedWriter(topic.toUint8Array(), this.signer, requestOptions);
+      const fw = this.bee.makeFeedWriter(new Topic(topic).toUint8Array(), this.signer, requestOptions);
       await fw.uploadReference(batchId, uploadInfoRes.reference, {
         index: index !== undefined ? new FeedIndex(index) : undefined,
       });

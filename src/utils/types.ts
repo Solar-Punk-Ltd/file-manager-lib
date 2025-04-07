@@ -42,7 +42,7 @@ export interface FileManager {
     fileInfo: FileInfo,
     paths?: string[],
     options?: DownloadOptions,
-  ): Promise<Promise<ReadableStream<Uint8Array<ArrayBufferLike>>[]> | Bytes[]>;
+  ): Promise<Promise<ReadableStream<Uint8Array>[]> | Bytes[]>;
 
   /**
    * Lists files based on the provided file information and options.
@@ -113,7 +113,7 @@ export interface FileInfo {
   name: string;
   owner: string | EthAddress;
   actPublisher: string | PublicKey;
-  topic?: string | Topic;
+  topic: string | Topic;
   timestamp?: number;
   shared?: boolean;
   preview?: ReferenceWithHistory;
