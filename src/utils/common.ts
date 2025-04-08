@@ -194,3 +194,15 @@ export async function getWrappedData(
     throw new FileInfoError(`Failed to get wrapped data: ${error}`);
   }
 }
+
+export async function settlePromises<T>(promises: Promise<T>[], cb: (value: T) => void): Promise<void> {
+  await Promise.allSettled(promises).then((results) => {
+    results.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        cb(result.value);
+      } else {
+        console.error(`Failed to resolve promise: ${result.reason}`);
+      }
+    });
+  });
+}

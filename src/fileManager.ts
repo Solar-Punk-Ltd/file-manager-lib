@@ -30,6 +30,7 @@ import {
   getFeedData,
   getWrappedData,
   makeBeeRequestOptions,
+  settlePromises,
 } from './utils/common';
 import { OWNER_STAMP_LABEL, REFERENCE_LIST_TOPIC, SHARED_INBOX_TOPIC, SWARM_ZERO_ADDRESS } from './utils/constants';
 import {
@@ -44,6 +45,7 @@ import {
 import { EventEmitter, EventEmitterBase } from './utils/eventEmitter';
 import { FileManagerEvents } from './utils/events';
 import {
+  FeedPayloadResult,
   FileInfo,
   FileManager,
   FileManagerUploadOptions,
@@ -225,25 +227,34 @@ export class FileManagerBase implements FileManager {
   }
 
   // fetches the file info list from the owner feed and unwraps the data encrypted with ACT
-  // TODO: refactor to use allSettled
   private async initFileInfoList(): Promise<void> {
-    if (!this.nodeAddresses) {
+    // need a temporary variable to avoid async issues
+    const tmpAddresses = this.nodeAddresses;
+    if (!tmpAddresses) {
       throw new SignerError('Node addresses not found');
     }
-    // TODO: allsettled
-    for (const feedItem of this.ownerFeedList) {
-      const rawFeedData = await getFeedData(
-        this.bee,
-        new Topic(feedItem.topic),
-        this.signer.publicKey().address().toString(),
-      );
-      const fileInfoFeedData = rawFeedData.payload.toJSON() as ReferenceWithHistory;
 
-      const rawData = await this.bee.downloadData(fileInfoFeedData.reference.toString(), {
-        actHistoryAddress: fileInfoFeedData.historyRef,
-        actPublisher: this.nodeAddresses.publicKey,
-      });
-      const unwrappedFileInfoData = rawData.toJSON() as ReferenceWithHistory;
+    const feedDataPromises: Promise<FeedPayloadResult>[] = [];
+    for (const feedItem of this.ownerFeedList) {
+      feedDataPromises.push(
+        getFeedData(this.bee, new Topic(feedItem.topic), this.signer.publicKey().address().toString()),
+      );
+    }
+
+    const rawDataPromises: Promise<Bytes>[] = [];
+    await settlePromises<FeedPayloadResult>(feedDataPromises, (value) => {
+      const fileInfoFeedData = value.payload.toJSON() as ReferenceWithHistory;
+
+      rawDataPromises.push(
+        this.bee.downloadData(fileInfoFeedData.reference.toString(), {
+          actHistoryAddress: fileInfoFeedData.historyRef,
+          actPublisher: tmpAddresses.publicKey,
+        }),
+      );
+    });
+
+    await settlePromises<Bytes>(rawDataPromises, (value) => {
+      const unwrappedFileInfoData = value.toJSON() as ReferenceWithHistory;
 
       try {
         assertFileInfo(unwrappedFileInfoData);
@@ -251,7 +262,7 @@ export class FileManagerBase implements FileManager {
       } catch (error: any) {
         console.error(`Invalid FileInfo item, skipping it: ${error}`);
       }
-    }
+    });
 
     console.debug('File info lists fetched successfully.');
   }
