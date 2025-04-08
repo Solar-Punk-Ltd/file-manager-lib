@@ -2,9 +2,12 @@ import {
   BatchId,
   Bee,
   BeeModes,
+  BeeRequestOptions,
   Bytes,
+  CollectionUploadOptions,
   DownloadOptions,
   FeedIndex,
+  FileUploadOptions,
   GetGranteesResult,
   GranteesResult,
   MantarayNode,
@@ -13,7 +16,7 @@ import {
   PostageBatch,
   PrivateKey,
   PssSubscription,
-  RedundancyLevel,
+  RedundantUploadOptions,
   Reference,
   STAMPS_DEPTH_MAX,
   Topic,
@@ -29,7 +32,6 @@ import {
   generateTopic,
   getFeedData,
   getWrappedData,
-  makeBeeRequestOptions,
   settlePromises,
 } from './utils/common';
 import { OWNER_STAMP_LABEL, REFERENCE_LIST_TOPIC, SHARED_INBOX_TOPIC, SWARM_ZERO_ADDRESS } from './utils/constants';
@@ -48,7 +50,7 @@ import {
   FeedPayloadResult,
   FileInfo,
   FileManager,
-  FileManagerUploadOptions,
+  FileInfoOptions,
   ReferenceWithHistory,
   ReferenceWithPath,
   ShareItem,
@@ -290,7 +292,6 @@ export class FileManagerBase implements FileManager {
     return fileList;
   }
 
-  // TODO: performance test for large files and implement streaming
   async download(
     fileInfo: FileInfo,
     paths?: string[],
@@ -328,8 +329,15 @@ export class FileManagerBase implements FileManager {
     return resources;
   }
 
-  async upload(options: FileManagerUploadOptions): Promise<void> {
-    if ((options.infoTopic && !options.historyRef) || (!options.infoTopic && options.historyRef)) {
+  async upload(
+    infoOptions: FileInfoOptions,
+    uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void> {
+    if (
+      (infoOptions.infoTopic && !uploadOptions?.actHistoryAddress) ||
+      (!infoOptions.infoTopic && uploadOptions?.actHistoryAddress)
+    ) {
       throw new FileInfoError('Options infoTopic and historyRef have to be provided at the same time.');
     }
 
@@ -337,22 +345,23 @@ export class FileManagerBase implements FileManager {
       throw new SignerError('Node addresses not found');
     }
 
-    const requestOptions = options.historyRef
-      ? makeBeeRequestOptions({ historyRef: options.historyRef, redundancyLevel: options.redundancyLevel })
-      : undefined;
-
     let uploadResult: UploadResult;
     if (isNode) {
-      uploadResult = await uploadNode(this.bee, options, requestOptions);
+      uploadResult = await uploadNode(this.bee, infoOptions, uploadOptions, requestOptions);
     } else {
-      uploadResult = await uploadBrowser(this.bee, options, requestOptions);
+      uploadResult = await uploadBrowser(
+        this.bee,
+        infoOptions,
+        uploadOptions as RedundantUploadOptions,
+        requestOptions,
+      );
     }
 
     const fileInfo: FileInfo = {
-      batchId: options.batchId.toString(),
+      batchId: infoOptions.batchId.toString(),
       owner: this.signer.publicKey().address().toString(),
-      topic: options.infoTopic ? Topic.fromString(options.infoTopic).toString() : generateTopic().toString(),
-      name: options.name,
+      topic: infoOptions.infoTopic ? Topic.fromString(infoOptions.infoTopic).toString() : generateTopic().toString(),
+      name: infoOptions.name,
       actPublisher: this.nodeAddresses.publicKey.toCompressedHex(),
       file: {
         reference: uploadResult.reference.toString(),
@@ -361,16 +370,16 @@ export class FileManagerBase implements FileManager {
       timestamp: new Date().getTime(),
       shared: false,
       preview: undefined,
-      index: options.index,
-      customMetadata: options.customMetadata,
-      redundancyLevel: options.redundancyLevel,
+      index: infoOptions.index,
+      customMetadata: infoOptions.customMetadata,
+      redundancyLevel: uploadOptions?.redundancyLevel,
     };
-    await this.saveFileInfoAndFeed(fileInfo);
+    await this.saveFileInfoAndFeed(fileInfo, requestOptions);
 
     this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
   }
 
-  private async saveFileInfoAndFeed(info: FileInfo): Promise<void> {
+  private async saveFileInfoAndFeed(info: FileInfo, requestOptions?: BeeRequestOptions): Promise<void> {
     const fileInfoResult = await this.uploadFileInfo(info);
 
     await this.saveFileInfoFeed(
@@ -378,7 +387,7 @@ export class FileManagerBase implements FileManager {
       fileInfoResult,
       info.topic.toString(),
       info.index,
-      info.redundancyLevel,
+      requestOptions,
     );
 
     const ix = this.ownerFeedList.findIndex((f) => f.topic.toString() === info.topic.toString());
@@ -391,15 +400,20 @@ export class FileManagerBase implements FileManager {
       this.ownerFeedList.push({ topic: info.topic.toString() });
     }
 
-    await this.saveOwnerFeedList();
+    await this.saveOwnerFeedList(requestOptions);
   }
 
-  private async uploadFileInfo(fileInfo: FileInfo): Promise<ReferenceWithHistory> {
+  private async uploadFileInfo(fileInfo: FileInfo, requestOptions?: BeeRequestOptions): Promise<ReferenceWithHistory> {
     try {
-      const uploadInfoRes = await this.bee.uploadData(fileInfo.batchId, JSON.stringify(fileInfo), {
-        act: true,
-        redundancyLevel: fileInfo.redundancyLevel,
-      });
+      const uploadInfoRes = await this.bee.uploadData(
+        fileInfo.batchId,
+        JSON.stringify(fileInfo),
+        {
+          act: true,
+          redundancyLevel: fileInfo.redundancyLevel,
+        },
+        requestOptions,
+      );
 
       this.fileInfoList.push(fileInfo);
 
@@ -417,7 +431,7 @@ export class FileManagerBase implements FileManager {
     fileInfoResult: ReferenceWithHistory,
     topic: string | Topic,
     index?: string,
-    redundancyLevel?: RedundancyLevel,
+    requestOptions?: BeeRequestOptions,
   ): Promise<void> {
     try {
       const uploadInfoRes = await this.bee.uploadData(
@@ -426,12 +440,10 @@ export class FileManagerBase implements FileManager {
           reference: fileInfoResult.reference.toString(),
           historyRef: fileInfoResult.historyRef.toString(),
         } as ReferenceWithHistory),
-        {
-          redundancyLevel,
-        },
+        undefined,
+        requestOptions,
       );
 
-      const requestOptions = redundancyLevel ? makeBeeRequestOptions({ redundancyLevel }) : undefined;
       const fw = this.bee.makeFeedWriter(new Topic(topic).toUint8Array(), this.signer, requestOptions);
       await fw.uploadReference(batchId, uploadInfoRes.reference, {
         index: index !== undefined ? new FeedIndex(index) : undefined,
@@ -441,18 +453,23 @@ export class FileManagerBase implements FileManager {
     }
   }
 
-  private async saveOwnerFeedList(): Promise<void> {
+  private async saveOwnerFeedList(requestOptions?: BeeRequestOptions): Promise<void> {
     const ownerStamp = await this.getOwnerStamp();
     if (!ownerStamp) {
       throw new StampError('Owner stamp not found');
     }
 
     try {
-      const fileInfoFeedListData = await this.bee.uploadData(ownerStamp.batchID, JSON.stringify(this.ownerFeedList), {
-        act: true,
-      });
+      const fileInfoFeedListData = await this.bee.uploadData(
+        ownerStamp.batchID,
+        JSON.stringify(this.ownerFeedList),
+        {
+          act: true,
+        },
+        requestOptions,
+      );
 
-      const fw = this.bee.makeFeedWriter(this.ownerFeedTopic.toUint8Array(), this.signer);
+      const fw = this.bee.makeFeedWriter(this.ownerFeedTopic.toUint8Array(), this.signer, requestOptions);
       const ownerFeedRawData = await this.bee.uploadData(
         ownerStamp.batchID,
         JSON.stringify({

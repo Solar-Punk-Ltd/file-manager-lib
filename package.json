@@ -49,7 +49,7 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@ethersphere/bee-js": "^9.1.0",
-    "cafe-utility": "27.16.0"
+    "cafe-utility": "^27.16.1"
   },
   "devDependencies": {
     "@babel/cli": "^7.19.3",

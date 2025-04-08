@@ -1,21 +1,4 @@
-import {
-  BatchId,
-  Bee,
-  DownloadOptions,
-  MantarayNode,
-  RedundantUploadOptions,
-  Reference,
-  UploadResult,
-} from '@ethersphere/bee-js';
-
-export async function saveMantaray(
-  bee: Bee,
-  batchId: BatchId,
-  mantaray: MantarayNode,
-  options?: RedundantUploadOptions,
-): Promise<UploadResult> {
-  return await mantaray.saveRecursively(bee, batchId, options);
-}
+import { Bee, DownloadOptions, MantarayNode, Reference } from '@ethersphere/bee-js';
 
 export async function loadMantaray(
   bee: Bee,

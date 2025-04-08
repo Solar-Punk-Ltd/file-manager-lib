@@ -13,14 +13,7 @@ import { isNode } from 'std-env';
 import { getRandomBytesBrowser } from './browser';
 import { SWARM_ZERO_ADDRESS } from './constants';
 import { getRandomBytesNode } from './node';
-import {
-  FeedPayloadResult,
-  FileInfo,
-  RequestOptions,
-  ShareItem,
-  WrappedFileInfoFeed,
-  WrappedUploadResult,
-} from './types';
+import { FeedPayloadResult, FileInfo, ShareItem, WrappedFileInfoFeed, WrappedUploadResult } from './types';
 import { FileInfoError } from './errors';
 
 // Fetches the feed data for the given topic, index and address
@@ -141,27 +134,6 @@ export function assertWrappedFileInoFeed(value: unknown): asserts value is Wrapp
   if (wmf.eGranteeRef !== undefined) {
     new Reference(wmf.eGranteeRef);
   }
-}
-
-export function makeBeeRequestOptions(requestOptions: RequestOptions): BeeRequestOptions {
-  const options: BeeRequestOptions = {};
-  if (requestOptions.historyRef !== undefined) {
-    options.headers = { 'swarm-act-history-address': requestOptions.historyRef.toString() };
-  }
-  if (requestOptions.publisher !== undefined) {
-    options.headers = {
-      ...options.headers,
-      'swarm-act-publisher': requestOptions.publisher.toCompressedHex(),
-    };
-  }
-  if (requestOptions.timestamp !== undefined) {
-    options.headers = { ...options.headers, 'swarm-act-timestamp': requestOptions.timestamp.toString() };
-  }
-  if (requestOptions.redundancyLevel !== undefined) {
-    options.headers = { ...options.headers, 'swarm-redundancy-level': requestOptions.redundancyLevel.toString() };
-  }
-
-  return options;
 }
 
 // status is undefined in the error object

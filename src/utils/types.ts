@@ -1,12 +1,16 @@
 import {
   BatchId,
+  BeeRequestOptions,
   Bytes,
+  CollectionUploadOptions,
   DownloadOptions,
   EthAddress,
   FeedIndex,
+  FileUploadOptions,
   GetGranteesResult,
   PublicKey,
   RedundancyLevel,
+  RedundantUploadOptions,
   Reference,
   Topic,
 } from '@ethersphere/bee-js';
@@ -26,16 +30,22 @@ export interface FileManager {
 
   /**
    * Uploads a file with the given options.
-   * @param options - The options for the upload operation.
+   * @param infoOptions - The options for the file info upload.
+   * @param uploadOptions - File and collection related upload options.
+   * @param requestOptions - Additional Bee request options.
    * @returns A promise that resolves when the upload is complete.
    */
-  upload(options: FileManagerUploadOptions): Promise<void>;
+  upload(
+    infoOptions: FileInfoOptions,
+    uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void>;
 
   /**
    * Downloads a file using the given reference and options.
    * @param eRef - The encrypted reference to the file(s) to be downloaded.
    * @param paths - Optional array of fork paths to download.
-   * @param options - Optional download options for ACT.
+   * @param options - Optional download options for ACT and redundancy.
    * @returns A promise that resolves to an array of strings representing the downloaded file(s).
    */
   download(
@@ -122,18 +132,16 @@ export interface FileInfo {
   customMetadata?: Record<string, string>;
 }
 
-export interface FileManagerUploadOptions {
+export interface FileInfoOptions {
   batchId: BatchId;
   name: string;
   files?: File[] | FileList;
   path?: string;
   customMetadata?: Record<string, string>;
-  historyRef?: Reference;
   infoTopic?: string;
   index?: string | undefined;
   preview?: File;
   previewPath?: string;
-  redundancyLevel?: RedundancyLevel;
   onUploadProgress?: (progress: UploadProgress) => void;
 }
 
@@ -173,13 +181,6 @@ export interface FeedPayloadResult extends FeedUpdateHeaders {
 }
 export interface FeedReferenceResult extends FeedUpdateHeaders {
   reference: Reference;
-}
-
-export interface RequestOptions {
-  historyRef?: Reference;
-  publisher?: PublicKey;
-  timestamp?: number;
-  redundancyLevel?: RedundancyLevel;
 }
 
 export interface UploadProgress {

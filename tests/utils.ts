@@ -3,7 +3,6 @@ import * as fs from 'fs';
 import path from 'path';
 
 import { SWARM_ZERO_ADDRESS } from '../src/utils/constants';
-import { saveMantaray } from '../src/utils/mantaray';
 import { FileInfo, FileManager, ReferenceWithHistory, WrappedUploadResult } from '../src/utils/types';
 
 export const BEE_URL = 'http://127.0.0.1:1633';
@@ -67,7 +66,7 @@ export async function dowloadAndCompareFiles(
 }
 
 export async function createWrappedData(bee: Bee, batchId: BatchId, node: MantarayNode): Promise<ReferenceWithHistory> {
-  const manatarayResult = await saveMantaray(bee, batchId, node);
+  const manatarayResult = await node.saveRecursively(bee, batchId);
   const wrappedData: WrappedUploadResult = {
     uploadFilesRes: manatarayResult.reference.toString(),
     uploadPreviewRes: SWARM_ZERO_ADDRESS.toString(),
