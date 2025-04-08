@@ -10,7 +10,6 @@ import {
   FileUploadOptions,
   GetGranteesResult,
   GranteesResult,
-  MantarayNode,
   NodeAddresses,
   NULL_TOPIC,
   PostageBatch,
@@ -58,7 +57,7 @@ import {
 } from './utils/types';
 import { uploadBrowser } from './upload/upload.browser';
 import { uploadNode } from './upload/upload.node';
-import { loadMantaray } from './utils/mantaray';
+import { getForkAddresses, loadMantaray } from './utils/mantaray';
 import { downloadBrowser } from './download/download.browser';
 import { downloadNode } from './download/download.node';
 
@@ -305,28 +304,13 @@ export class FileManagerBase implements FileManager {
 
     const unmarshalled = await loadMantaray(this.bee, wrappedData.uploadFilesRes.toString());
 
-    const resources = this.getResources(unmarshalled, paths);
+    const resources = getForkAddresses(unmarshalled, paths);
 
     if (isNode) {
       return downloadNode(this.bee, resources);
     }
 
     return downloadBrowser(resources, this.bee.url, 'bytes');
-  }
-
-  private getResources(root: MantarayNode, paths?: string[]): string[] {
-    let nodes: MantarayNode[] = root.collect();
-
-    if (paths && paths.length > 0) {
-      nodes = nodes.filter((node) => paths.includes(node.fullPathString));
-    }
-
-    const resources: string[] = [];
-    for (const node of nodes) {
-      resources.push(new Reference(node.targetAddress).toString());
-    }
-
-    return resources;
   }
 
   async upload(
