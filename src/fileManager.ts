@@ -14,10 +14,10 @@ import {
   PrivateKey,
   PssSubscription,
   RedundancyLevel,
-  RedundantUploadOptions,
   Reference,
   STAMPS_DEPTH_MAX,
   Topic,
+  UploadResult,
   Utils,
 } from '@ethersphere/bee-js';
 import { isNode } from 'std-env';
@@ -28,6 +28,7 @@ import {
   assertWrappedFileInoFeed,
   generateTopic,
   getFeedData,
+  getWrappedData,
   makeBeeRequestOptions,
 } from './utils/common';
 import { OWNER_STAMP_LABEL, REFERENCE_LIST_TOPIC, SHARED_INBOX_TOPIC, SWARM_ZERO_ADDRESS } from './utils/constants';
@@ -49,11 +50,11 @@ import {
   ReferenceWithHistory,
   ReferenceWithPath,
   ShareItem,
-  UploadResult,
   WrappedFileInfoFeed,
 } from './utils/types';
 import { uploadBrowser } from './upload/upload.browser';
 import { uploadNode } from './upload/upload.node';
+import { loadMantaray } from './utils/mantaray';
 
 export class FileManagerBase implements FileManager {
   private bee: Bee;
@@ -226,7 +227,7 @@ export class FileManagerBase implements FileManager {
     if (!this.nodeAddresses) {
       throw new SignerError('Node addresses not found');
     }
-
+    // TODO: allsettled
     for (const feedItem of this.ownerFeedList) {
       const rawFeedData = await getFeedData(
         this.bee,
@@ -252,37 +253,11 @@ export class FileManagerBase implements FileManager {
     console.debug('File info lists fetched successfully.');
   }
 
-  async saveMantaray(
-    batchId: BatchId,
-    mantaray: MantarayNode,
-    options?: RedundantUploadOptions,
-  ): Promise<ReferenceWithHistory> {
-    const result = await mantaray.saveRecursively(this.bee, batchId, options);
-    return {
-      reference: result.reference.toString(),
-      historyRef: result.historyAddress.getOrThrow().toString(),
-    };
-  }
-
-  private async loadMantaray(mantarayRef: Reference, options?: DownloadOptions): Promise<MantarayNode> {
-    const mantaray = await MantarayNode.unmarshal(this.bee, mantarayRef, options);
-    await mantaray.loadRecursively(this.bee);
-    return mantaray;
-  }
-
-  // TODO: decide on downloadFork vs download: based on path or eRef - all vs single ?
-  // TODO: use node.find() - it does not seem to work - test it
-  async downloadFork(mantaray: MantarayNode, path: string, options?: DownloadOptions): Promise<Bytes> {
-    // const node = mantaray.find(path);
-    const node = mantaray.collect().find((n) => n.fullPathString === path);
-    if (!node) return SWARM_ZERO_ADDRESS;
-
-    return await this.bee.downloadData(node.targetAddress, options);
-  }
-
   // lists all the files found under the reference of the provided fileInfo
   async listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<ReferenceWithPath[]> {
-    const mantaray = await this.loadMantaray(new Reference(fileInfo.file.reference.toString()), options);
+    const wrappedData = await getWrappedData(this.bee, fileInfo, options);
+
+    const mantaray = await loadMantaray(this.bee, wrappedData.uploadFilesRes.toString());
     // TODO: is filter needed ?
     const fileList = mantaray
       .collect()
@@ -297,20 +272,26 @@ export class FileManagerBase implements FileManager {
     return fileList;
   }
 
-  async download(eRef: Reference, options?: DownloadOptions): Promise<string[]> {
-    const unmarshalled = await this.loadMantaray(eRef, options);
-    const files: string[] = [];
+  // TODO: performance test for large files and implement streaming
+  async download(fileInfo: FileInfo, paths?: string[], options?: DownloadOptions): Promise<Bytes[]> {
+    const wrappedData = await getWrappedData(this.bee, fileInfo, options);
+
+    const unmarshalled = await loadMantaray(this.bee, wrappedData.uploadFilesRes.toString());
+
+    const resources = this.getResources(unmarshalled, paths);
 
     const dataPromises: Promise<Bytes>[] = [];
-    for (const node of unmarshalled.collect()) {
-      dataPromises.push(this.bee.downloadData(node.targetAddress));
+    for (const resource of resources) {
+      dataPromises.push(this.bee.downloadData(resource));
     }
+
+    const files: Bytes[] = [];
     await Promise.allSettled(dataPromises).then((results) => {
       results.forEach((result) => {
         if (result.status === 'fulfilled') {
-          files.push(result.value.toUtf8());
+          files.push(result.value);
         } else {
-          console.error('Failed dowload file: ', result.reason);
+          console.error('Failed to dowload file: ', result.reason);
         }
       });
     });
@@ -318,9 +299,28 @@ export class FileManagerBase implements FileManager {
     return files;
   }
 
+  private getResources(root: MantarayNode, paths?: string[]): string[] {
+    let nodes: MantarayNode[] = root.collect();
+
+    if (paths && paths.length > 0) {
+      nodes = nodes.filter((node) => paths.includes(node.fullPathString));
+    }
+
+    const resources: string[] = [];
+    for (const node of nodes) {
+      resources.push(new Reference(node.targetAddress).toString());
+    }
+
+    return resources;
+  }
+
   async upload(options: FileManagerUploadOptions): Promise<void> {
     if ((options.infoTopic && !options.historyRef) || (!options.infoTopic && options.historyRef)) {
       throw new FileInfoError('Options infoTopic and historyRef have to be provided at the same time.');
+    }
+
+    if (!this.nodeAddresses) {
+      throw new SignerError('Node addresses not found');
     }
 
     const requestOptions = options.historyRef
@@ -335,13 +335,15 @@ export class FileManagerBase implements FileManager {
     }
 
     const topic = options.infoTopic ? Topic.fromString(options.infoTopic) : generateTopic();
+    const actPublisher = this.nodeAddresses.publicKey.toCompressedHex();
 
     const fileInfo = await this.saveFileInfoAndFeed(
       options.batchId,
       topic,
       options.name,
-      uploadResult.uploadFilesRes,
-      uploadResult.uploadPreviewRes,
+      actPublisher,
+      { reference: uploadResult.reference.toString(), historyRef: uploadResult.historyAddress.getOrThrow().toString() },
+      undefined,
       options.index,
       options.customMetadata,
       options.redundancyLevel,
@@ -354,17 +356,23 @@ export class FileManagerBase implements FileManager {
     batchId: BatchId,
     topic: Topic,
     name: string,
+    actPublisher: string,
     uploadFilesRes: ReferenceWithHistory,
     uploadPreviewRes?: ReferenceWithHistory,
     index?: string,
     customMetadata?: Record<string, string>,
     redundancyLevel?: RedundancyLevel,
   ): Promise<FileInfo> {
+    if (!this.nodeAddresses) {
+      throw new SignerError('Node addresses not found');
+    }
+
     const fileInfo = {
       batchId: batchId.toString(),
       file: uploadFilesRes,
       topic: topic.toString(),
       owner: this.signer.publicKey().address().toString(),
+      actPublisher,
       name,
       timestamp: new Date().getTime(),
       shared: false,
@@ -432,7 +440,7 @@ export class FileManagerBase implements FileManager {
       const requestOptions = redundancyLevel ? makeBeeRequestOptions({ redundancyLevel }) : undefined;
       const fw = this.bee.makeFeedWriter(topic.toUint8Array(), this.signer, requestOptions);
       await fw.uploadReference(batchId, uploadInfoRes.reference, {
-        index: index ? new FeedIndex(index) : undefined,
+        index: index !== undefined ? new FeedIndex(index) : undefined,
       });
     } catch (error: any) {
       throw new FileInfoError(`Failed to save wrapped fileInfo feed: ${error}`);

@@ -1,9 +1,9 @@
-import { BatchId, Bee, BeeRequestOptions, UploadOptions } from '@ethersphere/bee-js';
+import { Bee, BeeRequestOptions, UploadResult } from '@ethersphere/bee-js';
 
-import { FileManagerUploadOptions, ReferenceWithHistory, UploadProgress } from '../utils/types';
+import { FileManagerUploadOptions, WrappedUploadResult } from '../utils/types';
 import { FileInfoError } from '../utils/errors';
-import { UploadResult } from '../utils/types';
 
+// TODO: proper use of UploadOptions
 export async function uploadBrowser(
   bee: Bee,
   options: FileManagerUploadOptions,
@@ -13,41 +13,35 @@ export async function uploadBrowser(
     throw new FileInfoError('Files option has to be provided.');
   }
 
-  const uploadFilesRes = await streamFiles(
-    bee,
+  const uploadFilesRes = await bee.streamFiles(
     options.batchId,
     options.files,
     options.onUploadProgress,
-    { act: true },
+    undefined,
     requestOptions,
   );
-  let uploadPreviewRes: ReferenceWithHistory | undefined;
+  let uploadPreviewRes: UploadResult | undefined;
   if (options.preview) {
-    uploadPreviewRes = await streamFiles(
-      bee,
+    uploadPreviewRes = await bee.streamFiles(
       options.batchId,
       [options.preview],
       options.onUploadProgress,
-      { act: true },
+      undefined,
       requestOptions,
     );
   }
 
-  return { uploadFilesRes, uploadPreviewRes };
-}
-
-async function streamFiles(
-  bee: Bee,
-  batchId: BatchId,
-  files: File[] | FileList,
-  onUploadProgress?: (progress: UploadProgress) => void,
-  uploadOptions?: UploadOptions,
-  requestOptions?: BeeRequestOptions,
-): Promise<ReferenceWithHistory> {
-  const reuslt = await bee.streamFiles(batchId, files, onUploadProgress, uploadOptions, requestOptions);
-
-  return {
-    reference: reuslt.reference.toString(),
-    historyRef: reuslt.historyAddress.getOrThrow().toString(),
+  const wrappedData: WrappedUploadResult = {
+    uploadFilesRes: uploadFilesRes.reference.toString(),
+    uploadPreviewRes: uploadPreviewRes?.reference.toString(),
   };
+
+  return await bee.uploadData(
+    options.batchId,
+    JSON.stringify(wrappedData),
+    { act: true },
+    {
+      ...requestOptions,
+    },
+  );
 }

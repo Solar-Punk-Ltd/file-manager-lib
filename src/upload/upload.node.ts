@@ -1,10 +1,17 @@
-import { BatchId, Bee, BeeRequestOptions, CollectionUploadOptions, FileUploadOptions } from '@ethersphere/bee-js';
+import {
+  BatchId,
+  Bee,
+  BeeRequestOptions,
+  CollectionUploadOptions,
+  FileUploadOptions,
+  UploadResult,
+} from '@ethersphere/bee-js';
 
 import { FileError, FileInfoError } from '../utils/errors';
 import { isDir, readFile } from '../utils/node';
-import { FileManagerUploadOptions, ReferenceWithHistory } from '../utils/types';
-import { UploadResult } from '../utils/types';
+import { FileManagerUploadOptions, WrappedUploadResult } from '../utils/types';
 
+// TODO: proper use of UploadOptions
 export async function uploadNode(
   bee: Bee,
   options: FileManagerUploadOptions,
@@ -18,21 +25,33 @@ export async function uploadNode(
     bee,
     options.batchId,
     options.path,
-    { act: true, redundancyLevel: options.redundancyLevel },
+    { redundancyLevel: options.redundancyLevel },
     requestOptions,
   );
-  let uploadPreviewRes: ReferenceWithHistory | undefined;
+  let uploadPreviewRes: UploadResult | undefined;
   if (options.previewPath) {
     uploadPreviewRes = await uploadFileOrDirectory(
       bee,
       options.batchId,
       options.previewPath,
-      { act: true, redundancyLevel: options.redundancyLevel },
+      { redundancyLevel: options.redundancyLevel },
       requestOptions,
     );
   }
 
-  return { uploadFilesRes, uploadPreviewRes };
+  const wrappedData: WrappedUploadResult = {
+    uploadFilesRes: uploadFilesRes.reference.toString(),
+    uploadPreviewRes: uploadPreviewRes?.reference.toString(),
+  };
+
+  return await bee.uploadData(
+    options.batchId,
+    JSON.stringify(wrappedData),
+    { act: true },
+    {
+      ...requestOptions,
+    },
+  );
 }
 
 async function uploadFileOrDirectory(
@@ -41,7 +60,7 @@ async function uploadFileOrDirectory(
   resolvedPath: string,
   uploadOptions?: CollectionUploadOptions | FileUploadOptions,
   requestOptions?: BeeRequestOptions,
-): Promise<ReferenceWithHistory> {
+): Promise<UploadResult> {
   if (isDir(resolvedPath)) {
     return uploadDirectory(bee, batchId, resolvedPath, uploadOptions, requestOptions);
   } else {
@@ -55,10 +74,11 @@ async function uploadFile(
   resolvedPath: string,
   uploadOptions?: FileUploadOptions,
   requestOptions?: BeeRequestOptions,
-): Promise<ReferenceWithHistory> {
+): Promise<UploadResult> {
   try {
     const { data, name, contentType } = readFile(resolvedPath);
-    const uploadFileRes = await bee.uploadFile(
+
+    return await bee.uploadFile(
       batchId,
       data,
       name,
@@ -68,11 +88,6 @@ async function uploadFile(
       },
       requestOptions,
     );
-
-    return {
-      reference: uploadFileRes.reference.toString(),
-      historyRef: uploadFileRes.historyAddress.getOrThrow().toString(),
-    };
   } catch (error: any) {
     throw new FileError(`Failed to upload file ${resolvedPath}: ${error}`);
   }
@@ -84,14 +99,9 @@ async function uploadDirectory(
   resolvedPath: string,
   uploadOptions?: CollectionUploadOptions,
   requestOptions?: BeeRequestOptions,
-): Promise<ReferenceWithHistory> {
+): Promise<UploadResult> {
   try {
-    const uploadFilesRes = await bee.uploadFilesFromDirectory(batchId, resolvedPath, uploadOptions, requestOptions);
-
-    return {
-      reference: uploadFilesRes.reference.toString(),
-      historyRef: uploadFilesRes.historyAddress.getOrThrow().toString(),
-    };
+    return await bee.uploadFilesFromDirectory(batchId, resolvedPath, uploadOptions, requestOptions);
   } catch (error: any) {
     throw new FileError(`Failed to upload directory ${resolvedPath}: ${error}`);
   }

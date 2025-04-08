@@ -1,8 +1,10 @@
-import { PrivateKey, Reference } from '@ethersphere/bee-js';
+import { BatchId, Bee, MantarayNode, PrivateKey } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
-import { FileInfo, FileManager } from '../src/utils/types';
+import { SWARM_ZERO_ADDRESS } from '../src/utils/constants';
+import { saveMantaray } from '../src/utils/mantaray';
+import { FileInfo, FileManager, ReferenceWithHistory, WrappedUploadResult } from '../src/utils/types';
 
 export const BEE_URL = 'http://127.0.0.1:1633';
 export const OTHER_BEE_URL = 'http://127.0.0.1:1733';
@@ -55,10 +57,24 @@ export async function dowloadAndCompareFiles(
   }
 
   for (const [ix, fi] of fiList.entries()) {
-    const fetchedFiles = await fileManager.download(fi.file.reference as Reference, {
+    const fetchedFiles = await fileManager.download(fi, undefined, {
       actHistoryAddress: fi.file.historyRef,
       actPublisher: publicKey,
     });
-    expect(expArr[ix]).toEqual(fetchedFiles);
+    const fetchedFilesStrings = fetchedFiles.map((f) => f.toUtf8());
+    expect(expArr[ix]).toEqual(fetchedFilesStrings);
   }
+}
+
+export async function createWrappedData(bee: Bee, batchId: BatchId, node: MantarayNode): Promise<ReferenceWithHistory> {
+  const manatarayResult = await saveMantaray(bee, batchId, node);
+  const wrappedData: WrappedUploadResult = {
+    uploadFilesRes: manatarayResult.reference.toString(),
+    uploadPreviewRes: SWARM_ZERO_ADDRESS.toString(),
+  };
+  const wrappedRes = await bee.uploadData(batchId, JSON.stringify(wrappedData), { act: true });
+  return {
+    reference: wrappedRes.reference.toString(),
+    historyRef: wrappedRes.historyAddress.getOrThrow().toString(),
+  };
 }

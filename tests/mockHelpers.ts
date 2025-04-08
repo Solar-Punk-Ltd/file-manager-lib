@@ -23,7 +23,7 @@ import { Optional } from 'cafe-utility';
 import { FileManagerBase } from '../src/fileManager';
 import { OWNER_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
 import { EventEmitter } from '../src/utils/eventEmitter';
-import { FeedPayloadResult } from '../src/utils/types';
+import { FeedPayloadResult, FileInfo } from '../src/utils/types';
 
 import { BEE_URL, MOCK_SIGNER } from './utils';
 
@@ -39,8 +39,6 @@ export function createMockMantarayNode(all = true): MantarayNode {
   } else {
     mn.addFork('/root/2.txt', new Reference('2'.repeat(64)));
   }
-
-  mn.calculateSelfAddress();
 
   return mn;
 }
@@ -61,6 +59,22 @@ export function createMockNodeAddresses(): NodeAddresses {
     ethereum: new EthAddress('33'.repeat(20)),
     publicKey: new PublicKey('22'.repeat(64)),
     pssPublicKey: new PublicKey('22'.repeat(64)),
+  };
+}
+
+export async function createMockFileInfo(
+  bee: Bee = new Bee(BEE_URL, { signer: MOCK_SIGNER }),
+  ref: string = SWARM_ZERO_ADDRESS.toString(),
+): Promise<FileInfo> {
+  return {
+    batchId: new BatchId(MOCK_BATCH_ID),
+    name: 'john doe',
+    owner: MOCK_SIGNER.publicKey().address().toString(),
+    actPublisher: (await bee.getNodeAddresses()).publicKey.toCompressedHex(),
+    file: {
+      reference: ref,
+      historyRef: SWARM_ZERO_ADDRESS.toString(),
+    },
   };
 }
 
@@ -100,17 +114,17 @@ export function createMockFeedWriter(char: string = '1'): FeedWriter {
   };
 }
 
-export function createInitMocks(): any {
+export function createInitMocks(data?: Reference): any {
   jest
     .spyOn(Bee.prototype, 'getVersions')
     .mockResolvedValue({ beeApiVersion: '0.0.0', beeVersion: '0.0.0' } as BeeVersions);
   jest.spyOn(Bee.prototype, 'isSupportedApiVersion').mockResolvedValue(true);
   jest.spyOn(Bee.prototype, 'getNodeAddresses').mockResolvedValue(createMockNodeAddresses());
   loadStampListMock();
-  jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(new Bytes(SWARM_ZERO_ADDRESS));
+  jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(new Bytes(data || SWARM_ZERO_ADDRESS));
   jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValue({
-    reference: SWARM_ZERO_ADDRESS,
-    historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
+    reference: data || SWARM_ZERO_ADDRESS,
+    historyAddress: Optional.of(data || SWARM_ZERO_ADDRESS),
   } as unknown as UploadResult);
   jest.spyOn(Bee.prototype, 'makeFeedWriter').mockReturnValue(createMockFeedWriter());
   jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue(createMockFeedReader());

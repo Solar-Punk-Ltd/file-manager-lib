@@ -34,10 +34,11 @@ export interface FileManager {
   /**
    * Downloads a file using the given reference and options.
    * @param eRef - The encrypted reference to the file(s) to be downloaded.
+   * @param paths - Optional array of fork paths to download.
    * @param options - Optional download options for ACT.
    * @returns A promise that resolves to an array of strings representing the downloaded file(s).
    */
-  download(eRef: Reference, options?: DownloadOptions): Promise<string[]>;
+  download(fileInfo: FileInfo, paths?: string[], options?: DownloadOptions): Promise<Bytes[]>;
 
   /**
    * Lists files based on the provided file information and options.
@@ -107,6 +108,7 @@ export interface FileInfo {
   file: ReferenceWithHistory;
   name: string;
   owner: string | EthAddress;
+  actPublisher: string | PublicKey;
   topic?: string | Topic;
   timestamp?: number;
   shared?: boolean;
@@ -128,7 +130,7 @@ export interface FileManagerUploadOptions {
   preview?: File;
   previewPath?: string;
   redundancyLevel?: RedundancyLevel;
-  onUploadProgress?: (T: any) => void;
+  onUploadProgress?: (progress: UploadProgress) => void;
 }
 
 export interface ShareItem {
@@ -181,7 +183,7 @@ export interface UploadProgress {
   processed: number;
 }
 
-export interface UploadResult {
-  uploadFilesRes: ReferenceWithHistory;
-  uploadPreviewRes?: ReferenceWithHistory;
+export interface WrappedUploadResult {
+  uploadFilesRes: Reference | string;
+  uploadPreviewRes?: Reference | string;
 }
