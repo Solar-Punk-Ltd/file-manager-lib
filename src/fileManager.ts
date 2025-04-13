@@ -24,15 +24,8 @@ import {
 } from '@ethersphere/bee-js';
 import { isNode } from 'std-env';
 
-import {
-  assertFileInfo,
-  assertShareItem,
-  assertWrappedFileInoFeed,
-  generateTopic,
-  getFeedData,
-  getWrappedData,
-  settlePromises,
-} from './utils/common';
+import { assertFileInfo, assertShareItem, assertWrappedFileInoFeed } from './utils/asserts';
+import { generateTopic, getFeedData, getWrappedData, settlePromises } from './utils/common';
 import { OWNER_STAMP_LABEL, REFERENCE_LIST_TOPIC, SHARED_INBOX_TOPIC, SWARM_ZERO_ADDRESS } from './utils/constants';
 import {
   BeeVersionError,
@@ -295,7 +288,7 @@ export class FileManagerBase implements FileManager {
     fileInfo: FileInfo,
     paths?: string[],
     options?: DownloadOptions,
-  ): Promise<Promise<ReadableStream<Uint8Array>[]> | Bytes[]> {
+  ): Promise<ReadableStream<Uint8Array>[] | Bytes[]> {
     const wrappedData = await getWrappedData(this.bee, fileInfo.file.reference.toString(), {
       ...options,
       actPublisher: fileInfo.actPublisher,
@@ -307,10 +300,10 @@ export class FileManagerBase implements FileManager {
     const resources = getForkAddresses(unmarshalled, paths);
 
     if (isNode) {
-      return downloadNode(this.bee, resources);
+      return await downloadNode(this.bee, resources);
     }
 
-    return downloadBrowser(resources, this.bee.url, 'bytes');
+    return await downloadBrowser(resources, this.bee.url, 'bytes');
   }
 
   async upload(

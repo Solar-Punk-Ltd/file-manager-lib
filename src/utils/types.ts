@@ -52,7 +52,7 @@ export interface FileManager {
     fileInfo: FileInfo,
     paths?: string[],
     options?: DownloadOptions,
-  ): Promise<Promise<ReadableStream<Uint8Array>[]> | Bytes[]>;
+  ): Promise<ReadableStream<Uint8Array>[] | Bytes[]>;
 
   /**
    * Lists files based on the provided file information and options.
