@@ -1,12 +1,16 @@
 import {
   BatchId,
+  BeeRequestOptions,
   Bytes,
+  CollectionUploadOptions,
   DownloadOptions,
   EthAddress,
   FeedIndex,
+  FileUploadOptions,
   GetGranteesResult,
   PublicKey,
   RedundancyLevel,
+  RedundantUploadOptions,
   Reference,
   Topic,
 } from '@ethersphere/bee-js';
@@ -26,10 +30,16 @@ export interface FileManager {
 
   /**
    * Uploads a file with the given options.
-   * @param options - The options for the upload operation.
+   * @param infoOptions - The options for the file info upload.
+   * @param uploadOptions - File and collection related upload options.
+   * @param requestOptions - Additional Bee request options.
    * @returns A promise that resolves when the upload is complete.
    */
-  upload(options: FileManagerUploadOptions): Promise<void>;
+  upload(
+    infoOptions: FileInfoOptions,
+    uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void>;
 
   /**
    * Downloads a file using the given reference and options.
@@ -113,7 +123,7 @@ export interface FileInfo {
   name: string;
   owner: string | EthAddress;
   actPublisher: string | PublicKey;
-  topic?: string | Topic;
+  topic: string | Topic;
   timestamp?: number;
   shared?: boolean;
   preview?: ReferenceWithHistory;
@@ -122,18 +132,16 @@ export interface FileInfo {
   customMetadata?: Record<string, string>;
 }
 
-export interface FileManagerUploadOptions {
+export interface FileInfoOptions {
   batchId: BatchId;
   name: string;
   files?: File[] | FileList;
   path?: string;
   customMetadata?: Record<string, string>;
-  historyRef?: Reference;
   infoTopic?: string;
   index?: string | undefined;
   preview?: File;
   previewPath?: string;
-  redundancyLevel?: RedundancyLevel;
   onUploadProgress?: (progress: UploadProgress) => void;
 }
 
@@ -173,13 +181,6 @@ export interface FeedPayloadResult extends FeedUpdateHeaders {
 }
 export interface FeedReferenceResult extends FeedUpdateHeaders {
   reference: Reference;
-}
-
-export interface RequestOptions {
-  historyRef?: Reference;
-  publisher?: PublicKey;
-  timestamp?: number;
-  redundancyLevel?: RedundancyLevel;
 }
 
 export interface UploadProgress {

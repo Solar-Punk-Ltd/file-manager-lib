@@ -1,32 +1,32 @@
-import { Bee, BeeRequestOptions, UploadResult } from '@ethersphere/bee-js';
+import { Bee, BeeRequestOptions, RedundantUploadOptions, UploadResult } from '@ethersphere/bee-js';
 
-import { FileManagerUploadOptions, WrappedUploadResult } from '../utils/types';
+import { FileInfoOptions, WrappedUploadResult } from '../utils/types';
 import { FileInfoError } from '../utils/errors';
 
-// TODO: proper use of UploadOptions
 export async function uploadBrowser(
   bee: Bee,
-  options: FileManagerUploadOptions,
+  infoOptions: FileInfoOptions,
+  uploadOptions?: RedundantUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<UploadResult> {
-  if (!options.files) {
+  if (!infoOptions.files) {
     throw new FileInfoError('Files option has to be provided.');
   }
 
   const uploadFilesRes = await bee.streamFiles(
-    options.batchId,
-    options.files,
-    options.onUploadProgress,
-    undefined,
+    infoOptions.batchId,
+    infoOptions.files,
+    infoOptions.onUploadProgress,
+    { ...uploadOptions, act: false },
     requestOptions,
   );
   let uploadPreviewRes: UploadResult | undefined;
-  if (options.preview) {
+  if (infoOptions.preview) {
     uploadPreviewRes = await bee.streamFiles(
-      options.batchId,
-      [options.preview],
-      options.onUploadProgress,
-      undefined,
+      infoOptions.batchId,
+      [infoOptions.preview],
+      infoOptions.onUploadProgress,
+      { ...uploadOptions, act: false },
       requestOptions,
     );
   }
@@ -37,11 +37,9 @@ export async function uploadBrowser(
   };
 
   return await bee.uploadData(
-    options.batchId,
+    infoOptions.batchId,
     JSON.stringify(wrappedData),
-    { act: true },
-    {
-      ...requestOptions,
-    },
+    { ...uploadOptions, act: true },
+    requestOptions,
   );
 }
