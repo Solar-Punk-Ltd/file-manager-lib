@@ -35,10 +35,14 @@ export interface FileManager {
    * Downloads a file using the given reference and options.
    * @param eRef - The encrypted reference to the file(s) to be downloaded.
    * @param paths - Optional array of fork paths to download.
-   * @param options - Optional download options for ACT.
+   * @param options - Optional download options for ACT and redundancy.
    * @returns A promise that resolves to an array of strings representing the downloaded file(s).
    */
-  download(fileInfo: FileInfo, paths?: string[], options?: DownloadOptions): Promise<Bytes[]>;
+  download(
+    fileInfo: FileInfo,
+    paths?: string[],
+    options?: DownloadOptions,
+  ): Promise<ReadableStream<Uint8Array>[] | Bytes[]>;
 
   /**
    * Lists files based on the provided file information and options.
