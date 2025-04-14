@@ -1,4 +1,5 @@
 import { Bee, Bytes, DownloadOptions, Reference } from '@ethersphere/bee-js';
+import { settlePromises } from '../utils/common';
 
 export async function downloadNode(
   bee: Bee,
@@ -11,14 +12,8 @@ export async function downloadNode(
   }
 
   const files: Bytes[] = [];
-  await Promise.allSettled(dataPromises).then((results) => {
-    results.forEach((result) => {
-      if (result.status === 'fulfilled') {
-        files.push(result.value);
-      } else {
-        console.error(`Failed to dowload file(s): ${result.reason}`);
-      }
-    });
+  await settlePromises<Bytes>(dataPromises, (value) => {
+    files.push(value);
   });
 
   return files;
