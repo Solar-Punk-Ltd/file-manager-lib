@@ -34,14 +34,15 @@ describe('FileManager', () => {
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
     const { getFeedData, generateTopic, getWrappedData } = require('../../src/utils/common');
-    // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-    const { loadMantaray } = require('../../src/utils/mantaray');
     getFeedData.mockResolvedValue(createMockGetFeedDataResult(0, 1));
     getWrappedData.mockResolvedValue({
       uploadFilesRes: mockSelfAddr.toString(),
     } as WrappedUploadResult);
-    loadMantaray.mockResolvedValue(mokcMN);
     generateTopic.mockReturnValue(new Topic('1'.repeat(64)));
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+    const { loadMantaray } = require('../../src/utils/mantaray');
+    loadMantaray.mockResolvedValue(mokcMN);
   });
 
   describe('constructor', () => {
@@ -113,6 +114,12 @@ describe('FileManager', () => {
   });
 
   describe('download', () => {
+    beforeEach(() => {
+      const { getForkAddresses } = jest.requireActual('../../src/utils/mantaray');
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      jest.spyOn(require('../../src/utils/mantaray'), 'getForkAddresses').mockImplementation(getForkAddresses);
+    });
+
     afterEach(() => {
       jest.restoreAllMocks();
     });
@@ -123,7 +130,6 @@ describe('FileManager', () => {
       const fm = await createInitializedFileManager(bee);
       const mockFi = await createMockFileInfo(bee, mockSelfAddr.toString());
       const mantarayCollectSpy = jest.spyOn(MantarayNode.prototype, 'collect');
-
       await fm.download(mockFi);
 
       expect(mantarayCollectSpy).toHaveBeenCalled();
@@ -136,9 +142,13 @@ describe('FileManager', () => {
       const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
       const mockFi = await createMockFileInfo(bee, mockSelfAddr.toString());
 
-      await fm.download(mockFi, ['/root/1.txt']);
+      const mockMantarayNode = createMockMantarayNode(false);
+      jest.spyOn(MantarayNode, 'unmarshal').mockResolvedValue(new MantarayNode());
+      jest.spyOn(MantarayNode.prototype, 'collect').mockReturnValue(mockMantarayNode.collect());
 
-      expect(downloadDataSpy).toHaveBeenCalledWith('1'.repeat(64));
+      await fm.download(mockFi, ['/root/2.txt']);
+
+      expect(downloadDataSpy).toHaveBeenCalledWith('2'.repeat(64), undefined);
     });
 
     it('should call download for all of forks', async () => {
@@ -149,11 +159,16 @@ describe('FileManager', () => {
       const mockFi = await createMockFileInfo(bee, mockSelfAddr.toString());
 
       const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
+
+      const { settlePromises } = jest.requireActual('../../src/utils/common');
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      jest.spyOn(require('../../src/utils/common'), 'settlePromises').mockImplementation(settlePromises);
+
       const fileStrings = await fm.download(mockFi);
 
-      expect(downloadDataSpy).toHaveBeenCalledWith('1'.repeat(64));
-      expect(downloadDataSpy).toHaveBeenCalledWith('2'.repeat(64));
-      expect(downloadDataSpy).toHaveBeenCalledWith('3'.repeat(64));
+      expect(downloadDataSpy).toHaveBeenCalledWith('1'.repeat(64), undefined);
+      expect(downloadDataSpy).toHaveBeenCalledWith('2'.repeat(64), undefined);
+      expect(downloadDataSpy).toHaveBeenCalledWith('3'.repeat(64), undefined);
 
       expect(fileStrings[0]).toEqual(mockForkRef);
       expect(fileStrings[1]).toEqual(mockForkRef);
