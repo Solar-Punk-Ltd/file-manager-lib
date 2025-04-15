@@ -9,32 +9,32 @@ import {
 
 import { FileError, FileInfoError } from '../utils/errors';
 import { isDir, readFile } from '../utils/node';
-import { FileManagerUploadOptions, WrappedUploadResult } from '../utils/types';
+import { FileInfoOptions, WrappedUploadResult } from '../utils/types';
 
-// TODO: proper use of UploadOptions
 export async function uploadNode(
   bee: Bee,
-  options: FileManagerUploadOptions,
+  infoOptions: FileInfoOptions,
+  uploadOptions?: FileUploadOptions | CollectionUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<UploadResult> {
-  if (!options.path) {
+  if (!infoOptions.path) {
     throw new FileInfoError('Path option has to be provided.');
   }
 
   const uploadFilesRes = await uploadFileOrDirectory(
     bee,
-    options.batchId,
-    options.path,
-    { redundancyLevel: options.redundancyLevel },
+    infoOptions.batchId,
+    infoOptions.path,
+    { ...uploadOptions, act: false },
     requestOptions,
   );
   let uploadPreviewRes: UploadResult | undefined;
-  if (options.previewPath) {
+  if (infoOptions.previewPath) {
     uploadPreviewRes = await uploadFileOrDirectory(
       bee,
-      options.batchId,
-      options.previewPath,
-      { redundancyLevel: options.redundancyLevel },
+      infoOptions.batchId,
+      infoOptions.previewPath,
+      { ...uploadOptions, act: false },
       requestOptions,
     );
   }
@@ -45,12 +45,10 @@ export async function uploadNode(
   };
 
   return await bee.uploadData(
-    options.batchId,
+    infoOptions.batchId,
     JSON.stringify(wrappedData),
-    { act: true },
-    {
-      ...requestOptions,
-    },
+    { ...uploadOptions, act: true },
+    requestOptions,
   );
 }
 
@@ -62,9 +60,9 @@ async function uploadFileOrDirectory(
   requestOptions?: BeeRequestOptions,
 ): Promise<UploadResult> {
   if (isDir(resolvedPath)) {
-    return uploadDirectory(bee, batchId, resolvedPath, uploadOptions, requestOptions);
+    return uploadDirectory(bee, batchId, resolvedPath, uploadOptions as CollectionUploadOptions, requestOptions);
   } else {
-    return uploadFile(bee, batchId, resolvedPath, uploadOptions, requestOptions);
+    return uploadFile(bee, batchId, resolvedPath, uploadOptions as FileUploadOptions, requestOptions);
   }
 }
 

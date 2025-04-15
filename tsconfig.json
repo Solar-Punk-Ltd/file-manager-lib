@@ -19,7 +19,7 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "strictPropertyInitialization": false,
+    "strictPropertyInitialization": true,
     "isolatedModules": true,
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
