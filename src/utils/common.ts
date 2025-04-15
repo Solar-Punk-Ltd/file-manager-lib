@@ -184,11 +184,11 @@ export async function buyStamp(bee: Bee, amount: string | bigint, depth: number,
 
 export async function getWrappedData(
   bee: Bee,
-  fileInfo: FileInfo,
+  eRef: string | Reference,
   options?: DownloadOptions,
 ): Promise<WrappedUploadResult> {
   try {
-    const rawData = await bee.downloadData(fileInfo.file.reference.toString(), options);
+    const rawData = await bee.downloadData(eRef.toString(), options);
     return rawData.toJSON() as WrappedUploadResult;
   } catch (error) {
     throw new FileInfoError(`Failed to get wrapped data: ${error}`);

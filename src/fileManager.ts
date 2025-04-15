@@ -7,7 +7,6 @@ import {
   FeedIndex,
   GetGranteesResult,
   GranteesResult,
-  MantarayNode,
   NodeAddresses,
   NULL_TOPIC,
   PostageBatch,
@@ -54,7 +53,9 @@ import {
 } from './utils/types';
 import { uploadBrowser } from './upload/upload.browser';
 import { uploadNode } from './upload/upload.node';
-import { loadMantaray } from './utils/mantaray';
+import { getForkAddresses, loadMantaray } from './utils/mantaray';
+import { downloadNode } from './download/download.node';
+import { downloadBrowser } from './download/download.browser';
 
 export class FileManagerBase implements FileManager {
   private bee: Bee;
@@ -255,7 +256,11 @@ export class FileManagerBase implements FileManager {
 
   // lists all the files found under the reference of the provided fileInfo
   async listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<ReferenceWithPath[]> {
-    const wrappedData = await getWrappedData(this.bee, fileInfo, options);
+    const wrappedData = await getWrappedData(this.bee, fileInfo.file.reference.toString(), {
+      ...options,
+      actPublisher: fileInfo.actPublisher,
+      actHistoryAddress: fileInfo.file.historyRef,
+    } as DownloadOptions);
 
     const mantaray = await loadMantaray(this.bee, wrappedData.uploadFilesRes.toString());
     // TODO: is filter needed ?
@@ -272,46 +277,26 @@ export class FileManagerBase implements FileManager {
     return fileList;
   }
 
-  // TODO: performance test for large files and implement streaming
-  async download(fileInfo: FileInfo, paths?: string[], options?: DownloadOptions): Promise<Bytes[]> {
-    const wrappedData = await getWrappedData(this.bee, fileInfo, options);
+  async download(
+    fileInfo: FileInfo,
+    paths?: string[],
+    options?: DownloadOptions,
+  ): Promise<ReadableStream<Uint8Array>[] | Bytes[]> {
+    const wrappedData = await getWrappedData(this.bee, fileInfo.file.reference.toString(), {
+      ...options,
+      actPublisher: fileInfo.actPublisher,
+      actHistoryAddress: fileInfo.file.historyRef,
+    } as DownloadOptions);
 
     const unmarshalled = await loadMantaray(this.bee, wrappedData.uploadFilesRes.toString());
 
-    const resources = this.getResources(unmarshalled, paths);
+    const resources = getForkAddresses(unmarshalled, paths);
 
-    const dataPromises: Promise<Bytes>[] = [];
-    for (const resource of resources) {
-      dataPromises.push(this.bee.downloadData(resource));
+    if (isNode) {
+      return await downloadNode(this.bee, resources);
     }
 
-    const files: Bytes[] = [];
-    await Promise.allSettled(dataPromises).then((results) => {
-      results.forEach((result) => {
-        if (result.status === 'fulfilled') {
-          files.push(result.value);
-        } else {
-          console.error('Failed to dowload file: ', result.reason);
-        }
-      });
-    });
-
-    return files;
-  }
-
-  private getResources(root: MantarayNode, paths?: string[]): string[] {
-    let nodes: MantarayNode[] = root.collect();
-
-    if (paths && paths.length > 0) {
-      nodes = nodes.filter((node) => paths.includes(node.fullPathString));
-    }
-
-    const resources: string[] = [];
-    for (const node of nodes) {
-      resources.push(new Reference(node.targetAddress).toString());
-    }
-
-    return resources;
+    return await downloadBrowser(resources, this.bee.url, 'bytes');
   }
 
   async upload(options: FileManagerUploadOptions): Promise<void> {
