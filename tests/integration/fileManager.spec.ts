@@ -480,7 +480,7 @@ describe('FileManager download', () => {
       actPublisher,
     })) as Bytes[];
     const expectedArray = Object.values(expectedContents);
-    const fileContentsAsStrings = fileContents.map((item) => item.toUtf8());
+    const fileContentsAsStrings = fileContents.map((item) => (item as Bytes).toUtf8());
     expect(fileContentsAsStrings.sort()).toEqual(expectedArray.sort());
   });
 
