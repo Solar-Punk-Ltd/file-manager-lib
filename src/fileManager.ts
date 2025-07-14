@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import path from 'path';
+
 import {
   BatchId,
   Bee,
@@ -15,6 +18,7 @@ import {
   PostageBatch,
   PrivateKey,
   PssSubscription,
+  RedundancyLevel,
   RedundantUploadOptions,
   Reference,
   STAMPS_DEPTH_MAX,
@@ -48,6 +52,15 @@ import {
   ShareItem,
   WrappedFileInfoFeed,
 } from './utils/types';
+import {
+  calculateContentHash,
+  writeFileVersionMetadata,
+  readFileVersionMetadata,
+  getFileVersionHistory,
+  getFileVersionInfo,
+  hasVersionHistory,
+} from './utils/versionControl';
+import { FileVersionMetadata, FileVersionInfo, FileOperation } from './utils/types';
 import { uploadBrowser } from './upload/upload.browser';
 import { uploadNode } from './upload/upload.node';
 import { getForkAddresses, loadMantaray } from './utils/mantaray';
@@ -279,7 +292,7 @@ export class FileManagerBase implements FileManager {
           path: n.fullPathString,
         } as ReferenceWithPath;
       })
-      .filter((item) => item.path !== '' && !item.reference.equals(SWARM_ZERO_ADDRESS));
+      .filter((item: ReferenceWithPath) => item.path !== '' && !item.reference.equals(SWARM_ZERO_ADDRESS));
 
     return fileList;
   }
@@ -465,6 +478,192 @@ export class FileManagerBase implements FileManager {
     }
   }
 
+  // File version control methods
+  async uploadWithVersioning(
+    batchId: BatchId,
+    resolvedPath: string,
+    filePath: string,
+    operation: FileOperation = FileOperation.CREATE,
+    previewPath?: string,
+    historyRef?: Reference,
+    infoTopic?: string,
+    index?: number | undefined,
+    redundancyLevel?: RedundancyLevel,
+    customMetadata?: Record<string, string>,
+  ): Promise<void> {
+    const infoOptions: FileInfoOptions = {
+      batchId,
+      path: resolvedPath,
+      name: path.basename(resolvedPath),
+      infoTopic,
+      index: index !== undefined
+        ? index.toString()
+        : undefined,
+      previewPath,
+      customMetadata,
+    };
+
+    const uploadOptions: RedundantUploadOptions = {
+      redundancyLevel,
+      actHistoryAddress: historyRef?.toString(),
+    }
+  
+    await this.upload(infoOptions, uploadOptions)
+
+    try {
+      const fileData = fs.readFileSync(resolvedPath);
+      const contentHash = await calculateContentHash(this.bee, batchId, fileData);
+
+      const versionMetadata: FileVersionMetadata = {
+        filePath: filePath,
+        contentHash: contentHash,
+        size: fileData.length,
+        timestamp: new Date().toISOString(),
+        operation: operation,
+        version: 0,
+        batchId: batchId.toString(),
+        customMetadata: customMetadata,
+      };
+
+      const version = await writeFileVersionMetadata(
+        this.bee,
+        this.signer,
+        filePath,
+        batchId,
+        versionMetadata
+      );
+
+      const fileInfo = this.fileInfoList[this.fileInfoList.length - 1];
+      if (fileInfo) {
+        const versionInfo = await this.getFileVersionInfoByPath(filePath);
+        fileInfo.versionInfo = versionInfo || undefined;
+        fileInfo.isVersioned = true;
+      }
+
+      console.log(`📝 File version created: ${filePath} v${version} (${operation})`);
+      this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { 
+        fileInfo: fileInfo,
+        version: version,
+        operation: operation 
+      });
+    } catch (error: any) {
+      console.warn(`⚠️  Failed to create version for ${filePath}:`, error);
+    }
+  }
+  
+  async getFileVersionHistoryByPath(filePath: string): Promise<FileVersionMetadata[]> {
+    const owner = this.signer.publicKey().address().toString();
+    return await getFileVersionHistory(this.bee, filePath, owner);
+  }
+  
+  async getFileVersionInfoByPath(filePath: string): Promise<FileVersionInfo | null> {
+    const owner = this.signer.publicKey().address().toString();
+    return await getFileVersionInfo(this.bee, filePath, owner);
+  }
+  
+  async getFileVersion(filePath: string, version: number): Promise<FileVersionMetadata | null> {
+    const owner = this.signer.publicKey().address().toString();
+    return await readFileVersionMetadata(this.bee, filePath, owner, version);
+  }
+  
+  async getLatestFileVersion(filePath: string): Promise<FileVersionMetadata | null> {
+    const owner = this.signer.publicKey().address().toString();
+    return await readFileVersionMetadata(this.bee, filePath, owner);
+  }
+  
+  async downloadFileVersion(filePath: string, version?: number): Promise<Uint8Array | null> {
+    const meta = version !== undefined
+      ? await this.getFileVersion(filePath, version)
+      : await this.getLatestFileVersion(filePath);
+  
+    if (!meta || meta.operation === FileOperation.DELETE) return null;
+    try {
+      const data = await this.bee.downloadData(meta.contentHash);
+      return data.toUint8Array();
+    } catch (err) {
+      console.error(`Failed to download version content for ${filePath}:`, err);
+      return null;
+    }
+  }
+  
+  async hasFileVersionHistory(filePath: string): Promise<boolean> {
+    const owner = this.signer.publicKey().address().toString();
+    return await hasVersionHistory(this.bee, filePath, owner);
+  }
+  
+  async getVersionedFiles(): Promise<string[]> {
+    return this.fileInfoList
+      .filter((f) => f.isVersioned && f.name)
+      .map((f) => f.name!);
+  }
+  
+  async createFileVersion(
+    batchId: BatchId,
+    resolvedPath: string,
+    filePath: string,
+    operation: FileOperation = FileOperation.MODIFY,
+    customMetadata?: Record<string, string>
+  ): Promise<number> {
+    if (!this.nodeAddresses) {
+      throw new SignerError('FileManager not initialized');
+    }
+    try {
+      const fileData = fs.readFileSync(resolvedPath);
+      if (!fileData) throw new Error(`Could not read ${resolvedPath}`);
+      const contentHash = await calculateContentHash(this.bee, batchId, fileData);
+      const versionMetadata: FileVersionMetadata = {
+        filePath,
+        contentHash,
+        size: fileData.length,
+        timestamp: new Date().toISOString(),
+        operation,
+        version: 0,
+        batchId: batchId.toString(),
+        customMetadata,
+      };
+      const version = await writeFileVersionMetadata(
+        this.bee, this.signer, filePath, batchId, versionMetadata
+      );
+      console.log(`📝 File version created: ${filePath} v${version} (${operation})`);
+      this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { filePath, version, operation });
+      return version;
+    } catch (err) {
+      console.error(`Failed to create version for ${filePath}:`, err);
+      throw err;
+    }
+  }
+  
+  async deleteFileVersion(
+    batchId: BatchId,
+    filePath: string,
+    customMetadata?: Record<string, string>
+  ): Promise<number> {
+    if (!this.nodeAddresses) {
+      throw new SignerError('FileManager not initialized');
+    }
+    try {
+      const versionMetadata: FileVersionMetadata = {
+        filePath,
+        contentHash: '',
+        size: 0,
+        timestamp: new Date().toISOString(),
+        operation: FileOperation.DELETE,
+        version: 0,
+        batchId: batchId.toString(),
+        customMetadata,
+      };
+      const version = await writeFileVersionMetadata(
+        this.bee, this.signer, filePath, batchId, versionMetadata
+      );
+      console.log(`🗑️ File deletion recorded: ${filePath} v${version}`);
+      this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { filePath, version, operation: FileOperation.DELETE });
+      return version;
+    } catch (err) {
+      console.error(`Failed to record deletion for ${filePath}:`, err);
+      throw err;
+    }
+  }
+  
   private async getOwnerStamp(): Promise<PostageBatch | undefined> {
     if (this.ownerStamp) return this.ownerStamp;
 

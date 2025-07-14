@@ -117,6 +117,30 @@ export interface FileManager {
   emitter: EventEmitter;
 }
 
+export enum FileOperation {
+  CREATE = 'CREATE',
+  MODIFY = 'MODIFY',
+  DELETE = 'DELETE'
+}
+
+export interface FileVersionMetadata {
+  filePath: string;
+  contentHash: string;
+  size: number;
+  timestamp: string;
+  operation: FileOperation;
+  version: number;
+  batchId: string;
+  customMetadata?: Record<string, string>;
+}
+
+export interface FileVersionInfo {
+  currentVersion: number;
+  totalVersions: number;
+  latestTimestamp: string;
+  feedTopic: string;
+}
+
 export interface FileInfo {
   batchId: string | BatchId;
   file: ReferenceWithHistory;
@@ -130,6 +154,8 @@ export interface FileInfo {
   index?: string | undefined;
   redundancyLevel?: RedundancyLevel;
   customMetadata?: Record<string, string>;
+  versionInfo?: FileVersionInfo;
+  isVersioned?: boolean;
 }
 
 export interface FileInfoOptions {
