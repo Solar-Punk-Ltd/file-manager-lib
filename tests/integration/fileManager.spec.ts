@@ -33,12 +33,15 @@ describe('FileManager initialization', () => {
     // Ensure the owner stamp is available (buyStamp may throw if already exists)
     try {
       await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
-    } catch (e) {
-      // Stamp already exists; ignore error.
-      void e;
+    } catch {
+      // already bought
     }
-
+    // now we can clear out any leftover feed entries
     actPublisher = (await bee.getNodeAddresses())!.publicKey;
+    const tempFM = await createInitializedFileManager(bee);
+    await tempFM.initialize();
+    (tempFM as any).ownerFeedList = [];
+    await (tempFM as any).saveOwnerFeedList();
   });
 
   beforeEach(async () => {
