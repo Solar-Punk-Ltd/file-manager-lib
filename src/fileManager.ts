@@ -393,7 +393,7 @@ export class FileManagerBase implements FileManager {
       new BatchId(fileInfo.batchId),
       meta
     )
-  }
+  }  
 
   private async saveFileInfoAndFeed(info: FileInfo, requestOptions?: BeeRequestOptions): Promise<void> {
     const fileInfoResult = await this.uploadFileInfo(info);

@@ -108,39 +108,46 @@ export async function writeFileVersionMetadata(
   batchId: BatchId,
   metadata: FileVersionMetadata
 ): Promise<number> {
-  const topic        = generateFileFeedTopic(filePath)
-  const writer       = bee.makeFeedWriter(topic.toUint8Array(), signer)
-  const ownerAddress = signer.publicKey().address().toString()
+  const topic        = generateFileFeedTopic(filePath).toUint8Array();
+  const writer       = bee.makeFeedWriter(topic, signer);
+  const ownerAddress = signer.publicKey().address().toString();
 
-  console.debug(`[verCtrl] writeFileVersionMetadata(${filePath}) metadata.customMetadata=`, metadata.customMetadata)
+  const currentCount = await getFileVersionCount(
+    bee,
+    generateFileFeedTopic(filePath),
+    ownerAddress
+  );
+  console.debug(`[verCtrl] currentCount =`, currentCount);
 
-  const currentCount = await getFileVersionCount(bee, topic, ownerAddress)
-  console.debug(`[verCtrl] currentCount =`, currentCount)
-
-  // decide slot
-  let slot: bigint
+  let slot: bigint;
   if (metadata.customMetadata !== undefined && currentCount > 0n) {
-    const history = await getFileVersionHistory(bee, filePath, ownerAddress)
-    const hit     = history.findIndex(h => h.contentHash === metadata.contentHash)
-    slot          = hit >= 0 ? BigInt(hit) : (currentCount - 1n)
+    // fetch the *actual* history so we can optionally override
+    const history = await getFileVersionHistory(bee, filePath, ownerAddress);
+    const hit     = history.findIndex((h) => h.contentHash === metadata.contentHash);
+    if (hit >= 0) {
+      slot = BigInt(hit);
+    } else {
+      // no exact match → override the **last** entry
+      slot = currentCount - 1n;
+    }
+    console.debug(`[verCtrl] override slot =`, slot);
   } else {
-    // pure append
-    slot = currentCount
+    // no tag → append
+    slot = currentCount;
+    console.debug(`[verCtrl] append slot =`, slot);
   }
 
-  console.debug(`[verCtrl] chosen slot =`, slot)
-
-  // bake in the real slot & timestamp
   const toWrite: FileVersionMetadata = {
     ...metadata,
     version:   Number(slot),
     timestamp: new Date().toISOString(),
-  }
-  const payload = Buffer.from(JSON.stringify(toWrite, null, 2), 'utf-8')
-  const upload  = await bee.uploadData(batchId, payload, { pin: true })
-  await writer.uploadReference(batchId, upload.reference, {
-    index: FeedIndex.fromBigInt(slot),
-  })
+  };
 
-  return Number(slot)
+  const payload   = Buffer.from(JSON.stringify(toWrite, null, 2), 'utf-8');
+  const uploadRes = await bee.uploadData(batchId, payload, { pin: true });
+  await writer.uploadReference(batchId, uploadRes.reference, {
+    index: FeedIndex.fromBigInt(slot),
+  });
+
+  return Number(slot);
 }
