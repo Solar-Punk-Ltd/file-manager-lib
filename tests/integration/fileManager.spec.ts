@@ -1,6 +1,7 @@
 import { BatchId, BeeDev, Bytes, MantarayNode, PublicKey, Reference, Topic } from '@ethersphere/bee-js';
+import { rmSync, writeFileSync } from 'fs';
 import * as fs from 'fs';
-import path from 'path';
+import path, { join } from 'path';
 
 import { FileManagerBase } from '../../src/fileManager';
 import { buyStamp, getFeedData } from '../../src/utils/common';
@@ -429,6 +430,92 @@ describe('FileManager upload', () => {
     const uploadedInfo = fileInfoList.find((fi) => fi.name === path.basename(tempFile));
     expect(uploadedInfo).toBeDefined();
     fs.rmSync(tempFile, { force: true });
+  });
+});
+
+describe('FileManager Version Control', () => {
+  const fileName = 'versioned.txt';
+  const v1Path = join(__dirname, 'tmp_v1.txt');
+  const v2Path = join(__dirname, 'tmp_v2.txt');
+  let bee: BeeDev;
+  let fm: FileManagerBase;
+  let batchId: BatchId;
+
+  beforeAll(async () => {
+    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    // ensure owner-stamp exists
+    try {
+      await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
+    } catch {
+      /* already bought */
+    }
+    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'versionControlStamp');
+    fm = new FileManagerBase(bee);
+    await fm.initialize();
+  });
+
+  beforeEach(() => {
+    // prepare two different file contents
+    writeFileSync(v1Path, 'First version of the file');
+    writeFileSync(v2Path, 'Second version of the file');
+  });
+
+  afterAll(() => {
+    rmSync(v1Path, { force: true });
+    rmSync(v2Path, { force: true });
+  });
+
+  it('should increment version count on each upload', async () => {
+    await fm.upload({ batchId, path: v1Path, name: fileName });
+    await fm.upload({ batchId, path: v2Path, name: fileName });
+    const count = await fm.getVersionCount(fileName);
+    expect(count).toBe(2);
+  });
+
+  it('getVersion returns correct metadata for each index', async () => {
+    const v0 = await fm.getVersion(fileName, 0);
+    expect(v0).not.toBeNull();
+    expect(v0!.version).toBe(0);
+
+    const v1 = await fm.getVersion(fileName, 1);
+    expect(v1).not.toBeNull();
+    expect(v1!.version).toBe(1);
+
+    // out-of-bounds returns null
+    const v2 = await fm.getVersion(fileName, 2);
+    expect(v2).toBeNull();
+  });
+
+  it('getHistory returns all versions in order', async () => {
+    const history = await fm.getHistory(fileName);
+    expect(history).toHaveLength(2);
+    expect(history.map((h) => h.version)).toEqual([0, 1]);
+    // optional extra sanity: timestamps are ISO strings
+    history.forEach((h) => expect(typeof h.timestamp).toBe('string'));
+  });
+
+  it('should return zero versions, null getVersion and empty history for a totally new file', async () => {
+    const missing = 'no-such-file.txt';
+    expect(await fm.getVersionCount(missing)).toBe(0);
+    expect(await fm.getVersion(missing, 0)).toBeNull();
+    expect(await fm.getHistory(missing)).toEqual([]);
+  });
+
+  it('should report correct metadata fields for version 0', async () => {
+    // upload v1 if not already
+    await fm.upload({ batchId, path: v1Path, name: fileName });
+    const v0 = await fm.getVersion(fileName, 0);
+    expect(v0).not.toBeNull();
+    // contentHash matches the file reference in fileInfoList
+    const ref = fm.fileInfoList.find((fi) => fi.name === fileName)!.file.reference as string;
+    expect(v0!.contentHash).toEqual(ref);
+    // size comes back as 0 (we pin 0 in recordVersion)
+    expect(v0!.size).toBe(0);
+    // batchId is stringified BatchId
+    expect(v0!.batchId).toBe(batchId.toString());
+    // timestamp is an ISO‐format string
+    expect(typeof v0!.timestamp).toBe('string');
+    expect(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/.test(v0!.timestamp)).toBeTruthy();
   });
 });
 
