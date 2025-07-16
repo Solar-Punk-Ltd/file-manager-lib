@@ -1,11 +1,23 @@
-import { BatchId, Bee, Bytes, MantarayNode, Reference, STAMPS_DEPTH_MAX, Topic } from '@ethersphere/bee-js';
+import {
+  BatchId,
+  Bee,
+  Bytes,
+  FeedIndex,
+  MantarayNode,
+  Reference,
+  STAMPS_DEPTH_MAX,
+  Topic,
+  UploadResult,
+} from '@ethersphere/bee-js';
+import * as fs from 'fs';
 
 import { FileManagerBase } from '../../src/fileManager';
+import { getFeedData } from '../../src/utils/common';
 import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
 import { EventEmitterBase } from '../../src/utils/eventEmitter';
 import { FileManagerEvents } from '../../src/utils/events';
-import { FileInfo, WrappedUploadResult } from '../../src/utils/types';
+import { FileInfo, FileVersionMetadata, WrappedUploadResult } from '../../src/utils/types';
 import {
   createInitializedFileManager,
   createInitMocks,
@@ -261,6 +273,206 @@ describe('FileManager', () => {
       await expect(async () => {
         await fm.destroyVolume(batchId);
       }).rejects.toThrow(`Cannot destroy owner stamp, batchId: ${batchId.toString()}`);
+    });
+  });
+
+  describe('version control', () => {
+    let fm: FileManagerBase;
+    const feedDataMock = getFeedData as jest.MockedFunction<typeof getFeedData>;
+
+    beforeEach(async () => {
+      jest.resetAllMocks();
+      createInitMocks();
+
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      const common = require('../../src/utils/common');
+      common.generateTopic.mockReturnValue(new Topic('1'.repeat(64)));
+      common.generateFileFeedTopic.mockReturnValue(new Topic('1'.repeat(64)));
+      common.getFeedData.mockResolvedValue(createMockGetFeedDataResult(0, 1));
+      common.getWrappedData.mockResolvedValue({ uploadFilesRes: mockSelfAddr } as WrappedUploadResult);
+
+      jest.spyOn(fs, 'readFileSync').mockReturnValue(Buffer.from(''));
+      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      fm = await createInitializedFileManager(bee);
+    });
+
+    it('getVersionCount returns feedIndexNext', async () => {
+      feedDataMock.mockResolvedValueOnce(createMockGetFeedDataResult(0, 5));
+      const count = await fm.getVersionCount('foo.txt');
+      expect(count).toBe(5);
+    });
+
+    it('getVersion returns null on 404', async () => {
+      const notFound = new Error('not found') as any;
+      notFound.status = 404;
+      feedDataMock.mockRejectedValueOnce(notFound);
+      const v = await fm.getVersion('foo.txt', 0);
+      expect(v).toBeNull();
+    });
+
+    it('getVersion returns metadata when feed payload is JSON', async () => {
+      const meta: FileVersionMetadata = {
+        filePath: 'foo.txt',
+        contentHash: 'xyzRef',
+        size: 123,
+        timestamp: '2025-01-01T00:00:00Z',
+        version: 0,
+        batchId: 'batch123',
+        customMetadata: { a: '1' },
+      };
+      // simulate feedData.download() returning JSON blob { reference: 'refHex' }
+      const payload = Bytes.fromUtf8(JSON.stringify({ reference: 'refHex' }));
+      feedDataMock.mockResolvedValueOnce({ payload, feedIndex: undefined as any, feedIndexNext: undefined });
+      jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValueOnce(Bytes.fromUtf8(JSON.stringify(meta)));
+
+      const result = await fm.getVersion('foo.txt', 0);
+      expect(result).toEqual(meta);
+    });
+
+    it('getHistory returns all versions in order', async () => {
+      const v0: FileVersionMetadata = {
+        filePath: 'a',
+        contentHash: 'h0',
+        size: 1,
+        timestamp: 't0',
+        version: 0,
+        batchId: 'b0',
+      };
+      const v1: FileVersionMetadata = {
+        filePath: 'a',
+        contentHash: 'h1',
+        size: 2,
+        timestamp: 't1',
+        version: 1,
+        batchId: 'b1',
+      };
+      jest.spyOn(fm, 'getVersionCount').mockResolvedValueOnce(2);
+      jest
+        .spyOn(fm, 'getVersion')
+        .mockResolvedValueOnce(v0 as any)
+        .mockResolvedValueOnce(v1 as any);
+
+      const history = await fm.getHistory('a');
+      expect(history).toEqual([v0, v1]);
+    });
+
+    it('emits version from writeFileVersionMetadata by mocking the underlying Bee calls', async () => {
+      // 0) intercept the reader, so getFileVersionCount() sees feedIndexNext = 6
+      jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue({
+        download: jest.fn().mockResolvedValue({
+          feedIndexNext: FeedIndex.fromBigInt(6n),
+        }),
+      } as any);
+
+      // 1) stub out directory‐upload so uploadNode/uploadBrowser itself resolves
+      const FILE_REF = '3'.repeat(64);
+      const HISTORY_REF = '0'.repeat(64);
+      jest.spyOn(Bee.prototype, 'uploadFilesFromDirectory').mockResolvedValue({
+        reference: new Reference(FILE_REF),
+        historyAddress: { getOrThrow: () => new Reference(HISTORY_REF) },
+      } as UploadResult);
+
+      // 2) stub every call to bee.uploadData()
+      jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValue({
+        reference: new Reference(FILE_REF),
+        historyAddress: { getOrThrow: () => new Reference(HISTORY_REF) },
+      } as UploadResult);
+
+      // 3) stub the feed-writer so uploadReference never throws
+      jest.spyOn(Bee.prototype, 'makeFeedWriter').mockReturnValue({
+        uploadReference: jest.fn().mockResolvedValue(undefined),
+      } as any);
+
+      // now initialize + do the upload
+      const emitter = new EventEmitterBase();
+      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee, emitter);
+      const handler = jest.fn();
+      emitter.on(FileManagerEvents.FILE_UPLOADED, handler);
+
+      await fm.upload({
+        batchId: new BatchId(MOCK_BATCH_ID),
+        path: './tests',
+        name: 'versioned.txt',
+      });
+
+      expect(handler).toHaveBeenCalledWith(expect.objectContaining({ version: 6 }));
+    });
+
+    it('getVersionCount treats undefined feedIndexNext as zero', async () => {
+      // simulate getFeedData returning no feedIndexNext
+      feedDataMock.mockResolvedValueOnce({
+        payload: Bytes.fromUtf8('irrelevant'),
+        feedIndex: undefined as any,
+        feedIndexNext: undefined,
+      });
+      const count = await fm.getVersionCount('foo.txt');
+      expect(count).toBe(0);
+    });
+
+    it('getVersion returns null when payload is all-zero (SWARM_ZERO_ADDRESS)', async () => {
+      // 32 bytes of zero → zero‐address
+      const zeroPayload = new Bytes(Buffer.alloc(32));
+      feedDataMock.mockResolvedValueOnce({
+        payload: zeroPayload,
+        feedIndex: undefined as any,
+        feedIndexNext: undefined,
+      });
+      const v = await fm.getVersion('foo.txt', 0);
+      expect(v).toBeNull();
+    });
+
+    it('getVersion falls back to raw‐reference when JSON.parse fails', async () => {
+      // payload is plain 32‐byte reference
+      const rawRefHex = '3'.repeat(64);
+      const rawRefBytes = new Bytes(Buffer.from(rawRefHex, 'hex'));
+      feedDataMock.mockResolvedValueOnce({
+        payload: rawRefBytes,
+        feedIndex: undefined as any,
+        feedIndexNext: undefined,
+      });
+      // downloadData should be called with the rawRefHex and return our metadata blob
+      const meta = {
+        filePath: 'foo.txt',
+        contentHash: 'xyz',
+        size: 42,
+        timestamp: '2025-01-02T03:04:05Z',
+        version: 0,
+        batchId: 'batch-foo',
+      };
+      jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValueOnce(Bytes.fromUtf8(JSON.stringify(meta)));
+
+      const result = await fm.getVersion('foo.txt', 0);
+      expect(result).not.toBeNull();
+      expect(result).toEqual(meta);
+    });
+
+    it('getHistory filters out null versions', async () => {
+      // pretend there are 3 entries but the middle one is missing
+      jest.spyOn(fm, 'getVersionCount').mockResolvedValueOnce(3);
+      jest
+        .spyOn(fm, 'getVersion')
+        .mockResolvedValueOnce({
+          version: 0,
+          filePath: 'x',
+          contentHash: 'h0',
+          size: 1,
+          timestamp: 't0',
+          batchId: 'b0',
+        } as any)
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          version: 2,
+          filePath: 'x',
+          contentHash: 'h2',
+          size: 3,
+          timestamp: 't2',
+          batchId: 'b2',
+        } as any);
+
+      const history = await fm.getHistory('foo.txt');
+      expect(history).toHaveLength(2);
+      expect(history.map((h) => h.version)).toEqual([0, 2]);
     });
   });
 
