@@ -100,6 +100,21 @@ export interface FileManager {
   getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult>;
 
   /**
+   * How many versions exist for this file (0 = none).
+   */
+  getVersionCount(filePath: string): Promise<number>;
+
+  /**
+   * Load a single version's metadata for a file.
+   */
+  getVersion(filePath: string, version: number): Promise<FileVersionMetadata | null>;
+
+  /**
+   * Load every version's metadata, in order.
+   */
+  getHistory(filePath: string): Promise<FileVersionMetadata[]>;
+
+  /**
    * Retrieves a list of file information.
    * @returns An array of file information objects.
    */
@@ -218,3 +233,14 @@ export interface WrappedUploadResult {
   uploadFilesRes: Reference | string;
   uploadPreviewRes?: Reference | string;
 }
+
+export interface FileVersionMetadata {
+  filePath: string;
+  contentHash: string;
+  size: number;
+  timestamp: string;
+  version: number;
+  batchId: string;
+  customMetadata?: Record<string, string>;
+}
+  

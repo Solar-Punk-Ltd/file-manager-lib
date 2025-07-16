@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import {
   BatchId,
   Bee,
@@ -48,6 +49,15 @@ export function generateTopic(): Topic {
     return new Topic(getRandomBytesNode(Topic.LENGTH));
   }
   return new Topic(getRandomBytesBrowser(Topic.LENGTH));
+}
+
+export function generateFileFeedTopic(filePath: string): Topic {
+  const normalizedPath = filePath.replace(/\\/g, '/');
+  
+  const pathBuffer = Buffer.from(`file_version_${normalizedPath}`, 'utf-8');
+  const hash = crypto.createHash('sha256').update(pathBuffer).digest();
+  
+  return new Topic(hash);
 }
 
 // status is undefined in the error object
