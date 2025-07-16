@@ -6,8 +6,4 @@ export {
   getFileVersionCount,
   writeFileVersionMetadata,
   readFileVersionMetadata,
-  getFileVersionHistory,
-  getFileVersionInfo,
-  calculateContentHash,
-  hasVersionHistory,
 } from './versionControl';

@@ -132,18 +132,11 @@ export interface FileManager {
   emitter: EventEmitter;
 }
 
-export enum FileOperation {
-  CREATE = 'CREATE',
-  MODIFY = 'MODIFY',
-  DELETE = 'DELETE'
-}
-
 export interface FileVersionMetadata {
   filePath: string;
   contentHash: string;
   size: number;
   timestamp: string;
-  operation: FileOperation;
   version: number;
   batchId: string;
   customMetadata?: Record<string, string>;
