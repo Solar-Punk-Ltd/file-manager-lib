@@ -526,6 +526,120 @@ describe('FileManager download', () => {
   });
 });
 
+describe('FileManager file operations', () => {
+  let bee: BeeDev;
+  let fileManager: FileManagerBase;
+  let batchId: BatchId;
+  let testFi: FileInfo;
+  const TEST_NAME = 'trash-restore-forget.txt';
+
+  beforeAll(async () => {
+    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    // ensure owner stamp
+    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
+    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'fileOpsIntegration');
+    fileManager = await createInitializedFileManager(bee);
+    await fileManager.initialize();
+
+    // upload a single test file
+    const testFilePath = path.join(__dirname, '../fixtures', TEST_NAME);
+    fs.writeFileSync(testFilePath, 'file ops content');
+    await fileManager.upload({ batchId, path: testFilePath, name: TEST_NAME });
+
+    // grab the FileInfo
+    testFi = fileManager.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
+    expect(testFi).toBeDefined();
+    expect(testFi.status).toBe('active');
+  });
+
+  it('should trash a file (soft-delete)', async () => {
+    await fileManager.trashFile(testFi);
+    expect(testFi.status).toBe('trashed');
+
+    // re-init and confirm persisted status
+    const fm2 = await createInitializedFileManager(bee);
+    await fm2.initialize();
+    const fi2 = fm2.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
+    expect(fi2!.status).toBe('trashed');
+  });
+
+  it('should restore a previously trashed file', async () => {
+    // make sure it's trashed first
+    expect(testFi.status).toBe('trashed');
+
+    await fileManager.restoreFile(testFi);
+    expect(testFi.status).toBe('active');
+
+    const fm2 = await createInitializedFileManager(bee);
+    await fm2.initialize();
+    const fi2 = fm2.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
+    expect(fi2!.status).toBe('active');
+  });
+
+  it('should forget (hard-delete) a file', async () => {
+    await fileManager.forgetFile(testFi);
+    // in-memory
+    expect(fileManager.fileInfoList.find((fi) => fi.name === TEST_NAME)).toBeUndefined();
+
+    // persisted owner-feed should no longer contain it
+    const fm2 = await createInitializedFileManager(bee);
+    await fm2.initialize();
+    expect(fm2.fileInfoList.find((fi) => fi.name === TEST_NAME)).toBeUndefined();
+  });
+
+  it('should never duplicate FileInfo entries when trashing/restoring', async () => {
+    // Re-upload the same test file
+    const testFilePath = path.join(__dirname, '../fixtures', TEST_NAME);
+    await fileManager.upload({ batchId, path: testFilePath, name: TEST_NAME });
+
+    // Grab the fresh FileInfo
+    const freshFi = fileManager.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
+    expect(freshFi).toBeDefined();
+
+    // Count how many entries share this topic
+    const topicStr = freshFi.topic.toString();
+    const beforeCount = fileManager.fileInfoList.filter((fi) => fi.topic.toString() === topicStr).length;
+    expect(beforeCount).toBe(1);
+
+    // Trash and Restore twice
+    await fileManager.trashFile(freshFi);
+    await fileManager.trashFile(freshFi);
+    await fileManager.restoreFile(freshFi);
+    await fileManager.restoreFile(freshFi);
+
+    // After all of that, still only one entry for this topic
+    const afterCount = fileManager.fileInfoList.filter((fi) => fi.topic.toString() === topicStr).length;
+    expect(afterCount).toBe(1);
+  });
+
+  it('ownerFeedList should never gain duplicate topics when trash/restoring', async () => {
+    // We know freshFi from previous test; but let's re-grab it just in case
+    const freshFi = fileManager.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
+    const topicStr = freshFi.topic.toString();
+
+    // Count wrapped‐feed entries matching this topic
+    const beforeFeedCount = (fileManager as any).ownerFeedList.filter(
+      (w: any) => w.topic.toString() === topicStr,
+    ).length;
+    expect(beforeFeedCount).toBe(1);
+
+    // trash & restore
+    await fileManager.trashFile(freshFi);
+    await fileManager.restoreFile(freshFi);
+
+    const afterFeedCount = (fileManager as any).ownerFeedList.filter(
+      (w: any) => w.topic.toString() === topicStr,
+    ).length;
+    expect(afterFeedCount).toBe(1);
+
+    // Finally, re-init to confirm persistence side hasn't duplicated
+    const fm2 = await createInitializedFileManager(bee);
+    await fm2.initialize();
+    const persistedFeedCount = (fm2 as any).ownerFeedList.filter((w: any) => w.topic.toString() === topicStr).length;
+    expect(persistedFeedCount).toBe(1);
+  });
+});
+
 describe('FileManager destroyVolume', () => {
   let bee: BeeDev;
   let fileManager: FileManagerBase;
