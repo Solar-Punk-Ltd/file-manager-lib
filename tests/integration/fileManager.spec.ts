@@ -4,9 +4,11 @@ import * as fs from 'fs';
 import path, { join } from 'path';
 
 import { FileManagerBase } from '../../src/fileManager';
-import { buyStamp, getFeedData } from '../../src/utils/common';
+import { buyStamp, generateFileFeedTopic, getFeedData } from '../../src/utils/common';
 import { OWNER_STAMP_LABEL, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { FileInfoError, GranteeError, StampError } from '../../src/utils/errors';
+import { EventEmitterBase } from '../../src/utils/eventEmitter';
+import { FileManagerEvents } from '../../src/utils/events';
 import { FileInfo } from '../../src/utils/types';
 import { createInitializedFileManager } from '../mockHelpers';
 import {
@@ -435,6 +437,7 @@ describe('FileManager upload', () => {
 
 describe('FileManager Version Control', () => {
   const fileName = 'versioned.txt';
+  const restoreName = 'versioned-restore.txt';
   const v1Path = join(__dirname, 'tmp_v1.txt');
   const v2Path = join(__dirname, 'tmp_v2.txt');
   let bee: BeeDev;
@@ -466,9 +469,15 @@ describe('FileManager Version Control', () => {
   });
 
   it('should increment version count on each upload', async () => {
+    // perform two uploads under the same name
     await fm.upload({ batchId, path: v1Path, name: fileName });
     await fm.upload({ batchId, path: v2Path, name: fileName });
-    const count = await fm.getVersionCount(fileName);
+
+    // grab the FileInfo entry that was just created
+    const fi = fm.fileInfoList.find((f) => f.name === fileName)!;
+
+    // now ask for the version count
+    const count = await fm.getVersionCount(fi);
     expect(count).toBe(2);
   });
 
@@ -487,18 +496,28 @@ describe('FileManager Version Control', () => {
   });
 
   it('getHistory returns all versions in order', async () => {
-    const history = await fm.getHistory(fileName);
+    // grab the same FileInfo
+    const fi = fm.fileInfoList.find((f) => f.name === fileName)!;
+
+    // fetch its history
+    const history = await fm.getHistory(fi);
     expect(history).toHaveLength(2);
     expect(history.map((h) => h.version)).toEqual([0, 1]);
-    // optional extra sanity: timestamps are ISO strings
+    // timestamps should be ISO strings
     history.forEach((h) => expect(typeof h.timestamp).toBe('string'));
   });
 
   it('should return zero versions, null getVersion and empty history for a totally new file', async () => {
-    const missing = 'no-such-file.txt';
-    expect(await fm.getVersionCount(missing)).toBe(0);
-    expect(await fm.getVersion(missing, 0)).toBeNull();
-    expect(await fm.getHistory(missing)).toEqual([]);
+    const missingName = 'no-such-file.txt';
+    // make a fake FileInfo pointing at that (nothing ever wrote its topic yet)
+    const fakeFi = {
+      name: missingName,
+      topic: generateFileFeedTopic(missingName).toString(),
+    } as unknown as FileInfo;
+
+    expect(await fm.getVersionCount(fakeFi)).toBe(0);
+    expect(await fm.getVersion(missingName, 0)).toBeNull();
+    expect(await fm.getHistory(fakeFi)).toEqual([]);
   });
 
   it('should report correct metadata fields for version 0', async () => {

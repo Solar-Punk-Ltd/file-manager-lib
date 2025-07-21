@@ -24,8 +24,8 @@ import {
 } from '@ethersphere/bee-js';
 import { isNode } from 'std-env';
 
-import { assertFileInfo, assertShareItem, assertWrappedFileInoFeed } from './utils/asserts';
-import { generateTopic, generateFileFeedTopic, getFeedData, getWrappedData, settlePromises } from './utils/common';
+import { assertFileInfo, assertFileVersionMetadata, assertShareItem, assertWrappedFileInoFeed } from './utils/asserts';
+import { generateTopic, generateFileFeedTopic, getFeedData, getWrappedData, settlePromises, writeFileVersionMetadata } from './utils/common';
 import { OWNER_STAMP_LABEL, REFERENCE_LIST_TOPIC, SHARED_INBOX_TOPIC, SWARM_ZERO_ADDRESS } from './utils/constants';
 import {
   BeeVersionError,
@@ -38,7 +38,6 @@ import {
 } from './utils/errors';
 import { EventEmitter, EventEmitterBase } from './utils/eventEmitter';
 import { FileManagerEvents } from './utils/events';
-import { writeFileVersionMetadata } from './utils/versionControl';
 import {
   FeedPayloadResult,
   FileInfo,
@@ -313,9 +312,6 @@ export class FileManagerBase implements FileManager {
     uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
-    console.debug(`[FM] upload called for ${infoOptions.name} — infoOptions.customMetadata =`, infoOptions.customMetadata);
-    const tag = infoOptions.customMetadata;
-    console.debug(`[FM] upload called for ${infoOptions.name} — infoOptions.customMetadata =`, tag);
     if (
       (infoOptions.infoTopic && !uploadOptions?.actHistoryAddress) ||
       (!infoOptions.infoTopic && uploadOptions?.actHistoryAddress)
@@ -360,10 +356,10 @@ export class FileManagerBase implements FileManager {
       shared: false,
       preview: undefined,
       index: infoOptions.index,
-      customMetadata: tag,
+      customMetadata: infoOptions.customMetadata,
       redundancyLevel: uploadOptions?.redundancyLevel,
     };
-    console.debug(`[FM] constructed fileInfo.customMetadata =`, fileInfo.customMetadata);
+    console.debug(`Constructed fileInfo.customMetadata =`, fileInfo.customMetadata);
     await this.saveFileInfoAndFeed(fileInfo, requestOptions);
 
     let version: number | undefined;
@@ -504,66 +500,62 @@ export class FileManagerBase implements FileManager {
     }
   }
 
-  async getVersionCount(filePath: string): Promise<number> {
+  async getVersionCount(fileInfo: FileInfo): Promise<number> {
     const owner = this.signer.publicKey().address().toString();
-    const topic = generateFileFeedTopic(filePath);
+    // versions are stored under the “file_version_{name}” feed
+    const topic = generateFileFeedTopic(fileInfo.name);
     const { feedIndexNext } = await getFeedData(this.bee, topic, owner);
-    // If feedIndexNext is undefined, treat it as zero
     return Number(feedIndexNext?.toBigInt() ?? 0n);
   }
-
+  
   async getVersion(
     filePath: string,
     version: number,
   ): Promise<FileVersionMetadata | null> {
     const owner = this.signer.publicKey().address().toString();
     const topic = generateFileFeedTopic(filePath);
-    let feedData;
-    try {
-      feedData = await getFeedData(this.bee, topic, owner, BigInt(version));
-    } catch (err: any) {
-      if (err.status === 404) {
-        return null;
-      }
-      throw err;
-    }
+    const feedData = await getFeedData(this.bee, topic, owner, BigInt(version));
   
     // if zero-address payload, nothing was ever written
     if (SWARM_ZERO_ADDRESS.equals(feedData.payload.toUint8Array())) {
       return null;
     }
   
-    // payload is the bytes of a JSON blob { reference, historyRef? }
     const raw = feedData.payload.toUint8Array();
-    const text = Buffer.from(raw).toString('utf-8');
     let refHex: string;
     try {
-      // expected shape: { reference: string, historyRef?: string }
-      refHex = JSON.parse(text).reference;
+      const text = Buffer.from(raw).toString('utf-8');
+      const wrapper = JSON.parse(text) as { reference: string; historyRef?: string };
+      refHex = wrapper.reference;
     } catch {
-      // fallback: if someone wrote raw 32-byte reference
+      // if it wasn’t JSON, assume it was a raw 32‐byte reference
       refHex = new Reference(raw).toString();
     }
-  
-    // now download that reference, parse JSON into FileVersionMetadata
+
+    // download the version‐metadata blob
     const blob = await this.bee.downloadData(refHex);
-    return JSON.parse(Buffer.from(blob.toUint8Array()).toString('utf-8')) as FileVersionMetadata;
+    const parsed = JSON.parse(Buffer.from(blob.toUint8Array()).toString('utf-8'));
+    try {
+      assertFileVersionMetadata(parsed);
+      return parsed;
+    } catch (err: any) {
+      console.error(`Invalid FileVersionMetadata for ${filePath}@${version}, skipping:`, err);
+      return null;
+    }
   }
 
   /**
  * Read out all versions, in order 0..count-1.
  */
-async getHistory(filePath: string): Promise<FileVersionMetadata[]> {
-  const count = await this.getVersionCount(filePath);
-  const history: FileVersionMetadata[] = [];
-  for (let i = 0; i < count; i++) {
-    const v = await this.getVersion(filePath, i);
-    if (v) {
-      history.push(v);
+  async getHistory(fileInfo: FileInfo): Promise<FileVersionMetadata[]> {
+    const count = await this.getVersionCount(fileInfo);
+    const history: FileVersionMetadata[] = [];
+    for (let i = 0; i < count; i++) {
+      const v = await this.getVersion(fileInfo.name, i);
+      if (v) history.push(v);
     }
+    return history;
   }
-  return history;
-}
 
   private async getOwnerStamp(): Promise<PostageBatch | undefined> {
     if (this.ownerStamp) return this.ownerStamp;

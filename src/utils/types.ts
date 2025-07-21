@@ -102,7 +102,7 @@ export interface FileManager {
   /**
    * How many versions exist for this file (0 = none).
    */
-  getVersionCount(filePath: string): Promise<number>;
+  getVersionCount(fileInfo: FileInfo): Promise<number>;
 
   /**
    * Load a single version's metadata for a file.
@@ -112,7 +112,7 @@ export interface FileManager {
   /**
    * Load every version's metadata, in order.
    */
-  getHistory(filePath: string): Promise<FileVersionMetadata[]>;
+  getHistory(fileInfo: FileInfo): Promise<FileVersionMetadata[]>;
 
   /**
    * Retrieves a list of file information.

@@ -1,7 +1,7 @@
 import { EthAddress, Reference, Topic } from '@ethersphere/bee-js';
 import { Types } from 'cafe-utility';
 
-import { FileInfo, ShareItem, WrappedFileInfoFeed, WrappedUploadResult } from './types';
+import { FileInfo, FileVersionMetadata, ShareItem, WrappedFileInfoFeed, WrappedUploadResult } from './types';
 
 export function isRecord(value: unknown): value is Record<string, string> {
   return Types.isStrictlyObject(value) && Object.values(value).every((v) => typeof v === 'string');
@@ -49,6 +49,34 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
 
   if (fi.redundancyLevel !== undefined && typeof fi.redundancyLevel !== 'number') {
     throw new TypeError('redundancyLevel property of FileInfo has to be number!');
+  }
+}
+
+export function assertFileVersionMetadata(value: unknown): asserts value is FileVersionMetadata {
+  if (!Types.isStrictlyObject(value)) {
+    throw new TypeError('FileVersionMetadata has to be an object!');
+  }
+  const m = value as FileVersionMetadata;
+  if (typeof m.filePath !== 'string') {
+    throw new TypeError('FileVersionMetadata.filePath must be a string!');
+  }
+  if (typeof m.contentHash !== 'string') {
+    throw new TypeError('FileVersionMetadata.contentHash must be a string!');
+  }
+  if (typeof m.size !== 'number') {
+    throw new TypeError('FileVersionMetadata.size must be a number!');
+  }
+  if (typeof m.timestamp !== 'string') {
+    throw new TypeError('FileVersionMetadata.timestamp must be a string!');
+  }
+  if (typeof m.version !== 'number') {
+    throw new TypeError('FileVersionMetadata.version must be a number!');
+  }
+  if (typeof m.batchId !== 'string') {
+    throw new TypeError('FileVersionMetadata.batchId must be a string!');
+  }
+  if (m.customMetadata !== undefined && !isRecord(m.customMetadata)) {
+    throw new TypeError('FileVersionMetadata.customMetadata, if present, must be Record<string, string>!');
   }
 }
 

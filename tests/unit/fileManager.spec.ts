@@ -1,18 +1,10 @@
-import {
-  BatchId,
-  Bee,
-  Bytes,
-  FeedIndex,
-  MantarayNode,
-  Reference,
-  STAMPS_DEPTH_MAX,
-  Topic,
-  UploadResult,
-} from '@ethersphere/bee-js';
+import { BatchId, Bee, Bytes, MantarayNode, Reference, STAMPS_DEPTH_MAX, Topic } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 
 import { FileManagerBase } from '../../src/fileManager';
-import { getFeedData } from '../../src/utils/common';
+import * as uploadBrowserModule from '../../src/upload/upload.browser';
+import * as uploadNodeModule from '../../src/upload/upload.node';
+import { generateFileFeedTopic, getFeedData } from '../../src/utils/common';
 import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
 import { EventEmitterBase } from '../../src/utils/eventEmitter';
@@ -294,20 +286,40 @@ describe('FileManager', () => {
       jest.spyOn(fs, 'readFileSync').mockReturnValue(Buffer.from(''));
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
       fm = await createInitializedFileManager(bee);
+
+      jest.spyOn(uploadNodeModule, 'uploadNode').mockResolvedValue({
+        reference: new Reference('3'.repeat(64)),
+        historyAddress: { getOrThrow: () => new Reference('0'.repeat(64)) },
+      } as any);
+
+      jest.spyOn(uploadBrowserModule, 'uploadBrowser').mockResolvedValue({
+        reference: new Reference('3'.repeat(64)),
+        historyAddress: { getOrThrow: () => new Reference('0'.repeat(64)) },
+      } as any);
     });
 
     it('getVersionCount returns feedIndexNext', async () => {
+      // make getFeedData return feedIndexNext = 5
       feedDataMock.mockResolvedValueOnce(createMockGetFeedDataResult(0, 5));
-      const count = await fm.getVersionCount('foo.txt');
+
+      const fakeFileInfo = {
+        topic: generateFileFeedTopic('foo.txt'),
+      } as unknown as FileInfo;
+
+      const count = await fm.getVersionCount(fakeFileInfo);
       expect(count).toBe(5);
     });
 
-    it('getVersion returns null on 404', async () => {
-      const notFound = new Error('not found') as any;
-      notFound.status = 404;
-      feedDataMock.mockRejectedValueOnce(notFound);
-      const v = await fm.getVersion('foo.txt', 0);
-      expect(v).toBeNull();
+    it('getVersion returns null on 404 / zero-address', async () => {
+      // zero-address payload → null
+      feedDataMock.mockResolvedValue({
+        payload: SWARM_ZERO_ADDRESS,
+        feedIndex: undefined as any,
+        feedIndexNext: undefined as any,
+      });
+
+      await expect(fm.getVersion('foo.txt', 0)).resolves.toBeNull();
+      await expect(fm.getVersion('foo.txt', 1)).resolves.toBeNull();
     });
 
     it('getVersion returns metadata when feed payload is JSON', async () => {
@@ -356,39 +368,12 @@ describe('FileManager', () => {
       expect(history).toEqual([v0, v1]);
     });
 
-    it('emits version from writeFileVersionMetadata by mocking the underlying Bee calls', async () => {
-      // 0) intercept the reader, so getFileVersionCount() sees feedIndexNext = 6
-      jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue({
-        download: jest.fn().mockResolvedValue({
-          feedIndexNext: FeedIndex.fromBigInt(6n),
-        }),
-      } as any);
-
-      // 1) stub out directory‐upload so uploadNode/uploadBrowser itself resolves
-      const FILE_REF = '3'.repeat(64);
-      const HISTORY_REF = '0'.repeat(64);
-      jest.spyOn(Bee.prototype, 'uploadFilesFromDirectory').mockResolvedValue({
-        reference: new Reference(FILE_REF),
-        historyAddress: { getOrThrow: () => new Reference(HISTORY_REF) },
-      } as UploadResult);
-
-      // 2) stub every call to bee.uploadData()
-      jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValue({
-        reference: new Reference(FILE_REF),
-        historyAddress: { getOrThrow: () => new Reference(HISTORY_REF) },
-      } as UploadResult);
-
-      // 3) stub the feed-writer so uploadReference never throws
-      jest.spyOn(Bee.prototype, 'makeFeedWriter').mockReturnValue({
-        uploadReference: jest.fn().mockResolvedValue(undefined),
-      } as any);
-
-      // now initialize + do the upload
-      const emitter = new EventEmitterBase();
-      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = await createInitializedFileManager(bee, emitter);
+    it('emits version from recordVersion', async () => {
       const handler = jest.fn();
-      emitter.on(FileManagerEvents.FILE_UPLOADED, handler);
+      fm.emitter.on(FileManagerEvents.FILE_UPLOADED, handler);
+
+      // stub out recordVersion to return “6”
+      jest.spyOn(fm as any, 'recordVersion').mockResolvedValueOnce(6);
 
       await fm.upload({
         batchId: new BatchId(MOCK_BATCH_ID),
@@ -396,6 +381,7 @@ describe('FileManager', () => {
         name: 'versioned.txt',
       });
 
+      // should include version: 6
       expect(handler).toHaveBeenCalledWith(expect.objectContaining({ version: 6 }));
     });
 
@@ -406,7 +392,12 @@ describe('FileManager', () => {
         feedIndex: undefined as any,
         feedIndexNext: undefined,
       });
-      const count = await fm.getVersionCount('foo.txt');
+
+      const fakeFileInfo = {
+        topic: generateFileFeedTopic('foo.txt'),
+      } as unknown as FileInfo;
+
+      const count = await fm.getVersionCount(fakeFileInfo);
       expect(count).toBe(0);
     });
 
@@ -511,6 +502,15 @@ describe('FileManager', () => {
       const fm = await createInitializedFileManager(bee, emitter);
       fm.emitter.on(FileManagerEvents.FILE_UPLOADED, uploadHandler);
       createUploadFilesFromDirectorySpy('1');
+      jest.spyOn(uploadNodeModule, 'uploadNode').mockResolvedValue({
+        reference: new Reference(SWARM_ZERO_ADDRESS.toString()),
+        historyAddress: { getOrThrow: () => new Reference(SWARM_ZERO_ADDRESS.toString()) },
+      } as any);
+
+      jest.spyOn(uploadBrowserModule, 'uploadBrowser').mockResolvedValue({
+        reference: new Reference(SWARM_ZERO_ADDRESS.toString()),
+        historyAddress: { getOrThrow: () => new Reference(SWARM_ZERO_ADDRESS.toString()) },
+      } as any);
 
       const actPublisher = (await bee.getNodeAddresses()).publicKey.toCompressedHex();
       const expectedFileInfo = {
