@@ -350,6 +350,7 @@ export class FileManagerBase implements FileManager {
       index: infoOptions.index,
       customMetadata: infoOptions.customMetadata,
       redundancyLevel: uploadOptions?.redundancyLevel,
+      status: 'active',
     };
     await this.saveFileInfoAndFeed(fileInfo, requestOptions);
 
@@ -392,7 +393,13 @@ export class FileManagerBase implements FileManager {
         requestOptions,
       );
 
-      this.fileInfoList.push(fileInfo);
+      const topicStr = fileInfo.topic.toString();
+      const existingIx = this.fileInfoList.findIndex(f => f.topic.toString() === topicStr);
+      if (existingIx !== -1) {
+        this.fileInfoList[existingIx] = fileInfo;
+      } else {
+        this.fileInfoList.push(fileInfo);
+      }
 
       return {
         reference: uploadInfoRes.reference.toString(),
@@ -463,6 +470,64 @@ export class FileManagerBase implements FileManager {
     } catch (error: any) {
       throw new FileInfoError(`Failed to save owner feed list: ${error}`);
     }
+  }
+
+  async trashFile(fileInfo: FileInfo): Promise<void> {
+    const fi = this.fileInfoList.find(
+      f => f.topic.toString() === fileInfo.topic.toString()
+    );
+    if (!fi) {
+      throw new Error(`trashFile: not managed: ${fileInfo.topic}`);
+    }
+    // mutate the same object
+    fi.status = 'trashed';
+    fi.timestamp = Date.now();
+    // persist
+    await this.saveFileInfoAndFeed(fi);
+    this.emitter.emit(FileManagerEvents.FILE_TRASHED, { fileInfo: fi });
+  }
+  
+  /**
+   * Restore a previously trashed file.
+   */
+  async restoreFile(fileInfo: FileInfo): Promise<void> {
+    const fi = this.fileInfoList.find(
+      f => f.topic.toString() === fileInfo.topic.toString()
+    );
+    if (!fi) {
+      throw new Error(`restoreFile: not managed: ${fileInfo.topic}`);
+    }
+    fi.status = 'active';
+    fi.timestamp = Date.now();
+    await this.saveFileInfoAndFeed(fi);
+    this.emitter.emit(FileManagerEvents.FILE_RESTORED, { fileInfo: fi });
+  }
+
+  /**
+   * Hard‐delete (un‐publish): remove from your owner‐feed and in-memory lists.
+   * The underlying Swarm data remains, but it no longer appears in your live list.
+   */
+  async forgetFile(fileInfo: FileInfo): Promise<void> {
+    const topicStr = fileInfo.topic.toString();
+    // 1) remove *all* in‐memory entries for this topic
+    for (let i = this.fileInfoList.length - 1; i >= 0; i--) {
+      if (this.fileInfoList[i].topic.toString() === topicStr) {
+        this.fileInfoList.splice(i, 1);
+      }
+    }
+  
+    // 2) remove *all* wrapped‐feed entries
+    for (let i = this.ownerFeedList.length - 1; i >= 0; i--) {
+      if (this.ownerFeedList[i].topic.toString() === topicStr) {
+        this.ownerFeedList.splice(i, 1);
+      }
+    }
+  
+    // 3) persist the updated owner‐feed list so future inits skip it
+    await this.saveOwnerFeedList();
+  
+    // 4) emit
+    this.emitter.emit(FileManagerEvents.FILE_FORGOTTEN, { fileInfo });
   }
 
   private async getOwnerStamp(): Promise<PostageBatch | undefined> {

@@ -62,6 +62,21 @@ export interface FileManager {
    */
   listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<ReferenceWithPath[]>;
 
+    /**
+   * Soft‐delete: move a file to “trash” (it stays in swarm but is hidden from your live list).
+   */
+    trashFile(fileInfo: FileInfo): Promise<void>;
+
+    /**
+     * Restore a previously trashed file back into your live list.
+     */
+    restoreFile(fileInfo: FileInfo): Promise<void>;
+  
+    /**
+     * Hard‐delete: permanently destroy the file’s postage batch and forget all its data.
+     */
+    forgetFile(fileInfo: FileInfo): Promise<void>;
+
   /**
    * Destroys a volume identified by the given batch ID.
    * @param batchId - The ID of the batch to destroy.
@@ -117,6 +132,8 @@ export interface FileManager {
   emitter: EventEmitter;
 }
 
+export type FileStatus = 'active' | 'trashed';
+
 export interface FileInfo {
   batchId: string | BatchId;
   file: ReferenceWithHistory;
@@ -130,6 +147,7 @@ export interface FileInfo {
   index?: string | undefined;
   redundancyLevel?: RedundancyLevel;
   customMetadata?: Record<string, string>;
+  status?: FileStatus;
 }
 
 export interface FileInfoOptions {
