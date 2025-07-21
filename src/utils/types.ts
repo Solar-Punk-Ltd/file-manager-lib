@@ -115,6 +115,18 @@ export interface FileManager {
   getHistory(fileInfo: FileInfo): Promise<FileVersionMetadata[]>;
 
   /**
+   * Restore a prior version into the live FileInfo feed.
+   */
+  restoreVersion(
+    fileInfo: FileInfo,
+    version: number,
+    options?: {
+      recordRestoreAsNewVersion?: boolean;
+      mergeMetadata?: boolean;
+    }
+  ): Promise<FileInfo>;
+
+  /**
    * Retrieves a list of file information.
    * @returns An array of file information objects.
    */

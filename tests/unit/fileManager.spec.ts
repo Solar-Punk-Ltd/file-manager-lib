@@ -465,6 +465,264 @@ describe('FileManager', () => {
       expect(history).toHaveLength(2);
       expect(history.map((h) => h.version)).toEqual([0, 2]);
     });
+
+    it('should restore an earlier version', async () => {
+      // Arrange
+      const fileInfo: FileInfo = {
+        batchId: MOCK_BATCH_ID,
+        owner: MOCK_SIGNER.publicKey().address().toString(),
+        topic: new Topic('a'.repeat(64)).toString(),
+        name: 'doc.txt',
+        actPublisher: '0xdead',
+        file: {
+          reference: new Reference('1'.repeat(64)).toString(),
+          historyRef: new Reference('2'.repeat(64)).toString(),
+        },
+        timestamp: Date.now(),
+        shared: false,
+        preview: undefined,
+        index: undefined,
+        customMetadata: undefined,
+        redundancyLevel: undefined,
+      };
+
+      fm.fileInfoList.push(fileInfo);
+
+      jest.spyOn(fm, 'getVersionCount').mockResolvedValueOnce(2);
+
+      const version0Meta: FileVersionMetadata = {
+        filePath: 'doc.txt',
+        contentHash: '0'.repeat(64), // earlier reference
+        size: 10,
+        timestamp: '2025-01-01T00:00:00Z',
+        version: 0,
+        batchId: MOCK_BATCH_ID,
+      };
+      jest.spyOn(fm, 'getVersion').mockResolvedValueOnce(version0Meta);
+
+      const saveFileInfoAndFeedSpy = jest.spyOn(fm as any, 'saveFileInfoAndFeed').mockResolvedValue(undefined);
+
+      const restored = await fm.restoreVersion(fileInfo, 0);
+
+      expect(fm.getVersion).toHaveBeenCalledWith('doc.txt', 0);
+      expect(saveFileInfoAndFeedSpy).toHaveBeenCalledTimes(1);
+      expect(restored.file.reference.toString()).toBe(version0Meta.contentHash);
+    });
+
+    it('restoreVersion throws if requested version >= count', async () => {
+      const fileInfo: FileInfo = {
+        batchId: MOCK_BATCH_ID,
+        owner: MOCK_SIGNER.publicKey().address().toString(),
+        topic: new Topic('b'.repeat(64)).toString(),
+        name: 'overflow.txt',
+        actPublisher: '0xdead',
+        file: {
+          reference: new Reference('a'.repeat(64)).toString(),
+          historyRef: new Reference('b'.repeat(64)).toString(),
+        },
+        timestamp: Date.now(),
+        shared: false,
+        preview: undefined,
+        index: undefined,
+        customMetadata: undefined,
+        redundancyLevel: undefined,
+      };
+      fm.fileInfoList.push(fileInfo);
+
+      jest.spyOn(fm, 'getVersionCount').mockResolvedValueOnce(2); // versions 0 & 1 only
+
+      await expect(fm.restoreVersion(fileInfo, 2)).rejects.toThrow(/version 2 not found/i);
+    });
+
+    it('restoreVersion throws if metadata for version is null', async () => {
+      const fileInfo: FileInfo = {
+        batchId: MOCK_BATCH_ID,
+        owner: MOCK_SIGNER.publicKey().address().toString(),
+        topic: new Topic('c'.repeat(64)).toString(),
+        name: 'missing.txt',
+        actPublisher: '0xdead',
+        file: {
+          reference: new Reference('c'.repeat(64)).toString(),
+          historyRef: new Reference('d'.repeat(64)).toString(),
+        },
+        timestamp: Date.now(),
+        shared: false,
+        preview: undefined,
+        index: undefined,
+        customMetadata: undefined,
+        redundancyLevel: undefined,
+      };
+      fm.fileInfoList.push(fileInfo);
+
+      jest.spyOn(fm, 'getVersionCount').mockResolvedValueOnce(1);
+      jest.spyOn(fm, 'getVersion').mockResolvedValueOnce(null);
+
+      await expect(fm.restoreVersion(fileInfo, 0)).rejects.toThrow(/not found/i);
+    });
+
+    it('restoreVersion with mergeMetadata=false overwrites customMetadata', async () => {
+      const fileInfo: FileInfo = {
+        batchId: MOCK_BATCH_ID,
+        owner: MOCK_SIGNER.publicKey().address().toString(),
+        topic: new Topic('d'.repeat(64)).toString(),
+        name: 'meta.txt',
+        actPublisher: '0xdead',
+        file: {
+          reference: new Reference('e'.repeat(64)).toString(),
+          historyRef: new Reference('f'.repeat(64)).toString(),
+        },
+        timestamp: Date.now(),
+        shared: false,
+        preview: undefined,
+        index: undefined,
+        customMetadata: { keep: 'old', _system: { something: 1 } },
+        redundancyLevel: undefined,
+      };
+      fm.fileInfoList.push(fileInfo);
+
+      jest.spyOn(fm, 'getVersionCount').mockResolvedValueOnce(2);
+      const versionMeta: FileVersionMetadata = {
+        filePath: 'meta.txt',
+        contentHash: '9'.repeat(64),
+        size: 5,
+        timestamp: '2025-02-01T00:00:00Z',
+        version: 0,
+        batchId: MOCK_BATCH_ID,
+        customMetadata: { restored: true },
+      };
+      jest.spyOn(fm, 'getVersion').mockResolvedValueOnce(versionMeta);
+
+      const saveSpy = jest.spyOn(fm as any, 'saveFileInfoAndFeed').mockResolvedValue(undefined);
+
+      const restored = await fm.restoreVersion(fileInfo, 0, { mergeMetadata: false });
+
+      expect(saveSpy).toHaveBeenCalled();
+      expect(restored.customMetadata).toEqual(versionMeta.customMetadata);
+      expect(restored.customMetadata).not.toHaveProperty('_system'); // since not merged
+    });
+
+    it('restoreVersion with mergeMetadata=true merges and annotates _system', async () => {
+      const fileInfo: FileInfo = {
+        batchId: MOCK_BATCH_ID,
+        owner: MOCK_SIGNER.publicKey().address().toString(),
+        topic: new Topic('e'.repeat(64)).toString(),
+        name: 'merge.txt',
+        actPublisher: '0xdead',
+        file: {
+          reference: new Reference('1'.repeat(64)).toString(),
+          historyRef: new Reference('2'.repeat(64)).toString(),
+        },
+        timestamp: Date.now(),
+        shared: false,
+        preview: undefined,
+        index: undefined,
+        customMetadata: { existing: 42, _system: { alpha: true } },
+        redundancyLevel: undefined,
+      };
+      fm.fileInfoList.push(fileInfo);
+
+      jest.spyOn(fm, 'getVersionCount').mockResolvedValueOnce(3);
+      const versionMeta: FileVersionMetadata = {
+        filePath: 'merge.txt',
+        contentHash: '7'.repeat(64),
+        size: 11,
+        timestamp: '2025-03-01T00:00:00Z',
+        version: 1,
+        batchId: MOCK_BATCH_ID,
+        customMetadata: { newField: 'yes' },
+      };
+      jest.spyOn(fm, 'getVersion').mockResolvedValueOnce(versionMeta);
+
+      jest.spyOn(fm as any, 'saveFileInfoAndFeed').mockResolvedValue(undefined);
+
+      const restored = await fm.restoreVersion(fileInfo, 1, { mergeMetadata: true });
+
+      expect(restored.customMetadata).toBeTruthy();
+      expect(restored.customMetadata).toHaveProperty('existing', 42);
+      expect(restored.customMetadata).toHaveProperty('newField', 'yes');
+      expect(restored.customMetadata?._system).toMatchObject({
+        alpha: true,
+        restoredFromVersion: 1,
+      });
+    });
+
+    it('restoreVersion leaves original historyRef intact', async () => {
+      const originalHistoryRef = new Reference('f'.repeat(64)).toString();
+      const fileInfo: FileInfo = {
+        batchId: MOCK_BATCH_ID,
+        owner: MOCK_SIGNER.publicKey().address().toString(),
+        topic: new Topic('f'.repeat(64)).toString(),
+        name: 'keep-history.txt',
+        actPublisher: '0xdead',
+        file: {
+          reference: new Reference('a'.repeat(64)).toString(),
+          historyRef: originalHistoryRef,
+        },
+        timestamp: Date.now(),
+        shared: false,
+        preview: undefined,
+        index: undefined,
+        customMetadata: undefined,
+        redundancyLevel: undefined,
+      };
+      fm.fileInfoList.push(fileInfo);
+
+      jest.spyOn(fm, 'getVersionCount').mockResolvedValueOnce(2);
+      const versionMeta: FileVersionMetadata = {
+        filePath: 'keep-history.txt',
+        contentHash: 'b'.repeat(64),
+        size: 20,
+        timestamp: '2025-04-01T00:00:00Z',
+        version: 0,
+        batchId: MOCK_BATCH_ID,
+      };
+      jest.spyOn(fm, 'getVersion').mockResolvedValueOnce(versionMeta);
+      jest.spyOn(fm as any, 'saveFileInfoAndFeed').mockResolvedValue(undefined);
+
+      const restored = await fm.restoreVersion(fileInfo, 0);
+
+      expect(restored.file.historyRef.toString()).toBe(originalHistoryRef);
+    });
+
+    it('restoreVersion updates timestamp to "now"', async () => {
+      const fileInfo: FileInfo = {
+        batchId: MOCK_BATCH_ID,
+        owner: MOCK_SIGNER.publicKey().address().toString(),
+        topic: new Topic('a'.repeat(64)).toString(),
+        name: 'time.txt',
+        actPublisher: '0xdead',
+        file: {
+          reference: new Reference('d'.repeat(64)).toString(),
+          historyRef: new Reference('e'.repeat(64)).toString(),
+        },
+        timestamp: Date.now() - 100000,
+        shared: false,
+        preview: undefined,
+        index: undefined,
+        customMetadata: undefined,
+        redundancyLevel: undefined,
+      };
+      fm.fileInfoList.push(fileInfo);
+
+      jest.spyOn(fm, 'getVersionCount').mockResolvedValueOnce(1);
+      const versionMeta: FileVersionMetadata = {
+        filePath: 'time.txt',
+        contentHash: 'f'.repeat(64),
+        size: 5,
+        timestamp: '2025-05-01T00:00:00Z',
+        version: 0,
+        batchId: MOCK_BATCH_ID,
+      };
+      jest.spyOn(fm, 'getVersion').mockResolvedValueOnce(versionMeta);
+      jest.spyOn(fm as any, 'saveFileInfoAndFeed').mockResolvedValue(undefined);
+
+      const before = Date.now();
+      const restored = await fm.restoreVersion(fileInfo, 0);
+      const after = Date.now();
+
+      expect(restored.timestamp).toBeGreaterThanOrEqual(before);
+      expect(restored.timestamp).toBeLessThanOrEqual(after);
+    });
   });
 
   describe('getGranteesOfFile', () => {

@@ -536,6 +536,52 @@ describe('FileManager Version Control', () => {
     expect(typeof v0!.timestamp).toBe('string');
     expect(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/.test(v0!.timestamp)).toBeTruthy();
   });
+
+  it('should restore an earlier version and record a new version entry', async () => {
+    // create two versions under restoreName
+    await fm.upload({ batchId, path: v1Path, name: restoreName });
+    await fm.upload({ batchId, path: v2Path, name: restoreName });
+
+    // get the latest FileInfo for restoreName
+    const fi = fm.fileInfoList.filter((f) => f.name === restoreName).pop()!;
+
+    // verify its pre-restore history
+    const originalHistory = await fm.getHistory(fi);
+    expect(originalHistory.map((v) => v.version)).toEqual([0, 1]);
+
+    // rewind to version 0
+    const restored = await fm.restoreVersion(fi, 0);
+    expect(restored.file.reference).toEqual(originalHistory[0].contentHash);
+
+    // after restore, there should be one more slot
+    const newHistory = await fm.getHistory(fi);
+    expect(newHistory).toHaveLength(3);
+    expect(newHistory[2].contentHash).toEqual(originalHistory[0].contentHash);
+  });
+
+  it('should emit FILE_UPLOADED event with restore metadata', async () => {
+    // Subscribe to events on a fresh FileManager so we don’t see the earlier uploads’ events
+    const events: any[] = [];
+    const emitter = new EventEmitterBase();
+    fm = new FileManagerBase(bee, emitter);
+    await fm.initialize();
+    emitter.on(FileManagerEvents.FILE_UPLOADED, (ev) => events.push(ev));
+
+    // Upload two fresh versions under `restoreName`
+    await fm.upload({ batchId, path: v1Path, name: restoreName });
+    await fm.upload({ batchId, path: v2Path, name: restoreName });
+    const candidates = fm.fileInfoList.filter((fi) => fi.name === restoreName);
+    const fileInfo = candidates[candidates.length - 1]!;
+
+    // Restore and capture the event
+    const restored = await fm.restoreVersion(fileInfo, 0);
+    const last = events[events.length - 1];
+
+    expect(last.restoredFromVersion).toBe(0);
+    // `fileInfo` here is still the _old_ object, so its .file.reference is the "previous" hash
+    expect(last.previousReference).toBe(fileInfo.file.reference);
+    expect(last.newReference).toBe(restored.file.reference);
+  });
 });
 
 describe('FileManager download', () => {

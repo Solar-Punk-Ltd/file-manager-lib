@@ -596,6 +596,118 @@ export class FileManagerBase implements FileManager {
     console.debug(`Volume destroyed: ${batchId.toString()}`);
   }
 
+  async restoreVersion(
+    fileInfo: FileInfo,
+    version: number,
+    options?: {
+      recordRestoreAsNewVersion?: boolean;
+      mergeMetadata?: boolean;
+    }
+  ): Promise<FileInfo> {
+    const { recordRestoreAsNewVersion = true, mergeMetadata = true } = options || {};
+
+    // Ensure managed
+    const idx = this.fileInfoList.findIndex(
+      f => f.topic.toString() === fileInfo.topic.toString()
+    );
+    if (idx === -1) {
+      throw new FileInfoError(
+        `restoreVersion: provided fileInfo (topic=${fileInfo.topic}) not managed by this FileManager`
+      );
+    }
+
+    // Fetch historical metadata
+    const meta = await this.getVersion(fileInfo.name, version);
+    if (!meta) {
+      throw new FileInfoError(
+        `restoreVersion: version ${version} not found for "${fileInfo.name}"`
+      );
+    }
+
+    // If already at this content hash, nothing to do (but we could still emit)
+    const currentRef = fileInfo.file.reference.toString();
+    if (currentRef === meta.contentHash) {
+      console.debug(`[FM] restoreVersion: already at version ${version} (contentHash=${meta.contentHash})`);
+      return fileInfo;
+    }
+    
+    const prevSysstem =
+      fileInfo.customMetadata &&
+      typeof fileInfo.customMetadata === 'object' &&
+      fileInfo.customMetadata !== null &&
+      typeof (fileInfo.customMetadata as any)._system === 'object' &&
+      (fileInfo.customMetadata as any)._system !== null
+        ? (fileInfo.customMetadata as any)._system
+        : {};
+
+    // Prepare updated FileInfo
+    const updated: FileInfo = {
+      ...fileInfo,
+      // keep same topic & batchId
+      file: {
+        reference: meta.contentHash,
+        historyRef: fileInfo.file.historyRef, // unchanged (we do not store per-version historyRef yet)
+      },
+      timestamp: Date.now(),
+      customMetadata: mergeMetadata
+        ? {
+            ...(fileInfo.customMetadata && typeof fileInfo.customMetadata === 'object'
+              ? fileInfo.customMetadata
+              : {}),
+            ...(meta.customMetadata && typeof meta.customMetadata === 'object'
+              ? meta.customMetadata
+              : {}),
+            _system: {
+              ...prevSysstem,
+              restoredFromVersion: version,
+              restoredAt: new Date().toISOString(),
+            },
+          }
+        : meta.customMetadata
+    };
+
+    // Persist (re-uploads FileInfo JSON & updates feeds)
+    await this.saveFileInfoAndFeed(updated);
+
+    // Update in-memory reference
+    this.fileInfoList[idx] = updated;
+
+    // Optionally record a NEW version entry capturing the restore action
+    if (recordRestoreAsNewVersion) {
+      try {
+        const restoreMeta: FileVersionMetadata = {
+          filePath:    updated.name,
+            // contentHash *same* as restored old version (points to time-travelled data)
+          contentHash: updated.file.reference.toString(),
+          size:        meta.size ?? 0,
+          batchId:     updated.batchId.toString(),
+          // Preserve merged custom metadata (minus _system if you don't want it version-tracked)
+          version:     0,   // placeholder; actual index assigned inside writeFileVersionMetadata
+          timestamp:   '',  // will be set inside writer
+        };
+        await writeFileVersionMetadata(
+          this.bee,
+          this.signer,
+          updated.name,
+          new BatchId(updated.batchId),
+          restoreMeta
+        );
+      } catch (e) {
+        console.warn(`[FM] restoreVersion: failed to record restore meta slot`, e);
+      }
+    }
+
+    // Emit using existing FILE_UPLOADED event (include action flag)
+    this.emitter.emit(FileManagerEvents.FILE_UPLOADED, {
+      fileInfo: updated,
+      restoredFromVersion: version,
+      previousReference: currentRef,
+      newReference: updated.file.reference.toString(),
+    });
+
+    return updated;
+  }
+
   // fetches the list of grantees who can access the file reference
   async getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult> {
     const mfIx = this.ownerFeedList.findIndex((mf) => mf.topic === fileInfo.topic);
