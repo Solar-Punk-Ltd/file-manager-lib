@@ -553,7 +553,7 @@ describe('FileManager version control', () => {
 
   it('throws on invalid version index', async () => {
     const base = fileManager.fileInfoList.find((f) => f.name.startsWith('versioned-file'))!;
-    await expect(fileManager.getVersion(base, 999)).rejects.toThrow();
+    await expect(fileManager.getVersion(base, (999).toString())).rejects.toThrow();
     await expect(fileManager.getVersion(base, -1 as any)).rejects.toThrow();
   });
 
@@ -562,9 +562,9 @@ describe('FileManager version control', () => {
     const dummy = path.join(__dirname, 'dummy-upload.txt');
     fs.writeFileSync(dummy, 'dummy');
 
-    await expect(fileManager.upload({ batchId, path: dummy, name: base.name, infoTopic: base.topic })).rejects.toThrow(
-      'infoTopic and historyRef',
-    );
+    await expect(
+      fileManager.upload({ batchId, path: dummy, name: base.name, infoTopic: base.topic.toString() }),
+    ).rejects.toThrow('infoTopic and historyRef');
 
     fs.unlinkSync(dummy);
   });
@@ -579,7 +579,7 @@ describe('FileManager version control', () => {
     const bogus = new Reference('0'.repeat(64));
 
     await expect(
-      fileManager.upload({ batchId, path: tmp, name: base.name, infoTopic: base.topic }, {
+      fileManager.upload({ batchId, path: tmp, name: base.name, infoTopic: base.topic.toString() }, {
         actHistoryAddress: bogus,
       } as any),
     ).rejects.toThrow();
@@ -596,33 +596,33 @@ describe('FileManager version control', () => {
     await fileManager.upload({ batchId, path: p0, name });
     const base = fileManager.fileInfoList.at(-1)!;
 
-    const countBefore = await fileManager.getVersionCount(base);
-    let latest = await fileManager.getVersion(base, countBefore - 1);
+    const countBefore = await fileManager.getTopicNextIndex(base);
+    let latest = await fileManager.getVersion(base, (Number(countBefore) - 1).toString());
 
     await Promise.all(
       [1, 2, 3].map(async (i) => {
         const p = path.join(tmpDir, `f${i}.txt`);
         fs.writeFileSync(p, `v${i}`);
-        await fileManager.upload({ batchId, path: p, name, infoTopic: base.topic }, {
+        await fileManager.upload({ batchId, path: p, name, infoTopic: base.topic.toString() }, {
           actHistoryAddress: new Reference(latest.file.historyRef),
         } as any);
-        const c = await fileManager.getVersionCount(base);
-        latest = await fileManager.getVersion(base, c - 1);
+        const c = await fileManager.getTopicNextIndex(base);
+        latest = await fileManager.getVersion(base, (Number(c) - 1).toString());
       }),
     );
 
-    const after = await fileManager.getVersionCount(base);
-    expect(after).toBeGreaterThan(countBefore);
+    const after = await fileManager.getTopicNextIndex(base);
+    expect(Number(after)).toBeGreaterThan(Number(countBefore));
 
-    for (let i = 0; i < after; i++) {
-      const fi = await fileManager.getVersion(base, i);
-      expect(fi.index).toBe(String(i));
+    for (let i = 0; i < Number(after); i++) {
+      const fi = await fileManager.getVersion(base, i.toString());
+      expect(fi.index?.replace(/^0+/, '') || '0').toBe(String(i));
     }
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('downloadVersion returns the correct bytes subset', async () => {
+  it('getVersion + download returns the correct bytes subset', async () => {
     // upload a small collection
     const dir = path.join(__dirname, 'coll');
     fs.mkdirSync(dir, { recursive: true });
@@ -633,7 +633,9 @@ describe('FileManager version control', () => {
     await fileManager.upload({ batchId, path: dir, name });
     const base = fileManager.fileInfoList.at(-1)!;
 
-    const dlA = await fileManager.downloadVersion(base, 0, ['a.txt']);
+    const versionedFi = await fileManager.getVersion(base, 0);
+    const dlA = await fileManager.download(versionedFi, ['a.txt']);
+
     expect((dlA as Bytes[])[0].toUtf8()).toBe('A');
 
     fs.rmSync(dir, { recursive: true, force: true });
@@ -644,16 +646,16 @@ describe('FileManager version control', () => {
     const tmp = path.join(__dirname, 'meta.txt');
     fs.writeFileSync(tmp, 'same content');
     // upload once to get new historyRef
-    const latestIx = (await fileManager.getVersionCount(base)) - 1;
-    const latest = await fileManager.getVersion(base, latestIx);
+    const latestIx = Number(await fileManager.getTopicNextIndex(base)) - 1;
+    const latest = await fileManager.getVersion(base, latestIx.toString());
 
     await fileManager.upload(
-      { batchId, path: tmp, name: base.name, infoTopic: base.topic, customMetadata: { foo: 'bar' } },
+      { batchId, path: tmp, name: base.name, infoTopic: base.topic.toString(), customMetadata: { foo: 'bar' } },
       { actHistoryAddress: new Reference(latest.file.historyRef) } as any,
     );
 
-    const cnt = await fileManager.getVersionCount(base);
-    const newest = await fileManager.getVersion(base, cnt - 1);
+    const cnt = await fileManager.getTopicNextIndex(base);
+    const newest = await fileManager.getVersion(base, (Number(cnt) - 1).toString());
     expect(newest.customMetadata?.foo).toBe('bar');
   });
 
@@ -663,34 +665,29 @@ describe('FileManager version control', () => {
     const filePath = path.join(tmpDir, 'file.txt');
     const NAME = `versioned-file-${Date.now()}`; // unique
 
-    // v0
     fs.writeFileSync(filePath, 'Version 0 content');
     await fileManager.upload({ batchId, path: filePath, name: NAME });
     const v0Fi = fileManager.fileInfoList.at(-1)!; // last pushed is ours
     const topic = v0Fi.topic.toString();
     const hist0 = v0Fi.file.historyRef;
 
-    // v1
     fs.writeFileSync(filePath, 'Version 1 content');
     await fileManager.upload({ batchId, path: filePath, name: NAME, infoTopic: topic }, {
       actHistoryAddress: new Reference(hist0),
     } as any);
 
-    // v2
-    // get current head to obtain correct historyRef
-    const countAfterV1 = await fileManager.getVersionCount(v0Fi); // should be 2
-    const latestFi = await fileManager.getVersion(v0Fi, countAfterV1 - 1);
+    const countAfterV1 = await fileManager.getTopicNextIndex(v0Fi); // should be 2
+    const latestFi = await fileManager.getVersion(v0Fi, (Number(countAfterV1) - 1).toString());
     fs.writeFileSync(filePath, 'Version 2 content');
     await fileManager.upload({ batchId, path: filePath, name: NAME, infoTopic: topic }, {
       actHistoryAddress: new Reference(latestFi.file.historyRef),
     } as any);
 
-    // Assertions
-    const count = await fileManager.getVersionCount(v0Fi);
-    expect(count).toBeGreaterThanOrEqual(3);
+    const count = await fileManager.getTopicNextIndex(v0Fi);
+    expect(Number(count)).toBeGreaterThanOrEqual(3);
 
-    const v0 = await fileManager.getVersion(v0Fi, 0);
-    expect(v0.index).toBe('0');
+    const v0 = await fileManager.getVersion(v0Fi, (0).toString());
+    expect(v0.index?.replace(/^0+/, '') || '0').toBe('0');
 
     const actPublisher = (await bee.getNodeAddresses())!.publicKey.toCompressedHex();
     const dl0 = (await fileManager.download(v0, undefined, {

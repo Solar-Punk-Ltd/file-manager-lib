@@ -1,4 +1,14 @@
-import { BatchId, Bee, Bytes, MantarayNode, Reference, STAMPS_DEPTH_MAX, Topic } from '@ethersphere/bee-js';
+import {
+  BatchId,
+  Bee,
+  Bytes,
+  DownloadOptions,
+  FeedIndex,
+  MantarayNode,
+  Reference,
+  STAMPS_DEPTH_MAX,
+  Topic,
+} from '@ethersphere/bee-js';
 
 import { FileManagerBase } from '../../src/fileManager';
 import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
@@ -260,57 +270,62 @@ describe('FileManager', () => {
       index: '0',
     } as any;
 
-    it('getVersionCount should call getTopicNextIndex and return as number', async () => {
-      const spy = jest.spyOn(FileManagerBase.prototype as any, 'getTopicNextIndex').mockResolvedValue(42n);
-      const count = await fm.getVersionCount(dummyFi);
-      expect(spy).toHaveBeenCalledWith(dummyTopic);
-      expect(count).toBe(42);
+    it('getTopicNextIndex should return the next index as FeedIndex', async () => {
+      const spy = jest
+        .spyOn(FileManagerBase.prototype as any, 'getTopicNextIndex')
+        .mockResolvedValue(FeedIndex.fromBigInt(42n));
+      const idx = await fm.getTopicNextIndex(dummyFi);
+      expect(spy).toHaveBeenCalledWith(dummyFi);
+      expect(Number(idx.toBigInt())).toBe(42);
     });
 
     it('getVersion should call fetchFileInfo and return FileInfo', async () => {
+      // pretend there are 8 versions
+      jest.spyOn(FileManagerBase.prototype as any, 'getTopicNextIndex').mockResolvedValue(FeedIndex.fromBigInt(8n));
       const fakeFi = { ...dummyFi, index: '7' };
       const spyFetch = jest.spyOn(FileManagerBase.prototype as any, 'fetchFileInfo').mockResolvedValue(fakeFi);
-      const got = await fm.getVersion(dummyFi, 7);
-      expect(spyFetch).toHaveBeenCalledWith(dummyTopic, 7, expect.any(String));
+      const got = await fm.getVersion(dummyFi, '7');
+      expect(spyFetch).toHaveBeenCalledWith(dummyFi, FeedIndex.fromBigInt(7n));
       expect(got).toBe(fakeFi);
     });
 
     it('getVersion rejects on invalid index', async () => {
-      await expect(fm.getVersion(dummyFi, -1 as any)).rejects.toThrow();
-      await expect(fm.getVersion(dummyFi, 999)).rejects.toThrow();
+      // zero versions
+      jest.spyOn(FileManagerBase.prototype as any, 'getTopicNextIndex').mockResolvedValue(FeedIndex.fromBigInt(0n));
+      await expect(fm.getVersion(dummyFi, '0')).rejects.toThrow();
+      await expect(fm.getVersion(dummyFi, '-1')).rejects.toThrow();
     });
 
-    it('downloadVersion should invoke getVersion and then download', async () => {
-      const returnedFi = { ...dummyFi, topic: dummyTopic, file: dummyFi.file } as any;
-      jest.spyOn(fm, 'getVersion').mockResolvedValue(returnedFi);
+    it('download via getVersion + download returns the bytes', async () => {
+      const vFi = { ...dummyFi, topic: dummyTopic, file: dummyFi.file } as any;
+      jest.spyOn(fm, 'getVersion').mockResolvedValue(vFi);
       const spyDl = jest.spyOn(fm, 'download').mockResolvedValue(['mocked bytes'] as any);
-      const out = await fm.downloadVersion(dummyFi, 3, ['path1'], { actPublisher: 'p', actHistoryAddress: 'h' });
-      expect(fm.getVersion).toHaveBeenCalledWith(dummyFi, 3);
-      expect(spyDl).toHaveBeenCalledWith(returnedFi, ['path1'], { actPublisher: 'p', actHistoryAddress: 'h' });
+      // first we call getVersion, then call download manually
+      const gotFi = await fm.getVersion(dummyFi, '3');
+      const out = await fm.download(gotFi, ['path1'], { actPublisher: 'p', actHistoryAddress: 'h' } as DownloadOptions);
+      expect(fm.getVersion).toHaveBeenCalledWith(dummyFi, '3');
+      expect(spyDl).toHaveBeenCalledWith(vFi, ['path1'], { actPublisher: 'p', actHistoryAddress: 'h' });
       expect(out).toEqual(['mocked bytes']);
     });
 
     it('getVersionCount returns 0 when getTopicNextIndex is 0', async () => {
-      const spy = jest.spyOn(FileManagerBase.prototype as any, 'getTopicNextIndex').mockResolvedValue(0n);
-      const count = await fm.getVersionCount(dummyFi);
-      expect(spy).toHaveBeenCalledWith(dummyTopic);
-      expect(count).toBe(0);
+      // force the “next index” to zero
+      jest.spyOn(FileManagerBase.prototype as any, 'getTopicNextIndex').mockResolvedValue(FeedIndex.fromBigInt(0n));
+      const count = await fm.getTopicNextIndex(dummyFi);
+      expect(Number(count)).toBe(0);
     });
 
     it('getVersion throws if fetchFileInfo returns undefined', async () => {
-      // simulate 1 version exists
-      jest.spyOn(fm, 'getVersionCount').mockResolvedValue(1);
-      // spy fetchFileInfo to return nothing
+      // simulate at least 1 version exists
+      jest.spyOn(FileManagerBase.prototype as any, 'getTopicNextIndex').mockResolvedValue(FeedIndex.fromBigInt(1n));
       jest.spyOn(FileManagerBase.prototype as any, 'fetchFileInfo').mockResolvedValue(undefined);
-      await expect(fm.getVersion(dummyFi, 0)).rejects.toThrow(/Version not found/);
+      await expect(fm.getVersion(dummyFi, '0')).rejects.toThrow(/Version not found/);
     });
 
-    it('downloadVersion rejects when underlying getVersion rejects', async () => {
+    it('download rejects when underlying getVersion rejects', async () => {
       const err = new Error('nope');
       jest.spyOn(fm, 'getVersion').mockRejectedValue(err);
-      await expect(fm.downloadVersion(dummyFi, 123, ['p'], { actPublisher: 'x', actHistoryAddress: 'y' })).rejects.toBe(
-        err,
-      );
+      await expect(fm.getVersion(dummyFi, '123')).rejects.toBe(err);
     });
   });
 
@@ -370,6 +385,8 @@ describe('FileManager', () => {
       const fm = await createInitializedFileManager(bee, emitter);
       fm.emitter.on(FileManagerEvents.FILE_UPLOADED, uploadHandler);
       createUploadFilesFromDirectorySpy('1');
+
+      jest.spyOn(FileManagerBase.prototype as any, 'getTopicNextIndex').mockResolvedValue(FeedIndex.fromBigInt(0n));
 
       const actPublisher = (await bee.getNodeAddresses()).publicKey.toCompressedHex();
       const expectedFileInfo = {
