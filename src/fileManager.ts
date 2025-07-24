@@ -257,6 +257,7 @@ export class FileManagerBase implements FileManager {
 
   // fetches the file info list from the owner feed and unwraps the data encrypted with ACT
   private async initFileInfoList(): Promise<void> {
+    // need a temporary variable to avoid async issues
     const tmpAddresses = this.nodeAddresses;
     if (!tmpAddresses) {
       throw new SignerError('Node addresses not found');
@@ -397,8 +398,8 @@ export class FileManagerBase implements FileManager {
       customMetadata: infoOptions.customMetadata,
       redundancyLevel: uploadOptions?.redundancyLevel,
     };
-
     await this.saveFileInfoAndFeed(fileInfo, requestOptions);
+
     this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
   }
 
@@ -498,7 +499,7 @@ export class FileManagerBase implements FileManager {
       await fw.uploadReference(batchId, uploadInfoRes.reference, {
         index: index !== undefined ? FeedIndex.fromBigInt(BigInt(index)) : undefined,
       });
-      } catch (error: any) {
+    } catch (error: any) {
       throw new FileInfoError(`Failed to save wrapped fileInfo feed: ${error}`);
     }
   }  
