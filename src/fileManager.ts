@@ -219,10 +219,44 @@ export class FileManagerBase implements FileManager {
 
     console.debug('FileInfo feed list fetched successfully.');
   }
+  
+  // Get next index for a topic by reading the feed head
+  private async getTopicNextIndex(topic: string): Promise<bigint> {
+    const owner = this.signer.publicKey().address().toString();
+    const latest = await getFeedData(this.bee, new Topic(topic), owner);
+  
+    const currentIx = latest.feedIndex?.toBigInt?.() ?? -1n;
+    const nextIx =
+      latest.feedIndexNext?.toBigInt?.() ??
+      (currentIx === -1n ? 0n : currentIx + 1n);
+  
+    return nextIx;
+  }
+
+  // Fetch one FileInfo (same as you already had, but keep it here)
+  private async fetchFileInfo(topic: string, version: number, actPublisherHex?: string): Promise<FileInfo> {
+    if (!this.nodeAddresses) throw new SignerError('Node addresses not found');
+  
+    const owner = this.signer.publicKey().address().toString();
+    const fr = this.bee.makeFeedReader(new Topic(topic).toUint8Array(), owner);
+    const res = await fr.download({ index: FeedIndex.fromBigInt(BigInt(version)) });
+  
+    const wrappedRef = new Reference(res.payload.toUint8Array());
+    const wrappedJsonBytes = await this.bee.downloadData(wrappedRef.toString());
+    const refHist = wrappedJsonBytes.toJSON() as ReferenceWithHistory;
+  
+    const raw = await this.bee.downloadData(refHist.reference.toString(), {
+      actHistoryAddress: refHist.historyRef,
+      actPublisher: actPublisherHex ?? this.nodeAddresses.publicKey.toCompressedHex(),
+    });
+  
+    const fi = raw.toJSON() as FileInfo;
+    assertFileInfo(fi);
+    return fi;
+  }
 
   // fetches the file info list from the owner feed and unwraps the data encrypted with ACT
   private async initFileInfoList(): Promise<void> {
-    // need a temporary variable to avoid async issues
     const tmpAddresses = this.nodeAddresses;
     if (!tmpAddresses) {
       throw new SignerError('Node addresses not found');
@@ -306,6 +340,11 @@ export class FileManagerBase implements FileManager {
     return await downloadBrowser(resources, this.bee.url, 'bytes');
   }
 
+  async downloadVersion(baseFi: FileInfo, version: number, paths?: string[], opt?: DownloadOptions) {
+    const fiV = await this.getVersion(baseFi, version);
+    return this.download(fiV, paths, opt);
+  }
+
   async upload(
     infoOptions: FileInfoOptions,
     uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
@@ -334,10 +373,16 @@ export class FileManagerBase implements FileManager {
       );
     }
 
+    const topicStr = infoOptions.infoTopic ?? generateTopic().toString();
+    
+    // pull next index live every time
+    const nextIx = await this.getTopicNextIndex(topicStr);
+    infoOptions.index = nextIx.toString();
+
     const fileInfo: FileInfo = {
       batchId: infoOptions.batchId.toString(),
       owner: this.signer.publicKey().address().toString(),
-      topic: infoOptions.infoTopic ? Topic.fromString(infoOptions.infoTopic).toString() : generateTopic().toString(),
+      topic: topicStr,
       name: infoOptions.name,
       actPublisher: this.nodeAddresses.publicKey.toCompressedHex(),
       file: {
@@ -351,9 +396,23 @@ export class FileManagerBase implements FileManager {
       customMetadata: infoOptions.customMetadata,
       redundancyLevel: uploadOptions?.redundancyLevel,
     };
-    await this.saveFileInfoAndFeed(fileInfo, requestOptions);
 
+    await this.saveFileInfoAndFeed(fileInfo, requestOptions);
     this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
+  }
+
+  public async getVersion(fi: FileInfo, version: number): Promise<FileInfo> {
+    const actPub =
+      typeof fi.actPublisher === 'string'
+        ? fi.actPublisher
+        : fi.actPublisher?.toCompressedHex() ?? this.nodeAddresses!.publicKey.toCompressedHex();
+  
+    return this.fetchFileInfo(fi.topic.toString(), version, actPub);
+  }
+  
+  public async getVersionCount(fi: FileInfo): Promise<number> {
+    const nextIx = await this.getTopicNextIndex(fi.topic.toString());
+    return Number(nextIx);
   }
 
   private async saveFileInfoAndFeed(info: FileInfo, requestOptions?: BeeRequestOptions): Promise<void> {
@@ -420,15 +479,16 @@ export class FileManagerBase implements FileManager {
         undefined,
         requestOptions,
       );
-
+  
       const fw = this.bee.makeFeedWriter(new Topic(topic).toUint8Array(), this.signer, requestOptions);
+  
       await fw.uploadReference(batchId, uploadInfoRes.reference, {
-        index: index !== undefined ? new FeedIndex(index) : undefined,
+        index: index !== undefined ? FeedIndex.fromBigInt(BigInt(index)) : undefined,
       });
-    } catch (error: any) {
+      } catch (error: any) {
       throw new FileInfoError(`Failed to save wrapped fileInfo feed: ${error}`);
     }
-  }
+  }  
 
   private async saveOwnerFeedList(requestOptions?: BeeRequestOptions): Promise<void> {
     const ownerStamp = await this.getOwnerStamp();

@@ -100,6 +100,26 @@ export interface FileManager {
   getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult>;
 
   /**
+   * Returns a specific version of a file.
+   */
+  getVersion(fileInfo: FileInfo, version: number): Promise<FileInfo>;
+
+  /**
+   * Returns how many versions exist for a topic/file.
+   */
+  getVersionCount(fileInfo: FileInfo): Promise<number>;
+
+  /**
+   * Convenience: download a specific version.
+   */
+  downloadVersion(
+    baseFi: FileInfo,
+    version: number,
+    paths?: string[],
+    options?: DownloadOptions
+  ): Promise<ReadableStream<Uint8Array>[] | Bytes[]>;
+
+  /**
    * Retrieves a list of file information.
    * @returns An array of file information objects.
    */
