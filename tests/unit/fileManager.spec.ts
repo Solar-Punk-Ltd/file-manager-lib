@@ -243,6 +243,77 @@ describe('FileManager', () => {
     });
   });
 
+  describe('version control', () => {
+    let fm: FileManagerBase;
+    beforeEach(async () => {
+      fm = await createInitializedFileManager();
+    });
+
+    const dummyTopic = 'deadbeef'.repeat(8);
+    const dummyFi = {
+      topic: dummyTopic,
+      file: { historyRef: '00'.repeat(32), reference: '11'.repeat(32) },
+      owner: '',
+      batchId: new BatchId('aa'.repeat(32)),
+      name: 'x',
+      actPublisher: 'ff'.repeat(66),
+      index: '0',
+    } as any;
+
+    it('getVersionCount should call getTopicNextIndex and return as number', async () => {
+      const spy = jest.spyOn(FileManagerBase.prototype as any, 'getTopicNextIndex').mockResolvedValue(42n);
+      const count = await fm.getVersionCount(dummyFi);
+      expect(spy).toHaveBeenCalledWith(dummyTopic);
+      expect(count).toBe(42);
+    });
+
+    it('getVersion should call fetchFileInfo and return FileInfo', async () => {
+      const fakeFi = { ...dummyFi, index: '7' };
+      const spyFetch = jest.spyOn(FileManagerBase.prototype as any, 'fetchFileInfo').mockResolvedValue(fakeFi);
+      const got = await fm.getVersion(dummyFi, 7);
+      expect(spyFetch).toHaveBeenCalledWith(dummyTopic, 7, expect.any(String));
+      expect(got).toBe(fakeFi);
+    });
+
+    it('getVersion rejects on invalid index', async () => {
+      await expect(fm.getVersion(dummyFi, -1 as any)).rejects.toThrow();
+      await expect(fm.getVersion(dummyFi, 999)).rejects.toThrow();
+    });
+
+    it('downloadVersion should invoke getVersion and then download', async () => {
+      const returnedFi = { ...dummyFi, topic: dummyTopic, file: dummyFi.file } as any;
+      jest.spyOn(fm, 'getVersion').mockResolvedValue(returnedFi);
+      const spyDl = jest.spyOn(fm, 'download').mockResolvedValue(['mocked bytes'] as any);
+      const out = await fm.downloadVersion(dummyFi, 3, ['path1'], { actPublisher: 'p', actHistoryAddress: 'h' });
+      expect(fm.getVersion).toHaveBeenCalledWith(dummyFi, 3);
+      expect(spyDl).toHaveBeenCalledWith(returnedFi, ['path1'], { actPublisher: 'p', actHistoryAddress: 'h' });
+      expect(out).toEqual(['mocked bytes']);
+    });
+
+    it('getVersionCount returns 0 when getTopicNextIndex is 0', async () => {
+      const spy = jest.spyOn(FileManagerBase.prototype as any, 'getTopicNextIndex').mockResolvedValue(0n);
+      const count = await fm.getVersionCount(dummyFi);
+      expect(spy).toHaveBeenCalledWith(dummyTopic);
+      expect(count).toBe(0);
+    });
+
+    it('getVersion throws if fetchFileInfo returns undefined', async () => {
+      // simulate 1 version exists
+      jest.spyOn(fm, 'getVersionCount').mockResolvedValue(1);
+      // spy fetchFileInfo to return nothing
+      jest.spyOn(FileManagerBase.prototype as any, 'fetchFileInfo').mockResolvedValue(undefined);
+      await expect(fm.getVersion(dummyFi, 0)).rejects.toThrow(/Version not found/);
+    });
+
+    it('downloadVersion rejects when underlying getVersion rejects', async () => {
+      const err = new Error('nope');
+      jest.spyOn(fm, 'getVersion').mockRejectedValue(err);
+      await expect(fm.downloadVersion(dummyFi, 123, ['p'], { actPublisher: 'x', actHistoryAddress: 'y' })).rejects.toBe(
+        err,
+      );
+    });
+  });
+
   describe('destroyVolume', () => {
     it('should call diluteBatch with batchId and MAX_DEPTH', async () => {
       const diluteSpy = jest.spyOn(Bee.prototype, 'diluteBatch').mockResolvedValue(new BatchId('1234'.repeat(16)));
@@ -309,7 +380,7 @@ describe('FileManager', () => {
           reference: SWARM_ZERO_ADDRESS.toString(),
         },
         actPublisher,
-        index: undefined,
+        index: '0',
         name: 'tests',
         owner: MOCK_SIGNER.publicKey().address().toString(),
         preview: undefined,

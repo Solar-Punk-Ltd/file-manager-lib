@@ -376,7 +376,8 @@ export class FileManagerBase implements FileManager {
     const topicStr = infoOptions.infoTopic ?? generateTopic().toString();
     
     // pull next index live every time
-    const nextIx = await this.getTopicNextIndex(topicStr);
+    const maybeNext = await this.getTopicNextIndex(topicStr);
+    const nextIx = typeof maybeNext === 'bigint' ? maybeNext : 0n;
     infoOptions.index = nextIx.toString();
 
     const fileInfo: FileInfo = {
@@ -402,12 +403,24 @@ export class FileManagerBase implements FileManager {
   }
 
   public async getVersion(fi: FileInfo, version: number): Promise<FileInfo> {
+    if (version < 0) {
+      throw new FileInfoError(`Version index must be non-negative: ${version}`);
+    }
+    const count = await this.getVersionCount(fi);
+    if (version >= count) {
+      throw new FileInfoError(`Version index out of bounds: ${version} (count=${count})`);
+    }
+  
     const actPub =
       typeof fi.actPublisher === 'string'
         ? fi.actPublisher
         : fi.actPublisher?.toCompressedHex() ?? this.nodeAddresses!.publicKey.toCompressedHex();
   
-    return this.fetchFileInfo(fi.topic.toString(), version, actPub);
+    const fetched = await this.fetchFileInfo(fi.topic.toString(), version, actPub);
+    if (!fetched) {
+      throw new FileInfoError(`Version not found: ${version}`);
+    }
+    return fetched;
   }
   
   public async getVersionCount(fi: FileInfo): Promise<number> {
