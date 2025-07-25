@@ -11,6 +11,7 @@ import {
 } from '@ethersphere/bee-js';
 
 import { FileManagerBase } from '../../src/fileManager';
+import * as common from '../../src/utils/common';
 import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
 import { EventEmitterBase } from '../../src/utils/eventEmitter';
@@ -39,6 +40,12 @@ describe('FileManager', () => {
   beforeEach(async () => {
     jest.resetAllMocks();
     createInitMocks();
+
+    (common.getTopicNextIndex as jest.Mock).mockResolvedValue({
+      feedIndex: FeedIndex.fromBigInt(0n),
+      feedIndexNext: FeedIndex.fromBigInt(0n),
+    });
+
     const mokcMN = createMockMantarayNode(true);
     mockSelfAddr = await mokcMN.calculateSelfAddress();
 
@@ -255,46 +262,61 @@ describe('FileManager', () => {
 
   describe('version control', () => {
     let fm: FileManagerBase;
-    beforeEach(async () => {
-      fm = await createInitializedFileManager();
-    });
+    const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+    const owner = bee.signer!.publicKey().address().toString();
 
     const dummyTopic = 'deadbeef'.repeat(8);
     const dummyFi = {
       topic: dummyTopic,
       file: { historyRef: '00'.repeat(32), reference: '11'.repeat(32) },
       owner: '',
-      batchId: new BatchId('aa'.repeat(32)),
+      batchId: { toString: () => 'aa'.repeat(32) },
       name: 'x',
       actPublisher: 'ff'.repeat(66),
       index: '0',
     } as any;
 
-    it('getTopicNextIndex should return the next index as FeedIndex', async () => {
-      const spy = jest
-        .spyOn(FileManagerBase.prototype as any, 'getTopicNextIndex')
-        .mockResolvedValue(FeedIndex.fromBigInt(42n));
-      const idx = await fm.getTopicNextIndex(dummyFi);
-      expect(spy).toHaveBeenCalledWith(dummyFi);
-      expect(Number(idx.toBigInt())).toBe(42);
+    beforeEach(async () => {
+      fm = await createInitializedFileManager();
+    });
+
+    afterEach(() => {
+      jest.resetAllMocks();
+    });
+
+    it('getTopicNextIndex should call common.getTopicNextIndex and return as number', async () => {
+      (common.getTopicNextIndex as jest.Mock).mockResolvedValueOnce({
+        feedIndex: FeedIndex.fromBigInt(41n),
+        feedIndexNext: FeedIndex.fromBigInt(42n),
+      });
+
+      const count = await common.getTopicNextIndex(bee, owner, dummyFi);
+      expect(common.getTopicNextIndex).toHaveBeenCalledWith(expect.anything(), expect.any(String), dummyFi);
+      expect(count.feedIndexNext.toBigInt()).toBe(42n);
     });
 
     it('getVersion should call fetchFileInfo and return FileInfo', async () => {
       // pretend there are 8 versions
-      jest.spyOn(FileManagerBase.prototype as any, 'getTopicNextIndex').mockResolvedValue(FeedIndex.fromBigInt(8n));
+      (common.getTopicNextIndex as jest.Mock).mockResolvedValueOnce({
+        feedIndex: FeedIndex.fromBigInt(6n),
+        feedIndexNext: FeedIndex.fromBigInt(7n),
+      });
       const fakeFi = { ...dummyFi, index: '7' };
       const spyFetch = jest.spyOn(FileManagerBase.prototype as any, 'fetchFileInfo').mockResolvedValue(fakeFi);
-      const got = await fm.getVersion(dummyFi, '7');
+      const got = await fm.getVersion(dummyFi, FeedIndex.fromBigInt(7n));
       expect(spyFetch).toHaveBeenCalledWith(dummyFi, FeedIndex.fromBigInt(7n));
       expect(got).toBe(fakeFi);
     });
 
-    // it('getVersion rejects on invalid index', async () => {
-    //   // zero versions
-    //   jest.spyOn(FileManagerBase.prototype as any, 'getTopicNextIndex').mockResolvedValue(FeedIndex.fromBigInt(0n));
-    //   await expect(fm.getVersion(dummyFi, '0')).rejects.toThrow();
-    //   await expect(fm.getVersion(dummyFi, '-1')).rejects.toThrow();
-    // });
+    it('getVersion rejects on invalid index', async () => {
+      // zero versions
+      (common.getTopicNextIndex as jest.Mock).mockResolvedValueOnce({
+        feedIndex: FeedIndex.fromBigInt(-1n),
+        feedIndexNext: FeedIndex.fromBigInt(0n),
+      });
+      await expect(fm.getVersion(dummyFi, '0')).rejects.toThrow();
+      await expect(fm.getVersion(dummyFi, '-1')).rejects.toThrow();
+    });
 
     it('download via getVersion + download returns the bytes', async () => {
       const vFi = { ...dummyFi, topic: dummyTopic, file: dummyFi.file } as any;
@@ -310,17 +332,30 @@ describe('FileManager', () => {
 
     it('getVersionCount returns 0 when getTopicNextIndex is 0', async () => {
       // force the “next index” to zero
-      jest.spyOn(FileManagerBase.prototype as any, 'getTopicNextIndex').mockResolvedValue(FeedIndex.fromBigInt(0n));
-      const count = await fm.getTopicNextIndex(dummyFi);
-      expect(Number(count)).toBe(0);
+      (common.getTopicNextIndex as jest.Mock).mockResolvedValueOnce({
+        feedIndex: FeedIndex.fromBigInt(-1n),
+        feedIndexNext: FeedIndex.fromBigInt(0n),
+      });
+      const count = await common.getTopicNextIndex(bee, owner, dummyFi);
+      expect(count.feedIndexNext.toBigInt()).toBe(0n);
     });
 
-    // it('getVersion throws if fetchFileInfo returns undefined', async () => {
-    //   // simulate at least 1 version exists
-    //   jest.spyOn(FileManagerBase.prototype as any, 'getTopicNextIndex').mockResolvedValue(FeedIndex.fromBigInt(1n));
-    //   jest.spyOn(FileManagerBase.prototype as any, 'fetchFileInfo').mockResolvedValue(undefined);
-    //   await expect(fm.getVersion(dummyFi, '0')).rejects.toThrow(/Version not found/);
-    // });
+    it('getVersion throws if underlying feed is missing', async () => {
+      jest.restoreAllMocks();
+      (common.getTopicNextIndex as jest.Mock).mockResolvedValueOnce({
+        feedIndex: FeedIndex.fromBigInt(0n),
+        feedIndexNext: FeedIndex.fromBigInt(1n),
+      });
+
+      (common.getFeedData as jest.Mock).mockResolvedValueOnce({
+        feedIndex: FeedIndex.MINUS_ONE,
+        feedIndexNext: FeedIndex.fromBigInt(0n),
+        payload: SWARM_ZERO_ADDRESS,
+      });
+
+      // 3) call getVersion WITHOUT passing the version argument
+      await expect(fm.getVersion(dummyFi)).rejects.toThrow(/File info not found for version: 0/);
+    });
 
     it('download rejects when underlying getVersion rejects', async () => {
       const err = new Error('nope');
@@ -386,7 +421,10 @@ describe('FileManager', () => {
       fm.emitter.on(FileManagerEvents.FILE_UPLOADED, uploadHandler);
       createUploadFilesFromDirectorySpy('1');
 
-      jest.spyOn(FileManagerBase.prototype as any, 'getTopicNextIndex').mockResolvedValue(FeedIndex.fromBigInt(0n));
+      (common.getTopicNextIndex as jest.Mock).mockResolvedValueOnce({
+        feedIndex: FeedIndex.fromBigInt(-1n),
+        feedIndexNext: FeedIndex.fromBigInt(0n),
+      });
 
       const actPublisher = (await bee.getNodeAddresses()).publicKey.toCompressedHex();
       const expectedFileInfo = {
