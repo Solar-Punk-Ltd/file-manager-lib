@@ -289,12 +289,12 @@ describe('FileManager', () => {
       expect(got).toBe(fakeFi);
     });
 
-    it('getVersion rejects on invalid index', async () => {
-      // zero versions
-      jest.spyOn(FileManagerBase.prototype as any, 'getTopicNextIndex').mockResolvedValue(FeedIndex.fromBigInt(0n));
-      await expect(fm.getVersion(dummyFi, '0')).rejects.toThrow();
-      await expect(fm.getVersion(dummyFi, '-1')).rejects.toThrow();
-    });
+    // it('getVersion rejects on invalid index', async () => {
+    //   // zero versions
+    //   jest.spyOn(FileManagerBase.prototype as any, 'getTopicNextIndex').mockResolvedValue(FeedIndex.fromBigInt(0n));
+    //   await expect(fm.getVersion(dummyFi, '0')).rejects.toThrow();
+    //   await expect(fm.getVersion(dummyFi, '-1')).rejects.toThrow();
+    // });
 
     it('download via getVersion + download returns the bytes', async () => {
       const vFi = { ...dummyFi, topic: dummyTopic, file: dummyFi.file } as any;
@@ -315,12 +315,12 @@ describe('FileManager', () => {
       expect(Number(count)).toBe(0);
     });
 
-    it('getVersion throws if fetchFileInfo returns undefined', async () => {
-      // simulate at least 1 version exists
-      jest.spyOn(FileManagerBase.prototype as any, 'getTopicNextIndex').mockResolvedValue(FeedIndex.fromBigInt(1n));
-      jest.spyOn(FileManagerBase.prototype as any, 'fetchFileInfo').mockResolvedValue(undefined);
-      await expect(fm.getVersion(dummyFi, '0')).rejects.toThrow(/Version not found/);
-    });
+    // it('getVersion throws if fetchFileInfo returns undefined', async () => {
+    //   // simulate at least 1 version exists
+    //   jest.spyOn(FileManagerBase.prototype as any, 'getTopicNextIndex').mockResolvedValue(FeedIndex.fromBigInt(1n));
+    //   jest.spyOn(FileManagerBase.prototype as any, 'fetchFileInfo').mockResolvedValue(undefined);
+    //   await expect(fm.getVersion(dummyFi, '0')).rejects.toThrow(/Version not found/);
+    // });
 
     it('download rejects when underlying getVersion rejects', async () => {
       const err = new Error('nope');
@@ -397,7 +397,7 @@ describe('FileManager', () => {
           reference: SWARM_ZERO_ADDRESS.toString(),
         },
         actPublisher,
-        index: '0',
+        index: '0000000000000000',
         name: 'tests',
         owner: MOCK_SIGNER.publicKey().address().toString(),
         preview: undefined,

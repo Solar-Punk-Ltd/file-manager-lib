@@ -221,24 +221,34 @@ export class FileManagerBase implements FileManager {
   }
 
   private async fetchFileInfo(fi: FileInfo, version: FeedIndex): Promise<FileInfo> {
-    if (!this.nodeAddresses) throw new SignerError('Node addresses not found');
+    if (!this.nodeAddresses) {
+      throw new SignerError('Node addresses not found');
+    }
   
     const owner = this.signer.publicKey().address().toString();
   
-    const fr = this.bee.makeFeedReader(new Topic(fi.topic).toUint8Array(), owner);
-    const res = await fr.download({ index: version });
+    const feedData = await getFeedData(
+      this.bee,
+      new Topic(fi.topic),
+      owner,
+      version.toBigInt(),
+    );
   
-    const wrappedRef = new Reference(res.payload.toUint8Array());
-    const wrappedJsonBytes = await this.bee.downloadData(wrappedRef.toString());
-    const refHist = wrappedJsonBytes.toJSON() as ReferenceWithHistory;
+    const wrapperRef = new Reference(feedData.payload.toUint8Array());
   
-    const raw = await this.bee.downloadData(refHist.reference.toString(), {
-      actHistoryAddress: refHist.historyRef,
+    const wrapperBytes = await this.bee.downloadData(wrapperRef.toString());
+    const { reference, historyRef } = wrapperBytes.toJSON() as ReferenceWithHistory;
+  
+    const rawBytes = await this.bee.downloadData(reference.toString(), {
+      actHistoryAddress: historyRef,
       actPublisher: fi.actPublisher,
     });
-    
-    return raw.toJSON() as FileInfo;
-  }
+  
+    const fileInfo = rawBytes.toJSON() as FileInfo;
+    assertFileInfo(fileInfo);
+  
+    return fileInfo;
+  }  
 
   // fetches the file info list from the owner feed and unwraps the data encrypted with ACT
   private async initFileInfoList(): Promise<void> {
@@ -380,9 +390,10 @@ export class FileManagerBase implements FileManager {
       redundancyLevel: uploadOptions?.redundancyLevel,
     };
 
-    const nextFeedIndex = await this.getTopicNextIndex(fileInfo);
-    const nextIx = nextFeedIndex.toBigInt();
-    fileInfo.index =  nextIx.toString();
+    if(!infoOptions.index) {
+      const nextFeedIndex = await this.getTopicNextIndex(fileInfo);
+      fileInfo.index =  nextFeedIndex.toString();
+    }
 
     await this.saveFileInfoAndFeed(fileInfo, requestOptions);
 
@@ -390,30 +401,12 @@ export class FileManagerBase implements FileManager {
   }
 
   public async getVersion(fi: FileInfo, version?: string): Promise<FileInfo> {
-    let idx: number
-    if (version === undefined) {
-      const rawNext = await this.getTopicNextIndex(fi)
-      idx = Number(rawNext.toBigInt()) - 1
-    } else {
-      idx = Number(version)
-    }
+    const idx = version
+      ? Number(version)
+      : Number((await this.getTopicNextIndex(fi)).toBigInt()) - 1;
   
-    if (idx < 0) {
-      throw new FileInfoError(`Version index must be non-negative: ${idx}`)
-    }
-  
-    const rawNext = await this.getTopicNextIndex(fi)
-    const count = Number(rawNext.toBigInt())
-    if (idx >= count) {
-      throw new FileInfoError(`Version index out of bounds: ${idx} (count=${count})`)
-    }
-  
-    const feedIndex = FeedIndex.fromBigInt(BigInt(idx))
-    const fetched = await this.fetchFileInfo(fi, feedIndex)
-    if (!fetched) {
-      throw new FileInfoError(`Version not found: ${idx}`)
-    }
-    return fetched
+    const feedIndex = FeedIndex.fromBigInt(BigInt(idx));
+    return this.fetchFileInfo(fi, feedIndex);
   }
 
   private async saveFileInfoAndFeed(info: FileInfo, requestOptions?: BeeRequestOptions): Promise<void> {
