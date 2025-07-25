@@ -13,7 +13,7 @@ import { isNode } from 'std-env';
 import { getRandomBytesBrowser } from './browser';
 import { SWARM_ZERO_ADDRESS } from './constants';
 import { getRandomBytesNode } from './node';
-import { FeedPayloadResult, WrappedUploadResult } from './types';
+import { FeedPayloadResult, FileInfo, WrappedUploadResult } from './types';
 import { FileInfoError } from './errors';
 import { asserWrappedUploadResult } from './asserts';
 
@@ -41,6 +41,18 @@ export async function getFeedData(
     }
     throw error;
   }
+}
+
+export async function getTopicNextIndex(
+  bee: Bee,
+  owner: string,
+  fi: FileInfo,
+): Promise<{ feedIndex: FeedIndex; feedIndexNext: FeedIndex }> {
+  const latest = await getFeedData(bee, new Topic(fi.topic), owner);
+  return {
+    feedIndex: latest.feedIndex,
+    feedIndexNext: latest.feedIndexNext ?? FeedIndex.fromBigInt(0n),
+  };
 }
 
 export function generateTopic(): Topic {

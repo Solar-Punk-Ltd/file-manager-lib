@@ -1,9 +1,9 @@
-import { BatchId, BeeDev, Bytes, MantarayNode, PublicKey, Reference, Topic } from '@ethersphere/bee-js';
+import { BatchId, BeeDev, Bytes, FeedIndex, MantarayNode, PublicKey, Reference, Topic } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
 import { FileManagerBase } from '../../src/fileManager';
-import { buyStamp, getFeedData } from '../../src/utils/common';
+import { buyStamp, getFeedData, getTopicNextIndex } from '../../src/utils/common';
 import { OWNER_STAMP_LABEL, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { FileInfoError, GranteeError, StampError } from '../../src/utils/errors';
 import { FileInfo } from '../../src/utils/types';
@@ -596,7 +596,7 @@ describe('FileManager version control', () => {
     await fileManager.upload({ batchId, path: p0, name });
     const base = fileManager.fileInfoList.at(-1)!;
 
-    const countBefore = await fileManager.getTopicNextIndex(base);
+    const countBefore = await getTopicNextIndex(bee, bee.signer!.publicKey().address().toString(), base);
     let latest = await fileManager.getVersion(base, (Number(countBefore) - 1).toString());
 
     await Promise.all(
@@ -606,12 +606,12 @@ describe('FileManager version control', () => {
         await fileManager.upload({ batchId, path: p, name, infoTopic: base.topic.toString() }, {
           actHistoryAddress: new Reference(latest.file.historyRef),
         } as any);
-        const c = await fileManager.getTopicNextIndex(base);
+        const c = await getTopicNextIndex(bee, bee.signer!.publicKey().address().toString(), base);
         latest = await fileManager.getVersion(base, (Number(c) - 1).toString());
       }),
     );
 
-    const after = await fileManager.getTopicNextIndex(base);
+    const after = await getTopicNextIndex(bee, bee.signer!.publicKey().address().toString(), base);
     expect(Number(after)).toBeGreaterThan(Number(countBefore));
 
     for (let i = 0; i < Number(after); i++) {
@@ -633,7 +633,7 @@ describe('FileManager version control', () => {
     await fileManager.upload({ batchId, path: dir, name });
     const base = fileManager.fileInfoList.at(-1)!;
 
-    const versionedFi = await fileManager.getVersion(base, 0);
+    const versionedFi = await fileManager.getVersion(base, FeedIndex.fromBigInt(0n).toString());
     const dlA = await fileManager.download(versionedFi, ['a.txt']);
 
     expect((dlA as Bytes[])[0].toUtf8()).toBe('A');
@@ -646,7 +646,7 @@ describe('FileManager version control', () => {
     const tmp = path.join(__dirname, 'meta.txt');
     fs.writeFileSync(tmp, 'same content');
     // upload once to get new historyRef
-    const latestIx = Number(await fileManager.getTopicNextIndex(base)) - 1;
+    const latestIx = Number(await getTopicNextIndex(bee, bee.signer!.publicKey().address().toString(), base)) - 1;
     const latest = await fileManager.getVersion(base, latestIx.toString());
 
     await fileManager.upload(
@@ -654,7 +654,7 @@ describe('FileManager version control', () => {
       { actHistoryAddress: new Reference(latest.file.historyRef) } as any,
     );
 
-    const cnt = await fileManager.getTopicNextIndex(base);
+    const cnt = await getTopicNextIndex(bee, bee.signer!.publicKey().address().toString(), base);
     const newest = await fileManager.getVersion(base, (Number(cnt) - 1).toString());
     expect(newest.customMetadata?.foo).toBe('bar');
   });
@@ -665,7 +665,8 @@ describe('FileManager version control', () => {
     const filePath = path.join(tmpDir, 'file.txt');
     const NAME = `versioned-file-${Date.now()}`; // unique
 
-    fs.writeFileSync(filePath, 'Version 0 content');
+    const content = 'Version 0 content';
+    fs.writeFileSync(filePath, content);
     await fileManager.upload({ batchId, path: filePath, name: NAME });
     const v0Fi = fileManager.fileInfoList.at(-1)!; // last pushed is ours
     const topic = v0Fi.topic.toString();
@@ -676,25 +677,26 @@ describe('FileManager version control', () => {
       actHistoryAddress: new Reference(hist0),
     } as any);
 
-    const countAfterV1 = await fileManager.getTopicNextIndex(v0Fi); // should be 2
-    const latestFi = await fileManager.getVersion(v0Fi, (Number(countAfterV1) - 1).toString());
+    const countAfterV1 = await getTopicNextIndex(bee, bee.signer!.publicKey().address().toString(), v0Fi); // should be 2
+    const latestFi = await fileManager.getVersion(v0Fi, countAfterV1.feedIndex);
     fs.writeFileSync(filePath, 'Version 2 content');
     await fileManager.upload({ batchId, path: filePath, name: NAME, infoTopic: topic }, {
       actHistoryAddress: new Reference(latestFi.file.historyRef),
     } as any);
 
-    const count = await fileManager.getTopicNextIndex(v0Fi);
-    expect(Number(count)).toBeGreaterThanOrEqual(3);
+    const count = await getTopicNextIndex(bee, bee.signer!.publicKey().address().toString(), v0Fi);
+    expect(count.feedIndexNext.toBigInt()).toBeGreaterThanOrEqual(3n);
 
-    const v0 = await fileManager.getVersion(v0Fi, (0).toString());
-    expect(v0.index?.replace(/^0+/, '') || '0').toBe('0');
+    const v0 = await fileManager.getVersion(v0Fi, FeedIndex.fromBigInt(0n));
+    expect(v0.index).toBeDefined();
+    expect(v0.index).toBe(FeedIndex.fromBigInt(0n).toString());
 
     const actPublisher = (await bee.getNodeAddresses())!.publicKey.toCompressedHex();
     const dl0 = (await fileManager.download(v0, undefined, {
       actHistoryAddress: v0.file.historyRef,
       actPublisher,
     })) as Bytes[];
-    expect(dl0[0].toUtf8()).toBe('Version 0 content');
+    expect(dl0[0].toUtf8()).toBe(content);
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });

@@ -102,13 +102,8 @@ export interface FileManager {
   /**
    * Returns a specific version of a file.
    */
-  getVersion(fileInfo: FileInfo, version?: string): Promise<FileInfo>;
+  getVersion(fileInfo: FileInfo, version?: string | FeedIndex): Promise<FileInfo>;
 
-  /**
-   * Returns the latest count for the feed index for a specific topic.
-   */
-  getTopicNextIndex(fileInfo: FileInfo): Promise<FeedIndex>;
-  
   /**
    * Retrieves a list of file information.
    * @returns An array of file information objects.

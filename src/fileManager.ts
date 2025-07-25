@@ -25,7 +25,7 @@ import {
 import { isNode } from 'std-env';
 
 import { assertFileInfo, assertShareItem, assertWrappedFileInoFeed } from './utils/asserts';
-import { generateTopic, getFeedData, getWrappedData, settlePromises } from './utils/common';
+import { generateTopic, getFeedData, getWrappedData, settlePromises, getTopicNextIndex } from './utils/common';
 import { OWNER_STAMP_LABEL, REFERENCE_LIST_TOPIC, SHARED_INBOX_TOPIC, SWARM_ZERO_ADDRESS } from './utils/constants';
 import {
   BeeVersionError,
@@ -220,36 +220,6 @@ export class FileManagerBase implements FileManager {
     console.debug('FileInfo feed list fetched successfully.');
   }
 
-  private async fetchFileInfo(fi: FileInfo, version: FeedIndex): Promise<FileInfo> {
-    if (!this.nodeAddresses) {
-      throw new SignerError('Node addresses not found');
-    }
-  
-    const owner = this.signer.publicKey().address().toString();
-  
-    const feedData = await getFeedData(
-      this.bee,
-      new Topic(fi.topic),
-      owner,
-      version.toBigInt(),
-    );
-  
-    const wrapperRef = new Reference(feedData.payload.toUint8Array());
-  
-    const wrapperBytes = await this.bee.downloadData(wrapperRef.toString());
-    const { reference, historyRef } = wrapperBytes.toJSON() as ReferenceWithHistory;
-  
-    const rawBytes = await this.bee.downloadData(reference.toString(), {
-      actHistoryAddress: historyRef,
-      actPublisher: fi.actPublisher,
-    });
-  
-    const fileInfo = rawBytes.toJSON() as FileInfo;
-    assertFileInfo(fileInfo);
-  
-    return fileInfo;
-  }  
-
   // fetches the file info list from the owner feed and unwraps the data encrypted with ACT
   private async initFileInfoList(): Promise<void> {
     // need a temporary variable to avoid async issues
@@ -278,7 +248,7 @@ export class FileManagerBase implements FileManager {
     });
 
     await settlePromises<Bytes>(rawDataPromises, (value) => {
-      const unwrappedFileInfoData = value.toJSON() as ReferenceWithHistory;
+      const unwrappedFileInfoData = value.toJSON() as FileInfo;
 
       try {
         assertFileInfo(unwrappedFileInfoData);
@@ -289,12 +259,6 @@ export class FileManagerBase implements FileManager {
     });
 
     console.debug('File info lists fetched successfully.');
-  }
-
-  async getTopicNextIndex(fi: FileInfo): Promise<FeedIndex> {
-    const owner = this.signer.publicKey().address().toString();
-    const latest = await getFeedData(this.bee, new Topic(fi.topic), owner);
-    return latest.feedIndexNext ?? FeedIndex.fromBigInt(0n);
   }
 
   // lists all the files found under the reference of the provided fileInfo
@@ -371,10 +335,10 @@ export class FileManagerBase implements FileManager {
     }
 
     const topicStr = infoOptions.infoTopic ?? generateTopic().toString();
-
+    const owner = this.signer.publicKey().address().toString();
     const fileInfo: FileInfo = {
       batchId: infoOptions.batchId.toString(),
-      owner: this.signer.publicKey().address().toString(),
+      owner: owner,
       topic: topicStr,
       name: infoOptions.name,
       actPublisher: this.nodeAddresses.publicKey.toCompressedHex(),
@@ -390,9 +354,9 @@ export class FileManagerBase implements FileManager {
       redundancyLevel: uploadOptions?.redundancyLevel,
     };
 
-    if(!infoOptions.index) {
-      const nextFeedIndex = await this.getTopicNextIndex(fileInfo);
-      fileInfo.index =  nextFeedIndex.toString();
+    if (!infoOptions.index) {
+      const { feedIndexNext } = await getTopicNextIndex(this.bee, owner, fileInfo);
+      fileInfo.index = feedIndexNext.toString();
     }
 
     await this.saveFileInfoAndFeed(fileInfo, requestOptions);
@@ -400,13 +364,10 @@ export class FileManagerBase implements FileManager {
     this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
   }
 
-  public async getVersion(fi: FileInfo, version?: string): Promise<FileInfo> {
-    const idx = version
-      ? Number(version)
-      : Number((await this.getTopicNextIndex(fi)).toBigInt()) - 1;
-  
-    const feedIndex = FeedIndex.fromBigInt(BigInt(idx));
-    return this.fetchFileInfo(fi, feedIndex);
+  public async getVersion(fi: FileInfo, version?: string | FeedIndex): Promise<FileInfo> {
+    const owner = this.signer.publicKey().address().toString();
+    const idx = version ? new FeedIndex(version) : (await getTopicNextIndex(this.bee, owner, fi)).feedIndex;
+    return this.fetchFileInfo(fi, idx);
   }
 
   private async saveFileInfoAndFeed(info: FileInfo, requestOptions?: BeeRequestOptions): Promise<void> {
@@ -473,16 +434,40 @@ export class FileManagerBase implements FileManager {
         undefined,
         requestOptions,
       );
-  
+
       const fw = this.bee.makeFeedWriter(new Topic(topic).toUint8Array(), this.signer, requestOptions);
-  
+
       await fw.uploadReference(batchId, uploadInfoRes.reference, {
         index: index !== undefined ? FeedIndex.fromBigInt(BigInt(index)) : undefined,
       });
     } catch (error: any) {
       throw new FileInfoError(`Failed to save wrapped fileInfo feed: ${error}`);
     }
-  }  
+  }
+
+  private async fetchFileInfo(fi: FileInfo, version: FeedIndex): Promise<FileInfo> {
+    const owner = this.signer.publicKey().address().toString();
+    const feedData = await getFeedData(this.bee, new Topic(fi.topic), owner, version.toBigInt());
+
+    if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
+      throw new FileInfoError(`File info not found for version: ${version.toString()}`);
+    }
+
+    const wrapperRef = new Reference(feedData.payload.toUint8Array());
+
+    const wrapperBytes = await this.bee.downloadData(wrapperRef.toString());
+    const { reference, historyRef } = wrapperBytes.toJSON() as ReferenceWithHistory;
+
+    const rawBytes = await this.bee.downloadData(reference, {
+      actHistoryAddress: historyRef,
+      actPublisher: fi.actPublisher,
+    });
+
+    const fileInfo = rawBytes.toJSON() as FileInfo;
+    assertFileInfo(fileInfo);
+
+    return fileInfo;
+  }
 
   private async saveOwnerFeedList(requestOptions?: BeeRequestOptions): Promise<void> {
     const ownerStamp = await this.getOwnerStamp();
