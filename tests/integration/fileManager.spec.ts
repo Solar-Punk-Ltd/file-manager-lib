@@ -7,7 +7,7 @@ import { buyStamp, getFeedData } from '../../src/utils/common';
 import { OWNER_STAMP_LABEL, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { FileInfoError, GranteeError, StampError } from '../../src/utils/errors';
 import { FileInfo } from '../../src/utils/types';
-import { createInitializedFileManager } from '../mockHelpers';
+import { createMockedInitializedFileManager } from '../mockHelpers';
 import {
   BEE_URL,
   createWrappedData,
@@ -44,13 +44,13 @@ describe('FileManager initialization', () => {
   beforeEach(async () => {
     jest.resetAllMocks();
     // For each test, create a fresh FileManager instance and initialize it.
-    fileManager = await createInitializedFileManager(bee);
+    fileManager = await createMockedInitializedFileManager(bee);
   });
 
   it('should create and initialize a new instance', async () => {
     // Use a different Bee instance with a different signer.
     const otherBee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
-    const fm = await createInitializedFileManager(otherBee);
+    const fm = await createMockedInitializedFileManager(otherBee);
     try {
       await fm.initialize();
     } catch (error: any) {
@@ -153,7 +153,7 @@ describe('FileManager initialization', () => {
       }
     }
     // Reinitialize fileManager after it goes out of scope to test if the file is saved on the feed.
-    const fm = await createInitializedFileManager(bee);
+    const fm = await createMockedInitializedFileManager(bee);
     await fm.initialize();
     const fileInfoList = fm.fileInfoList;
     await dowloadAndCompareFiles(fm, actPublisher.toCompressedHex(), fileInfoList, expFileDataArr);
@@ -202,7 +202,7 @@ describe('FileManager listFiles', () => {
     await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'listFilesIntegrationStamp');
     // Create and initialize the FileManager.
-    fileManager = await createInitializedFileManager(bee);
+    fileManager = await createMockedInitializedFileManager(bee);
     await fileManager.initialize();
     actPublisher = (await bee.getNodeAddresses())!.publicKey;
 
@@ -353,7 +353,7 @@ describe('FileManager upload', () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'uploadIntegrationStamp');
-    fileManager = await createInitializedFileManager(bee);
+    fileManager = await createMockedInitializedFileManager(bee);
 
     // Create a temporary directory with a nested structure for upload.
     tempUploadDir = path.join(__dirname, 'tmpUploadIntegration');
@@ -441,7 +441,7 @@ describe('FileManager download', () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'downloadFilesIntegrationStamp');
-    fileManager = await createInitializedFileManager(bee);
+    fileManager = await createMockedInitializedFileManager(bee);
     actPublisher = (await bee.getNodeAddresses())!.publicKey;
 
     // Create a temporary directory for download test.
@@ -536,7 +536,7 @@ describe('FileManager destroyVolume', () => {
     ownerStampId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
     expect(ownerStampId).toBeDefined();
 
-    fileManager = await createInitializedFileManager(bee);
+    fileManager = await createMockedInitializedFileManager(bee);
   });
 
   it('should throw an error when trying to destroy the owner stamp', async () => {
@@ -570,7 +570,7 @@ describe('FileManager getGranteesOfFile', () => {
   beforeAll(async () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
-    fileManager = await createInitializedFileManager(bee);
+    fileManager = await createMockedInitializedFileManager(bee);
   });
 
   it('should throw an error if grantee list is not found for a file', async () => {
@@ -629,7 +629,7 @@ describe('FileManager End-to-End User Workflow', () => {
     // Create a BeeDev instance and ensure the owner stamp exists.
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
-    fileManager = await createInitializedFileManager(bee);
+    fileManager = await createMockedInitializedFileManager(bee);
     // Create a temporary directory for this test session.
     tempBaseDir = path.join(__dirname, 'e2eTestSession');
     fs.mkdirSync(tempBaseDir, { recursive: true });
@@ -672,7 +672,7 @@ describe('FileManager End-to-End User Workflow', () => {
     await fileManager.upload({ batchId, path: projectFolder, name: path.basename(projectFolder) });
 
     // Force a reload of the FileManager (which loads the manifest as originally published)
-    fileManager = await createInitializedFileManager(bee);
+    fileManager = await createMockedInitializedFileManager(bee);
     fileInfos = fileManager.fileInfoList;
     const updatedProjectInfo = fileInfos.find((fi) => fi.name === path.basename(projectFolder));
     expect(updatedProjectInfo).toBeDefined();

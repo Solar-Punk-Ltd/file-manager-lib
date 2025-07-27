@@ -1,7 +1,7 @@
 import { BatchId, Bee, Bytes, MantarayNode, Reference, STAMPS_DEPTH_MAX, Topic } from '@ethersphere/bee-js';
 
 import { FileManagerBase } from '../../src/fileManager';
-import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
+import { OWNER_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
 import { EventEmitterBase } from '../../src/utils/eventEmitter';
 import { FileManagerEvents } from '../../src/utils/events';
@@ -43,6 +43,14 @@ describe('FileManager', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
     const { loadMantaray } = require('../../src/utils/mantaray');
     loadMantaray.mockResolvedValue(mokcMN);
+
+    const fakeBatch = {
+      batchID: new BatchId(MOCK_BATCH_ID),
+      usable: true,
+      label: OWNER_STAMP_LABEL,
+      remainingSize: { toBytes: () => 10_000_000n },
+    } as any;
+    jest.spyOn(Bee.prototype, 'getAllPostageBatch').mockResolvedValue([fakeBatch]);
   });
 
   describe('constructor', () => {
@@ -254,7 +262,7 @@ describe('FileManager', () => {
     });
 
     it('should throw error if trying to destroy OwnerFeedStamp', async () => {
-      const batchId = new BatchId('3456'.repeat(16));
+      const batchId = new BatchId(MOCK_BATCH_ID);
       jest.spyOn(Bee.prototype, 'diluteBatch').mockResolvedValue(new BatchId('1234'.repeat(16)));
       const fm = await createInitializedFileManager();
 

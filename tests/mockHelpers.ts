@@ -48,6 +48,21 @@ export async function createInitializedFileManager(
   emitter?: EventEmitter,
 ): Promise<FileManagerBase> {
   const fm = new FileManagerBase(bee, emitter);
+  (fm as any).ensureCapacity = async (_batchId: any, _delta: any) => Promise.resolve();
+  await fm.initialize();
+  return fm;
+}
+
+export async function createMockedInitializedFileManager(
+  bee: Bee = new Bee(BEE_URL, { signer: MOCK_SIGNER }),
+  emitter?: EventEmitter,
+): Promise<FileManagerBase> {
+  const fm = new FileManagerBase(bee, emitter);
+
+  (fm as any).ensureCapacity = async (_batchId: any, _delta: any): Promise<void> => {
+    return;
+  };
+
   await fm.initialize();
   return fm;
 }
