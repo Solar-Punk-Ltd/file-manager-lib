@@ -102,7 +102,16 @@ export interface FileManager {
   /**
    * Returns a specific version of a file.
    */
-  getVersion(fileInfo: FileInfo, version?: string | FeedIndex): Promise<FileInfo>;
+  getVersion(fileInfo: FileInfo, version?: FeedIndex): Promise<FileInfo>;
+
+  /**
+   * Restore a previous version of a file as the new “head” in your feed.
+   */
+  restoreVersion(
+    fileInfo: FileInfo,
+    version?: string | FeedIndex,
+    requestOptions?: BeeRequestOptions
+  ): Promise<FileInfo>;
 
   /**
    * Retrieves a list of file information.

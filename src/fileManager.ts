@@ -364,10 +364,52 @@ export class FileManagerBase implements FileManager {
     this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
   }
 
-  public async getVersion(fi: FileInfo, version?: string | FeedIndex): Promise<FileInfo> {
+  async getVersion(fi: FileInfo, version?: FeedIndex): Promise<FileInfo> {
     const owner = this.signer.publicKey().address().toString();
     const idx = version ? new FeedIndex(version) : (await getTopicNextIndex(this.bee, owner, fi)).feedIndex;
     return this.fetchFileInfo(fi, idx);
+  }
+
+  // Restore a previous version of a file as the new head
+  async restoreVersion(
+    fi: FileInfo,
+    version?: FeedIndex,
+    requestOptions?: BeeRequestOptions
+  ): Promise<FileInfo> {
+    const owner = this.signer.publicKey().address().toString();
+
+    // 1) figure out which slot we're targeting
+    const idx = version
+      ? new FeedIndex(version)
+      : (await getTopicNextIndex(this.bee, owner, fi)).feedIndex;
+
+    // 2) figure out where the head currently lives
+    const { feedIndexNext } = await getTopicNextIndex(this.bee, owner, fi);
+    const headIdx = feedIndexNext.toBigInt() - 1n;
+
+    // 3) if we asked for the current head, just re-fetch that version
+    if (idx.toBigInt() === headIdx) {
+      return this.getVersion(fi, idx);
+    }
+
+    // 4) pull down the old version
+    const oldVersionInfo = await this.getVersion(fi, idx);
+
+    // 5) compute the new head index
+    const { feedIndexNext: newNext } = await getTopicNextIndex(this.bee, owner, oldVersionInfo);
+
+    // 6) clone & bump that old record into the new slot
+    const restored: FileInfo = {
+      ...oldVersionInfo,
+      index: newNext.toString(), // decimal string
+    };
+
+    await this.saveFileInfoAndFeed(restored, requestOptions);
+
+    // 7) emit the restore event
+    this.emitter.emit(FileManagerEvents.FILE_VERSION_RESTORED, { fileInfo: restored });
+
+    return restored;
   }
 
   private async saveFileInfoAndFeed(info: FileInfo, requestOptions?: BeeRequestOptions): Promise<void> {
