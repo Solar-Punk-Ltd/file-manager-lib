@@ -48,7 +48,6 @@ export async function createInitializedFileManager(
   emitter?: EventEmitter,
 ): Promise<FileManagerBase> {
   const fm = new FileManagerBase(bee, emitter);
-  (fm as any).ensureCapacity = async (_batchId: any, _delta: any) => Promise.resolve();
   await fm.initialize();
   return fm;
 }
