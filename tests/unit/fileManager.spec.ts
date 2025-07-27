@@ -200,6 +200,58 @@ describe('FileManager', () => {
     });
   });
 
+  describe('searchFiles', () => {
+    const DUMMY_BATCH = new BatchId(MOCK_BATCH_ID);
+
+    it('should return only entries whose basename contains the query', async () => {
+      createInitMocks();
+      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee);
+      // pretend we already have uploaded a fileInfo in that batch
+      const mockFi = await createMockFileInfo(bee, '0'.repeat(64));
+      fm.fileInfoList.push({ ...mockFi, batchId: DUMMY_BATCH.toString() });
+
+      // stub listFiles to return a handful of ReferenceWithPath
+      const allEntries = [
+        { path: 'foo/apple.txt', reference: new Reference('a'.repeat(64)) },
+        { path: 'foo/banana.txt', reference: new Reference('b'.repeat(64)) },
+        { path: 'foo/apricot.txt', reference: new Reference('c'.repeat(64)) },
+      ];
+      jest.spyOn(fm, 'listFiles' as any).mockResolvedValue(allEntries);
+
+      const result = await fm.searchFiles(DUMMY_BATCH, 'ap');
+
+      expect(result).toEqual([
+        { path: 'foo/apple.txt', reference: new Reference('a'.repeat(64)) },
+        { path: 'foo/apricot.txt', reference: new Reference('c'.repeat(64)) },
+      ]);
+    });
+
+    it('should return an empty array if nothing matches', async () => {
+      createInitMocks();
+      const fm = await createInitializedFileManager();
+      fm.fileInfoList.push({
+        ...(await createMockFileInfo()),
+        batchId: DUMMY_BATCH.toString(),
+      });
+      jest
+        .spyOn(fm, 'listFiles' as any)
+        .mockResolvedValue([{ path: 'dir/one.txt', reference: new Reference('1'.repeat(64)) }]);
+
+      const result = await fm.searchFiles(DUMMY_BATCH, 'xyz');
+      expect(result).toEqual([]);
+    });
+
+    it('should throw if the batchId is not present in fileInfoList', async () => {
+      createInitMocks();
+      const fm = await createInitializedFileManager();
+      // no entry pushed for DUMMY_BATCH
+      await expect(fm.searchFiles(DUMMY_BATCH, 'anything')).rejects.toThrow(
+        `No upload found for batch ${DUMMY_BATCH.toString()}`,
+      );
+    });
+  });
+
   describe('upload', () => {
     it('should call uploadFilesFromDirectory', async () => {
       const fm = await createInitializedFileManager();

@@ -343,6 +343,59 @@ describe('FileManager listFiles', () => {
   });
 });
 
+describe('FileManager searchFiles', () => {
+  let bee: BeeDev;
+  let fileManager: FileManagerBase;
+  let batchId: BatchId;
+  let tempDir: string;
+
+  beforeAll(async () => {
+    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
+    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'searchFilesStamp');
+    fileManager = await createInitializedFileManager(bee);
+    await fileManager.initialize();
+
+    // set up a directory with a few files
+    tempDir = path.join(__dirname, 'tmpSearchTest');
+    fs.mkdirSync(tempDir, { recursive: true });
+    fs.writeFileSync(path.join(tempDir, 'apple.txt'), '🍎');
+    fs.writeFileSync(path.join(tempDir, 'banana.txt'), '🍌');
+    const sub = path.join(tempDir, 'fruit');
+    fs.mkdirSync(sub, { recursive: true });
+    fs.writeFileSync(path.join(sub, 'apricot.txt'), '🍑');
+
+    // upload the folder
+    await fileManager.upload({
+      batchId,
+      path: tempDir,
+      name: path.basename(tempDir),
+    });
+  });
+
+  afterAll(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('should find files whose names contain the query', async () => {
+    const results = await fileManager.searchFiles(batchId, 'ap');
+    const names = results.map((r) => path.basename(r.path)).sort();
+    expect(names).toEqual(['apple.txt', 'apricot.txt']);
+  });
+
+  it('should return an empty array if nothing matches', async () => {
+    const results = await fileManager.searchFiles(batchId, 'xyz');
+    expect(results).toEqual([]);
+  });
+
+  it('should throw if the batchId is unknown', async () => {
+    const bogus = new BatchId('0'.repeat(64));
+    await expect(fileManager.searchFiles(bogus, 'anything')).rejects.toThrow(
+      `No upload found for batch ${bogus.toString()}`,
+    );
+  });
+});
+
 describe('FileManager upload', () => {
   let bee: BeeDev;
   let fileManager: FileManagerBase;
