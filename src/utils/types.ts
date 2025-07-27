@@ -109,7 +109,7 @@ export interface FileManager {
    */
   restoreVersion(
     fileInfo: FileInfo,
-    version?: string | FeedIndex,
+    version?: FeedIndex,
     requestOptions?: BeeRequestOptions
   ): Promise<FileInfo>;
 
