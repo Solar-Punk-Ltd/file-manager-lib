@@ -23,6 +23,7 @@ import {
   Utils,
 } from '@ethersphere/bee-js';
 import { isNode } from 'std-env';
+import path from 'path';
 
 import { assertFileInfo, assertShareItem, assertWrappedFileInoFeed } from './utils/asserts';
 import { generateTopic, getFeedData, getWrappedData, settlePromises } from './utils/common';
@@ -282,6 +283,20 @@ export class FileManagerBase implements FileManager {
       .filter((item) => item.path !== '' && !item.reference.equals(SWARM_ZERO_ADDRESS));
 
     return fileList;
+  }
+
+  // lists all the files found under the reference of the provided fileInfo
+  async searchFiles(batchId: BatchId,
+    query: string,
+    options?: DownloadOptions): Promise<ReferenceWithPath[]> {
+    const fileInfo = this.fileInfoList.find((fi) => new BatchId(fi.batchId).equals(batchId));
+    if (!fileInfo) {
+      throw new Error(`No upload found for batch ${batchId.toString()}`);
+    }
+
+    const all = await this.listFiles(fileInfo, options);
+
+    return all.filter((item) => path.basename(item.path).includes(query));
   }
 
   async download(

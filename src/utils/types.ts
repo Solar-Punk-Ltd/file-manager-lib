@@ -63,6 +63,15 @@ export interface FileManager {
   listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<ReferenceWithPath[]>;
 
   /**
+   * Searches for files in the given postage batch whose paths match the query.
+   * @param batchId - The postage batch in which the files were uploaded.
+   * @param query - A substring to match against each file’s path (basename).
+   * @returns A promise resolving to only those ReferenceWithPath entries whose basename contains `query`.
+   * @throws Error if no upload is found for the given batchId.
+   */
+  searchFiles(batchId: BatchId, query: string): Promise<ReferenceWithPath[]>;
+
+  /**
    * Destroys a volume identified by the given batch ID.
    * @param batchId - The ID of the batch to destroy.
    * @returns A promise that resolves when the volume is destroyed.
