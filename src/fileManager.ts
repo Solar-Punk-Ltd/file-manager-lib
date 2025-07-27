@@ -382,6 +382,10 @@ export class FileManagerBase implements FileManager {
 
   private async uploadFileInfo(fileInfo: FileInfo, requestOptions?: BeeRequestOptions): Promise<ReferenceWithHistory> {
     try {
+      const json = JSON.stringify(fileInfo);
+      const sizeBytes = BigInt(Buffer.byteLength(json, 'utf8'));
+      await this.ensureCapacity(new BatchId(fileInfo.batchId), sizeBytes);
+
       const uploadInfoRes = await this.bee.uploadData(
         fileInfo.batchId,
         JSON.stringify(fileInfo),
@@ -411,6 +415,12 @@ export class FileManagerBase implements FileManager {
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
     try {
+      const wrapper = JSON.stringify({
+        reference: fileInfoResult.reference,
+        historyRef: fileInfoResult.historyRef,
+      });
+      const sizeBytes = BigInt(Buffer.byteLength(wrapper, 'utf8'));
+      await this.ensureCapacity(new BatchId(batchId), sizeBytes);
       const uploadInfoRes = await this.bee.uploadData(
         batchId,
         JSON.stringify({
@@ -477,6 +487,22 @@ export class FileManagerBase implements FileManager {
     } catch (error: any) {
       console.error(`Failed to get owner stamp: ${error}`);
       return;
+    }
+  }
+
+  private async ensureCapacity(batchId: BatchId, deltaBytes: bigint): Promise<void> {
+    const batches = await this.bee.getAllPostageBatch();
+    const batch = batches.find((b) => b.batchID.equals(batchId));
+    if (!batch) throw new StampError(`Batch ${batchId.toString()} not found`);
+  
+    const remaining = batch.remainingSize
+      ? BigInt(batch.remainingSize.toBytes())
+      : BigInt(0);
+  
+    if (deltaBytes > remaining) {
+      throw new StampError(
+        `Not enough remaining batch size: ${remaining} bytes left, but need ${deltaBytes} bytes`
+      );
     }
   }
 
