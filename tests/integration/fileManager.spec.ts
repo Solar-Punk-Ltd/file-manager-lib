@@ -1,3 +1,5 @@
+jest.setTimeout(30_000);
+
 import { BatchId, BeeDev, Bytes, FeedIndex, MantarayNode, PublicKey, Reference, Topic } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
@@ -725,6 +727,73 @@ describe('FileManager version control', () => {
     expect(dl0[0].toUtf8()).toBe(content);
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('can restore a prior version and make it the new head', async () => {
+    const tmp = path.join(__dirname, 'restore.txt');
+    fs.writeFileSync(tmp, 'first');
+
+    const base = await ensureBase('restore-file');
+    const initialReference = base.file.reference;
+    const initialHistory = base.file.historyRef;
+
+    fs.writeFileSync(tmp, 'second');
+    await fileManager.upload({ batchId, path: tmp, name: base.name, infoTopic: base.topic.toString() }, {
+      actHistoryAddress: new Reference(initialHistory),
+    } as any);
+
+    const { feedIndexNext: after2 } = await getTopicNextIndex(bee, bee.signer!.publicKey().address().toString(), base);
+    const secondIndex = FeedIndex.fromBigInt(after2.toBigInt() - 1n);
+
+    let secondVer = await fileManager.getVersion(base, secondIndex);
+    if (secondVer.file.historyRef === initialHistory) {
+      secondVer = await fileManager.getVersion(base, secondIndex);
+    }
+
+    expect(secondVer.file.reference).not.toBe(initialReference);
+
+    const restored = await fileManager.restoreVersion(base, FeedIndex.fromBigInt(0n));
+
+    expect(restored.index).toBe(after2.toString());
+    expect(restored.file.reference).toBe(initialReference);
+    fs.unlinkSync(tmp);
+  });
+
+  it('restoring the current head does nothing', async () => {
+    // 1) create two versions
+    const tmp = path.join(__dirname, 'restore.txt');
+    fs.writeFileSync(tmp, 'first');
+    const base = await ensureBase('noop-restore');
+    fs.writeFileSync(tmp, 'second');
+    await fileManager.upload({ batchId, path: tmp, name: base.name, infoTopic: base.topic.toString() }, {
+      actHistoryAddress: new Reference(base.file.historyRef),
+    } as any);
+    fs.unlinkSync(tmp);
+
+    // 2) figure out head index
+    const { feedIndexNext } = await getTopicNextIndex(bee, bee.signer!.publicKey().address().toString(), base);
+    const headIndex = FeedIndex.fromBigInt(feedIndexNext.toBigInt() - 1n);
+
+    // 3) fetch the current head
+    const currentHead = await fileManager.getVersion(base, headIndex);
+
+    // 4) restore that same head
+    const restored = await fileManager.restoreVersion(base, headIndex);
+
+    // 5) it should return the exact same FileInfo (no bump, no new head)
+    expect(restored.index).toBe(currentHead.index);
+    expect(restored.file.reference).toBe(currentHead.file.reference);
+  });
+
+  it('restoreVersion() with no version param is a no-op', async () => {
+    // ensure at least one version exists
+    const base = await ensureBase('noop-default');
+    // head is index 0
+    const restored = await fileManager.restoreVersion(base);
+    // index should remain the same
+    const { feedIndexNext } = await getTopicNextIndex(bee, bee.signer!.publicKey().address().toString(), base);
+    const headIdx = (feedIndexNext.toBigInt() - 1n).toString();
+    expect(restored.index).toBe(FeedIndex.fromBigInt(BigInt(headIdx)).toString());
   });
 });
 

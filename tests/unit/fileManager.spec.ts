@@ -362,6 +362,38 @@ describe('FileManager', () => {
       jest.spyOn(fm, 'getVersion').mockRejectedValue(err);
       await expect(fm.getVersion(dummyFi, '123')).rejects.toBe(err);
     });
+
+    it('restoring the current head should simply re‑fetch that version', async () => {
+      // headIndex = 5
+      const head = FeedIndex.fromBigInt(5n);
+      // pretend getTopicNextIndex returns feedIndexNext=6, feedIndex=5
+      (common.getTopicNextIndex as jest.Mock)
+        .mockResolvedValueOnce({ feedIndex: head, feedIndexNext: FeedIndex.fromBigInt(6n) })
+        // for the re-fetch inside the branch:
+        .mockResolvedValueOnce({ feedIndex: head, feedIndexNext: FeedIndex.fromBigInt(6n) });
+
+      const spyGet = jest.spyOn(fm, 'getVersion').mockResolvedValue({ ...dummyFi, index: head.toString() });
+
+      const restored = await fm.restoreVersion(dummyFi, head);
+      // should have called getVersion(dummyFi, head)
+      expect(spyGet).toHaveBeenCalledWith(dummyFi, head);
+      expect(restored.index).toBe(head.toString());
+    });
+
+    it('restoreVersion() with no version param is a no‑op on head', async () => {
+      const head = FeedIndex.fromBigInt(3n);
+      (common.getTopicNextIndex as jest.Mock)
+        // initial head discovery
+        .mockResolvedValueOnce({ feedIndex: head, feedIndexNext: FeedIndex.fromBigInt(4n) })
+        // branch re‑fetch
+        .mockResolvedValueOnce({ feedIndex: head, feedIndexNext: FeedIndex.fromBigInt(4n) });
+
+      const spyGet = jest.spyOn(fm, 'getVersion').mockResolvedValue({ ...dummyFi, index: head.toString() });
+
+      const restored = await fm.restoreVersion(dummyFi);
+      expect(spyGet).toHaveBeenCalledWith(dummyFi, head);
+      expect(restored.index).toBe(head.toString());
+    });
   });
 
   describe('destroyVolume', () => {
