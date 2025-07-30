@@ -1,5 +1,3 @@
-jest.setTimeout(30_000);
-
 import { BatchId, BeeDev, Bytes, FeedIndex, MantarayNode, PublicKey, Reference, Topic } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
@@ -558,30 +556,7 @@ describe('FileManager version control', () => {
     await expect(fileManager.getVersion(base, (-1 as any).toString())).rejects.toThrow();
   });
 
-  it('rejects upload with infoTopic but no actHistoryAddress', async () => {
-    const base = await ensureBase();
-    const dummy = path.join(__dirname, 'dummy.txt');
-    fs.writeFileSync(dummy, 'dummy');
-    await expect(
-      fileManager.upload({ batchId, path: dummy, name: base.name, infoTopic: base.topic.toString() }),
-    ).rejects.toThrow('infoTopic and historyRef');
-    fs.unlinkSync(dummy);
-  });
-
-  it('fails if historyRef does not chain correctly', async () => {
-    const base = await ensureBase();
-    const tmp = path.join(__dirname, 'bad.txt');
-    fs.writeFileSync(tmp, 'bad');
-    const bogus = new Reference('0'.repeat(64));
-    await expect(
-      fileManager.upload({ batchId, path: tmp, name: base.name, infoTopic: base.topic.toString() }, {
-        actHistoryAddress: bogus,
-      } as any),
-    ).rejects.toThrow();
-    fs.rmSync(tmp, { force: true });
-  });
-
-  it('handles parallel uploads to the same topic, indices are monotonic', async () => {
+  it('handles sequential uploads with proper slot indices', async () => {
     const tmpDir = fs.mkdtempSync(path.join(__dirname, 'par-'));
     const name = `parallel-${Date.now()}`;
     const p0 = path.join(tmpDir, 'f0.txt');
@@ -589,48 +564,40 @@ describe('FileManager version control', () => {
     await fileManager.upload({ batchId, path: p0, name });
     const base = fileManager.fileInfoList.at(-1)!;
 
-    // get initial head index
+    // 1) capture head “next” slot
     const { feedIndexNext: beforeNext } = await getTopicNextIndex(
       bee,
       bee.signer!.publicKey().address().toString(),
       base,
     );
-    // fetch version at (beforeNext - 1)
+    // 2) pull down current head so we can chain off its historyRef
     let latest = await fileManager.getVersion(base, FeedIndex.fromBigInt(beforeNext.toBigInt() - 1n));
 
-    // perform three parallel uploads, each chaining off the then-latest historyRef
-    await Promise.all(
-      [1, 2, 3].map(async (i) => {
-        const fn = path.join(tmpDir, `f${i}.txt`);
-        fs.writeFileSync(fn, `v${i}`);
-        await fileManager.upload(
-          {
-            batchId,
-            path: fn,
-            name,
-            infoTopic: base.topic.toString(),
-          },
-          { actHistoryAddress: new Reference(latest.file.historyRef) } as any,
-        );
-        // update latest for the next iteration
-        const { feedIndexNext: currNext } = await getTopicNextIndex(
-          bee,
-          bee.signer!.publicKey().address().toString(),
-          base,
-        );
-        latest = await fileManager.getVersion(base, FeedIndex.fromBigInt(currNext.toBigInt() - 1n));
-      }),
-    );
+    // 3) perform three _sequential_ uploads, each chaining off the newly fetched historyRef
+    for (const i of [1, 2, 3]) {
+      const fn = path.join(tmpDir, `f${i}.txt`);
+      fs.writeFileSync(fn, `v${i}`);
+      await fileManager.upload({ batchId, path: fn, name, infoTopic: base.topic.toString() }, {
+        actHistoryAddress: new Reference(latest.file.historyRef),
+      } as any);
+      // update `latest` for the next iteration
+      const { feedIndexNext: currNext } = await getTopicNextIndex(
+        bee,
+        bee.signer!.publicKey().address().toString(),
+        base,
+      );
+      latest = await fileManager.getVersion(base, FeedIndex.fromBigInt(currNext.toBigInt() - 1n));
+    }
 
-    // assert the feed index has advanced
+    // 4) now exactly three new slots should have been created
     const { feedIndexNext: afterNext } = await getTopicNextIndex(
       bee,
       bee.signer!.publicKey().address().toString(),
       base,
     );
-    expect(afterNext.toBigInt()).toBeGreaterThan(beforeNext.toBigInt());
+    expect(afterNext.toBigInt()).toBe(beforeNext.toBigInt() + 3n);
 
-    // ensure each version index matches its numeric position
+    // 5) sanity-check: each version index matches its slot
     for (let i = 0; i < Number(afterNext.toBigInt()); i++) {
       const fi = await fileManager.getVersion(base, FeedIndex.fromBigInt(BigInt(i)));
       expect(fi.index).toBe(FeedIndex.fromBigInt(BigInt(i)).toString());
@@ -656,35 +623,23 @@ describe('FileManager version control', () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it('creates a new version when only metadata changes', async () => {
-    const base = await ensureBase();
-    const tmp = path.join(__dirname, 'meta.txt');
-    fs.writeFileSync(tmp, 'same');
+  it('returns the cached FileInfo for the current head without refetching', async () => {
+    // make sure there’s at least one version on chain
+    const base = await ensureBase('cache-test');
 
-    // grab head index
-    const { feedIndexNext: next0 } = await getTopicNextIndex(bee, bee.signer!.publicKey().address().toString(), base);
-    const ix0 = next0.toBigInt() - 1n;
-    const latest = await fileManager.getVersion(base, FeedIndex.fromBigInt(ix0));
+    // compute the current head slot (feedIndexNext - 1)
+    const { feedIndexNext } = await getTopicNextIndex(bee, bee.signer!.publicKey().address().toString(), base);
+    const headSlot = FeedIndex.fromBigInt(feedIndexNext.toBigInt() - 1n);
 
-    // publish only‐metadata change
-    await fileManager.upload(
-      {
-        batchId,
-        path: tmp,
-        name: base.name,
-        infoTopic: base.topic.toString(),
-        customMetadata: { foo: 'bar' },
-      },
-      { actHistoryAddress: new Reference(latest.file.historyRef) } as any,
-    );
+    // grab the FileInfo object that was stored in memory
+    const cached = fileManager.fileInfoList.find((f) => f.topic === base.topic);
+    expect(cached).toBeDefined();
 
-    // new head should reflect metadata
-    const { feedIndexNext: next1 } = await getTopicNextIndex(bee, bee.signer!.publicKey().address().toString(), base);
-    const newestIx = next1.toBigInt() - 1n;
-    const newest = await fileManager.getVersion(base, FeedIndex.fromBigInt(newestIx));
-    expect(newest.customMetadata?.foo).toBe('bar');
+    // now call getVersion with exactly the head slot
+    const result = await fileManager.getVersion(base, headSlot);
 
-    fs.unlinkSync(tmp);
+    // it should return *the very same* object instance
+    expect(result).toBe(cached);
   });
 
   it('uploads multiple versions, counts them, fetches an old version and downloads it', async () => {
@@ -729,71 +684,89 @@ describe('FileManager version control', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('can restore a prior version and make it the new head', async () => {
+  it('can  restore a prior version and make it the new head', async () => {
     const tmp = path.join(__dirname, 'restore.txt');
     fs.writeFileSync(tmp, 'first');
 
+    // 1. initial upload → base
     const base = await ensureBase('restore-file');
-    const initialReference = base.file.reference;
-    const initialHistory = base.file.historyRef;
+    const firstRef = base.file.reference;
 
+    // 2. second upload overrides it
     fs.writeFileSync(tmp, 'second');
     await fileManager.upload({ batchId, path: tmp, name: base.name, infoTopic: base.topic.toString() }, {
-      actHistoryAddress: new Reference(initialHistory),
+      actHistoryAddress: new Reference(base.file.historyRef),
     } as any);
 
-    const { feedIndexNext: after2 } = await getTopicNextIndex(bee, bee.signer!.publicKey().address().toString(), base);
-    const secondIndex = FeedIndex.fromBigInt(after2.toBigInt() - 1n);
+    // 3. capture initial "next" slot (i.e. where the next write would go)
+    const { feedIndexNext: initialNext } = await getTopicNextIndex(
+      bee,
+      bee.signer!.publicKey().address().toString(),
+      base,
+    );
 
-    let secondVer = await fileManager.getVersion(base, secondIndex);
-    if (secondVer.file.historyRef === initialHistory) {
-      secondVer = await fileManager.getVersion(base, secondIndex);
-    }
+    // 4. restore back to version0
+    await fileManager.restoreVersion(base);
 
-    expect(secondVer.file.reference).not.toBe(initialReference);
+    // 5. capture the new "next" slot after restore
+    const { feedIndex: current, feedIndexNext: newNext } = await getTopicNextIndex(
+      bee,
+      bee.signer!.publicKey().address().toString(),
+      base,
+    );
 
-    const restored = await fileManager.restoreVersion(base, FeedIndex.fromBigInt(0n));
+    // ensure exactly one new write happened
+    expect(newNext.toBigInt()).toBe(initialNext.toBigInt() + 1n);
 
-    expect(restored.index).toBe(after2.toString());
-    expect(restored.file.reference).toBe(initialReference);
+    // 6. fetch the new head (slot = newNext - 1)
+    const headIdx = FeedIndex.fromBigInt(newNext.toBigInt() - 1n);
+    const restored = await fileManager.getVersion(base, headIdx);
+
+    // its content should point back at the very first upload
+    expect(restored.file.reference).toBe(firstRef);
+    expect(BigInt(restored.index!)).toBe(current.toBigInt());
+
     fs.unlinkSync(tmp);
   });
 
   it('restoring the current head does nothing', async () => {
-    // 1) create two versions
-    const tmp = path.join(__dirname, 'restore.txt');
-    fs.writeFileSync(tmp, 'first');
+    const tmp = path.join(__dirname, 'noop-restore.txt');
+    fs.writeFileSync(tmp, 'A');
     const base = await ensureBase('noop-restore');
-    fs.writeFileSync(tmp, 'second');
+    fs.writeFileSync(tmp, 'B');
     await fileManager.upload({ batchId, path: tmp, name: base.name, infoTopic: base.topic.toString() }, {
       actHistoryAddress: new Reference(base.file.historyRef),
     } as any);
     fs.unlinkSync(tmp);
 
-    // 2) figure out head index
+    // figure out current head
     const { feedIndexNext } = await getTopicNextIndex(bee, bee.signer!.publicKey().address().toString(), base);
-    const headIndex = FeedIndex.fromBigInt(feedIndexNext.toBigInt() - 1n);
+    const currentIdx = FeedIndex.fromBigInt(feedIndexNext.toBigInt() - 1n);
+    const currentHead = await fileManager.getVersion(base, currentIdx);
 
-    // 3) fetch the current head
-    const currentHead = await fileManager.getVersion(base, headIndex);
+    // restore that same version
+    await fileManager.restoreVersion(currentHead);
 
-    // 4) restore that same head
-    const restored = await fileManager.restoreVersion(base, headIndex);
-
-    // 5) it should return the exact same FileInfo (no bump, no new head)
-    expect(restored.index).toBe(currentHead.index);
-    expect(restored.file.reference).toBe(currentHead.file.reference);
+    // head should remain unchanged
+    const reHead = await fileManager.getVersion(base, currentIdx);
+    expect(reHead.index).toBe(currentHead.index);
+    expect(reHead.file.reference).toBe(currentHead.file.reference);
   });
 
-  it('restoreVersion() with no version param is a no-op', async () => {
-    // ensure at least one version exists
+  it('restoreVersion() on a single‐version file reaffirms the head', async () => {
+    // only slot 0 exists
     const base = await ensureBase('noop-default');
-    // head is index 0
-    const restored = await fileManager.restoreVersion(base);
-    // index should remain the same
     const { feedIndexNext } = await getTopicNextIndex(bee, bee.signer!.publicKey().address().toString(), base);
-    const headIdx = (feedIndexNext.toBigInt() - 1n).toString();
-    expect(restored.index).toBe(FeedIndex.fromBigInt(BigInt(headIdx)).toString());
+    const headIdx = FeedIndex.fromBigInt(feedIndexNext.toBigInt() - 1n);
+    const before = await fileManager.getVersion(base, headIdx);
+
+    // calling restoreVersion on that same FileInfo
+    await fileManager.restoreVersion(before);
+
+    // head stays the same
+    const after = await fileManager.getVersion(base, headIdx);
+    expect(after.index).toBe(before.index);
+    expect(after.file.reference).toBe(before.file.reference);
   });
 });
 

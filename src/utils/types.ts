@@ -109,9 +109,8 @@ export interface FileManager {
    */
   restoreVersion(
     fileInfo: FileInfo,
-    version?: FeedIndex,
     requestOptions?: BeeRequestOptions
-  ): Promise<FileInfo>;
+  ): Promise<void>;
 
   /**
    * Retrieves a list of file information.
