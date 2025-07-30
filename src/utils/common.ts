@@ -13,7 +13,7 @@ import { isNode } from 'std-env';
 import { getRandomBytesBrowser } from './browser';
 import { SWARM_ZERO_ADDRESS } from './constants';
 import { getRandomBytesNode } from './node';
-import { FeedPayloadResult, FileInfo, WrappedUploadResult } from './types';
+import { FeedPayloadResult, WrappedUploadResult } from './types';
 import { FileInfoError } from './errors';
 import { asserWrappedUploadResult } from './asserts';
 
