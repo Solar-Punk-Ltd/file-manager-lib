@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import path from 'path';
 
 import { FileManagerBase } from '../../src/fileManager';
-import { buyStamp, getFeedData, getTopicNextIndex } from '../../src/utils/common';
+import { buyStamp, getFeedData } from '../../src/utils/common';
 import { OWNER_STAMP_LABEL, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { FileInfoError, GranteeError, StampError } from '../../src/utils/errors';
 import { FileInfo } from '../../src/utils/types';
@@ -15,6 +15,7 @@ import {
   DEFAULT_BATCH_DEPTH,
   dowloadAndCompareFiles,
   getTestFile,
+  getTopicNextIndex,
   MOCK_SIGNER,
   OTHER_BEE_URL,
   OTHER_MOCK_SIGNER,

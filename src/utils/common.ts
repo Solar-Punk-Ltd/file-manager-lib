@@ -43,18 +43,6 @@ export async function getFeedData(
   }
 }
 
-export async function getTopicNextIndex(
-  bee: Bee,
-  owner: string,
-  fi: FileInfo,
-): Promise<{ feedIndex: FeedIndex; feedIndexNext: FeedIndex }> {
-  const latest = await getFeedData(bee, new Topic(fi.topic), owner);
-  return {
-    feedIndex: latest.feedIndex,
-    feedIndexNext: latest.feedIndexNext ?? FeedIndex.fromBigInt(0n),
-  };
-}
-
 export function generateTopic(): Topic {
   if (isNode) {
     return new Topic(getRandomBytesNode(Topic.LENGTH));

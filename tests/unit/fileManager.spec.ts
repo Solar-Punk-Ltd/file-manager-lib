@@ -41,7 +41,7 @@ describe('FileManager', () => {
     jest.resetAllMocks();
     createInitMocks();
 
-    (common.getTopicNextIndex as jest.Mock).mockResolvedValue({
+    (common.getFeedData as jest.Mock).mockResolvedValue({
       feedIndex: FeedIndex.fromBigInt(0n),
       feedIndexNext: FeedIndex.fromBigInt(1n),
     });
@@ -340,18 +340,24 @@ describe('FileManager', () => {
     });
 
     it('restoring the current head should simply re‑fetch that version and not emit an event', async () => {
-      // headIndex = 5
+      // arrange
       const head = FeedIndex.fromBigInt(5n);
-      // pretend getTopicNextIndex returns feedIndex=5 and feedIndexNext=6 twice
-      (common.getTopicNextIndex as jest.Mock)
-        .mockResolvedValueOnce({ feedIndex: head, feedIndexNext: FeedIndex.fromBigInt(6n) })
-        .mockResolvedValueOnce({ feedIndex: head, feedIndexNext: FeedIndex.fromBigInt(6n) });
+      // make dummyFi look like it’s already at head 5
+      dummyFi.index = head.toString();
+
+      // mock getFeedData to return feedIndex=5, feedIndexNext=6
+      jest.spyOn(common, 'getFeedData').mockResolvedValue({
+        feedIndex: head,
+        feedIndexNext: FeedIndex.fromBigInt(6n),
+        payload: SWARM_ZERO_ADDRESS, // payload isn’t used in the no‑op path
+      } as any);
 
       const spyEmit = jest.spyOn(fm.emitter, 'emit');
 
       // act
       await fm.restoreVersion(dummyFi);
-      // …and did *not* emit a version‑restored event
+
+      // assert: no version‐restored event
       expect(spyEmit).not.toHaveBeenCalledWith(FileManagerEvents.FILE_VERSION_RESTORED, expect.anything());
     });
 
