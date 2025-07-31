@@ -21,7 +21,6 @@ import {
   Topic,
   Utils,
   UploadResult
-  
 } from '@ethersphere/bee-js';
 import { isNode } from 'std-env';
 
@@ -360,7 +359,7 @@ export class FileManagerBase implements FileManager {
       const feedIndexNext = latest.feedIndexNext;
   
       if(feedIndexNext === undefined) {
-        throw new Error("Feed Index Not Defined")
+        throw new Error("FileInfo feed not found")
       }
   
       fileInfo.index = feedIndexNext.toString();
@@ -376,7 +375,9 @@ export class FileManagerBase implements FileManager {
     const localHead = this.fileInfoList.find((f) => f.topic === topicStr);
 
     if (localHead && localHead.index && version) {
-      if (new FeedIndex(version).equals(new FeedIndex(localHead.index))) {
+      const requested = new FeedIndex(version);
+      const cachedIdx = new FeedIndex(localHead.index);
+      if (cachedIdx.equals(requested)) {
         return localHead;
       }
     }
@@ -387,12 +388,7 @@ export class FileManagerBase implements FileManager {
     if(!version) {
       feedData = await getFeedData(this.bee, topic, owner);
     } else {
-      let requestedIdx: bigint;
-      try {
-        requestedIdx = new FeedIndex(version).toBigInt();
-      } catch {
-        throw new FileInfoError(`File info not found for version: ${version}`);
-      }
+      const requestedIdx = new FeedIndex(version).toBigInt();
       feedData = await getFeedData(this.bee, topic, owner, requestedIdx);
     }
     
@@ -406,19 +402,20 @@ export class FileManagerBase implements FileManager {
   ): Promise<void> {
     const latest = await getFeedData(this.bee, new Topic(versionToRestore.topic), versionToRestore.owner.toString());
     const feedIndex = latest.feedIndex;
-    const feedIndexNext = latest.feedIndexNext;
+    const feedIndexNext = latest.feedIndexNext? latest.feedIndexNext : new FeedIndex('0');
 
-    if(feedIndex === undefined || feedIndexNext === undefined) {
-      throw new Error("Feed Index Not Defined")
+    if (latest.feedIndex.equals(FeedIndex.MINUS_ONE)) {
+      throw new FileInfoError("No FileInfo versions found on‑chain");
     }
 
-    const headSlot = feedIndex.toBigInt();
+    const headSlot = feedIndex;
 
     if ((!versionToRestore.index)) {
-      throw new Error('FileInfo Index needs to be defined');
+      throw new Error('Restore version has to be defined');
     }
 
-    if (BigInt((versionToRestore.index)) === headSlot) {
+    if (headSlot.equals(new FeedIndex(versionToRestore.index))) {
+      console.debug(`Head Slot cannot be restored. Please select a version lesser than: ${headSlot}`);
       return;
     }
     
@@ -522,20 +519,18 @@ export class FileManagerBase implements FileManager {
   }
   
   private async fetchFileInfo(
-    raw: FeedPayloadResult,
+    feeData: FeedPayloadResult,
     fi: FileInfo,
   ): Promise<FileInfo> {
-    if (raw.feedIndex.equals(FeedIndex.MINUS_ONE)) {
+    if (feeData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
       const ver = fi.index ?? '<unknown>';
       throw new FileInfoError(`File info not found for version: ${ver}`);
     }
-  
-    // 1) unwrap the wrapper ref
-    const wrapperRef = new Reference(raw.payload.toUint8Array());
+
+    const wrapperRef = new Reference(feeData.payload.toUint8Array());
     const wrapperBytes = await this.bee.downloadData(wrapperRef.toString());
     const { reference, historyRef } = wrapperBytes.toJSON() as ReferenceWithHistory;
   
-    // 2) download the actual FileInfo
     const fileBytes = await this.bee.downloadData(reference, {
       actHistoryAddress: historyRef,
       actPublisher: fi.actPublisher,

@@ -101,11 +101,20 @@ export interface FileManager {
 
   /**
    * Returns a specific version of a file.
+   * 
+   * @param fi - The base FileInfo containing topic and owner fields.
+   * @param version - Optional desired version slot as a FeedIndex or hex/string. If omitted, fetches latest.
+   * @returns The FileInfo corresponding to the requested version, either from cache or fetched from chain.
    */
   getVersion(fileInfo: FileInfo, version?: FeedIndex): Promise<FileInfo>;
 
+
   /**
    * Restore a previous version of a file as the new “head” in your feed.
+   * 
+   * @param versionToRestore - The FileInfo instance representing the version to restore.
+   * @param requestOptions - Optional BeeRequestOptions for upload operations.
+   * @throws FileInfoError if no versions are found on-chain.
    */
   restoreVersion(
     fileInfo: FileInfo,

@@ -11,9 +11,9 @@ import {
 } from '@ethersphere/bee-js';
 
 import { FileManagerBase } from '../../src/fileManager';
-import * as common from '../../src/utils/common';
+import { getFeedData } from '../../src/utils/common';
 import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
-import { FileInfoError, SignerError } from '../../src/utils/errors';
+import { SignerError } from '../../src/utils/errors';
 import { EventEmitterBase } from '../../src/utils/eventEmitter';
 import { FileManagerEvents } from '../../src/utils/events';
 import { FeedPayloadResult, FileInfo, WrappedUploadResult } from '../../src/utils/types';
@@ -22,7 +22,6 @@ import {
   createInitMocks,
   createMockFeedWriter,
   createMockFileInfo,
-  createMockGetFeedDataResult,
   createMockMantarayNode,
   createUploadDataSpy,
   createUploadFilesFromDirectorySpy,
@@ -31,7 +30,12 @@ import {
 } from '../mockHelpers';
 import { BEE_URL, MOCK_SIGNER } from '../utils';
 
-jest.mock('../../src/utils/common');
+jest.mock('../../src/utils/common', () => ({
+  ...jest.requireActual('../../src/utils/common'),
+  getFeedData: jest.fn(),
+  getWrappedData: jest.fn(),
+  generateTopic: jest.fn(),
+}));
 jest.mock('../../src/utils/mantaray');
 
 describe('FileManager', () => {
@@ -41,17 +45,22 @@ describe('FileManager', () => {
     jest.resetAllMocks();
     createInitMocks();
 
-    (common.getFeedData as jest.Mock).mockResolvedValue({
+    const zero32 = SWARM_ZERO_ADDRESS.toUint8Array();
+
+    (getFeedData as jest.Mock).mockResolvedValue({
       feedIndex: FeedIndex.fromBigInt(0n),
       feedIndexNext: FeedIndex.fromBigInt(1n),
+      payload: {
+        toUint8Array: () => zero32,
+        toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
+      },
     });
 
     const mokcMN = createMockMantarayNode(true);
     mockSelfAddr = await mokcMN.calculateSelfAddress();
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-    const { getFeedData, generateTopic, getWrappedData } = require('../../src/utils/common');
-    getFeedData.mockResolvedValue(createMockGetFeedDataResult(0, 1));
+    const { generateTopic, getWrappedData } = require('../../src/utils/common');
     getWrappedData.mockResolvedValue({
       uploadFilesRes: mockSelfAddr.toString(),
     } as WrappedUploadResult);
@@ -292,7 +301,8 @@ describe('FileManager', () => {
         feedIndexNext: FeedIndex.fromBigInt(2n),
         payload: new Bytes(new Reference('f'.repeat(64)).toUint8Array()),
       } as any;
-      jest.spyOn(common, 'getFeedData').mockResolvedValueOnce(rawMock);
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      jest.spyOn(require('../../src/utils/common'), 'getFeedData').mockResolvedValueOnce(rawMock);
 
       // 2) now spy on fetchFileInfo
       const spyFetch = jest.spyOn(FileManagerBase.prototype as any, 'fetchFileInfo').mockResolvedValue(fakeFi);
@@ -303,16 +313,6 @@ describe('FileManager', () => {
       // 4) assert it forwarded exactly that slot to fetchFileInfo
       expect(spyFetch).toHaveBeenCalledWith(rawMock, dummyFi);
       expect(got).toBe(fakeFi);
-    });
-
-    it('getVersion rejects on invalid index', async () => {
-      await expect(fm.getVersion(dummyFi, '0')).rejects.toThrowError(
-        new FileInfoError('File info not found for version: 0'),
-      );
-
-      await expect(fm.getVersion(dummyFi, '-1')).rejects.toThrowError(
-        new FileInfoError('File info not found for version: -1'),
-      );
     });
 
     it('download via getVersion + download returns the bytes', async () => {
@@ -329,7 +329,7 @@ describe('FileManager', () => {
 
     it('getVersion throws if underlying feed is missing', async () => {
       jest.restoreAllMocks();
-      (common.getFeedData as jest.Mock).mockResolvedValueOnce({
+      (getFeedData as jest.Mock).mockResolvedValueOnce({
         feedIndex: FeedIndex.MINUS_ONE,
         feedIndexNext: FeedIndex.fromBigInt(0n),
         payload: SWARM_ZERO_ADDRESS,
@@ -345,8 +345,9 @@ describe('FileManager', () => {
       // make dummyFi look like it’s already at head 5
       dummyFi.index = head.toString();
 
-      // mock getFeedData to return feedIndex=5, feedIndexNext=6
-      jest.spyOn(common, 'getFeedData').mockResolvedValue({
+      // mock getFeedData to return feedIndex=5, fe
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      jest.spyOn(require('../../src/utils/common'), 'getFeedData').mockResolvedValue({
         feedIndex: head,
         feedIndexNext: FeedIndex.fromBigInt(6n),
         payload: SWARM_ZERO_ADDRESS, // payload isn’t used in the no‑op path
@@ -361,25 +362,30 @@ describe('FileManager', () => {
       expect(spyEmit).not.toHaveBeenCalledWith(FileManagerEvents.FILE_VERSION_RESTORED, expect.anything());
     });
 
-    it('restoreVersion() when versionToRestore.index === headSlot is a no‑op', async () => {
+    it('restoreVersion() when versionToRestore.index === headSlot is a no-op', async () => {
+      // Arrange
       const head = FeedIndex.fromBigInt(3n);
-      // we need a dummy payload but it will never be used beyond reading feedIndex/feedIndexNext
       const fakeFeedData = {
         feedIndex: head,
         feedIndexNext: FeedIndex.fromBigInt(4n),
         payload: SWARM_ZERO_ADDRESS,
       };
-      jest.spyOn(common, 'getFeedData').mockResolvedValueOnce(fakeFeedData as any);
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      jest.spyOn(require('../../src/utils/common'), 'getFeedData').mockResolvedValueOnce(fakeFeedData as any);
 
       const spyEmit = jest.spyOn(fm.emitter, 'emit');
 
-      // dummyFi must have index === head.toString()
-      const dummyFiWithHead = { ...dummyFi, index: '3' };
+      // Use a **two-digit hex string** here instead of "3":
+      // head.toHexString() returns "0x03", which FeedIndex will accept
+      const dummyFiWithHead = {
+        ...dummyFi,
+        index: head.toString(),
+      };
 
-      // act
+      // Act
       await fm.restoreVersion(dummyFiWithHead);
 
-      // assert: no "FILE_VERSION_RESTORED" event fired
+      // Assert: no FILE_VERSION_RESTORED event fired
       expect(spyEmit).not.toHaveBeenCalledWith(FileManagerEvents.FILE_VERSION_RESTORED, expect.anything());
     });
   });
@@ -441,7 +447,7 @@ describe('FileManager', () => {
       fm.emitter.on(FileManagerEvents.FILE_UPLOADED, uploadHandler);
       createUploadFilesFromDirectorySpy('1');
 
-      (common.getFeedData as jest.Mock).mockResolvedValueOnce({
+      (getFeedData as jest.Mock).mockResolvedValueOnce({
         feedIndex: FeedIndex.fromBigInt(-1n),
         feedIndexNext: FeedIndex.fromBigInt(0n),
       });

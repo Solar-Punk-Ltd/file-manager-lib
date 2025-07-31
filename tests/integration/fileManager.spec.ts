@@ -625,22 +625,29 @@ describe('FileManager version control', () => {
   });
 
   it('returns the cached FileInfo for the current head without refetching', async () => {
-    // make sure there’s at least one version on chain
-    const base = await ensureBase('cache-test');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+    const spyGetFeedData = jest.spyOn(require('../../src/utils/common'), 'getFeedData');
 
-    // compute the current head slot (feedIndexNext - 1)
+    // 2) Do your setup, which WILL call getFeedData one or more times:
+    const base = await ensureBase('cache-test');
     const { feedIndexNext } = await getTopicNextIndex(bee, bee.signer!.publicKey().address().toString(), base);
     const headSlot = FeedIndex.fromBigInt(feedIndexNext.toBigInt() - 1n);
 
-    // grab the FileInfo object that was stored in memory
-    const cached = fileManager.fileInfoList.find((f) => f.topic === base.topic);
+    // 3) Grab the cached object
+    const cached = fileManager.fileInfoList.find((f) => f.topic === base.topic)!;
     expect(cached).toBeDefined();
 
-    // now call getVersion with exactly the head slot
+    // ✂️ NOW clear out ANY calls that happened so far:
+    spyGetFeedData.mockClear();
+
+    // 4) Invoke the method under test
     const result = await fileManager.getVersion(base, headSlot);
 
-    // it should return *the very same* object instance
+    // 5a) It returns the exact same instance
     expect(result).toBe(cached);
+
+    // 5b) And there were zero new calls to getFeedData
+    expect(spyGetFeedData).not.toHaveBeenCalled();
   });
 
   it('uploads multiple versions, counts them, fetches an old version and downloads it', async () => {
