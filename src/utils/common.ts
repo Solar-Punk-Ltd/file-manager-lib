@@ -11,7 +11,7 @@ import {
 import { isNode } from 'std-env';
 
 import { getRandomBytesBrowser } from './browser';
-import { SWARM_ZERO_ADDRESS } from './constants';
+import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from './constants';
 import { getRandomBytesNode } from './node';
 import { FeedPayloadResult, WrappedUploadResult } from './types';
 import { FileInfoError } from './errors';
@@ -35,7 +35,7 @@ export async function getFeedData(
     if (isNotFoundError(error)) {
       return {
         feedIndex: FeedIndex.MINUS_ONE,
-        feedIndexNext: FeedIndex.fromBigInt(0n),
+        feedIndexNext: FEED_INDEX_ZERO,
         payload: SWARM_ZERO_ADDRESS,
       };
     }
