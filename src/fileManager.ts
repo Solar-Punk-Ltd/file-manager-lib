@@ -19,8 +19,8 @@ import {
   Reference,
   STAMPS_DEPTH_MAX,
   Topic,
-  UploadResult,
   Utils,
+  UploadResult
 } from '@ethersphere/bee-js';
 import { isNode } from 'std-env';
 
@@ -248,7 +248,7 @@ export class FileManagerBase implements FileManager {
     });
 
     await settlePromises<Bytes>(rawDataPromises, (value) => {
-      const unwrappedFileInfoData = value.toJSON() as ReferenceWithHistory;
+      const unwrappedFileInfoData = value.toJSON() as FileInfo;
 
       try {
         assertFileInfo(unwrappedFileInfoData);
@@ -334,10 +334,12 @@ export class FileManagerBase implements FileManager {
       );
     }
 
+    const topicStr = infoOptions.infoTopic ?? generateTopic().toString();
+    const owner = this.signer.publicKey().address().toString();
     const fileInfo: FileInfo = {
       batchId: infoOptions.batchId.toString(),
-      owner: this.signer.publicKey().address().toString(),
-      topic: infoOptions.infoTopic ? Topic.fromString(infoOptions.infoTopic).toString() : generateTopic().toString(),
+      owner: owner,
+      topic: topicStr,
       name: infoOptions.name,
       actPublisher: this.nodeAddresses.publicKey.toCompressedHex(),
       file: {
@@ -351,9 +353,94 @@ export class FileManagerBase implements FileManager {
       customMetadata: infoOptions.customMetadata,
       redundancyLevel: uploadOptions?.redundancyLevel,
     };
+
+    if (!infoOptions.index) {
+      const latest = await getFeedData(this.bee, new Topic(fileInfo.topic),  owner);
+      const feedIndexNext = latest.feedIndexNext;
+  
+      if(feedIndexNext === undefined) {
+        throw new Error("FileInfo feed not found")
+      }
+  
+      fileInfo.index = feedIndexNext.toString();
+    }
+
     await this.saveFileInfoAndFeed(fileInfo, requestOptions);
 
     this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
+  }
+  
+  async getVersion(fi: FileInfo, version?: string | FeedIndex): Promise<FileInfo> {
+    const topicStr = fi.topic;
+    const localHead = this.fileInfoList.find((f) => f.topic === topicStr);
+
+    if (localHead && localHead.index && version) {
+      const requested = new FeedIndex(version);
+      const cachedIdx = new FeedIndex(localHead.index);
+      if (cachedIdx.equals(requested)) {
+        return localHead;
+      }
+    }
+  
+    const owner = fi.owner;
+    const topic = new Topic(topicStr);
+    let feedData: FeedPayloadResult;
+    if(!version) {
+      feedData = await getFeedData(this.bee, topic, owner);
+    } else {
+      const requestedIdx = new FeedIndex(version).toBigInt();
+      feedData = await getFeedData(this.bee, topic, owner, requestedIdx);
+    }
+    
+    return this.fetchFileInfo(feedData, fi);
+  }
+  
+  // Restore a previous version of a file as the new head
+  async restoreVersion(
+    versionToRestore: FileInfo,
+    requestOptions?: BeeRequestOptions
+  ): Promise<void> {
+    const latest = await getFeedData(this.bee, new Topic(versionToRestore.topic), versionToRestore.owner.toString());
+    const feedIndex = latest.feedIndex;
+    const feedIndexNext = latest.feedIndexNext? latest.feedIndexNext : new FeedIndex('0');
+
+    if (latest.feedIndex.equals(FeedIndex.MINUS_ONE)) {
+      throw new FileInfoError("No FileInfo versions found on‑chain");
+    }
+
+    const headSlot = feedIndex;
+
+    if ((!versionToRestore.index)) {
+      throw new Error('Restore version has to be defined');
+    }
+
+    if (headSlot.equals(new FeedIndex(versionToRestore.index))) {
+      console.debug(`Head Slot cannot be restored. Please select a version lesser than: ${headSlot}`);
+      return;
+    }
+    
+    const restored: FileInfo = {
+      ...versionToRestore,
+      index: feedIndexNext.toString(),
+      file: {
+        reference: versionToRestore.file.reference,
+        historyRef: versionToRestore.file.historyRef,
+      },
+    }
+  
+    const wrapper = await this.uploadFileInfo(restored, requestOptions)
+  
+    await this.saveFileInfoFeed(
+      restored.batchId,
+      wrapper,
+      restored.topic,
+      restored.index,
+      requestOptions
+    )
+  
+    this.emitter.emit(FileManagerEvents.FILE_VERSION_RESTORED, {
+      restored,
+    })
   }
 
   private async saveFileInfoAndFeed(info: FileInfo, requestOptions?: BeeRequestOptions): Promise<void> {
@@ -422,12 +509,37 @@ export class FileManagerBase implements FileManager {
       );
 
       const fw = this.bee.makeFeedWriter(new Topic(topic).toUint8Array(), this.signer, requestOptions);
+
       await fw.uploadReference(batchId, uploadInfoRes.reference, {
-        index: index !== undefined ? new FeedIndex(index) : undefined,
+        index: index !== undefined ? FeedIndex.fromBigInt(BigInt(index)) : undefined,
       });
     } catch (error: any) {
       throw new FileInfoError(`Failed to save wrapped fileInfo feed: ${error}`);
     }
+  }
+  
+  private async fetchFileInfo(
+    feeData: FeedPayloadResult,
+    fi: FileInfo,
+  ): Promise<FileInfo> {
+    if (feeData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
+      const ver = fi.index ?? '<unknown>';
+      throw new FileInfoError(`File info not found for version: ${ver}`);
+    }
+
+    const wrapperRef = new Reference(feeData.payload.toUint8Array());
+    const wrapperBytes = await this.bee.downloadData(wrapperRef.toString());
+    const { reference, historyRef } = wrapperBytes.toJSON() as ReferenceWithHistory;
+  
+    const fileBytes = await this.bee.downloadData(reference, {
+      actHistoryAddress: historyRef,
+      actPublisher: fi.actPublisher,
+    });
+
+    const fileInfo = fileBytes.toJSON() as FileInfo;
+    assertFileInfo(fileInfo);
+  
+    return fileInfo;
   }
 
   private async saveOwnerFeedList(requestOptions?: BeeRequestOptions): Promise<void> {
