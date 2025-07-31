@@ -14,7 +14,7 @@ export async function uploadBrowser(
   }
 
   const uploadFilesRes = await bee.streamFiles(
-    infoOptions.batchId,
+    infoOptions.info.batchId,
     infoOptions.files,
     infoOptions.onUploadProgress,
     { ...uploadOptions, act: false },
@@ -23,7 +23,7 @@ export async function uploadBrowser(
   let uploadPreviewRes: UploadResult | undefined;
   if (infoOptions.preview) {
     uploadPreviewRes = await bee.streamFiles(
-      infoOptions.batchId,
+      infoOptions.info.batchId,
       [infoOptions.preview],
       infoOptions.onUploadProgress,
       { ...uploadOptions, act: false },
@@ -37,7 +37,7 @@ export async function uploadBrowser(
   };
 
   return await bee.uploadData(
-    infoOptions.batchId,
+    infoOptions.info.batchId,
     JSON.stringify(wrappedData),
     { ...uploadOptions, act: true },
     requestOptions,

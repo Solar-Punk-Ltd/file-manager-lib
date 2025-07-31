@@ -45,13 +45,11 @@ describe('FileManager', () => {
     jest.resetAllMocks();
     createInitMocks();
 
-    const zero32 = SWARM_ZERO_ADDRESS.toUint8Array();
-
     (getFeedData as jest.Mock).mockResolvedValue({
       feedIndex: FEED_INDEX_ZERO,
       feedIndexNext: FeedIndex.fromBigInt(1n),
-      payload: {
-        toUint8Array: () => zero32,
+      reference: {
+        toUint8Array: () => SWARM_ZERO_ADDRESS.toUint8Array(),
         toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
       },
     });
@@ -235,7 +233,7 @@ describe('FileManager', () => {
       createUploadDataSpy('4');
       createMockFeedWriter('5');
 
-      await fm.upload({ batchId: new BatchId(MOCK_BATCH_ID), path: './tests', name: 'tests' });
+      await fm.upload({ info: { batchId: new BatchId(MOCK_BATCH_ID), name: 'tests' }, path: './tests' });
       expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
     });
 
@@ -248,7 +246,7 @@ describe('FileManager', () => {
       createUploadDataSpy('4');
       createMockFeedWriter('5');
 
-      await fm.upload({ batchId: new BatchId(MOCK_BATCH_ID), path: './tests', name: 'tests' });
+      await fm.upload({ info: { batchId: new BatchId(MOCK_BATCH_ID), name: 'tests' }, path: './tests' });
 
       expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
       expect(uploadFileOrDirectoryPreviewSpy).toHaveBeenCalled();
@@ -259,12 +257,14 @@ describe('FileManager', () => {
 
       await expect(async () => {
         await fm.upload({
-          batchId: new BatchId(MOCK_BATCH_ID),
+          info: {
+            batchId: new BatchId(MOCK_BATCH_ID),
+            name: 'tests',
+            topic: 'topic',
+          },
           path: './tests',
-          name: 'tests',
-          infoTopic: 'infoTopic',
         });
-      }).rejects.toThrow('Options infoTopic and historyRef have to be provided at the same time.');
+      }).rejects.toThrow('Options topic and historyRef have to be provided at the same time.');
     });
   });
 
@@ -296,7 +296,7 @@ describe('FileManager', () => {
       const rawMock: FeedPayloadResult = {
         feedIndex: FeedIndex.fromBigInt(1n),
         feedIndexNext: FeedIndex.fromBigInt(2n),
-        payload: new Bytes(new Reference('f'.repeat(64)).toUint8Array()),
+        reference: new Bytes(new Reference('f'.repeat(64)).toUint8Array()),
       } as any;
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
       jest.spyOn(require('../../src/utils/common'), 'getFeedData').mockResolvedValueOnce(rawMock);
@@ -325,7 +325,7 @@ describe('FileManager', () => {
       (getFeedData as jest.Mock).mockResolvedValue({
         feedIndex: FeedIndex.MINUS_ONE,
         feedIndexNext: FEED_INDEX_ZERO,
-        payload: SWARM_ZERO_ADDRESS,
+        reference: SWARM_ZERO_ADDRESS,
       });
 
       await expect(fm.getVersion(dummyFi)).rejects.toThrow(`File info not found for topic: ${dummyFi.topic}`);
@@ -342,7 +342,7 @@ describe('FileManager', () => {
       jest.spyOn(require('../../src/utils/common'), 'getFeedData').mockResolvedValue({
         feedIndex: head,
         feedIndexNext: FeedIndex.fromBigInt(6n),
-        payload: SWARM_ZERO_ADDRESS,
+        reference: SWARM_ZERO_ADDRESS,
       } as any);
 
       const spyEmit = jest.spyOn(fm.emitter, 'emit');
@@ -357,7 +357,7 @@ describe('FileManager', () => {
       const fakeFeedData = {
         feedIndex: head,
         feedIndexNext: FeedIndex.fromBigInt(4n),
-        payload: SWARM_ZERO_ADDRESS,
+        reference: SWARM_ZERO_ADDRESS,
       };
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
       jest.spyOn(require('../../src/utils/common'), 'getFeedData').mockResolvedValueOnce(fakeFeedData as any);
@@ -456,7 +456,7 @@ describe('FileManager', () => {
         topic: expect.any(String),
       } as FileInfo;
 
-      await fm.upload({ batchId: new BatchId(MOCK_BATCH_ID), path: './tests', name: 'tests' });
+      await fm.upload({ info: { batchId: new BatchId(MOCK_BATCH_ID), name: 'tests' }, path: './tests' });
       fm.emitter.off(FileManagerEvents.FILE_UPLOADED, uploadHandler);
 
       expect(uploadHandler).toHaveBeenCalledWith({

@@ -23,7 +23,7 @@ export async function uploadNode(
 
   const uploadFilesRes = await uploadFileOrDirectory(
     bee,
-    infoOptions.batchId,
+    new BatchId(infoOptions.info.batchId),
     infoOptions.path,
     { ...uploadOptions, act: false },
     requestOptions,
@@ -32,7 +32,7 @@ export async function uploadNode(
   if (infoOptions.previewPath) {
     uploadPreviewRes = await uploadFileOrDirectory(
       bee,
-      infoOptions.batchId,
+      new BatchId(infoOptions.info.batchId),
       infoOptions.previewPath,
       { ...uploadOptions, act: false },
       requestOptions,
@@ -45,7 +45,7 @@ export async function uploadNode(
   };
 
   return await bee.uploadData(
-    infoOptions.batchId,
+    infoOptions.info.batchId,
     JSON.stringify(wrappedData),
     { ...uploadOptions, act: true },
     requestOptions,

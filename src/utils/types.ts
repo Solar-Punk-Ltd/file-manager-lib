@@ -150,14 +150,17 @@ export interface FileInfo {
   customMetadata?: Record<string, string>;
 }
 
+export interface PartialFileInfo extends Omit<FileInfo, 'owner' | 'actPublisher' | 'file' | 'topic'> {
+  owner?: string | EthAddress;
+  actPublisher?: string | PublicKey;
+  file?: ReferenceWithHistory;
+  topic?: string | Topic;
+}
+
 export interface FileInfoOptions {
-  batchId: BatchId;
-  name: string;
+  info: PartialFileInfo;
   files?: File[] | FileList;
   path?: string;
-  customMetadata?: Record<string, string>;
-  infoTopic?: string;
-  version?: string | undefined;
   preview?: File;
   previewPath?: string;
   onUploadProgress?: (progress: UploadProgress) => void;
@@ -200,7 +203,9 @@ export interface FeedPayloadResult extends FeedUpdateHeaders {
 export interface FeedReferenceResult extends FeedUpdateHeaders {
   reference: Reference;
 }
-
+export interface FeedResultWithIndex extends FeedReferenceResult {
+  feedIndexNext: FeedIndex;
+}
 export interface UploadProgress {
   total: number;
   processed: number;
