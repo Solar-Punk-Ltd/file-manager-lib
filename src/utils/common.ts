@@ -17,6 +17,7 @@ import { FeedResultWithIndex, FeedPayloadResult, WrappedUploadResult } from './t
 import { FileInfoError } from './errors';
 import { asserWrappedUploadResult } from './asserts';
 
+// TODO: use downloadPayload() and do not unwrap the data
 export async function getFeedData(
   bee: Bee,
   topic: Topic,

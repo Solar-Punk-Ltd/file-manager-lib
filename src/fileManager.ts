@@ -22,7 +22,6 @@ import {
   Utils,
   UploadResult,
 } from '@ethersphere/bee-js';
-import { Optional } from 'cafe-utility';
 import { isNode } from 'std-env';
 
 import { assertFileInfo, assertShareItem, assertWrappedFileInoFeed } from './utils/asserts';
@@ -338,8 +337,10 @@ export class FileManagerBase implements FileManager {
       version = feedIndexNext.toString();
     }
 
-    let uploadResult: UploadResult;
+    let file: ReferenceWithHistory;
+
     if (!infoOptions.info.file) {
+      let uploadResult: UploadResult;
       if (isNode) {
         uploadResult = await uploadNode(this.bee, infoOptions, uploadOptions, requestOptions);
       } else {
@@ -350,10 +351,15 @@ export class FileManagerBase implements FileManager {
           requestOptions,
         );
       }
+
+      file = {
+        reference: uploadResult.reference.toString(),
+        historyRef: uploadResult.historyAddress.getOrThrow().toString(),
+      };
     } else {
-      uploadResult = {
-        reference: new Reference(infoOptions.info.file.reference),
-        historyAddress: Optional.of(new Reference(infoOptions.info.file.historyRef)),
+      file = {
+        reference: infoOptions.info.file.reference.toString(),
+        historyRef: infoOptions.info.file.historyRef.toString(),
       };
     }
 
@@ -363,10 +369,7 @@ export class FileManagerBase implements FileManager {
       topic: topicStr,
       name: infoOptions.info.name,
       actPublisher: this.nodeAddresses.publicKey.toCompressedHex(),
-      file: {
-        reference: uploadResult.reference.toString(),
-        historyRef: uploadResult.historyAddress.getOrThrow().toString(),
-      },
+      file,
       timestamp: Date.now(),
       shared: infoOptions.info.shared ?? false,
       preview: undefined,
@@ -375,7 +378,19 @@ export class FileManagerBase implements FileManager {
       redundancyLevel: uploadOptions?.redundancyLevel,
     };
 
-    await this.saveFileInfoAndFeed(fileInfo, requestOptions);
+    await this.saveFileInfoFeed(fileInfo, requestOptions);
+
+    const ix = this.ownerFeedList.findIndex((f) => f.topic.toString() === fileInfo.topic.toString());
+    if (ix !== -1) {
+      this.ownerFeedList[ix] = {
+        topic: fileInfo.topic.toString(),
+        eGranteeRef: this.ownerFeedList[ix].eGranteeRef?.toString(),
+      };
+    } else {
+      this.ownerFeedList.push({ topic: fileInfo.topic.toString() });
+    }
+
+    await this.saveOwnerFeedList(requestOptions);
 
     this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
   }
@@ -437,37 +452,11 @@ export class FileManagerBase implements FileManager {
       timestamp: Date.now(),
     };
 
-    const wrapper = await this.uploadFileInfo(restored, requestOptions);
-
-    await this.saveFileInfoFeed(restored.batchId, wrapper, restored.topic, restored.version, requestOptions);
+    await this.saveFileInfoFeed(restored, requestOptions);
 
     this.emitter.emit(FileManagerEvents.FILE_VERSION_RESTORED, {
       restored,
     });
-  }
-
-  private async saveFileInfoAndFeed(info: FileInfo, requestOptions?: BeeRequestOptions): Promise<void> {
-    const fileInfoResult = await this.uploadFileInfo(info);
-
-    await this.saveFileInfoFeed(
-      info.batchId.toString(),
-      fileInfoResult,
-      info.topic.toString(),
-      info.version,
-      requestOptions,
-    );
-
-    const ix = this.ownerFeedList.findIndex((f) => f.topic.toString() === info.topic.toString());
-    if (ix !== -1) {
-      this.ownerFeedList[ix] = {
-        topic: info.topic.toString(),
-        eGranteeRef: this.ownerFeedList[ix].eGranteeRef?.toString(),
-      };
-    } else {
-      this.ownerFeedList.push({ topic: info.topic.toString() });
-    }
-
-    await this.saveOwnerFeedList(requestOptions);
   }
 
   private async uploadFileInfo(fileInfo: FileInfo, requestOptions?: BeeRequestOptions): Promise<ReferenceWithHistory> {
@@ -498,28 +487,24 @@ export class FileManagerBase implements FileManager {
     }
   }
 
-  private async saveFileInfoFeed(
-    batchId: string | BatchId,
-    fileInfoResult: ReferenceWithHistory,
-    topic: string | Topic,
-    index?: string,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<void> {
+  private async saveFileInfoFeed(fi: FileInfo, requestOptions?: BeeRequestOptions): Promise<void> {
+    const fileInfoResult = await this.uploadFileInfo(fi);
+
     try {
       const uploadInfoRes = await this.bee.uploadData(
-        batchId,
+        fi.batchId,
         JSON.stringify({
           reference: fileInfoResult.reference.toString(),
           historyRef: fileInfoResult.historyRef.toString(),
         } as ReferenceWithHistory),
-        undefined,
+        { redundancyLevel: fi.redundancyLevel },
         requestOptions,
       );
 
-      const fw = this.bee.makeFeedWriter(new Topic(topic).toUint8Array(), this.signer, requestOptions);
+      const fw = this.bee.makeFeedWriter(new Topic(fi.topic).toUint8Array(), this.signer, requestOptions);
 
-      await fw.uploadReference(batchId, uploadInfoRes.reference, {
-        index: index !== undefined ? FeedIndex.fromBigInt(BigInt(index)) : undefined,
+      await fw.uploadReference(fi.batchId, uploadInfoRes.reference, {
+        index: fi.version !== undefined ? new FeedIndex(fi.version) : undefined,
       });
     } catch (error: any) {
       throw new FileInfoError(`Failed to save wrapped fileInfo feed: ${error}`);
