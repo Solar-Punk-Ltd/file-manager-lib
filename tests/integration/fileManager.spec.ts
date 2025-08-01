@@ -353,6 +353,7 @@ describe('FileManager listFiles', () => {
   });
 });
 
+// TODO: test reupload + download with different version
 describe('FileManager upload', () => {
   let bee: BeeDev;
   let fileManager: FileManagerBase;

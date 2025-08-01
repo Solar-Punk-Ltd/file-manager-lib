@@ -89,13 +89,13 @@ export class FileManagerBase implements FileManager {
   // TODO: import pins
   async initialize(): Promise<void> {
     if (this.isInitialized) {
-      console.log('FileManager is already initialized');
+      console.debug('FileManager is already initialized');
       this.emitter.emit(FileManagerEvents.FILEMANAGER_INITIALIZED, true);
       return;
     }
 
     if (this.isInitializing) {
-      console.log('FileManager is being initialized');
+      console.debug('FileManager is being initialized');
       return;
     }
 
@@ -339,7 +339,12 @@ export class FileManagerBase implements FileManager {
 
     let file: ReferenceWithHistory;
 
-    if (!infoOptions.info.file) {
+    if (infoOptions.info.file) {
+      file = {
+        reference: infoOptions.info.file.reference.toString(),
+        historyRef: infoOptions.info.file.historyRef.toString(),
+      };
+    } else {
       let uploadResult: UploadResult;
       if (isNode) {
         uploadResult = await uploadNode(this.bee, infoOptions, uploadOptions, requestOptions);
@@ -355,11 +360,6 @@ export class FileManagerBase implements FileManager {
       file = {
         reference: uploadResult.reference.toString(),
         historyRef: uploadResult.historyAddress.getOrThrow().toString(),
-      };
-    } else {
-      file = {
-        reference: infoOptions.info.file.reference.toString(),
-        historyRef: infoOptions.info.file.historyRef.toString(),
       };
     }
 
@@ -379,6 +379,10 @@ export class FileManagerBase implements FileManager {
     };
 
     await this.saveFileInfoFeed(fileInfo, requestOptions);
+
+    if (infoOptions.info.file) {
+      return;
+    }
 
     const ix = this.ownerFeedList.findIndex((f) => f.topic.toString() === fileInfo.topic.toString());
     if (ix !== -1) {
