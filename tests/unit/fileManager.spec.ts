@@ -48,7 +48,7 @@ describe('FileManager', () => {
     (getFeedData as jest.Mock).mockResolvedValue({
       feedIndex: FEED_INDEX_ZERO,
       feedIndexNext: FeedIndex.fromBigInt(1n),
-      reference: {
+      payload: {
         toUint8Array: () => SWARM_ZERO_ADDRESS.toUint8Array(),
         toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
       },
@@ -299,12 +299,16 @@ describe('FileManager', () => {
         reference: new Bytes(new Reference('f'.repeat(64)).toUint8Array()),
       } as any;
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      jest.spyOn(require('../../src/utils/common'), 'getFeedData').mockResolvedValueOnce(rawMock);
+      jest.spyOn(require('../../src/utils/common'), 'getFeedData').mockResolvedValue(rawMock);
 
       const spyFetch = jest.spyOn(FileManagerBase.prototype as any, 'fetchFileInfo').mockResolvedValue(fakeFi);
-      const got = await fm.getVersion(dummyFi, FeedIndex.fromBigInt(1n));
+      let got = await fm.getVersion(dummyFi, FeedIndex.fromBigInt(1n));
 
-      expect(spyFetch).toHaveBeenCalledWith(dummyFi, rawMock);
+      expect(spyFetch).toHaveBeenCalledWith(dummyFi, rawMock, true);
+      expect(got).toBe(fakeFi);
+
+      got = await fm.getVersion(dummyFi);
+      expect(spyFetch).toHaveBeenCalledWith(dummyFi, rawMock, false);
       expect(got).toBe(fakeFi);
     });
 
@@ -325,7 +329,7 @@ describe('FileManager', () => {
       (getFeedData as jest.Mock).mockResolvedValue({
         feedIndex: FeedIndex.MINUS_ONE,
         feedIndexNext: FEED_INDEX_ZERO,
-        reference: SWARM_ZERO_ADDRESS,
+        payload: SWARM_ZERO_ADDRESS,
       });
 
       await expect(fm.getVersion(dummyFi)).rejects.toThrow(`File info not found for topic: ${dummyFi.topic}`);
@@ -342,7 +346,7 @@ describe('FileManager', () => {
       jest.spyOn(require('../../src/utils/common'), 'getFeedData').mockResolvedValue({
         feedIndex: head,
         feedIndexNext: FeedIndex.fromBigInt(6n),
-        reference: SWARM_ZERO_ADDRESS,
+        payload: SWARM_ZERO_ADDRESS,
       } as any);
 
       const spyEmit = jest.spyOn(fm.emitter, 'emit');
@@ -435,6 +439,7 @@ describe('FileManager', () => {
       (getFeedData as jest.Mock).mockResolvedValueOnce({
         feedIndex: FeedIndex.fromBigInt(-1n),
         feedIndexNext: FEED_INDEX_ZERO,
+        payload: SWARM_ZERO_ADDRESS,
       });
 
       const actPublisher = (await bee.getNodeAddresses()).publicKey.toCompressedHex();

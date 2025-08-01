@@ -4,18 +4,12 @@ import path from 'path';
 
 import { FileManagerBase } from '../../src/fileManager';
 import { buyStamp, getFeedData } from '../../src/utils/common';
-import {
-  FEED_INDEX_ZERO,
-  OWNER_STAMP_LABEL,
-  REFERENCE_LIST_TOPIC,
-  SWARM_ZERO_ADDRESS,
-} from '../../src/utils/constants';
+import { FEED_INDEX_ZERO, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { FileInfoError, GranteeError, StampError } from '../../src/utils/errors';
 import { FileManagerEvents } from '../../src/utils/events';
 import { FileInfo } from '../../src/utils/types';
 import { createInitializedFileManager } from '../mockHelpers';
 import {
-  BEE_URL,
   createWrappedData,
   DEFAULT_BATCH_AMOUNT,
   DEFAULT_BATCH_DEPTH,
@@ -27,6 +21,8 @@ import {
   readFilesOrDirectory,
 } from '../utils';
 
+import { ensureOwnerStamp } from './testSetupHelpers';
+
 // TODO: emitter test for all events
 describe('FileManager initialization', () => {
   let bee: BeeDev;
@@ -34,12 +30,8 @@ describe('FileManager initialization', () => {
   let actPublisher: PublicKey;
 
   beforeAll(async () => {
-    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
-    try {
-      await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
-    } catch (_) {
-      // ignored: stamp may already exist
-    }
+    const { bee: beeDev } = await ensureOwnerStamp();
+    bee = beeDev;
 
     actPublisher = (await bee.getNodeAddresses())!.publicKey;
   });
@@ -70,22 +62,20 @@ describe('FileManager initialization', () => {
   });
 
   it('should initialize the owner feed and topic', async () => {
-    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
-
     expect(fileManager.fileInfoList).toEqual([]);
     expect(fileManager.sharedWithMe).toEqual([]);
 
     const feedTopicData = await getFeedData(bee, REFERENCE_LIST_TOPIC, MOCK_SIGNER.publicKey().address(), 0n);
     const topicHistory = await getFeedData(bee, REFERENCE_LIST_TOPIC, MOCK_SIGNER.publicKey().address(), 1n);
-    const topicHex = await bee.downloadData(new Reference(feedTopicData.reference), {
-      actHistoryAddress: new Reference(topicHistory.reference),
+    const topicHex = await bee.downloadData(new Reference(feedTopicData.payload), {
+      actHistoryAddress: new Reference(topicHistory.payload),
       actPublisher,
     });
     expect(topicHex).not.toEqual(SWARM_ZERO_ADDRESS);
 
     await fileManager.initialize();
-    const reinitTopicHex = await bee.downloadData(new Reference(feedTopicData.reference), {
-      actHistoryAddress: new Reference(topicHistory.reference),
+    const reinitTopicHex = await bee.downloadData(new Reference(feedTopicData.payload), {
+      actHistoryAddress: new Reference(topicHistory.payload),
       actPublisher,
     });
     expect(topicHex).toEqual(reinitTopicHex);
@@ -98,8 +88,8 @@ describe('FileManager initialization', () => {
     const topicHistory = await getFeedData(bee, REFERENCE_LIST_TOPIC, MOCK_SIGNER.publicKey().address(), 1n);
 
     try {
-      await bee.downloadData(new Reference(feedTopicData.reference), {
-        actHistoryAddress: new Reference(topicHistory.reference),
+      await bee.downloadData(new Reference(feedTopicData.payload), {
+        actHistoryAddress: new Reference(topicHistory.payload),
         actPublisher: OTHER_MOCK_SIGNER.publicKey(),
       });
     } catch (error) {
@@ -108,8 +98,8 @@ describe('FileManager initialization', () => {
     }
 
     try {
-      await otherBee.downloadData(new Reference(feedTopicData.reference), {
-        actHistoryAddress: new Reference(topicHistory.reference),
+      await otherBee.downloadData(new Reference(feedTopicData.payload), {
+        actHistoryAddress: new Reference(topicHistory.payload),
         actPublisher,
       });
     } catch (error) {
@@ -187,7 +177,7 @@ describe('FileManager initialization', () => {
 
   it('should initialize owner feed topic and owner feed list correctly', async () => {
     const feedTopicData = await getFeedData(bee, REFERENCE_LIST_TOPIC, MOCK_SIGNER.publicKey().address(), 0n);
-    expect(feedTopicData.reference).not.toEqual(SWARM_ZERO_ADDRESS);
+    expect(feedTopicData.payload).not.toEqual(SWARM_ZERO_ADDRESS);
     const ownerFeedList = (fileManager as any).ownerFeedList;
     expect(Array.isArray(ownerFeedList)).toBeTruthy();
   });
@@ -208,10 +198,10 @@ describe('FileManager listFiles', () => {
   let actPublisher: PublicKey;
 
   beforeAll(async () => {
-    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    const { bee: beeDev } = await ensureOwnerStamp();
+    bee = beeDev;
 
     tempDir = path.join(__dirname, 'tmpIntegrationListFiles');
-    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'listFilesIntegrationStamp');
 
     fileManager = await createInitializedFileManager(bee);
@@ -370,9 +360,10 @@ describe('FileManager upload', () => {
   let tempUploadDir: string;
 
   beforeAll(async () => {
-    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    const { bee: beeDev } = await ensureOwnerStamp();
+    bee = beeDev;
+
     tempUploadDir = path.join(__dirname, 'tmpUploadIntegration');
-    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'uploadIntegrationStamp');
     fileManager = await createInitializedFileManager(bee);
 
@@ -462,9 +453,9 @@ describe('FileManager download', () => {
   let actPublisher: PublicKey;
 
   beforeAll(async () => {
-    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    const { bee: beeDev } = await ensureOwnerStamp();
+    bee = beeDev;
     tempDownloadDir = path.join(__dirname, 'tmpDownloadIntegration');
-    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'downloadFilesIntegrationStamp');
     fileManager = await createInitializedFileManager(bee);
     actPublisher = (await bee.getNodeAddresses())!.publicKey;
@@ -569,11 +560,11 @@ describe('FileManager version control', () => {
   };
 
   beforeAll(async () => {
-    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
-    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
+    const { bee: beeDev } = await ensureOwnerStamp();
+    bee = beeDev;
+
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'versioningStamp');
     fileManager = await createInitializedFileManager(bee);
-    await fileManager.initialize();
   });
 
   it('throws on invalid version index', async () => {
@@ -614,6 +605,10 @@ describe('FileManager version control', () => {
         const fi = await fileManager.getVersion(base, FeedIndex.fromBigInt(i));
         expect(fi.version).toBe(FeedIndex.fromBigInt(i).toString());
       }
+
+      // Fetch the current head without specifying an index
+      const newLatest = await fileManager.getVersion(base);
+      expect(newLatest.version).toBe(FeedIndex.fromBigInt(latestVersion).toString());
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -651,8 +646,7 @@ describe('FileManager version control', () => {
     spyGetFeedData.mockClear();
 
     const headSlot = FeedIndex.fromBigInt(BigInt(base.version!));
-    const result = await fileManager.getVersion(base);
-    // const result = await fileManager.getVersion(base, headSlot);
+    const result = await fileManager.getVersion(base, headSlot);
 
     expect(result).toBe(cached);
 
@@ -788,11 +782,12 @@ describe('FileManager destroyVolume', () => {
   let bee: BeeDev;
   let fileManager: FileManagerBase;
   let ownerStampId: BatchId | undefined;
-  beforeAll(async () => {
-    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
-    ownerStampId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
-    expect(ownerStampId).toBeDefined();
 
+  beforeAll(async () => {
+    const { bee: beeDev, ownerStamp } = await ensureOwnerStamp();
+    bee = beeDev;
+    ownerStampId = ownerStamp;
+    expect(ownerStampId).toBeDefined();
     fileManager = await createInitializedFileManager(bee);
   });
 
@@ -825,8 +820,8 @@ describe('FileManager getGranteesOfFile', () => {
   let fileManager: FileManagerBase;
 
   beforeAll(async () => {
-    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
-    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
+    const { bee: beeDev } = await ensureOwnerStamp();
+    bee = beeDev;
     fileManager = await createInitializedFileManager(bee);
   });
 
@@ -856,20 +851,21 @@ describe('Utils getFeedData', () => {
   let actPublisher: PublicKey;
 
   beforeAll(async () => {
-    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    const { bee: beeDev } = await ensureOwnerStamp();
+    bee = beeDev;
     actPublisher = (await bee.getNodeAddresses())!.publicKey;
   });
 
   it('should return a valid feed data object when index is provided', async () => {
     const topic = Topic.fromString(actPublisher.toCompressedHex());
     const feedData = await getFeedData(bee, topic, MOCK_SIGNER.publicKey().address(), 0n);
-    expect(feedData.reference).not.toEqual('0'.repeat(64));
+    expect(feedData.payload).not.toEqual('0'.repeat(64));
   });
 
   it('should return a valid feed data object when index is not provided', async () => {
     const topic = Topic.fromString(actPublisher.toCompressedHex());
     const feedData = await getFeedData(bee, topic, MOCK_SIGNER.publicKey().address());
-    expect(feedData.reference).not.toEqual('0'.repeat(64));
+    expect(feedData.payload).not.toEqual('0'.repeat(64));
   });
 });
 
@@ -881,8 +877,9 @@ describe('FileManager End-to-End User Workflow', () => {
   let actPublisher: PublicKey;
 
   beforeAll(async () => {
-    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
-    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
+    const { bee: beeDev, ownerStamp } = await ensureOwnerStamp();
+    bee = beeDev;
+    batchId = ownerStamp;
     tempBaseDir = path.join(__dirname, 'e2eTestSession');
     fileManager = await createInitializedFileManager(bee);
     fs.mkdirSync(tempBaseDir, { recursive: true });

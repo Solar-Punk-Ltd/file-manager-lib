@@ -55,7 +55,6 @@ export async function createInitializedFileManager(
 
 export function verifyInit(emitter: EventEmitter): void {
   emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, (e) => {
-    console.log('bagoy verifyInit: ', e);
     expect(e).toEqual(true);
   });
 }

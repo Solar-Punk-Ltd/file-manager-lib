@@ -13,7 +13,7 @@ import { isNode } from 'std-env';
 import { getRandomBytesBrowser } from './browser';
 import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from './constants';
 import { getRandomBytesNode } from './node';
-import { FeedResultWithIndex, FeedReferenceResult, WrappedUploadResult } from './types';
+import { FeedResultWithIndex, FeedPayloadResult, WrappedUploadResult } from './types';
 import { FileInfoError } from './errors';
 import { asserWrappedUploadResult } from './asserts';
 
@@ -25,25 +25,25 @@ export async function getFeedData(
   options?: BeeRequestOptions,
 ): Promise<FeedResultWithIndex> {
   try {
-    let data: FeedReferenceResult;
+    let data: FeedPayloadResult;
     const feedReader = bee.makeFeedReader(topic.toUint8Array(), address, options);
     if (index !== undefined) {
-      data = await feedReader.downloadReference({ index: FeedIndex.fromBigInt(index) });
+      data = await feedReader.download({ index: FeedIndex.fromBigInt(index) });
     } else {
-      data = await feedReader.downloadReference();
+      data = await feedReader.download();
     }
 
     return {
       feedIndex: data.feedIndex,
       feedIndexNext: data.feedIndexNext ?? data.feedIndex.next(),
-      reference: data.reference,
+      payload: data.payload,
     };
   } catch (error) {
     if (isNotFoundError(error)) {
       return {
         feedIndex: FeedIndex.MINUS_ONE,
         feedIndexNext: FEED_INDEX_ZERO,
-        reference: SWARM_ZERO_ADDRESS,
+        payload: SWARM_ZERO_ADDRESS,
       };
     }
     throw error;

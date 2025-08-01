@@ -25,13 +25,11 @@ fi
 cd "$BEE_DIR" || exit
 
 # Checkout the desired branch and update.
-echo "Fetching latest code..."
-git fetch origin "$BEE_BRANCH"
-git checkout "$BEE_BRANCH"
-
-LATEST_COMMIT=$(git rev-parse --short HEAD)
-echo "Latest Bee commit: $LATEST_COMMIT"
-git checkout "$LATEST_COMMIT"
+if [ "$(git branch --show-current)" != "$BEE_BRANCH" ]; then
+  echo "Switching to branch $BEE_BRANCH..."
+  git fetch origin "$BEE_BRANCH"
+  git checkout "$BEE_BRANCH"
+fi
 
 # Build the Bee binary.
 if ! make binary; then
@@ -69,7 +67,7 @@ BEE_PID_1633=$!
 echo $BEE_PID_1633 > "$BEE_PID_FILE_1633"
 
 # Wait a few seconds to let both nodes initialize.
-sleep 10
+sleep 2
 
 # Health check for port 1733.
 if ! curl --silent --fail http://127.0.0.1:1733/health; then

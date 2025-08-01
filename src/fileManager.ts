@@ -91,6 +91,7 @@ export class FileManagerBase implements FileManager {
   async initialize(): Promise<void> {
     if (this.isInitialized) {
       console.log('FileManager is already initialized');
+      this.emitter.emit(FileManagerEvents.FILEMANAGER_INITIALIZED, true);
       return;
     }
 
@@ -155,7 +156,7 @@ export class FileManagerBase implements FileManager {
       this.signer.publicKey().address().toString(),
       0n,
     );
-    const topicRef = new Reference(feedTopicData.reference.toUint8Array());
+    const topicRef = new Reference(feedTopicData.payload.toUint8Array());
 
     if (topicRef.equals(SWARM_ZERO_ADDRESS)) {
       this.ownerFeedTopic = generateTopic();
@@ -176,7 +177,7 @@ export class FileManagerBase implements FileManager {
         this.signer.publicKey().address().toString(),
         1n,
       );
-      const topicHistoryRef = new Reference(topicHistory.reference.toUint8Array());
+      const topicHistoryRef = new Reference(topicHistory.payload.toUint8Array());
       const topicBytes = await this.bee.downloadData(topicRef.toUint8Array(), {
         actHistoryAddress: topicHistoryRef.toUint8Array(),
         actPublisher: this.nodeAddresses.publicKey,
@@ -194,19 +195,19 @@ export class FileManagerBase implements FileManager {
       throw new SignerError('Node addresses not found');
     }
 
-    const { feedIndexNext, reference } = await getFeedData(
+    const { feedIndexNext, payload } = await getFeedData(
       this.bee,
       this.ownerFeedTopic,
       this.signer.publicKey().address().toString(),
     );
 
-    if (SWARM_ZERO_ADDRESS.equals(reference.toUint8Array())) {
+    if (SWARM_ZERO_ADDRESS.equals(payload.toUint8Array())) {
       console.debug("Owner fileInfo feed list doesn't exist yet.");
       return;
     }
 
     this.ownerFeedNextIndex = feedIndexNext.toBigInt();
-    const refWithHistory = reference.toJSON() as ReferenceWithHistory;
+    const refWithHistory = payload.toJSON() as ReferenceWithHistory;
 
     const fileInfoFeedListRawData = await this.bee.downloadData(refWithHistory.reference, {
       actHistoryAddress: refWithHistory.historyRef,
@@ -243,7 +244,7 @@ export class FileManagerBase implements FileManager {
 
     const rawDataPromises: Promise<Bytes>[] = [];
     await settlePromises<FeedResultWithIndex>(feedDataPromises, (value) => {
-      const fileInfoFeedData = value.reference.toJSON() as ReferenceWithHistory;
+      const fileInfoFeedData = value.payload.toJSON() as ReferenceWithHistory;
 
       rawDataPromises.push(
         this.bee.downloadData(fileInfoFeedData.reference.toString(), {
@@ -392,14 +393,17 @@ export class FileManagerBase implements FileManager {
 
     const topic = new Topic(fi.topic);
     let feedData: FeedResultWithIndex;
+    let unwrap = true;
     if (!version) {
+      // Note: feedReader.download() unwraps the data if version is undefined
       feedData = await getFeedData(this.bee, topic, fi.owner);
+      unwrap = false;
     } else {
       const requestedIdx = new FeedIndex(version).toBigInt();
       feedData = await getFeedData(this.bee, topic, fi.owner, requestedIdx);
     }
 
-    return this.fetchFileInfo(fi, feedData);
+    return this.fetchFileInfo(fi, feedData, unwrap);
   }
 
   // Restore a previous version of a file as the new head
@@ -523,19 +527,28 @@ export class FileManagerBase implements FileManager {
   }
 
   // TODO: this can be reused maybe
-  private async fetchFileInfo(fi: FileInfo, feeData: FeedResultWithIndex): Promise<FileInfo> {
+  private async fetchFileInfo(fi: FileInfo, feeData: FeedResultWithIndex, unwrap: boolean): Promise<FileInfo> {
     if (feeData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
       throw new FileInfoError(`File info not found for topic: ${fi.topic}`);
     }
 
-    console.log('bagoy fetchfileinfo', feeData.feedIndex.toString(), feeData.feedIndexNext.toString());
+    let dataRef: string;
+    let dataHRef: string;
 
-    const wrapperRef = new Reference(feeData.reference.toUint8Array());
-    const wrapperBytes = await this.bee.downloadData(wrapperRef.toString());
-    const { reference, historyRef } = wrapperBytes.toJSON() as ReferenceWithHistory;
+    if (unwrap) {
+      const wrapperRef = new Reference(feeData.payload.toUint8Array());
+      const wrapperBytes = await this.bee.downloadData(wrapperRef.toString());
+      const unwrapped = wrapperBytes.toJSON() as ReferenceWithHistory;
+      dataRef = unwrapped.reference.toString();
+      dataHRef = unwrapped.historyRef.toString();
+    } else {
+      const data = feeData.payload.toJSON() as ReferenceWithHistory;
+      dataRef = data.reference.toString();
+      dataHRef = data.historyRef.toString();
+    }
 
-    const fileBytes = await this.bee.downloadData(reference, {
-      actHistoryAddress: historyRef,
+    const fileBytes = await this.bee.downloadData(dataRef, {
+      actHistoryAddress: dataHRef,
       actPublisher: fi.actPublisher,
     });
 

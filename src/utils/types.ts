@@ -203,7 +203,7 @@ export interface FeedPayloadResult extends FeedUpdateHeaders {
 export interface FeedReferenceResult extends FeedUpdateHeaders {
   reference: Reference;
 }
-export interface FeedResultWithIndex extends FeedReferenceResult {
+export interface FeedResultWithIndex extends FeedPayloadResult {
   feedIndexNext: FeedIndex;
 }
 export interface UploadProgress {
