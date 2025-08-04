@@ -380,21 +380,19 @@ export class FileManagerBase implements FileManager {
 
     await this.saveFileInfoFeed(fileInfo, requestOptions);
 
-    if (infoOptions.info.file) {
-      return;
-    }
+    if (!infoOptions.info.file) {
+      const ix = this.ownerFeedList.findIndex((f) => f.topic.toString() === topicStr);
+      if (ix !== -1) {
+        this.ownerFeedList[ix] = {
+          topic: topicStr,
+          eGranteeRef: this.ownerFeedList[ix].eGranteeRef?.toString(),
+        };
+      } else {
+        this.ownerFeedList.push({ topic: topicStr });
+      }
 
-    const ix = this.ownerFeedList.findIndex((f) => f.topic.toString() === fileInfo.topic.toString());
-    if (ix !== -1) {
-      this.ownerFeedList[ix] = {
-        topic: fileInfo.topic.toString(),
-        eGranteeRef: this.ownerFeedList[ix].eGranteeRef?.toString(),
-      };
-    } else {
-      this.ownerFeedList.push({ topic: fileInfo.topic.toString() });
+      await this.saveOwnerFeedList(requestOptions);
     }
-
-    await this.saveOwnerFeedList(requestOptions);
 
     this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
   }
