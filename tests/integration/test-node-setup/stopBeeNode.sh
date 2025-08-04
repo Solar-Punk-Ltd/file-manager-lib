@@ -48,15 +48,15 @@ stop_bee_node "$TMP_DIR/$BEE_PID_FILE_1633" $BEE_PORT_1633
 rm -f "$TMP_DIR/$LOG_FILE_1733" "$TMP_DIR/$LOG_FILE_1633"
 
 # Remove Bee repository and any associated data (if desired).
-# BEE_DIR="$TMP_DIR/bee-dev"
-# BEE_DATA_DIR="$TMP_DIR/bee-data"
-# if [ -d "$BEE_DIR" ]; then
-#   echo "Deleting Bee repository folder..."
-#   rm -rf "$BEE_DIR"
-# fi
-# if [ -d "$BEE_DATA_DIR" ]; then
-#   echo "Deleting Bee data directory..."
-#   rm -rf "$BEE_DATA_DIR"
-# fi
+BEE_DIR="$TMP_DIR/bee-dev"
+BEE_DATA_DIR="$TMP_DIR/bee-data"
+if [ -d "$BEE_DIR" ]; then
+  echo "Deleting Bee repository folder..."
+  rm -rf "$BEE_DIR"
+fi
+if [ -d "$BEE_DATA_DIR" ]; then
+  echo "Deleting Bee data directory..."
+  rm -rf "$BEE_DATA_DIR"
+fi
 
 echo "Cleanup completed."
