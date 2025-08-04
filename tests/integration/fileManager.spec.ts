@@ -5,7 +5,7 @@ import path from 'path';
 import { FileManagerBase } from '../../src/fileManager';
 import { buyStamp, getFeedData } from '../../src/utils/common';
 import { FEED_INDEX_ZERO, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
-import { FileInfoError, GranteeError, StampError } from '../../src/utils/errors';
+import { FileError, FileInfoError, GranteeError, StampError } from '../../src/utils/errors';
 import { FileManagerEvents } from '../../src/utils/events';
 import { FileInfo } from '../../src/utils/types';
 import { createInitializedFileManager } from '../mockHelpers';
@@ -122,8 +122,6 @@ describe('FileManager initialization', () => {
 
     const testStampId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'testStamp');
     {
-      // TODO: probably this init is not needed here
-      // await fileManager.initialize();
       await fileManager.upload({
         info: {
           batchId: testStampId,
@@ -155,8 +153,6 @@ describe('FileManager initialization', () => {
     }
 
     const fm = await createInitializedFileManager(bee);
-    // TODO: probably this init is not needed here
-    // await fm.initialize();
     const fileInfoList = fm.fileInfoList;
     await dowloadAndCompareFiles(fm, actPublisher.toCompressedHex(), fileInfoList, expFileDataArr);
   });
@@ -182,9 +178,11 @@ describe('FileManager initialization', () => {
     expect(Array.isArray(ownerFeedList)).toBeTruthy();
   });
 
-  // TODO: check for reinit flag maybe
   it('should not reinitialize if already initialized', async () => {
     const fileInfoListBefore = [...fileManager.fileInfoList];
+    fileManager.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, (e) => {
+      expect(e).toEqual(true);
+    });
     await fileManager.initialize();
     expect(fileManager.fileInfoList).toEqual(fileInfoListBefore);
   });
@@ -246,14 +244,10 @@ describe('FileManager listFiles', () => {
     expect(fileList).toHaveLength(3);
   });
 
-  // TODO: what is this test doing? why catch error?
-  it('should return an empty file list when uploading an empty folder', async () => {
+  it('should throw and return an empty file list when uploading an empty folder', async () => {
     const emptyDir = path.join(__dirname, 'emptyFolder');
     fs.mkdirSync(emptyDir, { recursive: true });
 
-    // We allow for two behaviors:
-    // 1. The upload call fails (e.g. with status code 400).
-    // 2. The upload call succeeds but returns a manifest with no files.
     let fileInfo: FileInfo | undefined;
     try {
       await fileManager.upload({
@@ -266,6 +260,7 @@ describe('FileManager listFiles', () => {
       const allFileInfos = fileManager.fileInfoList;
       fileInfo = allFileInfos.find((fi) => fi.name === path.basename(emptyDir));
     } catch (error: any) {
+      expect(error).toBeInstanceOf(FileError);
       expect(error.message).toMatch(/status code 400/);
       fs.rmSync(emptyDir, { recursive: true, force: true });
       return;
@@ -353,7 +348,6 @@ describe('FileManager listFiles', () => {
   });
 });
 
-// TODO: test reupload + download with different version
 describe('FileManager upload', () => {
   let bee: BeeDev;
   let fileManager: FileManagerBase;
@@ -380,11 +374,82 @@ describe('FileManager upload', () => {
     fs.rmSync(tempUploadDir, { recursive: true, force: true });
   });
 
-  it('should upload a directory and update the file info list', async () => {
+  it('should upload a directory and update the file info list with different versions', async () => {
     await fileManager.upload({ info: { batchId, name: path.basename(tempUploadDir) }, path: tempUploadDir });
-    const fileInfoList = fileManager.fileInfoList;
-    const uploadedInfo = fileInfoList.find((fi) => fi.name === path.basename(tempUploadDir));
-    expect(uploadedInfo).toBeDefined();
+    const firstInfo = fileManager.fileInfoList.find((fi) => fi.name === path.basename(tempUploadDir));
+    expect(firstInfo).toBeDefined();
+
+    await fileManager.upload(
+      {
+        info: { batchId, name: path.basename(tempUploadDir), topic: firstInfo?.topic },
+        path: tempUploadDir,
+      },
+      {
+        actHistoryAddress: new Reference(firstInfo!.file.historyRef),
+      },
+    );
+    const secondInfo = fileManager.fileInfoList.find((fi) => fi.name === path.basename(tempUploadDir));
+    const secondVersion = new FeedIndex(firstInfo!.version!).next();
+    expect(secondInfo).toBeDefined();
+    expect(secondInfo?.topic).toEqual(firstInfo?.topic);
+    expect(secondInfo?.version).toEqual(secondVersion.toString());
+
+    const thirdVersion = secondVersion.next().toString();
+    await fileManager.upload(
+      {
+        info: {
+          batchId,
+          name: path.basename(tempUploadDir),
+          topic: firstInfo?.topic,
+          version: thirdVersion,
+        },
+        path: tempUploadDir,
+      },
+      {
+        actHistoryAddress: new Reference(firstInfo!.file.historyRef),
+      },
+    );
+    const thirdInfo = fileManager.fileInfoList.find((fi) => fi.name === path.basename(tempUploadDir));
+    expect(thirdInfo).toBeDefined();
+    expect(thirdInfo?.topic).toEqual(firstInfo?.topic);
+    expect(thirdInfo?.version).toEqual(thirdVersion);
+  });
+
+  it('should NOT re-upload the same file but update the metadata', async () => {
+    await fileManager.upload({ info: { batchId, name: path.basename(tempUploadDir) }, path: tempUploadDir });
+    const firstInfo = fileManager.fileInfoList.find((fi) => fi.name === path.basename(tempUploadDir));
+    expect(firstInfo).toBeDefined();
+
+    await fileManager.upload(
+      {
+        info: { batchId, name: path.basename(tempUploadDir), topic: firstInfo?.topic, file: firstInfo?.file },
+        path: tempUploadDir,
+      },
+      {
+        actHistoryAddress: new Reference(firstInfo!.file.historyRef),
+      },
+    );
+    const secondInfo = fileManager.fileInfoList.find((fi) => fi.name === path.basename(tempUploadDir));
+    expect(secondInfo).toBeDefined();
+    expect(secondInfo?.file).toEqual(firstInfo?.file);
+
+    await fileManager.upload(
+      {
+        info: {
+          batchId,
+          name: path.basename(tempUploadDir),
+          topic: firstInfo?.topic,
+          file: firstInfo?.file,
+        },
+        path: tempUploadDir,
+      },
+      {
+        actHistoryAddress: new Reference(firstInfo!.file.historyRef),
+      },
+    );
+    const thirdInfo = fileManager.fileInfoList.find((fi) => fi.name === path.basename(tempUploadDir));
+    expect(thirdInfo).toBeDefined();
+    expect(thirdInfo?.file).toEqual(firstInfo?.file);
   });
 
   it('should upload with previewPath if provided', async () => {
@@ -574,7 +639,6 @@ describe('FileManager version control', () => {
     await expect(fileManager.getVersion(base, BigInt(-1).toString())).rejects.toThrow();
   });
 
-  // TODO: test upload with version specified
   it('handles sequential uploads with proper slot indices', async () => {
     const tmpDir = fs.mkdtempSync(path.join(__dirname, 'par-'));
     try {
@@ -634,7 +698,6 @@ describe('FileManager version control', () => {
     }
   });
 
-  // TODO: getversion with no version defined
   it('returns the cached FileInfo for the current head without refetching', async () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
     const spyGetFeedData = jest.spyOn(require('../../src/utils/common'), 'getFeedData');
@@ -731,7 +794,6 @@ describe('FileManager version control', () => {
 
       expect(BigInt(current.toBigInt())).toBe(initialVersion + 2n);
 
-      // TODO: getversion with no version defined does not work because of reader.download()
       const restored = await fileManager.getVersion(base, current);
 
       expect(restored.file.reference).toBe(firstRef);

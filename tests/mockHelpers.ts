@@ -48,15 +48,11 @@ export async function createInitializedFileManager(
   emitter?: EventEmitter,
 ): Promise<FileManagerBase> {
   const fm = new FileManagerBase(bee, emitter);
-  verifyInit(fm.emitter);
-  await fm.initialize();
-  return fm;
-}
-
-export function verifyInit(emitter: EventEmitter): void {
-  emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, (e) => {
+  fm.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, (e) => {
     expect(e).toEqual(true);
   });
+  await fm.initialize();
+  return fm;
 }
 
 export function createMockNodeAddresses(): NodeAddresses {
