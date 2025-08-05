@@ -153,7 +153,7 @@ export function createUploadDataSpy(char: string): jest.SpyInstance {
 }
 
 export function loadStampListMock(): jest.SpyInstance {
-  return jest.spyOn(Bee.prototype, 'getAllPostageBatch').mockResolvedValue([
+  return jest.spyOn(Bee.prototype, 'getPostageBatches').mockResolvedValue([
     {
       batchID: new BatchId('1234'.repeat(16)),
       utilization: 2,

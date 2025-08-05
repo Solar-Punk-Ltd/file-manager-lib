@@ -23,6 +23,7 @@ import {
 } from '../utils';
 
 // TODO: emitter test for all events
+// TODO: separate IT cases into different files
 describe('FileManager initialization', () => {
   let bee: BeeDev;
   let fileManager: FileManagerBase;
@@ -148,10 +149,10 @@ describe('FileManager initialization', () => {
         actHistoryAddress: fileInfoList[0].file.historyRef,
         actPublisher,
       });
-      expect(fileList).toHaveLength(expNestedPaths.length);
-      for (const [ix, f] of fileList.entries()) {
-        expect(path.basename(f.path)).toEqual(path.basename(expNestedPaths[ix]));
-      }
+      expect(Object.keys(fileList)).toHaveLength(expNestedPaths.length);
+      Object.keys(fileList).forEach((key, ix) => {
+        expect(path.basename(key)).toEqual(path.basename(expNestedPaths[ix]));
+      });
     }
     // Reinitialize fileManager after it goes out of scope to test if the file is saved on the feed.
     const fm = await createInitializedFileManager(bee);
@@ -226,26 +227,22 @@ describe('FileManager listFiles', () => {
   });
 
   it('should return a list of files for the uploaded folder', async () => {
-    // Upload the entire folder.
     await fileManager.upload({ batchId, path: tempDir, name: path.basename(tempDir) });
 
-    // Retrieve our FileInfo by filtering on the unique folder name.
     const allFileInfos = fileManager.fileInfoList;
     const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(tempDir));
     expect(fileInfo).toBeDefined();
 
-    // Call listFiles.
     const fileList = await fileManager.listFiles(fileInfo!, {
       actHistoryAddress: fileInfo!.file.historyRef,
       actPublisher,
     });
 
-    // Instead of comparing full paths (which may vary), we assert that the basenames match.
-    const returnedBasenames = fileList.map((item) => path.basename(item.path));
+    const returnedBasenames = Object.keys(fileList).map((filePath) => path.basename(filePath));
     expect(returnedBasenames).toContain('a.txt');
     expect(returnedBasenames).toContain('b.txt');
     expect(returnedBasenames).toContain('c.txt');
-    expect(fileList).toHaveLength(3);
+    expect(Object.keys(fileList)).toHaveLength(3);
   });
 
   it('should return an empty file list when uploading an empty folder', async () => {
@@ -272,7 +269,7 @@ describe('FileManager listFiles', () => {
       actHistoryAddress: fileInfo!.file.historyRef,
       actPublisher,
     });
-    expect(fileList).toHaveLength(0);
+    expect(Object.keys(fileList)).toHaveLength(0);
 
     fs.rmSync(emptyDir, { recursive: true, force: true });
   });
@@ -297,14 +294,14 @@ describe('FileManager listFiles', () => {
     });
 
     // Expect that the nested file is found.
-    const returnedBasenames = fileList.map((item) => path.basename(item.path));
+    const returnedBasenames = Object.keys(fileList).map((filePath) => path.basename(filePath));
     expect(returnedBasenames).toContain('d.txt');
 
     // Depending on your implementation, the full relative path may be built relative to the upload root.
     // Here we assume the paths are relative to deepDir, so the expected path is "level1/level2/level3/d.txt".
     const expectedFullPath = path.join('level1', 'level2', 'level3', 'd.txt');
-    const found = fileList.find((item) => item.path === expectedFullPath);
-    expect(found).toBeDefined();
+    const foundPath = Object.keys(fileList).find((filePath) => filePath === expectedFullPath);
+    expect(foundPath).toBeDefined();
 
     fs.rmSync(deepDir, { recursive: true, force: true });
   });
@@ -327,16 +324,19 @@ describe('FileManager listFiles', () => {
       actHistoryAddress: fileInfo!.file.historyRef,
       actPublisher,
     });
-    // Simulate that the entry for 'empty.txt' has an empty path.
-    fileList = fileList.map((item) => {
-      if (path.basename(item.path) === 'empty.txt') {
-        return { ...item, path: '' };
+    // Simulate that the entry for 'empty.txt' has an empty path by creating a new Record.
+    const modifiedFileList: Record<string, string> = {};
+    Object.entries(fileList).forEach(([filePath, reference]) => {
+      if (path.basename(filePath) === 'empty.txt') {
+        modifiedFileList[''] = reference; // Set empty path
+      } else {
+        modifiedFileList[filePath] = reference;
       }
-      return item;
     });
+
     // Filtering should remove entries with empty paths.
-    const filtered = fileList.filter((item) => item.path !== '');
-    const returnedBasenames = filtered.map((item) => path.basename(item.path));
+    const filteredEntries = Object.entries(modifiedFileList).filter(([filePath]) => filePath !== '');
+    const returnedBasenames = filteredEntries.map(([filePath]) => path.basename(filePath));
     expect(returnedBasenames).toContain('valid.txt');
     expect(returnedBasenames).not.toContain('empty.txt');
 
@@ -792,13 +792,13 @@ describe('FileManager destroyVolume', () => {
   });
 
   it('should throw an error when trying to destroy the owner stamp', async () => {
-    await expect(fileManager.destroyVolume(ownerStampId!)).rejects.toThrow(
+    await expect(fileManager.destroyDrive(ownerStampId!)).rejects.toThrow(
       new StampError(`Cannot destroy owner stamp, batchId: ${ownerStampId!.toString()}`),
     );
   });
 
   // TODO: test it if the env is testnet
-  // it('should remove a non-owner stamp from the stamp list after destroying volume', async () => {
+  // it('should remove a non-owner stamp from the stamp list after destroying drive', async () => {
   //   const initialStamps = fileManager.getStamps();
 
   //   // If either nonOwnerStamp equals the owner stamp, skip the test.
@@ -925,12 +925,13 @@ describe('FileManager End-to-End User Workflow', () => {
       actHistoryAddress: new Reference(projectInfo.file.historyRef),
       actPublisher,
     });
-    const basenames = listedFiles.map((f) => path.basename(f.path));
+    const basenames = Object.keys(listedFiles).map((filePath) => path.basename(filePath));
+    // Since in-place updates aren’t supported, we expect the manifest to contain only the original files.
     expect(basenames).toContain('doc1.txt');
     expect(basenames).toContain('doc2.txt');
     expect(basenames).toContain('image.png');
     expect(basenames).not.toContain('readme.txt');
-    expect(listedFiles).toHaveLength(3);
+    expect(Object.keys(listedFiles)).toHaveLength(3);
   });
 
   // Scenario 2: New Version Folder Upload
@@ -979,8 +980,8 @@ describe('FileManager End-to-End User Workflow', () => {
       actHistoryAddress: new Reference(newVersionInfo!.file.historyRef),
       actPublisher,
     });
-    const basenames_newVersion = listedFiles_newVersion.map((item) => path.basename(item.path));
-    const fullPaths_newVersion = listedFiles_newVersion.map((item) => item.path);
+    const basenames_newVersion = Object.keys(listedFiles_newVersion).map((filePath) => path.basename(filePath));
+    const fullPaths_newVersion = Object.keys(listedFiles_newVersion);
     expect(basenames_newVersion).toContain('doc1.txt');
     expect(basenames_newVersion).toContain('doc2.txt');
     expect(basenames_newVersion).toContain('image.png');
@@ -988,7 +989,7 @@ describe('FileManager End-to-End User Workflow', () => {
     expect(basenames_newVersion).toContain('subdoc.txt');
     // For example, we expect the nested file to be in a folder called "nested".
     expect(fullPaths_newVersion).toContain('nested/subdoc.txt');
-    expect(listedFiles_newVersion).toHaveLength(5);
+    expect(Object.keys(listedFiles_newVersion)).toHaveLength(5);
 
     // Step 5: Download all files and verify their content.
     const downloadedContents = (await fileManager.download(newVersionInfo!, undefined, {
@@ -1029,7 +1030,7 @@ describe('FileManager End-to-End User Workflow', () => {
       actHistoryAddress: new Reference(complexInfo!.file.historyRef),
       actPublisher,
     });
-    const fullPaths = listedFiles.map((item) => item.path);
+    const fullPaths = Object.keys(listedFiles);
     // We expect:
     // - "root.txt"
     // - "level1/level1.txt"

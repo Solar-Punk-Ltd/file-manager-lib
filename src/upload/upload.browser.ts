@@ -5,27 +5,27 @@ import { FileInfoError } from '../utils/errors';
 
 export async function uploadBrowser(
   bee: Bee,
-  infoOptions: FileInfoOptions,
+  fileOptions: FileInfoOptions,
   uploadOptions?: RedundantUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<UploadResult> {
-  if (!infoOptions.files) {
+  if (!fileOptions.files) {
     throw new FileInfoError('Files option has to be provided.');
   }
 
   const uploadFilesRes = await bee.streamFiles(
-    infoOptions.batchId,
-    infoOptions.files,
-    infoOptions.onUploadProgress,
+    fileOptions.batchId,
+    fileOptions.files,
+    fileOptions.onUploadProgress,
     { ...uploadOptions, act: false },
     requestOptions,
   );
   let uploadPreviewRes: UploadResult | undefined;
-  if (infoOptions.preview) {
+  if (fileOptions.preview) {
     uploadPreviewRes = await bee.streamFiles(
-      infoOptions.batchId,
-      [infoOptions.preview],
-      infoOptions.onUploadProgress,
+      fileOptions.batchId,
+      [fileOptions.preview],
+      fileOptions.onUploadProgress,
       { ...uploadOptions, act: false },
       requestOptions,
     );
@@ -37,7 +37,7 @@ export async function uploadBrowser(
   };
 
   return await bee.uploadData(
-    infoOptions.batchId,
+    fileOptions.batchId,
     JSON.stringify(wrappedData),
     { ...uploadOptions, act: true },
     requestOptions,

@@ -141,9 +141,9 @@ describe('FileManager', () => {
 
   describe('download', () => {
     beforeEach(() => {
-      const { getForkAddresses } = jest.requireActual('../../src/utils/mantaray');
+      const { getForksMap } = jest.requireActual('../../src/utils/mantaray');
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      jest.spyOn(require('../../src/utils/mantaray'), 'getForkAddresses').mockImplementation(getForkAddresses);
+      jest.spyOn(require('../../src/utils/mantaray'), 'getForksMap').mockImplementation(getForksMap);
     });
 
     afterEach(() => {
@@ -203,7 +203,13 @@ describe('FileManager', () => {
   });
 
   describe('listFiles', () => {
-    it('should return correct ReferenceWithPath', async () => {
+    beforeEach(() => {
+      const { getForksMap } = jest.requireActual('../../src/utils/mantaray');
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      jest.spyOn(require('../../src/utils/mantaray'), 'getForksMap').mockImplementation(getForksMap);
+    });
+
+    it('should return correct reference and path', async () => {
       createInitMocks();
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
       const fm = await createInitializedFileManager(bee);
@@ -216,13 +222,9 @@ describe('FileManager', () => {
       jest
         .spyOn(Bee.prototype, 'downloadData')
         .mockResolvedValueOnce(Bytes.fromUtf8(JSON.stringify({ uploadFilesRes: '1'.repeat(64) })));
+
       const result = await fm.listFiles(mockFi);
-      expect(result).toEqual([
-        {
-          path: '/root/2.txt',
-          reference: new Reference('2'.repeat(64)),
-        },
-      ]);
+      expect(result).toEqual({ '/root/2.txt': '2'.repeat(64) });
     });
   });
 
@@ -390,12 +392,12 @@ describe('FileManager', () => {
     });
   });
 
-  describe('destroyVolume', () => {
+  describe('destroyDrive', () => {
     it('should call diluteBatch with batchId and MAX_DEPTH', async () => {
       const diluteSpy = jest.spyOn(Bee.prototype, 'diluteBatch').mockResolvedValue(new BatchId('1234'.repeat(16)));
       const fm = await createInitializedFileManager();
 
-      await fm.destroyVolume(new BatchId('1234'.repeat(16)));
+      await fm.destroyDrive(new BatchId('1234'.repeat(16)));
 
       expect(diluteSpy).toHaveBeenCalledWith(new BatchId('1234'.repeat(16)), STAMPS_DEPTH_MAX);
     });
@@ -406,7 +408,7 @@ describe('FileManager', () => {
       const fm = await createInitializedFileManager();
 
       await expect(async () => {
-        await fm.destroyVolume(batchId);
+        await fm.destroyDrive(batchId);
       }).rejects.toThrow(`Cannot destroy owner stamp, batchId: ${batchId.toString()}`);
     });
   });

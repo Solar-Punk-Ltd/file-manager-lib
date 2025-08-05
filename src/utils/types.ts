@@ -36,6 +36,7 @@ export interface FileManager {
    * @returns A promise that resolves when the upload is complete.
    */
   upload(
+    driveInfo: DriveInfo,
     infoOptions: FileInfoOptions,
     uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
     requestOptions?: BeeRequestOptions,
@@ -60,14 +61,14 @@ export interface FileManager {
    * @param options - Optional download options for ACT.
    * @returns A promise that resolves to an array of references with paths.
    */
-  listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<ReferenceWithPath[]>;
+  listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<Record<string, string>>;
 
   /**
-   * Destroys a volume identified by the given batch ID.
-   * @param batchId - The ID of the batch to destroy.
-   * @returns A promise that resolves when the volume is destroyed.
+   * Destroys a drive identified by the given batch ID.
+   * @param drive - The drive to destroy.
+   * @returns A promise that resolves when the drive is destroyed.
    */
-  destroyVolume(batchId: BatchId): Promise<void>;
+  destroyDrive(drive: DriveInfo): Promise<void>;
 
   /**
    * Shares a file information with the specified recipients.
@@ -101,25 +102,21 @@ export interface FileManager {
 
   /**
    * Returns a specific version of a file.
-   * 
+   *
    * @param fi - The base FileInfo containing topic and owner fields.
    * @param version - Optional desired version slot as a FeedIndex or hex/string. If omitted, fetches latest.
    * @returns The FileInfo corresponding to the requested version, either from cache or fetched from chain.
    */
   getVersion(fileInfo: FileInfo, version?: FeedIndex): Promise<FileInfo>;
 
-
   /**
    * Restore a previous version of a file as the new “head” in your feed.
-   * 
+   *
    * @param versionToRestore - The FileInfo instance representing the version to restore.
    * @param requestOptions - Optional BeeRequestOptions for upload operations.
    * @throws FileInfoError if no versions are found on-chain.
    */
-  restoreVersion(
-    fileInfo: FileInfo,
-    requestOptions?: BeeRequestOptions
-  ): Promise<void>;
+  restoreVersion(fileInfo: FileInfo, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
    * Retrieves a list of file information.
@@ -146,6 +143,7 @@ export interface FileInfo {
   owner: string | EthAddress;
   actPublisher: string | PublicKey;
   topic: string | Topic;
+  drive: string;
   timestamp?: number;
   shared?: boolean;
   preview?: ReferenceWithHistory;
@@ -155,7 +153,7 @@ export interface FileInfo {
 }
 
 export interface FileInfoOptions {
-  batchId: BatchId;
+  batchId: string | BatchId;
   name: string;
   files?: File[] | FileList;
   path?: string;
@@ -165,6 +163,14 @@ export interface FileInfoOptions {
   preview?: File;
   previewPath?: string;
   onUploadProgress?: (progress: UploadProgress) => void;
+}
+
+export interface DriveInfo {
+  batchId: string | BatchId;
+  owner: string | EthAddress;
+  name: string;
+  infoFeedList: WrappedFileInfoFeed[];
+  redundancyLevel?: RedundancyLevel;
 }
 
 export interface ShareItem {
@@ -181,11 +187,6 @@ export interface ReferenceWithHistory {
 export interface WrappedFileInfoFeed {
   topic: string | Topic;
   eGranteeRef?: string | Reference;
-}
-
-export interface ReferenceWithPath {
-  reference: Reference;
-  path: string;
 }
 
 export interface FileData {

@@ -1,7 +1,7 @@
-import { EthAddress, Reference, Topic } from '@ethersphere/bee-js';
+import { BatchId, EthAddress, PublicKey, Reference, Topic } from '@ethersphere/bee-js';
 import { Types } from 'cafe-utility';
 
-import { FileInfo, ShareItem, WrappedFileInfoFeed, WrappedUploadResult } from './types';
+import { DriveInfo, FileInfo, ShareItem, WrappedFileInfoFeed, WrappedUploadResult } from './types';
 
 export function isRecord(value: unknown): value is Record<string, string> {
   return Types.isStrictlyObject(value) && Object.values(value).every((v) => typeof v === 'string');
@@ -17,10 +17,13 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
   new Reference(fi.file.reference);
   new Reference(fi.batchId);
   new Reference(fi.file.historyRef);
+  new EthAddress(fi.owner);
+  new Topic(fi.topic);
+  new PublicKey(fi.actPublisher);
 
-  if (fi.topic !== undefined) {
-    new Topic(fi.topic);
-  }
+  // if (fi.actPublisher !== undefined) {
+  //   new PublicKey(fi.actPublisher);
+  // }
 
   if (fi.customMetadata !== undefined && !isRecord(fi.customMetadata)) {
     throw new TypeError('FileInfo customMetadata has to be object!');
@@ -28,10 +31,6 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
 
   if (fi.timestamp !== undefined && typeof fi.timestamp !== 'number') {
     throw new TypeError('timestamp property of FileInfo has to be number!');
-  }
-
-  if (fi.owner !== undefined) {
-    new EthAddress(fi.owner);
   }
 
   if (fi.name !== undefined && typeof fi.name !== 'string') {
@@ -77,6 +76,8 @@ export function assertWrappedFileInoFeed(value: unknown): asserts value is Wrapp
 
   const wmf = value as unknown as WrappedFileInfoFeed;
 
+  new Topic(wmf.topic);
+
   if (wmf.eGranteeRef !== undefined) {
     new Reference(wmf.eGranteeRef);
   }
@@ -93,5 +94,26 @@ export function asserWrappedUploadResult(value: unknown): asserts value is Wrapp
 
   if (wur.uploadPreviewRes !== undefined) {
     new Reference(wur.uploadPreviewRes);
+  }
+}
+
+export function assertDriveInfo(value: unknown): asserts value is DriveInfo {
+  if (!Types.isStrictlyObject(value)) {
+    throw new TypeError('DriveInfo has to be object!');
+  }
+
+  const di = value as unknown as DriveInfo;
+
+  new BatchId(di.batchId);
+  new EthAddress(di.owner);
+
+  assertWrappedFileInoFeed(di.infoFeedList);
+
+  if (di.name === undefined || typeof di.name !== 'string' || di.name.length === 0) {
+    throw new TypeError('name property of DriveInfo has to be string!');
+  }
+
+  if (di.redundancyLevel !== undefined && typeof di.redundancyLevel !== 'number') {
+    throw new TypeError('redundancyLevel property of DriveInfo has to be number!');
   }
 }
