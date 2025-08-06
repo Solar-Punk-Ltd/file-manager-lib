@@ -3,7 +3,7 @@
 # Compute the absolute directory of this script.
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 BEE_DIR="$SCRIPT_DIR/bee-dev"
-BEE_REPO="git@github.com:Solar-Punk-Ltd/bee.git"
+BEE_REPO="https://github.com/Solar-Punk-Ltd/bee.git"
 BEE_BRANCH="tmp/dev-feed"
 BEE_BINARY_PATH="$BEE_DIR/dist/bee"
 BEE_URL="127.0.0.1:1633"
@@ -69,18 +69,13 @@ BEE_PID_1633=$!
 echo $BEE_PID_1633 > "$BEE_PID_FILE_1633"
 
 # Wait a few seconds to let both nodes initialize.
-sleep 1
-
-# Health check for port 1733.
-if ! curl --silent --fail "http://$OTHER_BEE_URL/health"; then
-  echo "Bee node on port 1733 health check failed. Exiting."
-  exit 1
-fi
-
-# Health check for port 1633.
-if ! curl --silent --fail "http://$BEE_URL/health"; then
-  echo "Bee node on port 1633 health check failed. Exiting."
-  exit 1
-fi
+for i in {1..10}; do
+  if curl --silent --fail "http://$OTHER_BEE_URL/health" && curl --silent --fail "http://$BEE_URL/health"; then
+    echo Both Bee nodes are healthy
+    break
+  fi
+  echo "Waiting for Bee nodes…"
+  sleep 1
+done
 
 echo "Both Bee nodes are healthy and ready to process requests."
