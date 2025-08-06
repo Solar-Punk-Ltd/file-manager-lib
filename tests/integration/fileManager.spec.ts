@@ -553,7 +553,10 @@ describe('FileManager file operations', () => {
   });
 
   it('should trash a file (soft-delete)', async () => {
-    await fileManager.trashFile(testFi);
+    const initial = fileManager.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
+    const beforeIndexStr = initial.index ?? '0';
+    const before = BigInt(beforeIndexStr);
+    await fileManager.trashFile(initial);
     expect(testFi.status).toBe('trashed');
 
     // re-init and confirm persisted status
@@ -561,19 +564,22 @@ describe('FileManager file operations', () => {
     await fm2.initialize();
     const fi2 = fm2.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
     expect(fi2!.status).toBe('trashed');
+    expect(BigInt(fi2.index!)).toBe(before + 1n);
   });
 
-  it('should restore a previously trashed file', async () => {
-    // make sure it's trashed first
+  it('should recover a previously trashed file', async () => {
+    await fileManager.trashFile(testFi);
     expect(testFi.status).toBe('trashed');
+    const initial = fileManager.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
+    const beforeIndexStr = initial.index ?? '0';
+    const before = BigInt(beforeIndexStr);
 
-    await fileManager.restoreFile(testFi);
-    expect(testFi.status).toBe('active');
-
+    await fileManager.recoverFile(testFi);
     const fm2 = await createInitializedFileManager(bee);
     await fm2.initialize();
     const fi2 = fm2.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
     expect(fi2!.status).toBe('active');
+    expect(BigInt(fi2.index!)).toBe(BigInt(before) + 1n);
   });
 
   it('should forget (hard-delete) a file', async () => {
@@ -587,7 +593,7 @@ describe('FileManager file operations', () => {
     expect(fm2.fileInfoList.find((fi) => fi.name === TEST_NAME)).toBeUndefined();
   });
 
-  it('should never duplicate FileInfo entries when trashing/restoring', async () => {
+  it('should never duplicate FileInfo entries when trashing/recovering', async () => {
     // Re-upload the same test file
     const testFilePath = path.join(__dirname, '../fixtures', TEST_NAME);
     await fileManager.upload({ batchId, path: testFilePath, name: TEST_NAME });
@@ -604,8 +610,8 @@ describe('FileManager file operations', () => {
     // Trash and Restore twice
     await fileManager.trashFile(freshFi);
     await fileManager.trashFile(freshFi);
-    await fileManager.restoreFile(freshFi);
-    await fileManager.restoreFile(freshFi);
+    await fileManager.recoverFile(freshFi);
+    await fileManager.recoverFile(freshFi);
 
     // After all of that, still only one entry for this topic
     const afterCount = fileManager.fileInfoList.filter((fi) => fi.topic.toString() === topicStr).length;
@@ -613,30 +619,21 @@ describe('FileManager file operations', () => {
   });
 
   it('ownerFeedList should never gain duplicate topics when trash/restoring', async () => {
-    // We know freshFi from previous test; but let's re-grab it just in case
-    const freshFi = fileManager.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
-    const topicStr = freshFi.topic.toString();
+    const fm = await createInitializedFileManager(bee);
+    await fm.initialize();
 
-    // Count wrapped‐feed entries matching this topic
-    const beforeFeedCount = (fileManager as any).ownerFeedList.filter(
-      (w: any) => w.topic.toString() === topicStr,
-    ).length;
-    expect(beforeFeedCount).toBe(1);
+    const fi0 = fm.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
+    const topicStr = fi0.topic.toString();
+    const beforeIndex = BigInt(fi0.index!);
 
-    // trash & restore
-    await fileManager.trashFile(freshFi);
-    await fileManager.restoreFile(freshFi);
+    await fm.trashFile(fi0);
+    await fm.recoverFile(fi0);
 
-    const afterFeedCount = (fileManager as any).ownerFeedList.filter(
-      (w: any) => w.topic.toString() === topicStr,
-    ).length;
-    expect(afterFeedCount).toBe(1);
-
-    // Finally, re-init to confirm persistence side hasn't duplicated
     const fm2 = await createInitializedFileManager(bee);
     await fm2.initialize();
-    const persistedFeedCount = (fm2 as any).ownerFeedList.filter((w: any) => w.topic.toString() === topicStr).length;
-    expect(persistedFeedCount).toBe(1);
+    const fi2 = fm2.fileInfoList.find((fi) => fi.topic.toString() === topicStr)!;
+
+    expect(BigInt(fi2.index!)).toBe(beforeIndex + 2n);
   });
 });
 

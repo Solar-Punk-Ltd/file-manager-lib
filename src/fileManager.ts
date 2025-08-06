@@ -43,6 +43,7 @@ import {
   FileInfo,
   FileManager,
   FileInfoOptions,
+  FileStatus,
   ReferenceWithHistory,
   ReferenceWithPath,
   ShareItem,
@@ -350,7 +351,7 @@ export class FileManagerBase implements FileManager {
       index: infoOptions.index,
       customMetadata: infoOptions.customMetadata,
       redundancyLevel: uploadOptions?.redundancyLevel,
-      status: 'active',
+      status: FileStatus.Active,
     };
     await this.saveFileInfoAndFeed(fileInfo, requestOptions);
 
@@ -472,61 +473,83 @@ export class FileManagerBase implements FileManager {
     }
   }
 
+  /**
+   * Soft‐delete: move a file into “trash” (it stays in swarm but is hidden from your live list).
+   */
   async trashFile(fileInfo: FileInfo): Promise<void> {
-    const fi = this.fileInfoList.find(
-      f => f.topic.toString() === fileInfo.topic.toString()
-    );
+    const fi = this.fileInfoList.find(f => f.topic === fileInfo.topic);
     if (!fi) {
       throw new Error(`trashFile: not managed: ${fileInfo.topic}`);
     }
-    // mutate the same object
-    fi.status = 'trashed';
-    fi.timestamp = Date.now();
-    // persist
-    await this.saveFileInfoAndFeed(fi);
+
+    fi.status = FileStatus.Trashed;
+    fi.timestamp = new Date().getTime();
+
+    const { feedIndexNext } = await getFeedData(
+      this.bee,
+      new Topic(fi.topic),
+      fi.owner,
+    );
+    fi.index = feedIndexNext ? feedIndexNext.toString() : new FeedIndex('0').toString()
+      
+    const wrapper = await this.uploadFileInfo(fi);
+
+    await this.saveFileInfoFeed(
+      fi.batchId.toString(),
+      wrapper,
+      fi.topic,
+      fi.index,
+    );
+
     this.emitter.emit(FileManagerEvents.FILE_TRASHED, { fileInfo: fi });
   }
   
   /**
-   * Restore a previously trashed file.
+   * Recover a previously trashed file.
    */
-  async restoreFile(fileInfo: FileInfo): Promise<void> {
-    const fi = this.fileInfoList.find(
-      f => f.topic.toString() === fileInfo.topic.toString()
-    );
+  async recoverFile(fileInfo: FileInfo): Promise<void> {
+    const fi = this.fileInfoList.find(f => f.topic === fileInfo.topic);
     if (!fi) {
-      throw new Error(`restoreFile: not managed: ${fileInfo.topic}`);
+      throw new Error(`recoverFile: not managed: ${fileInfo.topic}`);
     }
-    fi.status = 'active';
-    fi.timestamp = Date.now();
-    await this.saveFileInfoAndFeed(fi);
+
+    const { feedIndexNext } = await getFeedData(
+      this.bee,
+      new Topic(fi.topic),
+      fi.owner,
+    );
+    fi.index = feedIndexNext ? feedIndexNext.toString() : new FeedIndex('0').toString()
+
+    fi.status = FileStatus.Active;
+    fi.timestamp = new Date().getTime();
+
+    const wrapper = await this.uploadFileInfo(fi);
+    await this.saveFileInfoFeed(fi.batchId.toString(), wrapper, fi.topic, fi.index);
     this.emitter.emit(FileManagerEvents.FILE_RESTORED, { fileInfo: fi });
   }
 
   /**
-   * Hard‐delete (un‐publish): remove from your owner‐feed and in-memory lists.
+   * Hard‐delete: remove from your owner‐feed and in-memory lists.
    * The underlying Swarm data remains, but it no longer appears in your live list.
    */
   async forgetFile(fileInfo: FileInfo): Promise<void> {
     const topicStr = fileInfo.topic.toString();
-    // 1) remove *all* in‐memory entries for this topic
-    for (let i = this.fileInfoList.length - 1; i >= 0; i--) {
-      if (this.fileInfoList[i].topic.toString() === topicStr) {
-        this.fileInfoList.splice(i, 1);
-      }
+  
+    // remove from fileInfoList
+    const fiIndex = this.fileInfoList.findIndex(f => f.topic.toString() === topicStr);
+    if (fiIndex !== -1) {
+      this.fileInfoList.splice(fiIndex, 1);
     }
   
-    // 2) remove *all* wrapped‐feed entries
-    for (let i = this.ownerFeedList.length - 1; i >= 0; i--) {
-      if (this.ownerFeedList[i].topic.toString() === topicStr) {
-        this.ownerFeedList.splice(i, 1);
-      }
+    // remove from ownerFeedList
+    const feedIndex = this.ownerFeedList.findIndex(w => w.topic.toString() === topicStr);
+    if (feedIndex !== -1) {
+      this.ownerFeedList.splice(feedIndex, 1);
     }
   
-    // 3) persist the updated owner‐feed list so future inits skip it
+    // persist the updated owner-feed list
     await this.saveOwnerFeedList();
   
-    // 4) emit
     this.emitter.emit(FileManagerEvents.FILE_FORGOTTEN, { fileInfo });
   }
 

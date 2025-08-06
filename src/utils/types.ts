@@ -62,20 +62,26 @@ export interface FileManager {
    */
   listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<ReferenceWithPath[]>;
 
-    /**
-   * Soft‐delete: move a file to “trash” (it stays in swarm but is hidden from your live list).
+  /**
+   * Soft-delete: move a file to “trash” (it stays in Swarm but is hidden from your live list).
+   * @param fileInfo - The file info describing the file to trash.
+   * @returns A promise that resolves when the file has been trashed.
    */
-    trashFile(fileInfo: FileInfo): Promise<void>;
+  trashFile(fileInfo: FileInfo): Promise<void>;
 
-    /**
-     * Restore a previously trashed file back into your live list.
-     */
-    restoreFile(fileInfo: FileInfo): Promise<void>;
-  
-    /**
-     * Hard‐delete: permanently destroy the file’s postage batch and forget all its data.
-     */
-    forgetFile(fileInfo: FileInfo): Promise<void>;
+  /**
+   * Restore a previously trashed file back into your live list.
+   * @param fileInfo - The file info describing the file to restore.
+   * @returns A promise that resolves when the file has been restored.
+   */
+  restoreFile(fileInfo: FileInfo): Promise<void>;
+
+  /**
+   * Hard-delete: permanently destroy the file’s postage batch and forget all its data.
+   * @param fileInfo - The file info describing the file to forget.
+   * @returns A promise that resolves when the file has been forgotten.
+   */
+  forgetFile(fileInfo: FileInfo): Promise<void>;
 
   /**
    * Destroys a volume identified by the given batch ID.
@@ -132,7 +138,7 @@ export interface FileManager {
   emitter: EventEmitter;
 }
 
-export type FileStatus = 'active' | 'trashed';
+export enum FileStatus { Active = 'active', Trashed = 'trashed' }
 
 export interface FileInfo {
   batchId: string | BatchId;

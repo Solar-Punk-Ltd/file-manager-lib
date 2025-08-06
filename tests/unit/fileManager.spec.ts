@@ -6,7 +6,7 @@ import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
 import { EventEmitterBase } from '../../src/utils/eventEmitter';
 import { FileManagerEvents } from '../../src/utils/events';
-import { FileInfo, WrappedUploadResult } from '../../src/utils/types';
+import { FileInfo, FileStatus, WrappedUploadResult } from '../../src/utils/types';
 import {
   createInitializedFileManager,
   createInitMocks,
@@ -267,53 +267,88 @@ describe('FileManager', () => {
 
   describe('file operations', () => {
     let fm: FileManagerBase;
-    let bee: Bee;
     let mockFi: FileInfo;
 
     beforeEach(async () => {
       // make a fresh FileManager
-      bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      fm = await createInitializedFileManager(bee);
-      // create a dummy FileInfo and inject it into both lists
-      mockFi = await createMockFileInfo(bee, (await createMockMantarayNode(true).calculateSelfAddress()).toString());
+      fm = await createInitializedFileManager();
+      // Create a minimal FileInfo that matches the interface
+      mockFi = {
+        batchId: 'aa'.repeat(32),
+        file: { reference: '11'.repeat(32), historyRef: '00'.repeat(32) },
+        name: 'foo',
+        owner: '',
+        actPublisher: 'ff'.repeat(66),
+        topic: 'deadbeef'.repeat(8),
+        // no status/timestamp yet
+      } as any;
+
+      // Seed the in-memory list with an “active” file
+      mockFi.status = FileStatus.Active;
+      mockFi.timestamp = 0;
+      mockFi.index = '0';
       fm.fileInfoList.push(mockFi);
-      // ownerFeedList holds only topics
-      (fm as any).ownerFeedList.push({ topic: mockFi.topic });
     });
 
     it('trashFile should mark a file as trashed, persist and emit FILE_TRASHED', async () => {
-      // stub the persistence
-      const saveSpy = jest.spyOn(fm as any, 'saveFileInfoAndFeed').mockResolvedValue(undefined);
+      // sanity check
+      expect(mockFi.status).toBe(FileStatus.Active);
+      expect(mockFi.timestamp).toBe(0);
+
+      const uploadSpy = jest
+        .spyOn(fm as any, 'uploadFileInfo')
+        .mockResolvedValue({ reference: 'aa'.repeat(32), historyRef: 'bb'.repeat(32) });
+      const saveSpy = jest.spyOn(fm as any, 'saveFileInfoFeed').mockResolvedValue(undefined);
       const handler = jest.fn();
       fm.emitter.on(FileManagerEvents.FILE_TRASHED, handler);
 
       await fm.trashFile(mockFi);
 
-      // grab the updated object from the in-memory list
-      const updated = fm.fileInfoList.find((f) => f.topic.toString() === mockFi.topic.toString())!;
+      // in-memory mutated
+      expect(mockFi.status).toBe(FileStatus.Trashed);
+      expect(mockFi.timestamp!).toBeGreaterThan(0);
 
-      expect(updated.status).toBe('trashed');
-      expect(updated.timestamp).toBeGreaterThan(0);
-      expect(saveSpy).toHaveBeenCalledWith(updated);
-      expect(handler).toHaveBeenCalledWith({ fileInfo: updated });
+      // persisted with the updated object
+      expect(uploadSpy).toHaveBeenCalledWith(mockFi);
+      expect(saveSpy).toHaveBeenCalledWith(
+        mockFi.batchId.toString(),
+        { reference: 'aa'.repeat(32), historyRef: 'bb'.repeat(32) },
+        mockFi.topic,
+        mockFi.index,
+      );
+
+      // event
+      expect(handler).toHaveBeenCalledWith({ fileInfo: mockFi });
     });
 
-    it('restoreFile should mark a trashed file active, persist and emit FILE_RESTORED', async () => {
-      // simulate an already-trashed entry
-      const idx = fm.fileInfoList.findIndex((f) => f.topic.toString() === mockFi.topic.toString());
-      fm.fileInfoList[idx].status = 'trashed';
+    it('recoverFile should mark a trashed file active, persist and emit FILE_RESTORED', async () => {
+      // simulate trashed
+      mockFi.status = FileStatus.Trashed;
+      const beforeTs = mockFi.timestamp!;
 
-      const saveSpy = jest.spyOn(fm as any, 'saveFileInfoAndFeed').mockResolvedValue(undefined);
+      const uploadSpy = jest
+        .spyOn(fm as any, 'uploadFileInfo')
+        .mockResolvedValue({ reference: 'cc'.repeat(32), historyRef: 'dd'.repeat(32) });
+      const saveSpy = jest.spyOn(fm as any, 'saveFileInfoFeed').mockResolvedValue(undefined);
       const handler = jest.fn();
       fm.emitter.on(FileManagerEvents.FILE_RESTORED, handler);
 
-      await fm.restoreFile(mockFi);
+      await fm.recoverFile(mockFi);
 
-      const restored = fm.fileInfoList[idx];
-      expect(restored.status).toBe('active');
-      expect(restored.timestamp).toBeGreaterThan(0);
-      expect(saveSpy).toHaveBeenCalledWith(restored);
-      expect(handler).toHaveBeenCalledWith({ fileInfo: restored });
+      // mutated back
+      expect(mockFi.status).toBe(FileStatus.Active);
+      expect(mockFi.timestamp!).toBeGreaterThan(beforeTs);
+
+      // persisted
+      expect(uploadSpy).toHaveBeenCalledWith(mockFi);
+      expect(saveSpy).toHaveBeenCalledWith(
+        mockFi.batchId.toString(),
+        { reference: 'cc'.repeat(32), historyRef: 'dd'.repeat(32) },
+        mockFi.topic,
+        mockFi.index,
+      );
+
+      expect(handler).toHaveBeenCalledWith({ fileInfo: mockFi });
     });
 
     it('forgetFile should remove file from lists, persist owner-feed, and emit FILE_FORGOTTEN', async () => {
