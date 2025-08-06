@@ -508,6 +508,35 @@ describe('FileManager upload', () => {
     expect(uploadedInfo).toBeDefined();
     fs.rmSync(tempFile, { force: true });
   });
+
+  it('does not create a second fileInfo when bumping to a new version', async () => {
+    const dirName = path.basename(tempUploadDir);
+    const localFm = await createInitializedFileManager(bee);
+
+    await localFm.upload({ info: { batchId, name: dirName }, path: tempUploadDir });
+    const original = localFm.fileInfoList.find((fi) => fi.name === dirName)!;
+    expect(original).toBeDefined();
+
+    await localFm.upload(
+      {
+        info: {
+          batchId,
+          name: dirName,
+          topic: original.topic,
+          file: original.file,
+        },
+      },
+      {
+        actHistoryAddress: new Reference(original.file.historyRef),
+      },
+    );
+
+    const entries = localFm.fileInfoList.filter((fi) => fi.name === dirName && fi.topic === original.topic);
+    expect(entries).toHaveLength(1);
+
+    const bumped = entries[0];
+    expect(BigInt(bumped.version!)).toBeGreaterThan(BigInt(original.version! || '0'));
+  });
 });
 
 describe('FileManager download', () => {

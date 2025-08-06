@@ -260,6 +260,54 @@ describe('FileManager', () => {
         });
       }).rejects.toThrow('Options topic and historyRef have to be provided at the same time.');
     });
+
+    it('should not add duplicate entries when re-uploading same topic', async () => {
+      const fm = await createInitializedFileManager();
+      createUploadFilesFromDirectorySpy('1');
+      createUploadFileSpy('2');
+      createUploadDataSpy('3');
+      createUploadDataSpy('4');
+      createMockFeedWriter('5');
+      (getFeedData as jest.Mock).mockResolvedValueOnce({
+        feedIndex: FeedIndex.fromBigInt(-1n),
+        feedIndexNext: FeedIndex.fromBigInt(0n),
+      });
+
+      await fm.upload({ info: { batchId: new BatchId(MOCK_BATCH_ID), name: 'hello' }, path: './tests' });
+      expect(fm.fileInfoList.filter((fi) => fi.name === 'hello')).toHaveLength(1);
+      expect((fm as any).ownerFeedList.filter((f: any) => f.topic === fm.fileInfoList[0].topic)).toHaveLength(1);
+
+      const original = fm.fileInfoList[0];
+      createUploadFilesFromDirectorySpy('6');
+      createUploadDataSpy('7');
+      createUploadDataSpy('8');
+      createMockFeedWriter('9');
+      (getFeedData as jest.Mock).mockResolvedValueOnce({
+        feedIndex: FeedIndex.fromBigInt(0n),
+        feedIndexNext: FeedIndex.fromBigInt(1n),
+      });
+
+      await fm.upload(
+        {
+          info: {
+            batchId: new BatchId(MOCK_BATCH_ID),
+            name: 'hello',
+            topic: original.topic,
+            file: original.file,
+          } as any,
+          path: './tests',
+        },
+        {
+          actHistoryAddress: original.file.historyRef,
+        },
+      );
+
+      expect(fm.fileInfoList.filter((fi) => fi.name === 'hello')).toHaveLength(1);
+      expect((fm as any).ownerFeedList.filter((f: any) => f.topic === original.topic)).toHaveLength(1);
+
+      const updated = fm.fileInfoList.find((fi) => fi.name === 'hello')!;
+      expect(BigInt(updated.version!)).toBe(BigInt(original.version! || '0') + 1n);
+    });
   });
 
   describe('version control', () => {
