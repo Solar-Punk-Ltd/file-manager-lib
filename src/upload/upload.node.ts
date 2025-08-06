@@ -13,6 +13,7 @@ import { FileInfoOptions, WrappedUploadResult } from '../utils/types';
 
 export async function uploadNode(
   bee: Bee,
+  batchId: string | BatchId,
   fileOptions: FileInfoOptions,
   uploadOptions?: FileUploadOptions | CollectionUploadOptions,
   requestOptions?: BeeRequestOptions,
@@ -23,7 +24,7 @@ export async function uploadNode(
 
   const uploadFilesRes = await uploadFileOrDirectory(
     bee,
-    new BatchId(fileOptions.batchId),
+    new BatchId(batchId),
     fileOptions.path,
     { ...uploadOptions, act: false },
     requestOptions,
@@ -32,7 +33,7 @@ export async function uploadNode(
   if (fileOptions.previewPath) {
     uploadPreviewRes = await uploadFileOrDirectory(
       bee,
-      new BatchId(fileOptions.batchId),
+      new BatchId(batchId),
       fileOptions.previewPath,
       { ...uploadOptions, act: false },
       requestOptions,
@@ -44,12 +45,7 @@ export async function uploadNode(
     uploadPreviewRes: uploadPreviewRes?.reference.toString(),
   };
 
-  return await bee.uploadData(
-    fileOptions.batchId,
-    JSON.stringify(wrappedData),
-    { ...uploadOptions, act: true },
-    requestOptions,
-  );
+  return await bee.uploadData(batchId, JSON.stringify(wrappedData), { ...uploadOptions, act: true }, requestOptions);
 }
 
 async function uploadFileOrDirectory(

@@ -1,4 +1,15 @@
-import { BatchId, BeeDev, Bytes, FeedIndex, MantarayNode, PublicKey, Reference, Topic } from '@ethersphere/bee-js';
+import {
+  BatchId,
+  BeeDev,
+  Bytes,
+  FeedIndex,
+  Identifier,
+  MantarayNode,
+  PublicKey,
+  RedundancyLevel,
+  Reference,
+  Topic,
+} from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
@@ -6,7 +17,8 @@ import { FileManagerBase } from '../../src/fileManager';
 import { buyStamp, getFeedData } from '../../src/utils/common';
 import { OWNER_STAMP_LABEL, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { FileInfoError, GranteeError, StampError } from '../../src/utils/errors';
-import { FileInfo } from '../../src/utils/types';
+import { FileManagerEvents } from '../../src/utils/events';
+import { DriveInfo, FileInfo } from '../../src/utils/types';
 import { createInitializedFileManager } from '../mockHelpers';
 import {
   BEE_URL,
@@ -28,6 +40,7 @@ describe('FileManager initialization', () => {
   let bee: BeeDev;
   let fileManager: FileManagerBase;
   let actPublisher: PublicKey;
+  let drive: DriveInfo;
 
   beforeAll(async () => {
     // Create a BeeDev instance with a valid signer.
@@ -126,17 +139,19 @@ describe('FileManager initialization', () => {
     expFileDataArr.push(fileDataArr);
     expFileDataArr.push([exptTestFileData]);
 
-    // Use a test stamp for file uploads.
-    const testStampId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'testStamp');
+    const batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'initstamp');
+
+    await fileManager.createDrive(batchId, 'initialization');
+    const tmpDrive = fileManager.getDrives().find((d) => d.name === 'initialization');
+    expect(tmpDrive).toBeDefined();
+    drive = tmpDrive!;
+
     {
-      await fileManager.initialize();
-      await fileManager.upload({
-        batchId: testStampId,
+      await fileManager.upload(drive, {
         path: path.join(__dirname, '../fixtures/nested'),
         name: 'nested',
       });
-      await fileManager.upload({
-        batchId: testStampId,
+      await fileManager.upload(drive, {
         path: path.join(__dirname, '../fixtures/test.txt'),
         name: 'test.txt',
       });
@@ -176,18 +191,97 @@ describe('FileManager initialization', () => {
     expect(nodeAddresses?.publicKey).toBeDefined();
   });
 
-  it('should initialize owner feed topic and owner feed list correctly', async () => {
-    const feedTopicData = await getFeedData(bee, REFERENCE_LIST_TOPIC, MOCK_SIGNER.publicKey().address(), 0n);
-    expect(feedTopicData.payload).not.toEqual(SWARM_ZERO_ADDRESS);
-    const ownerFeedList = (fileManager as any).ownerFeedList;
-    expect(Array.isArray(ownerFeedList)).toBeTruthy();
-  });
-
   it('should not reinitialize if already initialized', async () => {
     const fileInfoListBefore = [...fileManager.fileInfoList];
     await fileManager.initialize();
     expect(fileManager.fileInfoList).toEqual(fileInfoListBefore);
   });
+});
+
+describe('FileManager drive handling', () => {
+  let bee: BeeDev;
+  let fileManager: FileManagerBase;
+  let ownerStampId: BatchId | undefined;
+  let tempDir: string;
+
+  beforeAll(async () => {
+    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
+    ownerStampId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
+
+    fileManager = await createInitializedFileManager(bee);
+
+    tempDir = path.join(__dirname, 'tmpDriveFolder');
+    fs.mkdirSync(tempDir, { recursive: true });
+    fs.writeFileSync(path.join(tempDir, 'a.txt'), 'Content A');
+  });
+
+  afterAll(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('should create a drive and retrieve it', async () => {
+    const batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'createDriveStamp');
+
+    let driveId: string | undefined;
+    fileManager.emitter.on(FileManagerEvents.DRIVE_CREATED, ({ driveInfo }) => {
+      expect(driveInfo).toBeDefined();
+      expect(new Identifier(driveInfo.id)).toHaveLength(Identifier.LENGTH);
+      expect(driveInfo.batchId).toBe(batchId.toString());
+      expect(driveInfo.name).toBe('Test Drive');
+      expect(driveInfo.owner).toBe(MOCK_SIGNER.publicKey().address().toHex());
+      expect(driveInfo.redundancyLevel).toBe(RedundancyLevel.OFF);
+      expect(driveInfo.infoFeedList).toStrictEqual([]);
+
+      driveId = driveInfo.id.toString();
+    });
+
+    await fileManager.createDrive(batchId, 'Test Drive');
+    const drives = fileManager.getDrives();
+    expect(drives.length).toBeGreaterThanOrEqual(1);
+    const testDrive = drives.find((d) => d.name === 'Test Drive');
+    expect(testDrive).toBeDefined();
+    expect(driveId).toBeDefined();
+    expect(testDrive?.id).toBe(driveId);
+    expect(fileManager.fileInfoList.filter((fi) => fi.drive === driveId)).toHaveLength(0);
+  });
+
+  it('should throw an error when trying to destroy the owner stamp', async () => {
+    await expect(
+      fileManager.destroyDrive({
+        batchId: ownerStampId!.toString(),
+        id: 'mockID',
+        name: 'Owner Drive',
+        owner: MOCK_SIGNER.publicKey().address().toString(),
+        redundancyLevel: RedundancyLevel.OFF,
+      }),
+    ).rejects.toThrow(new StampError(`Cannot destroy owner stamp, batchId: ${ownerStampId!.toString()}`));
+  });
+
+  // todo: not possible to test with devnode: gives 501
+  // it('should destroy the given drive', async () => {
+  //   const batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'toDestroyBatch');
+  //   await fileManager.createDrive(batchId, 'Drive to destroy');
+  //   const initialDrivesLength = fileManager.getDrives().length;
+
+  //   const driveToDestroy = fileManager.getDrives().find((d) => d.name === 'Drive to destroy');
+  //   expect(driveToDestroy).toBeDefined();
+
+  //   fileManager.emitter.on(FileManagerEvents.DRIVE_DESTROYED, (drive: DriveInfo) => {
+  //     expect(drive).toBe(driveToDestroy);
+  //   });
+
+  //  await fileManager.destroyDrive(driveToDestroy!);
+
+  //   const finalDrives = fileManager.getDrives();
+  //   expect(finalDrives).toHaveLength(initialDrivesLength - 1);
+
+  //   const drive = finalDrives.find((d) => d.name === 'Drive to destroy');
+  //   expect(drive).toBeUndefined();
+
+  //   // TODO: what else flag is set after dilute ?
+  //   const stamp = (await bee.getPostageBatches()).find((b) => b.label === 'toDestroyBatch');
+  //   expect(stamp?.usable).toBe(false);
+  // });
 });
 
 describe('FileManager listFiles', () => {
@@ -196,6 +290,7 @@ describe('FileManager listFiles', () => {
   let batchId: BatchId;
   let tempDir: string;
   let actPublisher: PublicKey;
+  let drive: DriveInfo;
 
   beforeAll(async () => {
     // Create a BeeDev instance with a valid signer.
@@ -207,6 +302,11 @@ describe('FileManager listFiles', () => {
     fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
     actPublisher = (await bee.getNodeAddresses())!.publicKey;
+
+    await fileManager.createDrive(batchId, 'listFiles');
+    const tmpDrive = fileManager.getDrives().find((d) => d.name === 'listFiles');
+    expect(tmpDrive).toBeDefined();
+    drive = tmpDrive!;
 
     // Create a temporary directory for our test files.
     // Use a unique folder name to avoid collisions.
@@ -227,7 +327,7 @@ describe('FileManager listFiles', () => {
   });
 
   it('should return a list of files for the uploaded folder', async () => {
-    await fileManager.upload({ batchId, path: tempDir, name: path.basename(tempDir) });
+    await fileManager.upload(drive, { path: tempDir, name: path.basename(tempDir) });
 
     const allFileInfos = fileManager.fileInfoList;
     const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(tempDir));
@@ -254,7 +354,7 @@ describe('FileManager listFiles', () => {
     // 2. The upload call succeeds but returns a manifest with no files.
     let fileInfo: FileInfo | undefined;
     try {
-      await fileManager.upload({ batchId, path: emptyDir, name: path.basename(emptyDir) });
+      await fileManager.upload(drive, { path: emptyDir, name: path.basename(emptyDir) });
       const allFileInfos = fileManager.fileInfoList;
       fileInfo = allFileInfos.find((fi) => fi.name === path.basename(emptyDir));
     } catch (error: any) {
@@ -283,7 +383,7 @@ describe('FileManager listFiles', () => {
     fs.mkdirSync(level3, { recursive: true });
     fs.writeFileSync(path.join(level3, 'd.txt'), 'Content D');
 
-    await fileManager.upload({ batchId, path: deepDir, name: path.basename(deepDir) });
+    await fileManager.upload(drive, { path: deepDir, name: path.basename(deepDir) });
     const allFileInfos = fileManager.fileInfoList;
     const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(deepDir));
     expect(fileInfo).toBeDefined();
@@ -315,7 +415,7 @@ describe('FileManager listFiles', () => {
     // Create another file that we will later simulate as having an empty path.
     fs.writeFileSync(path.join(folderWithEmpty, 'empty.txt'), 'Should be ignored');
 
-    await fileManager.upload({ batchId, path: folderWithEmpty, name: path.basename(folderWithEmpty) });
+    await fileManager.upload(drive, { path: folderWithEmpty, name: path.basename(folderWithEmpty) });
     const allFileInfos = fileManager.fileInfoList;
     const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(folderWithEmpty));
     expect(fileInfo).toBeDefined();
@@ -349,12 +449,18 @@ describe('FileManager upload', () => {
   let fileManager: FileManagerBase;
   let batchId: BatchId;
   let tempUploadDir: string;
+  let drive: DriveInfo;
 
   beforeAll(async () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
     await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'uploadIntegrationStamp');
     fileManager = await createInitializedFileManager(bee);
+
+    await fileManager.createDrive(batchId, 'upload');
+    const tmpDrive = fileManager.getDrives().find((d) => d.name === 'upload');
+    expect(tmpDrive).toBeDefined();
+    drive = tmpDrive!;
 
     // Create a temporary directory with a nested structure for upload.
     tempUploadDir = path.join(__dirname, 'tmpUploadIntegration');
@@ -371,7 +477,7 @@ describe('FileManager upload', () => {
   });
 
   it('should upload a directory and update the file info list', async () => {
-    await fileManager.upload({ batchId, path: tempUploadDir, name: path.basename(tempUploadDir) });
+    await fileManager.upload(drive, { path: tempUploadDir, name: path.basename(tempUploadDir) });
     const fileInfoList = fileManager.fileInfoList;
     const uploadedInfo = fileInfoList.find((fi) => fi.name === path.basename(tempUploadDir));
     expect(uploadedInfo).toBeDefined();
@@ -384,8 +490,7 @@ describe('FileManager upload', () => {
     fs.writeFileSync(path.join(previewDir, 'preview.txt'), 'Preview Content');
 
     // Call upload with both main path and previewPath.
-    await fileManager.upload({
-      batchId,
+    await fileManager.upload(drive, {
       path: tempUploadDir,
       name: path.basename(tempUploadDir),
       previewPath: previewDir,
@@ -409,8 +514,7 @@ describe('FileManager upload', () => {
   it('should throw an error if infoTopic and historyRef are not provided together', async () => {
     // Here we call upload with infoTopic provided but no historyRef.
     await expect(
-      fileManager.upload({
-        batchId,
+      fileManager.upload(drive, {
         path: tempUploadDir,
         name: path.basename(tempUploadDir),
         infoTopic: 'someInfoTopic',
@@ -422,7 +526,7 @@ describe('FileManager upload', () => {
     // Create a temporary file.
     const tempFile = path.join(__dirname, 'tempFile.txt');
     fs.writeFileSync(tempFile, 'Single File Content');
-    await fileManager.upload({ batchId, path: tempFile, name: path.basename(tempFile) });
+    await fileManager.upload(drive, { path: tempFile, name: path.basename(tempFile) });
     const fileInfoList = fileManager.fileInfoList;
     const uploadedInfo = fileInfoList.find((fi) => fi.name === path.basename(tempFile));
     expect(uploadedInfo).toBeDefined();
@@ -437,6 +541,7 @@ describe('FileManager download', () => {
   let tempDownloadDir: string;
   const expectedContents: Record<string, string> = {};
   let actPublisher: PublicKey;
+  let drive: DriveInfo;
 
   beforeAll(async () => {
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
@@ -444,6 +549,11 @@ describe('FileManager download', () => {
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'downloadFilesIntegrationStamp');
     fileManager = await createInitializedFileManager(bee);
     actPublisher = (await bee.getNodeAddresses())!.publicKey;
+
+    await fileManager.createDrive(batchId, 'download');
+    const tmpDrive = fileManager.getDrives().find((d) => d.name === 'download');
+    expect(tmpDrive).toBeDefined();
+    drive = tmpDrive!;
 
     // Create a temporary directory for download test.
     tempDownloadDir = path.join(__dirname, 'tmpDownloadIntegration');
@@ -464,7 +574,7 @@ describe('FileManager download', () => {
     expectedContents['gamma.txt'] = 'Download Content Gamma';
 
     // Upload the folder.
-    await fileManager.upload({ batchId, path: tempDownloadDir, name: path.basename(tempDownloadDir) });
+    await fileManager.upload(drive, { path: tempDownloadDir, name: path.basename(tempDownloadDir) });
   });
 
   afterAll(() => {
@@ -531,14 +641,15 @@ describe('FileManager version control', () => {
   let bee: BeeDev;
   let fileManager: FileManagerBase;
   let batchId: BatchId;
+  let drive: DriveInfo;
 
   // helper to ensure at least one base FileInfo exists
-  const ensureBase = async (name = `versioned-file-${Date.now()}`): Promise<FileInfo> => {
+  const ensureBase = async (name = `versioned-file-${Date.now()}`, di: DriveInfo = drive): Promise<FileInfo> => {
     const existing = fileManager.fileInfoList.find((f) => f.name === name);
     if (existing) return existing;
     const tmp = path.join(__dirname, 'seed.txt');
     fs.writeFileSync(tmp, 'seed');
-    await fileManager.upload({ batchId, path: tmp, name });
+    await fileManager.upload(di, { path: tmp, name });
     fs.unlinkSync(tmp);
     return fileManager.fileInfoList.at(-1)!;
   };
@@ -548,7 +659,11 @@ describe('FileManager version control', () => {
     await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'versioningStamp');
     fileManager = await createInitializedFileManager(bee);
-    await fileManager.initialize();
+
+    await fileManager.createDrive(batchId, 'versioncontrol');
+    const tmpDrive = fileManager.getDrives().find((d) => d.name === 'versioncontrol');
+    expect(tmpDrive).toBeDefined();
+    drive = tmpDrive!;
   });
 
   it('throws on invalid version index', async () => {
@@ -562,7 +677,7 @@ describe('FileManager version control', () => {
     const name = `parallel-${Date.now()}`;
     const p0 = path.join(tmpDir, 'f0.txt');
     fs.writeFileSync(p0, 'v0');
-    await fileManager.upload({ batchId, path: p0, name });
+    await fileManager.upload(drive, { path: p0, name });
     const base = fileManager.fileInfoList.at(-1)!;
 
     // 1) capture head “next” slot
@@ -578,7 +693,7 @@ describe('FileManager version control', () => {
     for (const i of [1, 2, 3]) {
       const fn = path.join(tmpDir, `f${i}.txt`);
       fs.writeFileSync(fn, `v${i}`);
-      await fileManager.upload({ batchId, path: fn, name, infoTopic: base.topic.toString() }, {
+      await fileManager.upload(drive, { path: fn, name, infoTopic: base.topic.toString() }, {
         actHistoryAddress: new Reference(latest.file.historyRef),
       } as any);
       // update `latest` for the next iteration
@@ -614,7 +729,7 @@ describe('FileManager version control', () => {
     fs.writeFileSync(path.join(dir, 'b.txt'), 'B');
 
     const name = `coll-${Date.now()}`;
-    await fileManager.upload({ batchId, path: dir, name });
+    await fileManager.upload(drive, { path: dir, name });
     const base = fileManager.fileInfoList.at(-1)!;
 
     const versionedFi = await fileManager.getVersion(base, FeedIndex.fromBigInt(0n).toString());
@@ -658,20 +773,20 @@ describe('FileManager version control', () => {
 
     const content = 'Version 0 content';
     fs.writeFileSync(filePath, content);
-    await fileManager.upload({ batchId, path: filePath, name: NAME });
+    await fileManager.upload(drive, { path: filePath, name: NAME });
     const v0Fi = fileManager.fileInfoList.at(-1)!; // last pushed is ours
     const topic = v0Fi.topic.toString();
     const hist0 = v0Fi.file.historyRef;
 
     fs.writeFileSync(filePath, 'Version 1 content');
-    await fileManager.upload({ batchId, path: filePath, name: NAME, infoTopic: topic }, {
+    await fileManager.upload(drive, { path: filePath, name: NAME, infoTopic: topic }, {
       actHistoryAddress: new Reference(hist0),
     } as any);
 
     const countAfterV1 = await getTopicNextIndex(bee, bee.signer!.publicKey().address().toString(), v0Fi); // should be 2
     const latestFi = await fileManager.getVersion(v0Fi, countAfterV1.feedIndex);
     fs.writeFileSync(filePath, 'Version 2 content');
-    await fileManager.upload({ batchId, path: filePath, name: NAME, infoTopic: topic }, {
+    await fileManager.upload(drive, { path: filePath, name: NAME, infoTopic: topic }, {
       actHistoryAddress: new Reference(latestFi.file.historyRef),
     } as any);
 
@@ -702,7 +817,7 @@ describe('FileManager version control', () => {
 
     // 2. second upload overrides it
     fs.writeFileSync(tmp, 'second');
-    await fileManager.upload({ batchId, path: tmp, name: base.name, infoTopic: base.topic.toString() }, {
+    await fileManager.upload(drive, { path: tmp, name: base.name, infoTopic: base.topic.toString() }, {
       actHistoryAddress: new Reference(base.file.historyRef),
     } as any);
 
@@ -742,7 +857,7 @@ describe('FileManager version control', () => {
     fs.writeFileSync(tmp, 'A');
     const base = await ensureBase('noop-restore');
     fs.writeFileSync(tmp, 'B');
-    await fileManager.upload({ batchId, path: tmp, name: base.name, infoTopic: base.topic.toString() }, {
+    await fileManager.upload(drive, { path: tmp, name: base.name, infoTopic: base.topic.toString() }, {
       actHistoryAddress: new Reference(base.file.historyRef),
     } as any);
     fs.unlinkSync(tmp);
@@ -778,43 +893,6 @@ describe('FileManager version control', () => {
   });
 });
 
-describe('FileManager destroyVolume', () => {
-  let bee: BeeDev;
-  let fileManager: FileManagerBase;
-  let ownerStampId: BatchId | undefined;
-  beforeAll(async () => {
-    bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
-    // Purchase two non-owner stamps with unique labels BEFORE initializing the FileManager.
-    ownerStampId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
-    expect(ownerStampId).toBeDefined();
-
-    fileManager = await createInitializedFileManager(bee);
-  });
-
-  it('should throw an error when trying to destroy the owner stamp', async () => {
-    await expect(fileManager.destroyDrive(ownerStampId!)).rejects.toThrow(
-      new StampError(`Cannot destroy owner stamp, batchId: ${ownerStampId!.toString()}`),
-    );
-  });
-
-  // TODO: test it if the env is testnet
-  // it('should remove a non-owner stamp from the stamp list after destroying drive', async () => {
-  //   const initialStamps = fileManager.getStamps();
-
-  //   // If either nonOwnerStamp equals the owner stamp, skip the test.
-  //   if (nonOwnerStamp.toString() === ownerStamp.batchID.toString()) {
-  //     console.warn('Non-owner stamp equals owner stamp; skipping non-owner destroy test.');
-  //     return;
-  //   }
-
-  //   const initialCount = initialStamps.length;
-  //   await fileManager.destroyVolume(nonOwnerStamp);
-  //   const updatedStamps = fileManager.getStamps();
-  //   expect(updatedStamps.length).toEqual(initialCount - 1);
-  //   expect(updatedStamps.find((s) => s.batchID.toString() === nonOwnerStamp.toString())).toBeUndefined();
-  // });
-});
-
 describe('FileManager getGranteesOfFile', () => {
   let bee: BeeDev;
   let fileManager: FileManagerBase;
@@ -841,7 +919,7 @@ describe('FileManager getGranteesOfFile', () => {
       index: 0,
     };
     await expect(fileManager.getGrantees(fileInfo as any)).rejects.toThrow(
-      new GranteeError(`Grantee list not found for file eReference: ${fileInfo.topic}`),
+      new GranteeError(`Drive not found for file: ${fileInfo.name}`),
     );
   });
 });
@@ -876,16 +954,23 @@ describe('FileManager End-to-End User Workflow', () => {
   let batchId: BatchId;
   let tempBaseDir: string;
   let actPublisher: PublicKey;
+  let drive: DriveInfo;
 
   beforeAll(async () => {
     // Create a BeeDev instance and ensure the owner stamp exists.
     bee = new BeeDev(BEE_URL, { signer: MOCK_SIGNER });
-    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
+    await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
     fileManager = await createInitializedFileManager(bee);
     // Create a temporary directory for this test session.
     tempBaseDir = path.join(__dirname, 'e2eTestSession');
     fs.mkdirSync(tempBaseDir, { recursive: true });
     actPublisher = (await bee.getNodeAddresses())!.publicKey;
+
+    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'e2eStamp');
+    await fileManager.createDrive(batchId, 'e2e');
+    const tmpDrive = fileManager.getDrives().find((d) => d.name === 'e2e');
+    expect(tmpDrive).toBeDefined();
+    drive = tmpDrive!;
   });
 
   afterAll(() => {
@@ -898,9 +983,15 @@ describe('FileManager End-to-End User Workflow', () => {
     // ----- Step 1: Upload a Single File -----
     const singleFilePath = path.join(tempBaseDir, 'initial.txt');
     fs.writeFileSync(singleFilePath, 'Hello, this is the initial file.');
-    await fileManager.upload({ batchId, path: singleFilePath, name: path.basename(singleFilePath) });
-    let fileInfos = fileManager.fileInfoList;
+    await fileManager.upload(drive, { path: singleFilePath, name: path.basename(singleFilePath) });
+    let fileInfos = fileManager.fileInfoList.filter((fi) => fi.drive === drive.id.toString());
     expect(fileInfos.find((fi) => fi.name === path.basename(singleFilePath))).toBeDefined();
+
+    fileInfos.forEach((fi) => {
+      expect(fi.drive).toBe(drive.id.toString());
+      expect(fi.batchId).toBe(drive.batchId.toString());
+      expect(fi.redundancyLevel).toBe(drive.redundancyLevel);
+    });
 
     // ----- Step 2: Upload a Project Folder -----
     const projectFolder = path.join(tempBaseDir, 'projectFolder');
@@ -910,15 +1001,21 @@ describe('FileManager End-to-End User Workflow', () => {
     const assetsFolder = path.join(projectFolder, 'assets');
     fs.mkdirSync(assetsFolder, { recursive: true });
     fs.writeFileSync(path.join(assetsFolder, 'image.png'), 'Fake image content');
-    await fileManager.upload({ batchId, path: projectFolder, name: path.basename(projectFolder) });
-    fileInfos = fileManager.fileInfoList;
+    await fileManager.upload(drive, { path: projectFolder, name: path.basename(projectFolder) });
+    fileInfos = fileManager.fileInfoList.filter((fi) => fi.drive === drive.id.toString());
     const projectInfo = fileInfos.find((fi) => fi.name === path.basename(projectFolder))!;
     expect(projectInfo).toBeDefined();
+
+    fileInfos.forEach((fi) => {
+      expect(fi.drive).toBe(drive.id.toString());
+      expect(fi.batchId).toBe(drive.batchId.toString());
+      expect(fi.redundancyLevel).toBe(drive.redundancyLevel);
+    });
 
     // ----- Step 3: Add a new file in the same folder (simulate in‑place update) -----
     fs.writeFileSync(path.join(projectFolder, 'readme.txt'), 'This is the project readme.');
     await new Promise((r) => setTimeout(r, 1000)); // ensure FS settles
-    await fileManager.upload({ batchId, path: projectFolder, name: path.basename(projectFolder) });
+    await fileManager.upload(drive, { path: projectFolder, name: path.basename(projectFolder) });
 
     // ----- Step 4: List files against the *original* projectInfo -----
     const listedFiles = await fileManager.listFiles(projectInfo, {
@@ -939,8 +1036,8 @@ describe('FileManager End-to-End User Workflow', () => {
     // Step 1: Upload a single file.
     const singleFilePath = path.join(tempBaseDir, 'initial.txt');
     fs.writeFileSync(singleFilePath, 'Hello, this is the initial file.');
-    await fileManager.upload({ batchId, path: singleFilePath, name: path.basename(singleFilePath) });
-    let fileInfos = fileManager.fileInfoList;
+    await fileManager.upload(drive, { path: singleFilePath, name: path.basename(singleFilePath) });
+    let fileInfos = fileManager.fileInfoList.filter((fi) => fi.drive === drive.id.toString());
     expect(fileInfos.find((fi) => fi.name === path.basename(singleFilePath))).toBeDefined();
 
     // Step 2: Upload original project folder.
@@ -951,10 +1048,16 @@ describe('FileManager End-to-End User Workflow', () => {
     const assetsFolder = path.join(projectFolder, 'assets');
     fs.mkdirSync(assetsFolder, { recursive: true });
     fs.writeFileSync(path.join(assetsFolder, 'image.png'), 'Fake image content');
-    await fileManager.upload({ batchId, path: projectFolder, name: path.basename(projectFolder) });
-    fileInfos = fileManager.fileInfoList;
+    await fileManager.upload(drive, { path: projectFolder, name: path.basename(projectFolder) });
+    fileInfos = fileManager.fileInfoList.filter((fi) => fi.drive === drive.id.toString());
     const projectInfo = fileInfos.find((fi) => fi.name === path.basename(projectFolder));
     expect(projectInfo).toBeDefined();
+
+    fileInfos.forEach((fi) => {
+      expect(fi.drive).toBe(drive.id.toString());
+      expect(fi.batchId).toBe(drive.batchId.toString());
+      expect(fi.redundancyLevel).toBe(drive.redundancyLevel);
+    });
 
     // Step 3: Instead of updating the same folder, create a new version folder.
     const projectFolderNew = path.join(tempBaseDir, 'projectFolder_new');
@@ -970,10 +1073,16 @@ describe('FileManager End-to-End User Workflow', () => {
     fs.mkdirSync(nestedFolder, { recursive: true });
     fs.writeFileSync(path.join(nestedFolder, 'subdoc.txt'), 'Nested document content');
     await new Promise((resolve) => setTimeout(resolve, 1000));
-    await fileManager.upload({ batchId, path: projectFolderNew, name: path.basename(projectFolderNew) });
-    fileInfos = fileManager.fileInfoList;
+    await fileManager.upload(drive, { path: projectFolderNew, name: path.basename(projectFolderNew) });
+    fileInfos = fileManager.fileInfoList.filter((fi) => fi.drive === drive.id.toString());
     const newVersionInfo = fileInfos.find((fi) => fi.name === path.basename(projectFolderNew));
     expect(newVersionInfo).toBeDefined();
+
+    fileInfos.forEach((fi) => {
+      expect(fi.drive).toBe(drive.id.toString());
+      expect(fi.batchId).toBe(drive.batchId.toString());
+      expect(fi.redundancyLevel).toBe(drive.redundancyLevel);
+    });
 
     // Step 4: List files in the new version folder and check full paths.
     const listedFiles_newVersion = await fileManager.listFiles(newVersionInfo!, {
@@ -1020,7 +1129,7 @@ describe('FileManager End-to-End User Workflow', () => {
     fs.writeFileSync(path.join(level2, 'level2.txt'), 'Level2 file content');
 
     // Upload the folder.
-    await fileManager.upload({ batchId, path: complexFolder, name: path.basename(complexFolder) });
+    await fileManager.upload(drive, { path: complexFolder, name: path.basename(complexFolder) });
     const fileInfos = fileManager.fileInfoList;
     const complexInfo = fileInfos.find((fi) => fi.name === path.basename(complexFolder));
     expect(complexInfo).toBeDefined();

@@ -8,6 +8,7 @@ import {
   FeedIndex,
   FileUploadOptions,
   GetGranteesResult,
+  Identifier,
   PublicKey,
   RedundancyLevel,
   RedundantUploadOptions,
@@ -27,6 +28,20 @@ export interface FileManager {
    * @returns A promise that resolves when the initialization is complete.
    */
   initialize(): Promise<void>;
+
+  /**
+   * Creates a new drive with the specified options.
+   * @param driveInfo - Information about the drive to be created.
+   * @returns A promise that resolves when the drive is created.
+   */
+  createDrive(
+    batchId: string | BatchId,
+    name: string,
+    uploadOptions?: RedundantUploadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void>;
+
+  getDrives(): DriveInfo[];
 
   /**
    * Uploads a file with the given options.
@@ -153,7 +168,6 @@ export interface FileInfo {
 }
 
 export interface FileInfoOptions {
-  batchId: string | BatchId;
   name: string;
   files?: File[] | FileList;
   path?: string;
@@ -166,11 +180,12 @@ export interface FileInfoOptions {
 }
 
 export interface DriveInfo {
+  id: string | Identifier;
   batchId: string | BatchId;
   owner: string | EthAddress;
   name: string;
-  infoFeedList: WrappedFileInfoFeed[];
-  redundancyLevel?: RedundancyLevel;
+  redundancyLevel: RedundancyLevel;
+  infoFeedList?: WrappedFileInfoFeed[];
 }
 
 export interface ShareItem {

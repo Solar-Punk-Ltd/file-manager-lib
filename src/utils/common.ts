@@ -2,6 +2,7 @@ import {
   BatchId,
   Bee,
   BeeRequestOptions,
+  Bytes,
   DownloadOptions,
   EthAddress,
   FeedIndex,
@@ -43,11 +44,11 @@ export async function getFeedData(
   }
 }
 
-export function generateTopic(): Topic {
+export function generateRandomBytes(len: number): Bytes {
   if (isNode) {
-    return new Topic(getRandomBytesNode(Topic.LENGTH));
+    return getRandomBytesNode(len);
   }
-  return new Topic(getRandomBytesBrowser(Topic.LENGTH));
+  return getRandomBytesBrowser(len);
 }
 
 // status is undefined in the error object

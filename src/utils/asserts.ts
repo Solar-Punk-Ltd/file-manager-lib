@@ -1,4 +1,4 @@
-import { BatchId, EthAddress, PublicKey, Reference, Topic } from '@ethersphere/bee-js';
+import { BatchId, EthAddress, Identifier, PublicKey, Reference, Topic } from '@ethersphere/bee-js';
 import { Types } from 'cafe-utility';
 
 import { DriveInfo, FileInfo, ShareItem, WrappedFileInfoFeed, WrappedUploadResult } from './types';
@@ -71,7 +71,7 @@ export function assertShareItem(value: unknown): asserts value is ShareItem {
 
 export function assertWrappedFileInoFeed(value: unknown): asserts value is WrappedFileInfoFeed {
   if (!Types.isStrictlyObject(value)) {
-    throw new TypeError('WrappedMantarayFeed has to be object!');
+    throw new TypeError('WrappedFileInfoFeed has to be object!');
   }
 
   const wmf = value as unknown as WrappedFileInfoFeed;
@@ -106,14 +106,23 @@ export function assertDriveInfo(value: unknown): asserts value is DriveInfo {
 
   new BatchId(di.batchId);
   new EthAddress(di.owner);
+  new Identifier(di.id);
 
-  assertWrappedFileInoFeed(di.infoFeedList);
+  if (di.infoFeedList !== undefined) {
+    if (!Array.isArray(di.infoFeedList)) {
+      throw new TypeError('infoFeedList property of DriveInfo has to be array!');
+    }
+
+    for (const item of di.infoFeedList) {
+      assertWrappedFileInoFeed(item);
+    }
+  }
 
   if (di.name === undefined || typeof di.name !== 'string' || di.name.length === 0) {
     throw new TypeError('name property of DriveInfo has to be string!');
   }
 
-  if (di.redundancyLevel !== undefined && typeof di.redundancyLevel !== 'number') {
+  if (di.redundancyLevel === undefined || typeof di.redundancyLevel !== 'number') {
     throw new TypeError('redundancyLevel property of DriveInfo has to be number!');
   }
 }

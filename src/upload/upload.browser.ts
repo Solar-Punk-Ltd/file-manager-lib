@@ -1,10 +1,11 @@
-import { Bee, BeeRequestOptions, RedundantUploadOptions, UploadResult } from '@ethersphere/bee-js';
+import { BatchId, Bee, BeeRequestOptions, RedundantUploadOptions, UploadResult } from '@ethersphere/bee-js';
 
 import { FileInfoOptions, WrappedUploadResult } from '../utils/types';
 import { FileInfoError } from '../utils/errors';
 
 export async function uploadBrowser(
   bee: Bee,
+  batchId: string | BatchId,
   fileOptions: FileInfoOptions,
   uploadOptions?: RedundantUploadOptions,
   requestOptions?: BeeRequestOptions,
@@ -14,7 +15,7 @@ export async function uploadBrowser(
   }
 
   const uploadFilesRes = await bee.streamFiles(
-    fileOptions.batchId,
+    batchId,
     fileOptions.files,
     fileOptions.onUploadProgress,
     { ...uploadOptions, act: false },
@@ -23,7 +24,7 @@ export async function uploadBrowser(
   let uploadPreviewRes: UploadResult | undefined;
   if (fileOptions.preview) {
     uploadPreviewRes = await bee.streamFiles(
-      fileOptions.batchId,
+      batchId,
       [fileOptions.preview],
       fileOptions.onUploadProgress,
       { ...uploadOptions, act: false },
@@ -36,10 +37,5 @@ export async function uploadBrowser(
     uploadPreviewRes: uploadPreviewRes?.reference.toString(),
   };
 
-  return await bee.uploadData(
-    fileOptions.batchId,
-    JSON.stringify(wrappedData),
-    { ...uploadOptions, act: true },
-    requestOptions,
-  );
+  return await bee.uploadData(batchId, JSON.stringify(wrappedData), { ...uploadOptions, act: true }, requestOptions);
 }

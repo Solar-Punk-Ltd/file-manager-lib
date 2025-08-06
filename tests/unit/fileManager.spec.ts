@@ -38,6 +38,7 @@ jest.mock('../../src/utils/common', () => ({
 }));
 jest.mock('../../src/utils/mantaray');
 
+// todo: createdrive UT
 describe('FileManager', () => {
   let mockSelfAddr: Reference;
 
@@ -231,19 +232,24 @@ describe('FileManager', () => {
   describe('upload', () => {
     it('should call uploadFilesFromDirectory', async () => {
       const fm = await createInitializedFileManager();
+      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive');
+      const di = fm.getDrives()[0];
+
       const uploadFileOrDirectorySpy = createUploadFilesFromDirectorySpy('1');
       createUploadFileSpy('2');
       createUploadDataSpy('3');
       createUploadDataSpy('4');
       createMockFeedWriter('5');
 
-      fm.upload({ batchId: new BatchId(MOCK_BATCH_ID), path: './tests', name: 'tests' });
+      await fm.upload(di, { path: './tests', name: 'tests' });
 
       expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
     });
 
     it('should call uploadFileOrDirectory if previewPath is provided', async () => {
       const fm = await createInitializedFileManager();
+      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive');
+      const di = fm.getDrives()[0];
       const uploadFileOrDirectorySpy = createUploadFilesFromDirectorySpy('1');
       const uploadFileOrDirectoryPreviewSpy = createUploadFilesFromDirectorySpy('6');
       createUploadFileSpy('2');
@@ -251,7 +257,7 @@ describe('FileManager', () => {
       createUploadDataSpy('4');
       createMockFeedWriter('5');
 
-      fm.upload({ batchId: new BatchId(MOCK_BATCH_ID), path: './tests', name: 'tests' });
+      fm.upload(di, { path: './tests', name: 'tests' });
 
       expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
       expect(uploadFileOrDirectoryPreviewSpy).toHaveBeenCalled();
@@ -259,10 +265,11 @@ describe('FileManager', () => {
 
     it('should throw error if infoTopic and historyRef are not provided at the same time', async () => {
       const fm = await createInitializedFileManager();
+      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive');
+      const di = fm.getDrives()[0];
 
       await expect(async () => {
-        await fm.upload({
-          batchId: new BatchId(MOCK_BATCH_ID),
+        await fm.upload(di, {
           path: './tests',
           name: 'tests',
           infoTopic: 'infoTopic',
@@ -396,20 +403,24 @@ describe('FileManager', () => {
     it('should call diluteBatch with batchId and MAX_DEPTH', async () => {
       const diluteSpy = jest.spyOn(Bee.prototype, 'diluteBatch').mockResolvedValue(new BatchId('1234'.repeat(16)));
       const fm = await createInitializedFileManager();
+      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive');
+      const di = fm.getDrives()[0];
 
-      await fm.destroyDrive(new BatchId('1234'.repeat(16)));
+      await fm.destroyDrive(di);
 
-      expect(diluteSpy).toHaveBeenCalledWith(new BatchId('1234'.repeat(16)), STAMPS_DEPTH_MAX);
+      expect(diluteSpy).toHaveBeenCalledWith(di.batchId, STAMPS_DEPTH_MAX);
     });
 
     it('should throw error if trying to destroy OwnerFeedStamp', async () => {
-      const batchId = new BatchId('3456'.repeat(16));
-      jest.spyOn(Bee.prototype, 'diluteBatch').mockResolvedValue(new BatchId('1234'.repeat(16)));
+      const ownerBatchId = new BatchId('3456'.repeat(16));
       const fm = await createInitializedFileManager();
+      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive');
+      const di = fm.getDrives()[0];
+      di.batchId = ownerBatchId;
 
       await expect(async () => {
-        await fm.destroyDrive(batchId);
-      }).rejects.toThrow(`Cannot destroy owner stamp, batchId: ${batchId.toString()}`);
+        await fm.destroyDrive(di);
+      }).rejects.toThrow(`Cannot destroy owner stamp, batchId: ${ownerBatchId.toString()}`);
     });
   });
 
@@ -417,10 +428,13 @@ describe('FileManager', () => {
     it('should throw grantee list not found if the topic not found in ownerFeedList', async () => {
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
       const fm = await createInitializedFileManager(bee);
+      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive');
+      const di = fm.getDrives()[0];
 
       const actPublisher = (await bee.getNodeAddresses()).publicKey.toCompressedHex();
-      const fileInfo = {
-        batchId: new BatchId(MOCK_BATCH_ID),
+      const fileInfo: FileInfo = {
+        batchId: MOCK_BATCH_ID,
+        drive: di.id.toString(),
         name: 'john doe',
         owner: MOCK_SIGNER.publicKey().address().toString(),
         actPublisher,
@@ -429,11 +443,11 @@ describe('FileManager', () => {
           reference: new Reference('1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68'),
           historyRef: new Reference(SWARM_ZERO_ADDRESS),
         },
-      } as FileInfo;
+      };
 
       await expect(async () => {
         await fm.getGrantees(fileInfo);
-      }).rejects.toThrow(`Grantee list not found for file eReference: ${fileInfo.topic!.toString()}`);
+      }).rejects.toThrow(`Grantee list or file not found for file: ${fileInfo.name}`);
     });
   });
 
@@ -447,6 +461,8 @@ describe('FileManager', () => {
 
       const fm = await createInitializedFileManager(bee, emitter);
       fm.emitter.on(FileManagerEvents.FILE_UPLOADED, uploadHandler);
+      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive');
+      const di = fm.getDrives()[0];
       createUploadFilesFromDirectorySpy('1');
 
       (getFeedData as jest.Mock).mockResolvedValueOnce({
@@ -455,8 +471,9 @@ describe('FileManager', () => {
       });
 
       const actPublisher = (await bee.getNodeAddresses()).publicKey.toCompressedHex();
-      const expectedFileInfo = {
+      const expectedFileInfo: FileInfo = {
         batchId: MOCK_BATCH_ID,
+        drive: di.id.toString(),
         customMetadata: undefined,
         file: {
           historyRef: SWARM_ZERO_ADDRESS.toString(),
@@ -467,13 +484,13 @@ describe('FileManager', () => {
         name: 'tests',
         owner: MOCK_SIGNER.publicKey().address().toString(),
         preview: undefined,
-        redundancyLevel: undefined,
+        redundancyLevel: 0,
         shared: false,
         timestamp: expect.any(Number),
         topic: expect.any(String),
-      } as FileInfo;
+      };
 
-      await fm.upload({ batchId: new BatchId(MOCK_BATCH_ID), path: './tests', name: 'tests' });
+      await fm.upload(di, { path: './tests', name: 'tests' });
       fm.emitter.off(FileManagerEvents.FILE_UPLOADED, uploadHandler);
 
       expect(uploadHandler).toHaveBeenCalledWith({
