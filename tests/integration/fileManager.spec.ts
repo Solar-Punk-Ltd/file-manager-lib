@@ -242,7 +242,7 @@ describe('FileManager drive handling', () => {
     expect(testDrive).toBeDefined();
     expect(driveId).toBeDefined();
     expect(testDrive?.id).toBe(driveId);
-    expect(fileManager.fileInfoList.filter((fi) => fi.drive === driveId)).toHaveLength(0);
+    expect(fileManager.fileInfoList.filter((fi) => fi.driveId === driveId)).toHaveLength(0);
   });
 
   it('should throw an error when trying to destroy the owner stamp', async () => {
@@ -984,11 +984,11 @@ describe('FileManager End-to-End User Workflow', () => {
     const singleFilePath = path.join(tempBaseDir, 'initial.txt');
     fs.writeFileSync(singleFilePath, 'Hello, this is the initial file.');
     await fileManager.upload(drive, { path: singleFilePath, name: path.basename(singleFilePath) });
-    let fileInfos = fileManager.fileInfoList.filter((fi) => fi.drive === drive.id.toString());
+    let fileInfos = fileManager.fileInfoList.filter((fi) => fi.driveId === drive.id.toString());
     expect(fileInfos.find((fi) => fi.name === path.basename(singleFilePath))).toBeDefined();
 
     fileInfos.forEach((fi) => {
-      expect(fi.drive).toBe(drive.id.toString());
+      expect(fi.driveId).toBe(drive.id.toString());
       expect(fi.batchId).toBe(drive.batchId.toString());
       expect(fi.redundancyLevel).toBe(drive.redundancyLevel);
     });
@@ -1002,12 +1002,12 @@ describe('FileManager End-to-End User Workflow', () => {
     fs.mkdirSync(assetsFolder, { recursive: true });
     fs.writeFileSync(path.join(assetsFolder, 'image.png'), 'Fake image content');
     await fileManager.upload(drive, { path: projectFolder, name: path.basename(projectFolder) });
-    fileInfos = fileManager.fileInfoList.filter((fi) => fi.drive === drive.id.toString());
+    fileInfos = fileManager.fileInfoList.filter((fi) => fi.driveId === drive.id.toString());
     const projectInfo = fileInfos.find((fi) => fi.name === path.basename(projectFolder))!;
     expect(projectInfo).toBeDefined();
 
     fileInfos.forEach((fi) => {
-      expect(fi.drive).toBe(drive.id.toString());
+      expect(fi.driveId).toBe(drive.id.toString());
       expect(fi.batchId).toBe(drive.batchId.toString());
       expect(fi.redundancyLevel).toBe(drive.redundancyLevel);
     });
@@ -1037,7 +1037,7 @@ describe('FileManager End-to-End User Workflow', () => {
     const singleFilePath = path.join(tempBaseDir, 'initial.txt');
     fs.writeFileSync(singleFilePath, 'Hello, this is the initial file.');
     await fileManager.upload(drive, { path: singleFilePath, name: path.basename(singleFilePath) });
-    let fileInfos = fileManager.fileInfoList.filter((fi) => fi.drive === drive.id.toString());
+    let fileInfos = fileManager.fileInfoList.filter((fi) => fi.driveId === drive.id.toString());
     expect(fileInfos.find((fi) => fi.name === path.basename(singleFilePath))).toBeDefined();
 
     // Step 2: Upload original project folder.
@@ -1049,12 +1049,12 @@ describe('FileManager End-to-End User Workflow', () => {
     fs.mkdirSync(assetsFolder, { recursive: true });
     fs.writeFileSync(path.join(assetsFolder, 'image.png'), 'Fake image content');
     await fileManager.upload(drive, { path: projectFolder, name: path.basename(projectFolder) });
-    fileInfos = fileManager.fileInfoList.filter((fi) => fi.drive === drive.id.toString());
+    fileInfos = fileManager.fileInfoList.filter((fi) => fi.driveId === drive.id.toString());
     const projectInfo = fileInfos.find((fi) => fi.name === path.basename(projectFolder));
     expect(projectInfo).toBeDefined();
 
     fileInfos.forEach((fi) => {
-      expect(fi.drive).toBe(drive.id.toString());
+      expect(fi.driveId).toBe(drive.id.toString());
       expect(fi.batchId).toBe(drive.batchId.toString());
       expect(fi.redundancyLevel).toBe(drive.redundancyLevel);
     });
@@ -1074,12 +1074,12 @@ describe('FileManager End-to-End User Workflow', () => {
     fs.writeFileSync(path.join(nestedFolder, 'subdoc.txt'), 'Nested document content');
     await new Promise((resolve) => setTimeout(resolve, 1000));
     await fileManager.upload(drive, { path: projectFolderNew, name: path.basename(projectFolderNew) });
-    fileInfos = fileManager.fileInfoList.filter((fi) => fi.drive === drive.id.toString());
+    fileInfos = fileManager.fileInfoList.filter((fi) => fi.driveId === drive.id.toString());
     const newVersionInfo = fileInfos.find((fi) => fi.name === path.basename(projectFolderNew));
     expect(newVersionInfo).toBeDefined();
 
     fileInfos.forEach((fi) => {
-      expect(fi.drive).toBe(drive.id.toString());
+      expect(fi.driveId).toBe(drive.id.toString());
       expect(fi.batchId).toBe(drive.batchId.toString());
       expect(fi.redundancyLevel).toBe(drive.redundancyLevel);
     });

@@ -13,7 +13,7 @@ import {
 import { FileManagerBase } from '../../src/fileManager';
 import { getFeedData } from '../../src/utils/common';
 import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
-import { SignerError } from '../../src/utils/errors';
+import { DriveError, SignerError } from '../../src/utils/errors';
 import { EventEmitterBase } from '../../src/utils/eventEmitter';
 import { FileManagerEvents } from '../../src/utils/events';
 import { FeedPayloadResult, FileInfo, WrappedUploadResult } from '../../src/utils/types';
@@ -34,11 +34,10 @@ jest.mock('../../src/utils/common', () => ({
   ...jest.requireActual('../../src/utils/common'),
   getFeedData: jest.fn(),
   getWrappedData: jest.fn(),
-  generateTopic: jest.fn(),
+  generateRandomBytes: jest.fn(),
 }));
 jest.mock('../../src/utils/mantaray');
 
-// todo: createdrive UT
 describe('FileManager', () => {
   let mockSelfAddr: Reference;
 
@@ -61,11 +60,11 @@ describe('FileManager', () => {
     mockSelfAddr = await mokcMN.calculateSelfAddress();
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-    const { generateTopic, getWrappedData } = require('../../src/utils/common');
+    const { generateRandomBytes, getWrappedData } = require('../../src/utils/common');
     getWrappedData.mockResolvedValue({
       uploadFilesRes: mockSelfAddr.toString(),
     } as WrappedUploadResult);
-    generateTopic.mockReturnValue(new Topic('1'.repeat(64)));
+    generateRandomBytes.mockReturnValue(new Topic('1'.repeat(64)));
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
     const { loadMantaray } = require('../../src/utils/mantaray');
@@ -244,6 +243,10 @@ describe('FileManager', () => {
       await fm.upload(di, { path: './tests', name: 'tests' });
 
       expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
+
+      const fi = fm.fileInfoList.find((fi) => fi.driveId === di.id.toString() && fi.name === 'tests');
+      expect(fi).toBeDefined();
+      expect(fi?.topic).toBe(new Topic('1'.repeat(64)).toString());
     });
 
     it('should call uploadFileOrDirectory if previewPath is provided', async () => {
@@ -399,8 +402,35 @@ describe('FileManager', () => {
     });
   });
 
-  describe('destroyDrive', () => {
-    it('should call diluteBatch with batchId and MAX_DEPTH', async () => {
+  describe('drive handling', () => {
+    it('createDrive should create a new drive', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive');
+      const di = fm.getDrives()[0];
+      expect(di).toBeDefined();
+      expect(di.name).toBe('Test Drive');
+      expect(di.batchId.toString()).toBe(MOCK_BATCH_ID.toString());
+      expect(di.id.toString()).toHaveLength(64);
+      expect(di.owner).toBe(MOCK_SIGNER.publicKey().address().toString());
+      expect(di.infoFeedList).toStrictEqual(undefined);
+    });
+
+    it('createDrive should throw error if drive with same name or batchId exists', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive');
+      await expect(fm.createDrive(MOCK_BATCH_ID, 'New Drive')).rejects.toThrow(
+        new DriveError(`Drive with name "New Drive" or batchId "${MOCK_BATCH_ID}" already exists`),
+      );
+      await expect(
+        fm.createDrive('aa0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51', 'Test Drive'),
+      ).rejects.toThrow(
+        new DriveError(
+          `Drive with name "Test Drive" or batchId "aa0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51" already exists`,
+        ),
+      );
+    });
+
+    it('destroyDrive should call diluteBatch with batchId and MAX_DEPTH', async () => {
       const diluteSpy = jest.spyOn(Bee.prototype, 'diluteBatch').mockResolvedValue(new BatchId('1234'.repeat(16)));
       const fm = await createInitializedFileManager();
       await fm.createDrive(MOCK_BATCH_ID, 'Test Drive');
@@ -411,7 +441,7 @@ describe('FileManager', () => {
       expect(diluteSpy).toHaveBeenCalledWith(di.batchId, STAMPS_DEPTH_MAX);
     });
 
-    it('should throw error if trying to destroy OwnerFeedStamp', async () => {
+    it('destroyDrive should throw error if trying to destroy OwnerFeedStamp', async () => {
       const ownerBatchId = new BatchId('3456'.repeat(16));
       const fm = await createInitializedFileManager();
       await fm.createDrive(MOCK_BATCH_ID, 'Test Drive');
@@ -434,7 +464,7 @@ describe('FileManager', () => {
       const actPublisher = (await bee.getNodeAddresses()).publicKey.toCompressedHex();
       const fileInfo: FileInfo = {
         batchId: MOCK_BATCH_ID,
-        drive: di.id.toString(),
+        driveId: di.id.toString(),
         name: 'john doe',
         owner: MOCK_SIGNER.publicKey().address().toString(),
         actPublisher,
@@ -473,7 +503,7 @@ describe('FileManager', () => {
       const actPublisher = (await bee.getNodeAddresses()).publicKey.toCompressedHex();
       const expectedFileInfo: FileInfo = {
         batchId: MOCK_BATCH_ID,
-        drive: di.id.toString(),
+        driveId: di.id.toString(),
         customMetadata: undefined,
         file: {
           historyRef: SWARM_ZERO_ADDRESS.toString(),

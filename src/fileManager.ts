@@ -280,16 +280,15 @@ export class FileManagerBase implements FileManager {
     }));
   }
 
-  // TODO: one batchId for more drives vs only one for one drive?
   async createDrive(
     batchId: string | BatchId,
     name: string,
     uploadOptions?: RedundantUploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
-    const existingDrive = this.driveList.find((d) => d.name === name);
+    const existingDrive = this.driveList.find((d) => d.name === name || d.batchId.toString() === batchId.toString());
     if (existingDrive) {
-      throw new DriveError(`Drive with name "${name}" already exists`);
+      throw new DriveError(`Drive with name "${name}" or batchId "${batchId}" already exists`);
     }
 
     const driveInfo: DriveInfo = {
@@ -392,7 +391,7 @@ export class FileManagerBase implements FileManager {
         reference: uploadResult.reference.toString(),
         historyRef: uploadResult.historyAddress.getOrThrow().toString(),
       },
-      drive: driveInfo.id.toString(),
+      driveId: driveInfo.id.toString(),
       timestamp: new Date().getTime(),
       shared: false,
       preview: undefined,
@@ -643,7 +642,7 @@ export class FileManagerBase implements FileManager {
     this.driveList.splice(driveIx, 1);
 
     for (let i = this.fileInfoList.length - 1; i >= 0; --i) {
-      if (this.fileInfoList[i].drive === drive.id.toString()) {
+      if (this.fileInfoList[i].driveId === drive.id.toString()) {
         this.fileInfoList.splice(i, 1);
       }
     }
@@ -656,7 +655,7 @@ export class FileManagerBase implements FileManager {
 
   // fetches the list of grantees who can access the file reference
   async getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult> {
-    const driveIx = this.driveList.findIndex((d) => d.id.toString() === fileInfo.drive);
+    const driveIx = this.driveList.findIndex((d) => d.id.toString() === fileInfo.driveId);
     if (driveIx === -1) {
       throw new GranteeError(`Drive not found for file: ${fileInfo.name}`);
     }
@@ -742,7 +741,7 @@ export class FileManagerBase implements FileManager {
   }
 
   async share(fileInfo: FileInfo, targetOverlays: string[], recipients: string[], message?: string): Promise<void> {
-    const driveIx = this.driveList.findIndex((d) => d.id.toString() === fileInfo.drive);
+    const driveIx = this.driveList.findIndex((d) => d.id.toString() === fileInfo.driveId);
     if (driveIx === -1 || !this.driveList[driveIx].infoFeedList) {
       throw new SendShareMessageError(`Drive or info feed not found for file: ${fileInfo.name}`);
     }

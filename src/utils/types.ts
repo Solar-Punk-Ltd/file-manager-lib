@@ -41,6 +41,10 @@ export interface FileManager {
     requestOptions?: BeeRequestOptions,
   ): Promise<void>;
 
+  /**
+   * Retrieves a list of drives.
+   * @returns A list of DriveInfo objects representing the drives.
+   */
   getDrives(): DriveInfo[];
 
   /**
@@ -158,7 +162,7 @@ export interface FileInfo {
   owner: string | EthAddress;
   actPublisher: string | PublicKey;
   topic: string | Topic;
-  drive: string;
+  driveId: string;
   timestamp?: number;
   shared?: boolean;
   preview?: ReferenceWithHistory;

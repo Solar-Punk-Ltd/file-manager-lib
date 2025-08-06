@@ -72,7 +72,7 @@ export async function createMockFileInfo(
     batchId: MOCK_BATCH_ID,
     name: 'john doe',
     topic: Topic.fromString('1'),
-    drive: Identifier.fromString('123').toString(),
+    driveId: Identifier.fromString('123').toString(),
     owner: MOCK_SIGNER.publicKey().address().toString(),
     actPublisher: (await bee.getNodeAddresses()).publicKey.toCompressedHex(),
     file: {
