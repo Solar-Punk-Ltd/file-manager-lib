@@ -5,7 +5,6 @@ import {
   Bytes,
   Duration,
   EthAddress,
-  FeedIndex,
   FeedReader,
   FeedWriter,
   MantarayNode,
@@ -23,7 +22,8 @@ import { Optional } from 'cafe-utility';
 import { FileManagerBase } from '../src/fileManager';
 import { OWNER_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
 import { EventEmitter } from '../src/utils/eventEmitter';
-import { FeedPayloadResult, FileInfo } from '../src/utils/types';
+import { FileManagerEvents } from '../src/utils/events';
+import { FileInfo } from '../src/utils/types';
 
 import { BEE_URL, MOCK_SIGNER } from './utils';
 
@@ -48,6 +48,9 @@ export async function createInitializedFileManager(
   emitter?: EventEmitter,
 ): Promise<FileManagerBase> {
   const fm = new FileManagerBase(bee, emitter);
+  fm.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, (e) => {
+    expect(e).toEqual(true);
+  });
   await fm.initialize();
   return fm;
 }
@@ -76,14 +79,6 @@ export async function createMockFileInfo(
       reference: ref,
       historyRef: SWARM_ZERO_ADDRESS.toString(),
     },
-  };
-}
-
-export function createMockGetFeedDataResult(currentIndex = 0, nextIndex = 1): FeedPayloadResult {
-  return {
-    feedIndex: FeedIndex.fromBigInt(BigInt(currentIndex)),
-    feedIndexNext: FeedIndex.fromBigInt(BigInt(nextIndex)),
-    payload: SWARM_ZERO_ADDRESS,
   };
 }
 

@@ -122,25 +122,21 @@ export interface FileManager {
 
   /**
    * Returns a specific version of a file.
-   * 
-   * @param fi - The base FileInfo containing topic and owner fields.
+   *
+   * @param fileInfo - The base FileInfo containing topic and owner fields.
    * @param version - Optional desired version slot as a FeedIndex or hex/string. If omitted, fetches latest.
-   * @returns The FileInfo corresponding to the requested version, either from cache or fetched from chain.
+   * @returns The FileInfo corresponding to the requested version, either cached or fetched.
    */
   getVersion(fileInfo: FileInfo, version?: FeedIndex): Promise<FileInfo>;
 
-
   /**
    * Restore a previous version of a file as the new “head” in your feed.
-   * 
+   *
    * @param versionToRestore - The FileInfo instance representing the version to restore.
    * @param requestOptions - Optional BeeRequestOptions for upload operations.
-   * @throws FileInfoError if no versions are found on-chain.
+   * @throws FileInfoError if no versions are found.
    */
-  restoreVersion(
-    fileInfo: FileInfo,
-    requestOptions?: BeeRequestOptions
-  ): Promise<void>;
+  restoreVersion(versionToRestore: FileInfo, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
    * Retrieves a list of file information.
@@ -172,20 +168,23 @@ export interface FileInfo {
   timestamp?: number;
   shared?: boolean;
   preview?: ReferenceWithHistory;
-  index?: string | undefined;
+  version?: string | undefined;
   redundancyLevel?: RedundancyLevel;
   customMetadata?: Record<string, string>;
   status?: FileStatus;
 }
 
+export interface PartialFileInfo extends Omit<FileInfo, 'owner' | 'actPublisher' | 'file' | 'topic'> {
+  owner?: string | EthAddress;
+  actPublisher?: string | PublicKey;
+  file?: ReferenceWithHistory;
+  topic?: string | Topic;
+}
+
 export interface FileInfoOptions {
-  batchId: BatchId;
-  name: string;
+  info: PartialFileInfo;
   files?: File[] | FileList;
   path?: string;
-  customMetadata?: Record<string, string>;
-  infoTopic?: string;
-  index?: string | undefined;
   preview?: File;
   previewPath?: string;
   onUploadProgress?: (progress: UploadProgress) => void;
@@ -228,7 +227,9 @@ export interface FeedPayloadResult extends FeedUpdateHeaders {
 export interface FeedReferenceResult extends FeedUpdateHeaders {
   reference: Reference;
 }
-
+export interface FeedResultWithIndex extends FeedPayloadResult {
+  feedIndexNext: FeedIndex;
+}
 export interface UploadProgress {
   total: number;
   processed: number;
