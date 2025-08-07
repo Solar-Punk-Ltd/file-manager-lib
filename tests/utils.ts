@@ -1,8 +1,7 @@
-import { BatchId, Bee, Bytes, FeedIndex, MantarayNode, PrivateKey, Topic } from '@ethersphere/bee-js';
+import { BatchId, Bee, Bytes, MantarayNode, PrivateKey } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
-import { getFeedData } from '../src/utils/common';
 import { SWARM_ZERO_ADDRESS } from '../src/utils/constants';
 import { FileInfo, FileManager, ReferenceWithHistory, WrappedUploadResult } from '../src/utils/types';
 
@@ -76,17 +75,5 @@ export async function createWrappedData(bee: Bee, batchId: BatchId, node: Mantar
   return {
     reference: wrappedRes.reference.toString(),
     historyRef: wrappedRes.historyAddress.getOrThrow().toString(),
-  };
-}
-
-export async function getTopicNextIndex(
-  bee: Bee,
-  owner: string,
-  fi: FileInfo,
-): Promise<{ feedIndex: FeedIndex; feedIndexNext: FeedIndex }> {
-  const latest = await getFeedData(bee, new Topic(fi.topic), owner);
-  return {
-    feedIndex: latest.feedIndex,
-    feedIndexNext: latest.feedIndexNext ?? FeedIndex.fromBigInt(0n),
   };
 }

@@ -12,7 +12,7 @@ import {
 
 import { FileManagerBase } from '../../src/fileManager';
 import { getFeedData } from '../../src/utils/common';
-import { SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
+import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { SignerError } from '../../src/utils/errors';
 import { EventEmitterBase } from '../../src/utils/eventEmitter';
 import { FileManagerEvents } from '../../src/utils/events';
@@ -45,13 +45,11 @@ describe('FileManager', () => {
     jest.resetAllMocks();
     createInitMocks();
 
-    const zero32 = SWARM_ZERO_ADDRESS.toUint8Array();
-
     (getFeedData as jest.Mock).mockResolvedValue({
-      feedIndex: FeedIndex.fromBigInt(0n),
+      feedIndex: FEED_INDEX_ZERO,
       feedIndexNext: FeedIndex.fromBigInt(1n),
       payload: {
-        toUint8Array: () => zero32,
+        toUint8Array: () => SWARM_ZERO_ADDRESS.toUint8Array(),
         toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
       },
     });
@@ -98,9 +96,7 @@ describe('FileManager', () => {
   describe('initialize', () => {
     it('should initialize FileManager', async () => {
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const eventHandler = jest.fn((input) => {
-        console.log('Input: ', input);
-      });
+      const eventHandler = jest.fn((_) => {});
       const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
       await createInitializedFileManager(bee, emitter);
@@ -109,10 +105,8 @@ describe('FileManager', () => {
     });
 
     it('should not initialize, if already initialized', async () => {
-      const logSpy = jest.spyOn(console, 'log');
-      const eventHandler = jest.fn((input) => {
-        console.log('Input: ', input);
-      });
+      const logSpy = jest.spyOn(console, 'debug');
+      const eventHandler = jest.fn((_) => {});
       const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
 
@@ -123,10 +117,8 @@ describe('FileManager', () => {
     });
 
     it('should not initialize, if currently being initialized', async () => {
-      const logSpy = jest.spyOn(console, 'log');
-      const eventHandler = jest.fn((input) => {
-        console.log('Input: ', input);
-      });
+      const logSpy = jest.spyOn(console, 'debug');
+      const eventHandler = jest.fn((_) => {});
       const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
 
@@ -235,8 +227,7 @@ describe('FileManager', () => {
       createUploadDataSpy('4');
       createMockFeedWriter('5');
 
-      fm.upload({ batchId: new BatchId(MOCK_BATCH_ID), path: './tests', name: 'tests' });
-
+      await fm.upload({ info: { batchId: new BatchId(MOCK_BATCH_ID), name: 'tests' }, path: './tests' });
       expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
     });
 
@@ -249,7 +240,7 @@ describe('FileManager', () => {
       createUploadDataSpy('4');
       createMockFeedWriter('5');
 
-      fm.upload({ batchId: new BatchId(MOCK_BATCH_ID), path: './tests', name: 'tests' });
+      await fm.upload({ info: { batchId: new BatchId(MOCK_BATCH_ID), name: 'tests' }, path: './tests' });
 
       expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
       expect(uploadFileOrDirectoryPreviewSpy).toHaveBeenCalled();
@@ -260,19 +251,69 @@ describe('FileManager', () => {
 
       await expect(async () => {
         await fm.upload({
-          batchId: new BatchId(MOCK_BATCH_ID),
+          info: {
+            batchId: new BatchId(MOCK_BATCH_ID),
+            name: 'tests',
+            topic: 'topic',
+          },
           path: './tests',
-          name: 'tests',
-          infoTopic: 'infoTopic',
         });
-      }).rejects.toThrow('Options infoTopic and historyRef have to be provided at the same time.');
+      }).rejects.toThrow('Options topic and historyRef have to be provided at the same time.');
+    });
+
+    it('should not add duplicate entries when re-uploading same topic', async () => {
+      const fm = await createInitializedFileManager();
+      createUploadFilesFromDirectorySpy('1');
+      createUploadFileSpy('2');
+      createUploadDataSpy('3');
+      createUploadDataSpy('4');
+      createMockFeedWriter('5');
+      (getFeedData as jest.Mock).mockResolvedValueOnce({
+        feedIndex: FeedIndex.fromBigInt(-1n),
+        feedIndexNext: FeedIndex.fromBigInt(0n),
+      });
+
+      await fm.upload({ info: { batchId: new BatchId(MOCK_BATCH_ID), name: 'hello' }, path: './tests' });
+      expect(fm.fileInfoList.filter((fi) => fi.name === 'hello')).toHaveLength(1);
+      expect((fm as any).ownerFeedList.filter((f: any) => f.topic === fm.fileInfoList[0].topic)).toHaveLength(1);
+
+      const original = fm.fileInfoList[0];
+      createUploadFilesFromDirectorySpy('6');
+      createUploadDataSpy('7');
+      createUploadDataSpy('8');
+      createMockFeedWriter('9');
+      (getFeedData as jest.Mock).mockResolvedValueOnce({
+        feedIndex: FeedIndex.fromBigInt(0n),
+        feedIndexNext: FeedIndex.fromBigInt(1n),
+      });
+
+      await fm.upload(
+        {
+          info: {
+            batchId: new BatchId(MOCK_BATCH_ID),
+            name: 'hello',
+            topic: original.topic,
+            file: original.file,
+          } as any,
+          path: './tests',
+        },
+        {
+          actHistoryAddress: original.file.historyRef,
+        },
+      );
+
+      expect(fm.fileInfoList.filter((fi) => fi.name === 'hello')).toHaveLength(1);
+      expect((fm as any).ownerFeedList.filter((f: any) => f.topic === original.topic)).toHaveLength(1);
+
+      const updated = fm.fileInfoList.find((fi) => fi.name === 'hello')!;
+      expect(BigInt(updated.version!)).toBe(BigInt(original.version! || '0') + 1n);
     });
   });
 
   describe('version control', () => {
     let fm: FileManagerBase;
 
-    const dummyTopic = 'deadbeef'.repeat(8);
+    const dummyTopic = Topic.fromString('deadbeef').toString();
     const dummyFi = {
       topic: dummyTopic,
       file: { historyRef: '00'.repeat(32), reference: '11'.repeat(32) },
@@ -280,8 +321,8 @@ describe('FileManager', () => {
       batchId: { toString: () => 'aa'.repeat(32) },
       name: 'x',
       actPublisher: 'ff'.repeat(66),
-      index: '0',
-    } as any;
+      version: '0',
+    } as FileInfo;
 
     beforeEach(async () => {
       fm = await createInitializedFileManager();
@@ -292,26 +333,24 @@ describe('FileManager', () => {
     });
 
     it('getVersion should call fetchFileInfo and return FileInfo', async () => {
-      const fakeFi = { ...dummyFi, index: '1' };
+      const fakeFi = { ...dummyFi, version: '1' };
 
-      // 1) stub out getFeedData so that feedIndex=1, feedIndexNext=2,
-      //    and payload is a Bytes wrapping a 32‑byte reference
       const rawMock: FeedPayloadResult = {
         feedIndex: FeedIndex.fromBigInt(1n),
         feedIndexNext: FeedIndex.fromBigInt(2n),
-        payload: new Bytes(new Reference('f'.repeat(64)).toUint8Array()),
+        reference: new Bytes(new Reference('f'.repeat(64)).toUint8Array()),
       } as any;
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      jest.spyOn(require('../../src/utils/common'), 'getFeedData').mockResolvedValueOnce(rawMock);
+      jest.spyOn(require('../../src/utils/common'), 'getFeedData').mockResolvedValue(rawMock);
 
-      // 2) now spy on fetchFileInfo
       const spyFetch = jest.spyOn(FileManagerBase.prototype as any, 'fetchFileInfo').mockResolvedValue(fakeFi);
+      let got = await fm.getVersion(dummyFi, FeedIndex.fromBigInt(1n));
 
-      // 3) run getVersion
-      const got = await fm.getVersion(dummyFi, FeedIndex.fromBigInt(1n));
+      expect(spyFetch).toHaveBeenCalledWith(dummyFi, rawMock, true);
+      expect(got).toBe(fakeFi);
 
-      // 4) assert it forwarded exactly that slot to fetchFileInfo
-      expect(spyFetch).toHaveBeenCalledWith(rawMock, dummyFi);
+      got = await fm.getVersion(dummyFi);
+      expect(spyFetch).toHaveBeenCalledWith(dummyFi, rawMock, false);
       expect(got).toBe(fakeFi);
     });
 
@@ -319,7 +358,7 @@ describe('FileManager', () => {
       const vFi = { ...dummyFi, topic: dummyTopic, file: dummyFi.file } as any;
       jest.spyOn(fm, 'getVersion').mockResolvedValue(vFi);
       const spyDl = jest.spyOn(fm, 'download').mockResolvedValue(['mocked bytes'] as any);
-      // first we call getVersion, then call download manually
+
       const gotFi = await fm.getVersion(dummyFi, '3');
       const out = await fm.download(gotFi, ['path1'], { actPublisher: 'p', actHistoryAddress: 'h' } as DownloadOptions);
       expect(fm.getVersion).toHaveBeenCalledWith(dummyFi, '3');
@@ -329,63 +368,55 @@ describe('FileManager', () => {
 
     it('getVersion throws if underlying feed is missing', async () => {
       jest.restoreAllMocks();
-      (getFeedData as jest.Mock).mockResolvedValueOnce({
+      (getFeedData as jest.Mock).mockResolvedValue({
         feedIndex: FeedIndex.MINUS_ONE,
-        feedIndexNext: FeedIndex.fromBigInt(0n),
+        feedIndexNext: FEED_INDEX_ZERO,
         payload: SWARM_ZERO_ADDRESS,
       });
 
-      // 3) call getVersion WITHOUT passing the version argument
-      await expect(fm.getVersion(dummyFi)).rejects.toThrow('File info not found for version: 0');
+      await expect(fm.getVersion(dummyFi)).rejects.toThrow(`File info not found for topic: ${dummyFi.topic}`);
+      await expect(fm.getVersion(dummyFi, FEED_INDEX_ZERO)).rejects.toThrow(
+        `File info not found for topic: ${dummyFi.topic}`,
+      );
     });
 
     it('restoring the current head should simply re‑fetch that version and not emit an event', async () => {
-      // arrange
       const head = FeedIndex.fromBigInt(5n);
-      // make dummyFi look like it’s already at head 5
-      dummyFi.index = head.toString();
+      dummyFi.version = head.toString();
 
-      // mock getFeedData to return feedIndex=5, fe
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
       jest.spyOn(require('../../src/utils/common'), 'getFeedData').mockResolvedValue({
         feedIndex: head,
         feedIndexNext: FeedIndex.fromBigInt(6n),
-        payload: SWARM_ZERO_ADDRESS, // payload isn’t used in the no‑op path
+        payload: SWARM_ZERO_ADDRESS,
       } as any);
 
       const spyEmit = jest.spyOn(fm.emitter, 'emit');
 
-      // act
       await fm.restoreVersion(dummyFi);
 
-      // assert: no version‐restored event
       expect(spyEmit).not.toHaveBeenCalledWith(FileManagerEvents.FILE_VERSION_RESTORED, expect.anything());
     });
 
-    it('restoreVersion() when versionToRestore.index === headSlot is a no-op', async () => {
-      // Arrange
+    it('restoreVersion() when versionToRestore.version === headSlot is a no-op', async () => {
       const head = FeedIndex.fromBigInt(3n);
       const fakeFeedData = {
         feedIndex: head,
         feedIndexNext: FeedIndex.fromBigInt(4n),
-        payload: SWARM_ZERO_ADDRESS,
+        reference: SWARM_ZERO_ADDRESS,
       };
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
       jest.spyOn(require('../../src/utils/common'), 'getFeedData').mockResolvedValueOnce(fakeFeedData as any);
 
       const spyEmit = jest.spyOn(fm.emitter, 'emit');
 
-      // Use a **two-digit hex string** here instead of "3":
-      // head.toHexString() returns "0x03", which FeedIndex will accept
       const dummyFiWithHead = {
         ...dummyFi,
-        index: head.toString(),
+        version: head.toString(),
       };
 
-      // Act
       await fm.restoreVersion(dummyFiWithHead);
 
-      // Assert: no FILE_VERSION_RESTORED event fired
       expect(spyEmit).not.toHaveBeenCalledWith(FileManagerEvents.FILE_VERSION_RESTORED, expect.anything());
     });
   });
@@ -439,9 +470,7 @@ describe('FileManager', () => {
     it('should send event after upload happens', async () => {
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
       const emitter = new EventEmitterBase();
-      const uploadHandler = jest.fn((input) => {
-        console.log('Input: ', input);
-      });
+      const uploadHandler = jest.fn((_) => {});
 
       const fm = await createInitializedFileManager(bee, emitter);
       fm.emitter.on(FileManagerEvents.FILE_UPLOADED, uploadHandler);
@@ -449,7 +478,8 @@ describe('FileManager', () => {
 
       (getFeedData as jest.Mock).mockResolvedValueOnce({
         feedIndex: FeedIndex.fromBigInt(-1n),
-        feedIndexNext: FeedIndex.fromBigInt(0n),
+        feedIndexNext: FEED_INDEX_ZERO,
+        payload: SWARM_ZERO_ADDRESS,
       });
 
       const actPublisher = (await bee.getNodeAddresses()).publicKey.toCompressedHex();
@@ -461,7 +491,7 @@ describe('FileManager', () => {
           reference: SWARM_ZERO_ADDRESS.toString(),
         },
         actPublisher,
-        index: '0000000000000000',
+        version: FEED_INDEX_ZERO.toString(),
         name: 'tests',
         owner: MOCK_SIGNER.publicKey().address().toString(),
         preview: undefined,
@@ -471,7 +501,7 @@ describe('FileManager', () => {
         topic: expect.any(String),
       } as FileInfo;
 
-      await fm.upload({ batchId: new BatchId(MOCK_BATCH_ID), path: './tests', name: 'tests' });
+      await fm.upload({ info: { batchId: new BatchId(MOCK_BATCH_ID), name: 'tests' }, path: './tests' });
       fm.emitter.off(FileManagerEvents.FILE_UPLOADED, uploadHandler);
 
       expect(uploadHandler).toHaveBeenCalledWith({
@@ -481,9 +511,7 @@ describe('FileManager', () => {
 
     it('should send an event after the fileManager is initialized', async () => {
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const eventHandler = jest.fn((input) => {
-        console.log('Input: ', input);
-      });
+      const eventHandler = jest.fn((_) => {});
       const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
       await createInitializedFileManager(bee, emitter);
