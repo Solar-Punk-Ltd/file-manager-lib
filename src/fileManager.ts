@@ -372,18 +372,25 @@ export class FileManagerBase implements FileManager {
       throw new FileInfoError(`Drive ${driveInfo.name} with id ${driveInfo.id.toString()} not found`);
     }
 
-    uploadOptions = { ...uploadOptions, redundancyLevel: driveInfo.redundancyLevel };
-
-    let version = fileOptions.info.version;
-    const topicStr = fileOptions.info.topic ?? new Topic(generateRandomBytes(Topic.LENGTH)).toString();
     const owner = this.signer.publicKey().address().toString();
+    let version: string | undefined;
+    let topic: string;
+
+    if (!fileOptions.info.topic) {
+      version = FEED_INDEX_ZERO.toString();
+      topic = new Topic(generateRandomBytes(Topic.LENGTH)).toString();
+    } else {
+      version = fileOptions.info.version;
+      topic = fileOptions.info.topic.toString();
+    }
 
     if (!version) {
-      const { feedIndexNext } = await getFeedData(this.bee, new Topic(topicStr), owner);
+      const { feedIndexNext } = await getFeedData(this.bee, new Topic(topic), owner);
       version = feedIndexNext.toString();
     }
 
     let file: ReferenceWithHistory;
+    uploadOptions = { ...uploadOptions, redundancyLevel: driveInfo.redundancyLevel };
 
     if (fileOptions.info.file) {
       file = {
@@ -412,8 +419,8 @@ export class FileManagerBase implements FileManager {
 
     const fileInfo: FileInfo = {
       batchId: driveInfo.batchId.toString(),
-      owner: owner,
-      topic: topicStr,
+      owner,
+      topic,
       name: fileOptions.info.name,
       actPublisher: this.nodeAddresses.publicKey.toCompressedHex(),
       file,
@@ -432,15 +439,15 @@ export class FileManagerBase implements FileManager {
       this.driveList[driveIndex].infoFeedList = [];
     }
 
-    const infoIx = this.driveList[driveIndex].infoFeedList.findIndex((wf) => wf.topic === topicStr);
+    const infoIx = this.driveList[driveIndex].infoFeedList.findIndex((wf) => wf.topic === topic);
     if (infoIx === -1) {
       this.driveList[driveIndex].infoFeedList.push({
-        topic: topicStr,
+        topic,
       });
     } else {
       // overwrite the existing grantee reference if it exists, as they do not have access to the new version
       this.driveList[driveIndex].infoFeedList[infoIx] = {
-        topic: topicStr,
+        topic,
         eGranteeRef: undefined,
       };
     }

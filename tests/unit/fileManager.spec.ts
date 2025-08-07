@@ -16,7 +16,7 @@ import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { DriveError, SignerError } from '../../src/utils/errors';
 import { EventEmitterBase } from '../../src/utils/eventEmitter';
 import { FileManagerEvents } from '../../src/utils/events';
-import { FeedPayloadResult, FileInfo, WrappedUploadResult } from '../../src/utils/types';
+import { FeedResultWithIndex, FileInfo, WrappedUploadResult } from '../../src/utils/types';
 import {
   createInitializedFileManager,
   createInitMocks,
@@ -283,8 +283,9 @@ describe('FileManager', () => {
       createUploadDataSpy('4');
       createMockFeedWriter('5');
       (getFeedData as jest.Mock).mockResolvedValueOnce({
-        feedIndex: FeedIndex.fromBigInt(-1n),
-        feedIndexNext: FeedIndex.fromBigInt(0n),
+        feedIndex: FeedIndex.MINUS_ONE,
+        feedIndexNext: FEED_INDEX_ZERO,
+        payload: SWARM_ZERO_ADDRESS,
       });
 
       await fm.upload(di, { info: { name: 'hello' }, path: './tests' });
@@ -295,9 +296,12 @@ describe('FileManager', () => {
       createUploadDataSpy('7');
       createUploadDataSpy('8');
       createMockFeedWriter('9');
+
+      (getFeedData as jest.Mock).mockReset();
       (getFeedData as jest.Mock).mockResolvedValueOnce({
-        feedIndex: FeedIndex.fromBigInt(0n),
+        feedIndex: FEED_INDEX_ZERO,
         feedIndexNext: FeedIndex.fromBigInt(1n),
+        payload: SWARM_ZERO_ADDRESS,
       });
 
       await fm.upload(
@@ -307,7 +311,7 @@ describe('FileManager', () => {
             name: 'hello',
             topic: original.topic,
             file: original.file,
-          } as any,
+          },
           path: './tests',
         },
         {
@@ -318,7 +322,7 @@ describe('FileManager', () => {
       expect(fm.fileInfoList.filter((fi) => fi.name === 'hello')).toHaveLength(1);
 
       const updated = fm.fileInfoList.find((fi) => fi.name === 'hello')!;
-      expect(BigInt(updated.version!)).toBe(BigInt(original.version! || '0') + 1n);
+      expect(updated.version!).toBe(FeedIndex.fromBigInt(1n).toString());
     });
   });
 
@@ -347,11 +351,11 @@ describe('FileManager', () => {
     it('getVersion should call fetchFileInfo and return FileInfo', async () => {
       const fakeFi = { ...dummyFi, version: '1' };
 
-      const rawMock: FeedPayloadResult = {
+      const rawMock: FeedResultWithIndex = {
         feedIndex: FeedIndex.fromBigInt(1n),
         feedIndexNext: FeedIndex.fromBigInt(2n),
-        reference: new Bytes(new Reference('f'.repeat(64)).toUint8Array()),
-      } as any;
+        payload: new Bytes(new Reference('f'.repeat(64)).toUint8Array()),
+      };
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
       jest.spyOn(require('../../src/utils/common'), 'getFeedData').mockResolvedValue(rawMock);
 
@@ -401,7 +405,7 @@ describe('FileManager', () => {
         feedIndex: head,
         feedIndexNext: FeedIndex.fromBigInt(6n),
         payload: SWARM_ZERO_ADDRESS,
-      } as any);
+      });
 
       const spyEmit = jest.spyOn(fm.emitter, 'emit');
 
@@ -412,13 +416,13 @@ describe('FileManager', () => {
 
     it('restoreVersion() when versionToRestore.version === headSlot is a no-op', async () => {
       const head = FeedIndex.fromBigInt(3n);
-      const fakeFeedData = {
+      const fakeFeedData: FeedResultWithIndex = {
         feedIndex: head,
         feedIndexNext: FeedIndex.fromBigInt(4n),
-        reference: SWARM_ZERO_ADDRESS,
+        payload: SWARM_ZERO_ADDRESS,
       };
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      jest.spyOn(require('../../src/utils/common'), 'getFeedData').mockResolvedValueOnce(fakeFeedData as any);
+      jest.spyOn(require('../../src/utils/common'), 'getFeedData').mockResolvedValueOnce(fakeFeedData);
 
       const spyEmit = jest.spyOn(fm.emitter, 'emit');
 
@@ -525,7 +529,7 @@ describe('FileManager', () => {
       createUploadFilesFromDirectorySpy('1');
 
       (getFeedData as jest.Mock).mockResolvedValueOnce({
-        feedIndex: FeedIndex.fromBigInt(-1n),
+        feedIndex: FeedIndex.MINUS_ONE,
         feedIndexNext: FEED_INDEX_ZERO,
         payload: SWARM_ZERO_ADDRESS,
       });

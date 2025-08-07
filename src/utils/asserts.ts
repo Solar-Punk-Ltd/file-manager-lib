@@ -21,10 +21,6 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
   new Topic(fi.topic);
   new PublicKey(fi.actPublisher);
 
-  // if (fi.actPublisher !== undefined) {
-  //   new PublicKey(fi.actPublisher);
-  // }
-
   if (fi.customMetadata !== undefined && !isRecord(fi.customMetadata)) {
     throw new TypeError('FileInfo customMetadata has to be object!');
   }
