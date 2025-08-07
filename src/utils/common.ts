@@ -12,31 +12,39 @@ import {
 import { isNode } from 'std-env';
 
 import { getRandomBytesBrowser } from './browser';
-import { SWARM_ZERO_ADDRESS } from './constants';
+import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from './constants';
 import { getRandomBytesNode } from './node';
-import { FeedPayloadResult, WrappedUploadResult } from './types';
+import { FeedResultWithIndex, FeedPayloadResult, WrappedUploadResult } from './types';
 import { FileInfoError } from './errors';
 import { asserWrappedUploadResult } from './asserts';
 
-// Fetches the feed data for the given topic, index and address
+// TODO: use downloadPayload() and do not unwrap the data
 export async function getFeedData(
   bee: Bee,
   topic: Topic,
   address: EthAddress | string,
   index?: bigint,
   options?: BeeRequestOptions,
-): Promise<FeedPayloadResult> {
+): Promise<FeedResultWithIndex> {
   try {
+    let data: FeedPayloadResult;
     const feedReader = bee.makeFeedReader(topic.toUint8Array(), address, options);
     if (index !== undefined) {
-      return await feedReader.download({ index: FeedIndex.fromBigInt(index) });
+      data = await feedReader.download({ index: FeedIndex.fromBigInt(index) });
+    } else {
+      data = await feedReader.download();
     }
-    return await feedReader.download();
+
+    return {
+      feedIndex: data.feedIndex,
+      feedIndexNext: data.feedIndexNext ?? data.feedIndex.next(),
+      payload: data.payload,
+    };
   } catch (error) {
     if (isNotFoundError(error)) {
       return {
         feedIndex: FeedIndex.MINUS_ONE,
-        feedIndexNext: FeedIndex.fromBigInt(0n),
+        feedIndexNext: FEED_INDEX_ZERO,
         payload: SWARM_ZERO_ADDRESS,
       };
     }

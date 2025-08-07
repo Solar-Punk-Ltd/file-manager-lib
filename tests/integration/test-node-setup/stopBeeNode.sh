@@ -3,6 +3,8 @@
 # Define pid file names and ports.
 BEE_PID_FILE_1733="bee_1733.pid"
 BEE_PID_FILE_1633="bee_1633.pid"
+LOG_FILE_1733="bee_1733.log"
+LOG_FILE_1633="bee_1633.log"
 BEE_PORT_1733=1733
 BEE_PORT_1633=1633
 
@@ -10,16 +12,21 @@ BEE_PORT_1633=1633
 stop_bee_node() {
   PID_FILE=$1
   PORT=$2
+
   if [ -f "$PID_FILE" ]; then
     BEE_PID=$(cat "$PID_FILE")
     echo "Stopping Bee node on port $PORT with PID $BEE_PID..."
     kill "$BEE_PID" 2>/dev/null
-    sleep 5
+
+    sleep 1
+
     if ps -p $BEE_PID > /dev/null; then
       echo "Force killing Bee node on port $PORT with PID $BEE_PID..."
       kill -9 "$BEE_PID"
     fi
-    rm "$PID_FILE"
+
+    rm -f "$PID_FILE"
+
     echo "Bee node on port $PORT stopped."
   else
     echo "Bee node on port $PORT is not running or PID file not found."
@@ -33,13 +40,16 @@ stop_bee_node() {
   fi
 }
 
+TMP_DIR="$(dirname "$0")"
 # Stop both Bee nodes.
-stop_bee_node "bee_1733.pid" $BEE_PORT_1733
-stop_bee_node "bee_1633.pid" $BEE_PORT_1633
+stop_bee_node "$TMP_DIR/$BEE_PID_FILE_1733" $BEE_PORT_1733
+stop_bee_node "$TMP_DIR/$BEE_PID_FILE_1633" $BEE_PORT_1633
+
+rm -f "$TMP_DIR/$LOG_FILE_1733" "$TMP_DIR/$LOG_FILE_1633"
 
 # Remove Bee repository and any associated data (if desired).
-BEE_DIR="$(dirname "$0")/bee-dev"
-BEE_DATA_DIR="$(dirname "$0")/bee-data"
+BEE_DIR="$TMP_DIR/bee-dev"
+BEE_DATA_DIR="$TMP_DIR/bee-data"
 if [ -d "$BEE_DIR" ]; then
   echo "Deleting Bee repository folder..."
   rm -rf "$BEE_DIR"
