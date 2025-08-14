@@ -49,6 +49,7 @@ import {
   FileInfo,
   FileManager,
   FileInfoOptions,
+  FileStatus,
   ReferenceWithHistory,
   ReferenceWithPath,
   ShareItem,
@@ -376,6 +377,7 @@ export class FileManagerBase implements FileManager {
       version,
       customMetadata: infoOptions.info.customMetadata,
       redundancyLevel: uploadOptions?.redundancyLevel,
+      status: FileStatus.Active,
     };
 
     await this.saveFileInfoFeed(fileInfo, requestOptions);
@@ -578,6 +580,83 @@ export class FileManagerBase implements FileManager {
     } catch (error: any) {
       throw new FileInfoError(`Failed to save owner feed list: ${error}`);
     }
+  }
+
+  /**
+   * Soft‐delete: move a file into “trash” (it stays in swarm but is hidden from your live list).
+   */
+  async trashFile(fileInfo: FileInfo): Promise<void> {
+    const fi = this.fileInfoList.find(f => f.topic.toString() === fileInfo.topic.toString());
+    if (!fi) {
+      throw new FileInfoError(`Corresponding File Info doesnt exist: ${fileInfo.name}`);
+    }
+    
+    if (fi.status === FileStatus.Trashed) {
+      throw new FileInfoError(`File already Thrashed: ${fileInfo.name}`);
+    } 
+    
+    if (fi.version === undefined) {
+      throw new FileInfoError(`File version is undefined: ${fileInfo.name}`);
+    }
+
+    fi.version = new FeedIndex(fi.version).next().toString();
+    fi.status = FileStatus.Trashed;
+    fi.timestamp = new Date().getTime();
+
+    await this.saveFileInfoFeed(fi)
+
+    this.emitter.emit(FileManagerEvents.FILE_TRASHED, { fileInfo: fi });
+  }
+  
+  /**
+   * Recover a previously trashed file.
+   */
+  async recoverFile(fileInfo: FileInfo): Promise<void> {
+    const fi = this.fileInfoList.find(f => f.topic === fileInfo.topic);
+    if (!fi) {
+      throw new FileInfoError(`Corresponding File Info doesnt exist: ${fileInfo.name}`);
+    }
+    
+    if (fi.status !== FileStatus.Trashed) {
+      throw new FileInfoError(`Non-Thrashed files cannot be restored: ${fileInfo.name}`);
+    }
+    
+    if (fi.version === undefined) {
+      throw new FileInfoError(`File version is undefined: ${fileInfo.name}`);
+    }
+
+    fi.version = new FeedIndex(fi.version).next().toString();
+    fi.status = FileStatus.Active;
+    fi.timestamp = new Date().getTime();
+
+    await this.saveFileInfoFeed(fi);
+    this.emitter.emit(FileManagerEvents.FILE_RECOVERED, { fileInfo: fi });
+  }
+
+  /**
+   * Hard‐delete: remove from your owner‐feed and in-memory lists.
+   * The underlying Swarm data remains, but it no longer appears in your live list.
+   */
+  async forgetFile(fileInfo: FileInfo): Promise<void> {
+    const topicStr = fileInfo.topic.toString();
+  
+    const fiIndex = this.fileInfoList.findIndex(f => f.topic.toString() === topicStr);
+    const feedIndex = this.ownerFeedList.findIndex(w => w.topic.toString() === topicStr);
+
+    if (fiIndex === -1) {
+      throw new FileInfoError(`File info not found for name: ${fileInfo.name} and topic: ${topicStr}`);``
+    }
+
+    if (feedIndex === -1) {
+      throw new FileInfoError(`File feed not found for topic: ${fileInfo.name} and topic: ${topicStr}`);
+    }
+
+    this.fileInfoList.splice(fiIndex, 1);
+    this.ownerFeedList.splice(feedIndex, 1);
+
+    await this.saveOwnerFeedList();
+  
+    this.emitter.emit(FileManagerEvents.FILE_FORGOTTEN, { fileInfo });
   }
 
   private async getOwnerStamp(): Promise<PostageBatch | undefined> {
