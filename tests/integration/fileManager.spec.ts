@@ -653,12 +653,10 @@ describe('FileManager file operations', () => {
     fileManager = await createInitializedFileManager(bee);
     await fileManager.initialize();
 
-    // upload a single test file
     const testFilePath = path.join(__dirname, '../fixtures', TEST_NAME);
     fs.writeFileSync(testFilePath, 'file ops content');
     await fileManager.upload({ info: { batchId, name: TEST_NAME }, path: testFilePath });
 
-    // grab the FileInfo
     testFi = fileManager.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
     expect(testFi).toBeDefined();
     expect(testFi.status).toBe(FileStatus.Active);
@@ -671,7 +669,6 @@ describe('FileManager file operations', () => {
     await fileManager.trashFile(initial);
     expect(initial.status).toBe(FileStatus.Trashed);
 
-    // re-init and confirm persisted status + version bumped
     const fm2 = await createInitializedFileManager(bee);
     await fm2.initialize();
     const fi2 = fm2.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
@@ -680,20 +677,16 @@ describe('FileManager file operations', () => {
   });
 
   it('should recover a previously trashed file', async () => {
-    // ensure trashed exactly once
     if (testFi.status !== FileStatus.Trashed) {
       await fileManager.trashFile(testFi);
       expect(testFi.status).toBe(FileStatus.Trashed);
     } else {
-      // sanity check: if already trashed, we’re fine to proceed
       expect(testFi.status).toBe(FileStatus.Trashed);
     }
     const beforeVersion = BigInt(testFi.version!);
 
-    // now recover
     await fileManager.recoverFile(testFi);
 
-    // re-init to verify persisted state
     const fm2 = await createInitializedFileManager(bee);
     await fm2.initialize();
     const fi2 = fm2.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
@@ -703,17 +696,14 @@ describe('FileManager file operations', () => {
 
   it('should forget (hard-delete) a file', async () => {
     await fileManager.forgetFile(testFi);
-    // in-memory gone
     expect(fileManager.fileInfoList.find((fi) => fi.name === TEST_NAME)).toBeUndefined();
 
-    // persisted owner-feed should no longer contain it
     const fm2 = await createInitializedFileManager(bee);
     await fm2.initialize();
     expect(fm2.fileInfoList.find((fi) => fi.name === TEST_NAME)).toBeUndefined();
   });
 
   it('should never duplicate FileInfo entries when trashing/recovering', async () => {
-    // re-upload same file
     const fp = path.join(__dirname, '../fixtures', TEST_NAME);
     await fileManager.upload({ info: { batchId, name: TEST_NAME }, path: fp });
 
@@ -721,21 +711,16 @@ describe('FileManager file operations', () => {
     const topic = freshFi.topic.toString();
     expect(fileManager.fileInfoList.filter((fi) => fi.topic.toString() === topic)).toHaveLength(1);
 
-    // trash once (ok)
     await fileManager.trashFile(freshFi);
     expect(freshFi.status).toBe(FileStatus.Trashed);
 
-    // trash twice (should throw per new behavior)
     await expect(fileManager.trashFile(freshFi)).rejects.toThrow(/File already Thrashed/i);
 
-    // recover once (ok)
     await fileManager.recoverFile(freshFi);
     expect(freshFi.status).toBe(FileStatus.Active);
 
-    // recover twice (should throw per new behavior)
     await expect(fileManager.recoverFile(freshFi)).rejects.toThrow(/Non-Thrashed files cannot be restored/i);
 
-    // still exactly one entry for the topic
     expect(fileManager.fileInfoList.filter((fi) => fi.topic.toString() === topic)).toHaveLength(1);
   });
 
@@ -750,14 +735,12 @@ describe('FileManager file operations', () => {
     if (fi0.status !== FileStatus.Trashed) {
       await fm.trashFile(fi0);
     }
-    // recover once
     await fm.recoverFile(fi0);
 
     const fm2 = await createInitializedFileManager(bee);
     await fm2.initialize();
     const fi2 = fm2.fileInfoList.find((fi) => fi.topic.toString() === topic)!;
 
-    // trash (+1) then recover (+1) → net +2 from original beforeVer
     expect(BigInt(fi2.version!)).toBe(beforeVer + 2n);
   });
 });

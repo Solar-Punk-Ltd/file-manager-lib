@@ -449,7 +449,6 @@ describe('FileManager', () => {
     beforeEach(async () => {
       fm = await createInitializedFileManager();
 
-      // a minimal FileInfo
       mockFi = {
         batchId: 'aa'.repeat(32),
         file: { reference: '11'.repeat(32), historyRef: '00'.repeat(32) },
@@ -459,14 +458,12 @@ describe('FileManager', () => {
         topic: 'deadbeef'.repeat(8),
       } as any;
 
-      // seed it as active with a valid even-length hex version ("00…00")
       mockFi.status = FileStatus.Active;
       mockFi.timestamp = 0;
       mockFi.version = FeedIndex.fromBigInt(0n).toString();
 
       fm.fileInfoList.push(mockFi);
 
-      // also ensure ownerFeedList has this topic so forgetFile won’t throw
       const hasTopic = (fm as any).ownerFeedList.some((w: any) => w.topic.toString() === mockFi.topic.toString());
       if (!hasTopic) {
         (fm as any).ownerFeedList.push({ topic: mockFi.topic });
@@ -474,11 +471,9 @@ describe('FileManager', () => {
     });
 
     it('trashFile should mark a file as trashed, persist and emit FILE_TRASHED', async () => {
-      // sanity
       expect(mockFi.status).toBe(FileStatus.Active);
       expect(mockFi.timestamp).toBe(0);
 
-      // spies (let real implementation run)
       const uploadSpy = jest.spyOn(fm as any, 'uploadFileInfo');
       const saveSpy = jest.spyOn(fm as any, 'saveFileInfoFeed');
       const handler = jest.fn();
@@ -486,15 +481,12 @@ describe('FileManager', () => {
 
       await fm.trashFile(mockFi);
 
-      // in-memory
       expect(mockFi.status).toBe(FileStatus.Trashed);
       expect(mockFi.timestamp!).toBeGreaterThan(0);
 
-      // persisted via the two steps
       expect(uploadSpy).toHaveBeenCalledWith(mockFi);
       expect(saveSpy).toHaveBeenCalledWith(mockFi);
 
-      // event
       expect(handler).toHaveBeenCalledWith({ fileInfo: mockFi });
     });
 
@@ -503,9 +495,8 @@ describe('FileManager', () => {
       expect(mockFi.status).toBe(FileStatus.Trashed);
       const beforeTs = mockFi.timestamp!;
 
-      // Make system time advance for recoverFile() which uses new Date().getTime()
       jest.useFakeTimers();
-      jest.setSystemTime(new Date(beforeTs + 1)); // any strictly later time
+      jest.setSystemTime(new Date(beforeTs + 1));
 
       const uploadSpy = jest.spyOn(fm as any, 'uploadFileInfo');
       const saveSpy = jest.spyOn(fm as any, 'saveFileInfoFeed');
@@ -514,15 +505,12 @@ describe('FileManager', () => {
 
       await fm.recoverFile(mockFi);
 
-      // mutated back
       expect(mockFi.status).toBe(FileStatus.Active);
       expect(mockFi.timestamp!).toBeGreaterThan(beforeTs);
 
-      // persisted
       expect(uploadSpy).toHaveBeenCalledWith(mockFi);
       expect(saveSpy).toHaveBeenCalledWith(mockFi);
 
-      // event
       expect(handler).toHaveBeenCalledWith({ fileInfo: mockFi });
 
       jest.useRealTimers();
@@ -535,13 +523,11 @@ describe('FileManager', () => {
 
       await fm.forgetFile(mockFi);
 
-      // gone from both in-memory lists
       expect(fm.fileInfoList).not.toContain(mockFi);
       expect(
         (fm as any).ownerFeedList.find((f: any) => f.topic.toString() === mockFi.topic.toString()),
       ).toBeUndefined();
 
-      // persisted owner-feed
       expect(saveOwnerSpy).toHaveBeenCalled();
       expect(handler).toHaveBeenCalledWith({ fileInfo: mockFi });
     });

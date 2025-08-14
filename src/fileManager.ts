@@ -589,9 +589,13 @@ export class FileManagerBase implements FileManager {
     const fi = this.fileInfoList.find(f => f.topic.toString() === fileInfo.topic.toString());
     if (!fi) {
       throw new FileInfoError(`Corresponding File Info doesnt exist: ${fileInfo.name}`);
-    } else if (fi.status === FileStatus.Trashed) {
+    }
+    
+    if (fi.status === FileStatus.Trashed) {
       throw new FileInfoError(`File already Thrashed: ${fileInfo.name}`);
-    } else if (fi.version === undefined) {
+    } 
+    
+    if (fi.version === undefined) {
       throw new FileInfoError(`File version is undefined: ${fileInfo.name}`);
     }
 
@@ -611,9 +615,13 @@ export class FileManagerBase implements FileManager {
     const fi = this.fileInfoList.find(f => f.topic === fileInfo.topic);
     if (!fi) {
       throw new FileInfoError(`Corresponding File Info doesnt exist: ${fileInfo.name}`);
-    } else if (fi.status !== FileStatus.Trashed) {
+    }
+    
+    if (fi.status !== FileStatus.Trashed) {
       throw new FileInfoError(`Non-Thrashed files cannot be restored: ${fileInfo.name}`);
-    } else if (fi.version === undefined) {
+    }
+    
+    if (fi.version === undefined) {
       throw new FileInfoError(`File version is undefined: ${fileInfo.name}`);
     }
 
@@ -633,19 +641,19 @@ export class FileManagerBase implements FileManager {
     const topicStr = fileInfo.topic.toString();
   
     const fiIndex = this.fileInfoList.findIndex(f => f.topic.toString() === topicStr);
-    if (fiIndex !== -1) {
-      this.fileInfoList.splice(fiIndex, 1);
-    } else {
+    const feedIndex = this.ownerFeedList.findIndex(w => w.topic.toString() === topicStr);
+
+    if (fiIndex === -1) {
       throw new FileInfoError(`File info not found for name: ${fileInfo.name} and topic: ${topicStr}`);``
     }
-  
-    const feedIndex = this.ownerFeedList.findIndex(w => w.topic.toString() === topicStr);
-    if (feedIndex !== -1) {
-      this.ownerFeedList.splice(feedIndex, 1);
-    } else {
+
+    if (feedIndex === -1) {
       throw new FileInfoError(`File feed not found for topic: ${fileInfo.name} and topic: ${topicStr}`);
     }
-  
+
+    this.fileInfoList.splice(fiIndex, 1);
+    this.ownerFeedList.splice(feedIndex, 1);
+
     await this.saveOwnerFeedList();
   
     this.emitter.emit(FileManagerEvents.FILE_FORGOTTEN, { fileInfo });
