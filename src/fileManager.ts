@@ -586,19 +586,16 @@ export class FileManagerBase implements FileManager {
    * Soft‐delete: move a file into “trash” (it stays in swarm but is hidden from your live list).
    */
   async trashFile(fileInfo: FileInfo): Promise<void> {
-    const fi = this.fileInfoList.find(f => f.topic === fileInfo.topic);
+    const fi = this.fileInfoList.find(f => f.topic.toString() === fileInfo.topic.toString());
     if (!fi) {
-      throw new Error(`trashFile: not managed: ${fileInfo.topic}`);
+      throw new FileInfoError(`Corresponding File Info doesnt exist: ${fileInfo.name}`);
+    } else if (fi.status === FileStatus.Trashed) {
+      throw new FileInfoError(`File already Thrashed: ${fileInfo.name}`);
+    } else if (fi.version === undefined) {
+      throw new FileInfoError(`File version is undefined: ${fileInfo.name}`);
     }
 
-    const { feedIndexNext } = await getFeedData(
-      this.bee,
-      new Topic(fi.topic),
-      fi.owner,
-    );
-    
-    fi.version = feedIndexNext ? feedIndexNext.toString() : new FeedIndex('0').toString()
-
+    fi.version = new FeedIndex(fi.version).next().toString();
     fi.status = FileStatus.Trashed;
     fi.timestamp = new Date().getTime();
 
@@ -613,21 +610,19 @@ export class FileManagerBase implements FileManager {
   async recoverFile(fileInfo: FileInfo): Promise<void> {
     const fi = this.fileInfoList.find(f => f.topic === fileInfo.topic);
     if (!fi) {
-      throw new Error(`recoverFile: not managed: ${fileInfo.topic}`);
+      throw new FileInfoError(`Corresponding File Info doesnt exist: ${fileInfo.name}`);
+    } else if (fi.status !== FileStatus.Trashed) {
+      throw new FileInfoError(`Non-Thrashed files cannot be restored: ${fileInfo.name}`);
+    } else if (fi.version === undefined) {
+      throw new FileInfoError(`File version is undefined: ${fileInfo.name}`);
     }
 
-    const { feedIndexNext } = await getFeedData(
-      this.bee,
-      new Topic(fi.topic),
-      fi.owner,
-    );
-    fi.version = feedIndexNext ? feedIndexNext.toString() : new FeedIndex('0').toString()
-
+    fi.version = new FeedIndex(fi.version).next().toString();
     fi.status = FileStatus.Active;
     fi.timestamp = new Date().getTime();
 
     await this.saveFileInfoFeed(fi);
-    this.emitter.emit(FileManagerEvents.FILE_RESTORED, { fileInfo: fi });
+    this.emitter.emit(FileManagerEvents.FILE_RECOVERED, { fileInfo: fi });
   }
 
   /**
@@ -640,11 +635,15 @@ export class FileManagerBase implements FileManager {
     const fiIndex = this.fileInfoList.findIndex(f => f.topic.toString() === topicStr);
     if (fiIndex !== -1) {
       this.fileInfoList.splice(fiIndex, 1);
+    } else {
+      throw new FileInfoError(`File info not found for name: ${fileInfo.name} and topic: ${topicStr}`);``
     }
   
     const feedIndex = this.ownerFeedList.findIndex(w => w.topic.toString() === topicStr);
     if (feedIndex !== -1) {
       this.ownerFeedList.splice(feedIndex, 1);
+    } else {
+      throw new FileInfoError(`File feed not found for topic: ${fileInfo.name} and topic: ${topicStr}`);
     }
   
     await this.saveOwnerFeedList();

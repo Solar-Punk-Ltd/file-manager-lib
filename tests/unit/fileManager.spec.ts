@@ -447,8 +447,8 @@ describe('FileManager', () => {
     let mockFi: FileInfo;
 
     beforeEach(async () => {
-      // fresh FileManager with all low-level Bee calls stubbed by createInitMocks()
       fm = await createInitializedFileManager();
+
       // a minimal FileInfo
       mockFi = {
         batchId: 'aa'.repeat(32),
@@ -458,11 +458,19 @@ describe('FileManager', () => {
         actPublisher: 'ff'.repeat(66),
         topic: 'deadbeef'.repeat(8),
       } as any;
-      // seed it as active/version=0
+
+      // seed it as active with a valid even-length hex version ("00…00")
       mockFi.status = FileStatus.Active;
       mockFi.timestamp = 0;
-      mockFi.version = '0';
+      mockFi.version = FeedIndex.fromBigInt(0n).toString();
+
       fm.fileInfoList.push(mockFi);
+
+      // also ensure ownerFeedList has this topic so forgetFile won’t throw
+      const hasTopic = (fm as any).ownerFeedList.some((w: any) => w.topic.toString() === mockFi.topic.toString());
+      if (!hasTopic) {
+        (fm as any).ownerFeedList.push({ topic: mockFi.topic });
+      }
     });
 
     it('trashFile should mark a file as trashed, persist and emit FILE_TRASHED', async () => {
@@ -470,7 +478,7 @@ describe('FileManager', () => {
       expect(mockFi.status).toBe(FileStatus.Active);
       expect(mockFi.timestamp).toBe(0);
 
-      // spy, but do NOT mockResolve—let the real work happen
+      // spies (let real implementation run)
       const uploadSpy = jest.spyOn(fm as any, 'uploadFileInfo');
       const saveSpy = jest.spyOn(fm as any, 'saveFileInfoFeed');
       const handler = jest.fn();
@@ -490,15 +498,19 @@ describe('FileManager', () => {
       expect(handler).toHaveBeenCalledWith({ fileInfo: mockFi });
     });
 
-    it('recoverFile should mark a trashed file active, persist and emit FILE_RESTORED', async () => {
-      // pre-trash
-      mockFi.status = FileStatus.Trashed;
+    it('recoverFile should mark a trashed file active, persist and emit FILE_RECOVERED', async () => {
+      await fm.trashFile(mockFi);
+      expect(mockFi.status).toBe(FileStatus.Trashed);
       const beforeTs = mockFi.timestamp!;
+
+      // Make system time advance for recoverFile() which uses new Date().getTime()
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(beforeTs + 1)); // any strictly later time
 
       const uploadSpy = jest.spyOn(fm as any, 'uploadFileInfo');
       const saveSpy = jest.spyOn(fm as any, 'saveFileInfoFeed');
       const handler = jest.fn();
-      fm.emitter.on(FileManagerEvents.FILE_RESTORED, handler);
+      fm.emitter.on(FileManagerEvents.FILE_RECOVERED, handler);
 
       await fm.recoverFile(mockFi);
 
@@ -512,6 +524,8 @@ describe('FileManager', () => {
 
       // event
       expect(handler).toHaveBeenCalledWith({ fileInfo: mockFi });
+
+      jest.useRealTimers();
     });
 
     it('forgetFile should remove file from lists, persist owner-feed, and emit FILE_FORGOTTEN', async () => {
@@ -523,7 +537,9 @@ describe('FileManager', () => {
 
       // gone from both in-memory lists
       expect(fm.fileInfoList).not.toContain(mockFi);
-      expect((fm as any).ownerFeedList.find((f: any) => f.topic === mockFi.topic)).toBeUndefined();
+      expect(
+        (fm as any).ownerFeedList.find((f: any) => f.topic.toString() === mockFi.topic.toString()),
+      ).toBeUndefined();
 
       // persisted owner-feed
       expect(saveOwnerSpy).toHaveBeenCalled();
@@ -559,7 +575,7 @@ describe('FileManager', () => {
     it('should send event after upload happens', async () => {
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
       const emitter = new EventEmitterBase();
-      const uploadHandler = jest.fn((_) => {});
+      const uploadHandler = jest.fn((_args) => {});
 
       const fm = await createInitializedFileManager(bee, emitter);
       fm.emitter.on(FileManagerEvents.FILE_UPLOADED, uploadHandler);
@@ -572,6 +588,12 @@ describe('FileManager', () => {
       });
 
       const actPublisher = (await bee.getNodeAddresses()).publicKey.toCompressedHex();
+
+      // Pin system time so fileInfo.timestamp is deterministic (upload uses Date.now())
+      jest.useFakeTimers();
+      const fixedNow = 1_755_158_248_500; // any number you like
+      jest.setSystemTime(new Date(fixedNow));
+
       const expectedFileInfo = {
         batchId: MOCK_BATCH_ID,
         customMetadata: undefined,
@@ -587,16 +609,16 @@ describe('FileManager', () => {
         redundancyLevel: undefined,
         shared: false,
         status: FileStatus.Active,
-        timestamp: expect.any(Number),
-        topic: expect.any(String),
+        timestamp: fixedNow, // ← was expect.any(Number)
+        topic: expect.any(String), // leave topic flexible
       } as FileInfo;
 
       await fm.upload({ info: { batchId: new BatchId(MOCK_BATCH_ID), name: 'tests' }, path: './tests' });
       fm.emitter.off(FileManagerEvents.FILE_UPLOADED, uploadHandler);
 
-      expect(uploadHandler).toHaveBeenCalledWith({
-        fileInfo: expectedFileInfo,
-      });
+      expect(uploadHandler).toHaveBeenCalledWith({ fileInfo: expectedFileInfo });
+
+      jest.useRealTimers();
     });
 
     it('should send an event after the fileManager is initialized', async () => {

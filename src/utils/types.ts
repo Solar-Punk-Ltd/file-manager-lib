@@ -71,13 +71,13 @@ export interface FileManager {
 
   /**
    * Recover a previously trashed file back into your live list.
-   * @param fileInfo - The file info describing the file to restore.
-   * @returns A promise that resolves when the file has been restored.
+   * @param fileInfo - The file info describing the file to recover.
+   * @returns A promise that resolves when the file has been recovered.
    */
   recoverFile(fileInfo: FileInfo): Promise<void>;
 
   /**
-   * Hard-delete: permanently destroy the file’s postage batch and forget all its data.
+   * Hard‐delete: remove from your owner‐feed and in-memory lists.
    * @param fileInfo - The file info describing the file to forget.
    * @returns A promise that resolves when the file has been forgotten.
    */
