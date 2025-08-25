@@ -22,7 +22,7 @@ import {
 import { Optional } from 'cafe-utility';
 
 import { FileManagerBase } from '../src/fileManager';
-import { OWNER_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
+import { ADMIN_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
 import { EventEmitter } from '../src/utils/eventEmitter';
 import { FileManagerEvents } from '../src/utils/events';
 import { DriveInfo, FileInfo } from '../src/utils/types';
@@ -98,6 +98,7 @@ export function createMockDriveInfo(): DriveInfo {
         eGranteeRef: SWARM_ZERO_ADDRESS.toString(),
       },
     ],
+    isAdmin: false,
   };
 }
 
@@ -207,7 +208,7 @@ export function loadStampListMock(): jest.SpyInstance {
       utilization: 5,
       usable: true,
       usageText: '2%',
-      label: OWNER_STAMP_LABEL,
+      label: ADMIN_STAMP_LABEL,
       depth: 22,
       amount: '990' as NumberString,
       bucketDepth: 30,

@@ -1,7 +1,7 @@
 import { BatchId, BeeDev } from '@ethersphere/bee-js';
 
 import { buyStamp } from '../../src/utils/common';
-import { OWNER_STAMP_LABEL } from '../../src/utils/constants';
+import { ADMIN_STAMP_LABEL } from '../../src/utils/constants';
 import { BEE_URL, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, MOCK_SIGNER } from '../utils';
 
 let globalOwnerStamp: BatchId | null = null;
@@ -14,7 +14,7 @@ export async function ensureOwnerStamp(): Promise<{ bee: BeeDev; ownerStamp: Bat
 
   if (!globalOwnerStamp) {
     try {
-      globalOwnerStamp = await buyStamp(globalBee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, OWNER_STAMP_LABEL);
+      globalOwnerStamp = await buyStamp(globalBee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, ADMIN_STAMP_LABEL);
     } catch (error: any) {
       console.error('Failed to create/find owner stamp:', error);
       throw error;

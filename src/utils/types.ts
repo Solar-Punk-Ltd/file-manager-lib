@@ -37,6 +37,7 @@ export interface FileManager {
   createDrive(
     batchId: string | BatchId,
     name: string,
+    isAdmin: boolean,
     uploadOptions?: RedundantUploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<void>;
@@ -196,6 +197,7 @@ export interface DriveInfo {
   owner: string | EthAddress;
   name: string;
   redundancyLevel: RedundancyLevel;
+  isAdmin: boolean;
   infoFeedList?: WrappedFileInfoFeed[];
 }
 

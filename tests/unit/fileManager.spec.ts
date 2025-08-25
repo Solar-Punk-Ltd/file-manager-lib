@@ -12,7 +12,7 @@ import {
 
 import { FileManagerBase } from '../../src/fileManager';
 import { getFeedData } from '../../src/utils/common';
-import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
+import { ADMIN_STAMP_LABEL, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { DriveError, SignerError } from '../../src/utils/errors';
 import { EventEmitterBase } from '../../src/utils/eventEmitter';
 import { FileManagerEvents } from '../../src/utils/events';
@@ -223,7 +223,7 @@ describe('FileManager', () => {
   describe('upload', () => {
     it('should call uploadFilesFromDirectory', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive');
+      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
       const di = fm.getDrives()[0];
 
       const uploadFileOrDirectorySpy = createUploadFilesFromDirectorySpy('1');
@@ -242,7 +242,7 @@ describe('FileManager', () => {
 
     it('should call uploadFileOrDirectory if previewPath is provided', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive');
+      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
       const di = fm.getDrives()[0];
       const uploadFileOrDirectorySpy = createUploadFilesFromDirectorySpy('1');
       const uploadFileOrDirectoryPreviewSpy = createUploadFilesFromDirectorySpy('6');
@@ -259,7 +259,7 @@ describe('FileManager', () => {
 
     it('should throw error if infoTopic and historyRef are not provided at the same time', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive');
+      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
       const di = fm.getDrives()[0];
 
       await expect(async () => {
@@ -275,7 +275,7 @@ describe('FileManager', () => {
 
     it('should not add duplicate entries when re-uploading same topic', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive');
+      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
       const di = fm.getDrives()[0];
       createUploadFilesFromDirectorySpy('1');
       createUploadFileSpy('2');
@@ -438,9 +438,22 @@ describe('FileManager', () => {
   });
 
   describe('drive handling', () => {
+    it('createDrive should create an admin drive', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', true);
+      const di = fm.getDrives()[0];
+      expect(di).toBeDefined();
+      expect(di.name).toBe(ADMIN_STAMP_LABEL);
+      expect(di.batchId.toString()).toBe(MOCK_BATCH_ID.toString());
+      expect(di.id.toString()).toHaveLength(64);
+      expect(di.owner).toBe(MOCK_SIGNER.publicKey().address().toString());
+      expect(di.infoFeedList).toStrictEqual(undefined);
+      expect(di.isAdmin).toBe(true);
+    });
+
     it('createDrive should create a new drive', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive');
+      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
       const di = fm.getDrives()[0];
       expect(di).toBeDefined();
       expect(di.name).toBe('Test Drive');
@@ -452,12 +465,12 @@ describe('FileManager', () => {
 
     it('createDrive should throw error if drive with same name or batchId exists', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive');
-      await expect(fm.createDrive(MOCK_BATCH_ID, 'New Drive')).rejects.toThrow(
+      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
+      await expect(fm.createDrive(MOCK_BATCH_ID, 'New Drive', false)).rejects.toThrow(
         new DriveError(`Drive with name "New Drive" or batchId "${MOCK_BATCH_ID}" already exists`),
       );
       await expect(
-        fm.createDrive('aa0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51', 'Test Drive'),
+        fm.createDrive('aa0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51', 'Test Drive', false),
       ).rejects.toThrow(
         new DriveError(
           `Drive with name "Test Drive" or batchId "aa0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51" already exists`,
@@ -465,10 +478,18 @@ describe('FileManager', () => {
       );
     });
 
+    it('createDrive should throw error if trying to create a new admin drive', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(MOCK_BATCH_ID, ADMIN_STAMP_LABEL, true);
+      await expect(fm.createDrive(MOCK_BATCH_ID, 'New Drive', true)).rejects.toThrow(
+        new DriveError(`Admin drive already exists`),
+      );
+    });
+
     it('destroyDrive should call diluteBatch with batchId and MAX_DEPTH', async () => {
       const diluteSpy = jest.spyOn(Bee.prototype, 'diluteBatch').mockResolvedValue(new BatchId('1234'.repeat(16)));
       const fm = await createInitializedFileManager();
-      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive');
+      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
       const di = fm.getDrives()[0];
 
       await fm.destroyDrive(di);
@@ -476,16 +497,22 @@ describe('FileManager', () => {
       expect(diluteSpy).toHaveBeenCalledWith(di.batchId, STAMPS_DEPTH_MAX);
     });
 
-    it('destroyDrive should throw error if trying to destroy OwnerFeedStamp', async () => {
+    it('destroyDrive should throw error if trying to destroy Admin drive / stamp', async () => {
       const ownerBatchId = new BatchId('3456'.repeat(16));
       const fm = await createInitializedFileManager();
-      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive');
+      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
       const di = fm.getDrives()[0];
       di.batchId = ownerBatchId;
 
       await expect(async () => {
         await fm.destroyDrive(di);
-      }).rejects.toThrow(`Cannot destroy owner stamp, batchId: ${ownerBatchId.toString()}`);
+      }).rejects.toThrow(`Cannot destroy admin drive / stamp, batchId: ${ownerBatchId.toString()}`);
+
+      di.isAdmin = true;
+      di.batchId = MOCK_BATCH_ID;
+      await expect(async () => {
+        await fm.destroyDrive(di);
+      }).rejects.toThrow(`Cannot destroy admin drive / stamp, batchId: ${MOCK_BATCH_ID.toString()}`);
     });
   });
 
@@ -493,7 +520,7 @@ describe('FileManager', () => {
     it('should throw grantee list not found if the topic not found in driveList', async () => {
       const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
       const fm = await createInitializedFileManager(bee);
-      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive');
+      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
       const di = fm.getDrives()[0];
 
       const actPublisher = (await bee.getNodeAddresses()).publicKey.toCompressedHex();
@@ -524,7 +551,7 @@ describe('FileManager', () => {
 
       const fm = await createInitializedFileManager(bee, emitter);
       fm.emitter.on(FileManagerEvents.FILE_UPLOADED, uploadHandler);
-      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive');
+      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
       const di = fm.getDrives()[0];
       createUploadFilesFromDirectorySpy('1');
 

@@ -135,7 +135,7 @@ describe('FileManager initialization', () => {
 
     const batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'initstamp');
 
-    await fileManager.createDrive(batchId, 'initialization');
+    await fileManager.createDrive(batchId, 'initialization', false);
     const tmpDrive = fileManager.getDrives().find((d) => d.name === 'initialization');
     expect(tmpDrive).toBeDefined();
     drive = tmpDrive!;
@@ -236,7 +236,7 @@ describe('FileManager drive handling', () => {
       driveId = driveInfo.id.toString();
     });
 
-    await fileManager.createDrive(batchId, 'Test Drive');
+    await fileManager.createDrive(batchId, 'Test Drive', false);
     const drives = fileManager.getDrives();
     expect(drives.length).toBeGreaterThanOrEqual(1);
     const testDrive = drives.find((d) => d.name === 'Test Drive');
@@ -246,7 +246,7 @@ describe('FileManager drive handling', () => {
     expect(fileManager.fileInfoList.filter((fi) => fi.driveId === driveId)).toHaveLength(0);
   });
 
-  it('should throw an error when trying to destroy the owner stamp', async () => {
+  it('should throw an error when trying to destroy the admin drive/ stamp', async () => {
     await expect(
       fileManager.destroyDrive({
         batchId: ownerStampId!.toString(),
@@ -254,14 +254,28 @@ describe('FileManager drive handling', () => {
         name: 'Owner Drive',
         owner: MOCK_SIGNER.publicKey().address().toString(),
         redundancyLevel: RedundancyLevel.OFF,
+        isAdmin: false,
       }),
-    ).rejects.toThrow(new StampError(`Cannot destroy owner stamp, batchId: ${ownerStampId!.toString()}`));
+    ).rejects.toThrow(new StampError(`Cannot destroy admin drive / stamp, batchId: ${ownerStampId!.toString()}`));
+
+    await expect(
+      fileManager.destroyDrive({
+        batchId: new BatchId('6789'.repeat(16)).toString(),
+        id: 'mockID',
+        name: 'Owner Drive',
+        owner: MOCK_SIGNER.publicKey().address().toString(),
+        redundancyLevel: RedundancyLevel.OFF,
+        isAdmin: true,
+      }),
+    ).rejects.toThrow(
+      new StampError(`Cannot destroy admin drive / stamp, batchId: ${new BatchId('6789'.repeat(16)).toString()}`),
+    );
   });
 
   // todo: not possible to test with devnode: gives 501
   // it('should destroy the given drive', async () => {
   //   const batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'toDestroyBatch');
-  //   await fileManager.createDrive(batchId, 'Drive to destroy');
+  //   await fileManager.createDrive(batchId, 'Drive to destroy', false);
   //   const initialDrivesLength = fileManager.getDrives().length;
 
   //   const driveToDestroy = fileManager.getDrives().find((d) => d.name === 'Drive to destroy');
@@ -303,7 +317,7 @@ describe('FileManager listFiles', () => {
     fileManager = await createInitializedFileManager(bee);
     actPublisher = (await bee.getNodeAddresses())!.publicKey;
 
-    await fileManager.createDrive(batchId, 'listFiles');
+    await fileManager.createDrive(batchId, 'listFiles', false);
     const tmpDrive = fileManager.getDrives().find((d) => d.name === 'listFiles');
     expect(tmpDrive).toBeDefined();
     drive = tmpDrive!;
@@ -464,7 +478,7 @@ describe('FileManager upload', () => {
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'uploadIntegrationStamp');
     fileManager = await createInitializedFileManager(bee);
 
-    await fileManager.createDrive(batchId, 'upload');
+    await fileManager.createDrive(batchId, 'upload', false);
     const tmpDrive = fileManager.getDrives().find((d) => d.name === 'upload');
     expect(tmpDrive).toBeDefined();
     drive = tmpDrive!;
@@ -661,7 +675,7 @@ describe('FileManager download', () => {
     fileManager = await createInitializedFileManager(bee);
     actPublisher = (await bee.getNodeAddresses())!.publicKey;
 
-    await fileManager.createDrive(batchId, 'download');
+    await fileManager.createDrive(batchId, 'download', false);
     const tmpDrive = fileManager.getDrives().find((d) => d.name === 'download');
     expect(tmpDrive).toBeDefined();
     drive = tmpDrive!;
@@ -773,7 +787,7 @@ describe('FileManager version control', () => {
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'versioningStamp');
     fileManager = await createInitializedFileManager(bee);
 
-    await fileManager.createDrive(batchId, 'versioncontrol');
+    await fileManager.createDrive(batchId, 'versioncontrol', false);
     const tmpDrive = fileManager.getDrives().find((d) => d.name === 'versioncontrol');
     expect(tmpDrive).toBeDefined();
     drive = tmpDrive!;
@@ -1065,7 +1079,7 @@ describe('FileManager End-to-End User Workflow', () => {
     actPublisher = (await bee.getNodeAddresses())!.publicKey;
 
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'e2eStamp');
-    await fileManager.createDrive(batchId, 'e2e');
+    await fileManager.createDrive(batchId, 'e2e', false);
     const tmpDrive = fileManager.getDrives().find((d) => d.name === 'e2e');
     expect(tmpDrive).toBeDefined();
     drive = tmpDrive!;

@@ -31,7 +31,7 @@ import { generateRandomBytes, getFeedData, getWrappedData, settlePromises } from
 
 import {
   FEED_INDEX_ZERO,
-  OWNER_STAMP_LABEL,
+  ADMIN_STAMP_LABEL,
   REFERENCE_LIST_TOPIC,
   SHARED_INBOX_TOPIC,
   SWARM_ZERO_ADDRESS,
@@ -63,11 +63,12 @@ import { getForksMap, loadMantaray } from './utils/mantaray';
 import { downloadBrowser } from './download/download.browser';
 import { downloadNode } from './download/download.node';
 
+// TODO: check everything for: push to list but upload fails ? --> local inconsistency
 export class FileManagerBase implements FileManager {
   private bee: Bee;
   private signer: PrivateKey;
   private nodeAddresses: NodeAddresses | undefined = undefined;
-  private ownerStamp: PostageBatch | undefined = undefined;
+  private adminStamp: PostageBatch | undefined = undefined;
   private driveListNextIndex: bigint = 0n;
   private driveListTopic: Topic = NULL_TOPIC;
   private driveList: DriveInfo[] = [];
@@ -107,10 +108,13 @@ export class FileManagerBase implements FileManager {
     try {
       await this.verifySupportedVersions();
       await this.initNodeAddresses();
-      await this.getOwnerStamp();
-      await this.initDriveListTopic();
-      await this.initDriveList();
-      await this.initFileInfoList();
+
+      const adminStamp = await this.getAdminStamp();
+      if (adminStamp) {
+        await this.initDriveListTopic();
+        await this.initDriveList();
+        await this.initFileInfoList();
+      }
 
       this.isInitialized = true;
       this.emitter.emit(FileManagerEvents.FILEMANAGER_INITIALIZED, true);
@@ -118,9 +122,9 @@ export class FileManagerBase implements FileManager {
       console.error(`Failed to initialize FileManager: ${error.message || error}`);
       this.isInitialized = false;
       this.emitter.emit(FileManagerEvents.FILEMANAGER_INITIALIZED, false);
+    } finally {
+      this.isInitializing = false;
     }
-
-    this.isInitializing = false;
   }
 
   // verifies if the bee and bee-api versions are supported
@@ -147,11 +151,6 @@ export class FileManagerBase implements FileManager {
       throw new SignerError('Node addresses not found');
     }
 
-    const ownerStamp = await this.getOwnerStamp();
-    if (!ownerStamp) {
-      throw new StampError('Owner stamp not found');
-    }
-
     const feedTopicData = await getFeedData(
       this.bee,
       REFERENCE_LIST_TOPIC,
@@ -163,13 +162,18 @@ export class FileManagerBase implements FileManager {
     if (topicRef.equals(SWARM_ZERO_ADDRESS)) {
       this.driveListTopic = new Topic(generateRandomBytes(Topic.LENGTH));
 
-      const topicDataRes = await this.bee.uploadData(ownerStamp.batchID, this.driveListTopic.toUint8Array(), {
+      const adminStamp = await this.getAdminStamp();
+      if (!adminStamp) {
+        throw new StampError('Admin stamp not found');
+      }
+
+      const topicDataRes = await this.bee.uploadData(adminStamp.batchID, this.driveListTopic.toUint8Array(), {
         act: true,
       });
 
       const fw = this.bee.makeFeedWriter(REFERENCE_LIST_TOPIC.toUint8Array(), this.signer);
-      await fw.uploadReference(ownerStamp.batchID, topicDataRes.reference, { index: FEED_INDEX_ZERO });
-      await fw.uploadReference(ownerStamp.batchID, topicDataRes.historyAddress.getOrThrow(), {
+      await fw.uploadReference(adminStamp.batchID, topicDataRes.reference, { index: FEED_INDEX_ZERO });
+      await fw.uploadReference(adminStamp.batchID, topicDataRes.historyAddress.getOrThrow(), {
         index: FeedIndex.fromBigInt(1n),
       });
     } else {
@@ -188,7 +192,7 @@ export class FileManagerBase implements FileManager {
       this.driveListTopic = new Topic(topicBytes.toUint8Array());
     }
 
-    console.debug('Owner feed topic successfully initialized');
+    console.debug('Admin feed topic successfully initialized');
   }
 
   // fetches the latest list of fileinfo from the drive list topic
@@ -237,20 +241,16 @@ export class FileManagerBase implements FileManager {
       throw new SignerError('Node addresses not found');
     }
 
-    let topics: string[] = [];
-    for (const drive of this.driveList.filter((d) => d.infoFeedList && d.infoFeedList.length > 0)) {
-      // TODO: already checked the condition
-      if (drive.infoFeedList) {
-        for (const feed of drive.infoFeedList) {
-          topics.push(feed.topic.toString());
+    const feedDataPromises: Promise<FeedResultWithIndex>[] = [];
+    this.driveList.forEach((d) => {
+      if (d.infoFeedList && d.infoFeedList.length > 0) {
+        for (const feed of d.infoFeedList) {
+          feedDataPromises.push(
+            getFeedData(this.bee, new Topic(feed.topic), this.signer.publicKey().address().toString()),
+          );
         }
       }
-    }
-
-    const feedDataPromises: Promise<FeedResultWithIndex>[] = [];
-    for (const topic of topics) {
-      feedDataPromises.push(getFeedData(this.bee, new Topic(topic), this.signer.publicKey().address().toString()));
-    }
+    });
 
     const rawDataPromises: Promise<Bytes>[] = [];
     await settlePromises<FeedResultWithIndex>(feedDataPromises, (value) => {
@@ -284,6 +284,7 @@ export class FileManagerBase implements FileManager {
       id: d.id.toString(),
       batchId: d.batchId.toString(),
       owner: d.owner.toString(),
+      isAdmin: d.isAdmin,
       redundancyLevel: d.redundancyLevel,
     }));
   }
@@ -291,21 +292,34 @@ export class FileManagerBase implements FileManager {
   async createDrive(
     batchId: string | BatchId,
     name: string,
+    isAdmin: boolean,
     uploadOptions?: RedundantUploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
-    const existingDrive = this.driveList.find((d) => d.name === name || d.batchId.toString() === batchId.toString());
-    if (existingDrive) {
-      throw new DriveError(`Drive with name "${name}" or batchId "${batchId}" already exists`);
+    let driveName = name;
+    this.driveList.forEach((d) => {
+      if (isAdmin && (d.isAdmin || this.adminStamp)) {
+        throw new DriveError('Admin drive already exists');
+      }
+
+      if (d.name === driveName || d.batchId.toString() === batchId.toString()) {
+        throw new DriveError(`Drive with name "${driveName}" or batchId "${batchId}" already exists`);
+      }
+    });
+
+    if (isAdmin) {
+      console.debug('Creating admin drive with name: ', ADMIN_STAMP_LABEL);
+      driveName = ADMIN_STAMP_LABEL;
     }
 
     const driveInfo: DriveInfo = {
       id: new Identifier(generateRandomBytes(Identifier.LENGTH)).toString(),
-      name,
+      name: driveName,
       batchId: batchId.toString(),
       owner: this.signer.publicKey().address().toString(),
       redundancyLevel: uploadOptions?.redundancyLevel ?? RedundancyLevel.OFF,
       infoFeedList: [],
+      isAdmin: isAdmin ?? false,
     };
     this.driveList.push(driveInfo);
 
@@ -573,7 +587,7 @@ export class FileManagerBase implements FileManager {
     }
   }
 
-  // TODO: this can be reused maybe
+  // TODO: unwrap and payload parsing can be reused maybe
   private async fetchFileInfo(fi: FileInfo, feeData: FeedResultWithIndex, unwrap: boolean): Promise<FileInfo> {
     if (feeData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
       throw new FileInfoError(`File info not found for topic: ${fi.topic}`);
@@ -605,16 +619,15 @@ export class FileManagerBase implements FileManager {
     return fileInfo;
   }
 
-  // TODO: owner drive creation similar to user drive creation ?
   private async saveDriveList(requestOptions?: BeeRequestOptions): Promise<void> {
-    const ownerStamp = await this.getOwnerStamp();
-    if (!ownerStamp) {
-      throw new StampError('Owner stamp not found');
+    const adminStamp = await this.getAdminStamp();
+    if (!adminStamp) {
+      throw new StampError('Admin stamp not found');
     }
 
     try {
       const driveListUploadResult = await this.bee.uploadData(
-        ownerStamp.batchID,
+        adminStamp.batchID,
         JSON.stringify(this.driveList),
         {
           act: true,
@@ -624,14 +637,14 @@ export class FileManagerBase implements FileManager {
 
       const fw = this.bee.makeFeedWriter(this.driveListTopic.toUint8Array(), this.signer, requestOptions);
       const driveListData = await this.bee.uploadData(
-        ownerStamp.batchID,
+        adminStamp.batchID,
         JSON.stringify({
           reference: driveListUploadResult.reference.toString(),
           historyRef: driveListUploadResult.historyAddress.getOrThrow().toString(),
         }),
       );
 
-      await fw.uploadReference(ownerStamp.batchID, driveListData.reference, {
+      await fw.uploadReference(adminStamp.batchID, driveListData.reference, {
         index: FeedIndex.fromBigInt(this.driveListNextIndex),
       });
 
@@ -642,27 +655,27 @@ export class FileManagerBase implements FileManager {
     }
   }
 
-  // TODO: this.ownerDrive?
-  private async getOwnerStamp(): Promise<PostageBatch | undefined> {
-    if (this.ownerStamp) return this.ownerStamp;
+  private async getAdminStamp(): Promise<PostageBatch | undefined> {
+    if (this.adminStamp) return this.adminStamp;
 
     try {
-      const ownerStamp = (await this.bee.getPostageBatches()).find((s) => s.label === OWNER_STAMP_LABEL);
-      if (ownerStamp && ownerStamp.usable) {
-        this.ownerStamp = ownerStamp;
+      const adminStamp = (await this.bee.getPostageBatches()).find((s) => s.label === ADMIN_STAMP_LABEL);
+      if (adminStamp && adminStamp.usable) {
+        this.adminStamp = adminStamp;
       }
-      return ownerStamp;
+
+      return adminStamp;
     } catch (error: any) {
-      console.error(`Failed to get owner stamp: ${error}`);
+      console.error(`Failed to get admin stamp: ${error}`);
       return;
     }
   }
 
-  // TODO: fix implementation + DriveError
+  // TODO: DriveError
   async destroyDrive(drive: DriveInfo): Promise<void> {
-    const ownerStamp = await this.getOwnerStamp();
-    if (ownerStamp && new BatchId(drive.batchId).equals(ownerStamp.batchID)) {
-      throw new StampError(`Cannot destroy owner stamp, batchId: ${drive.batchId.toString()}`);
+    const adminStamp = await this.getAdminStamp();
+    if (drive.isAdmin || (adminStamp && new BatchId(drive.batchId).equals(adminStamp.batchID))) {
+      throw new StampError(`Cannot destroy admin drive / stamp, batchId: ${drive.batchId.toString()}`);
     }
     const driveIx = this.driveList.findIndex((d) => d.id.toString() === drive.id.toString());
     if (driveIx === -1) {
