@@ -775,6 +775,9 @@ export class FileManagerBase implements FileManager {
         console.debug('Error received in shared inbox: ', e.message);
         throw new SubscribtionError(e.message);
       },
+      onClose: () => {
+        console.debug('Shared inbox closed');
+      },
     });
   }
 
