@@ -20,6 +20,7 @@ export function getForksMap(root: MantarayNode, paths?: string[]): Record<string
         filteredMap[path] = nodesMap[path];
       }
     }
+
     return filteredMap;
   }
 

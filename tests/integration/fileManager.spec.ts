@@ -16,7 +16,7 @@ import path from 'path';
 import { FileManagerBase } from '../../src/fileManager';
 import { buyStamp, getFeedData } from '../../src/utils/common';
 import { FEED_INDEX_ZERO, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
-import { FileError, FileInfoError, GranteeError, StampError } from '../../src/utils/errors';
+import { DriveError, FileError, FileInfoError, GranteeError, StampError } from '../../src/utils/errors';
 import { FileManagerEvents } from '../../src/utils/events';
 import { DriveInfo, FileInfo, FileStatus } from '../../src/utils/types';
 import { createInitializedFileManager } from '../mockHelpers';
@@ -256,7 +256,7 @@ describe('FileManager drive handling', () => {
         redundancyLevel: RedundancyLevel.OFF,
         isAdmin: false,
       }),
-    ).rejects.toThrow(new StampError(`Cannot destroy admin drive / stamp, batchId: ${ownerStampId!.toString()}`));
+    ).rejects.toThrow(new DriveError(`Cannot destroy admin drive / stamp, batchId: ${ownerStampId!.toString()}`));
 
     await expect(
       fileManager.destroyDrive({
@@ -268,7 +268,7 @@ describe('FileManager drive handling', () => {
         isAdmin: true,
       }),
     ).rejects.toThrow(
-      new StampError(`Cannot destroy admin drive / stamp, batchId: ${new BatchId('6789'.repeat(16)).toString()}`),
+      new DriveError(`Cannot destroy admin drive / stamp, batchId: ${new BatchId('6789'.repeat(16)).toString()}`),
     );
   });
 

@@ -320,7 +320,7 @@ export class FileManagerBase implements FileManager {
       owner: this.signer.publicKey().address().toString(),
       redundancyLevel: uploadOptions?.redundancyLevel ?? RedundancyLevel.OFF,
       infoFeedList: [],
-      isAdmin: isAdmin ?? false,
+      isAdmin,
     };
     this.driveList.push(driveInfo);
 
@@ -364,7 +364,6 @@ export class FileManagerBase implements FileManager {
     return await downloadBrowser(Object.values(resources), this.bee.url, 'bytes');
   }
 
-  // TODO: new version needs to call handleGrantees?
   async upload(
     driveInfo: DriveInfo,
     fileOptions: FileInfoOptions,
@@ -461,6 +460,7 @@ export class FileManagerBase implements FileManager {
         topic: topic.toString(),
       });
     } else {
+      // TODO: new version needs to call handleGrantees:
       // overwrite the existing grantee reference if it exists, as they do not have access to the new version
       this.driveList[driveIndex].infoFeedList[infoIx] = {
         topic: topic.toString(),
@@ -754,11 +754,10 @@ export class FileManagerBase implements FileManager {
     }
   }
 
-  // TODO: DriveError
   async destroyDrive(drive: DriveInfo): Promise<void> {
     const adminStamp = await this.getAdminStamp();
     if (drive.isAdmin || (adminStamp && new BatchId(drive.batchId).equals(adminStamp.batchID))) {
-      throw new StampError(`Cannot destroy admin drive / stamp, batchId: ${drive.batchId.toString()}`);
+      throw new DriveError(`Cannot destroy admin drive / stamp, batchId: ${drive.batchId.toString()}`);
     }
     const driveIx = this.driveList.findIndex((d) => d.id.toString() === drive.id.toString());
     if (driveIx === -1) {
