@@ -53,6 +53,7 @@ import {
   FileInfo,
   FileManager,
   FileInfoOptions,
+  FileStatus,
   ReferenceWithHistory,
   ShareItem,
   DriveInfo,
@@ -445,6 +446,7 @@ export class FileManagerBase implements FileManager {
       version,
       customMetadata: fileOptions.info.customMetadata,
       redundancyLevel: driveInfo.redundancyLevel,
+      status: FileStatus.Active,
     };
 
     await this.saveFileInfoFeed(fileInfo, requestOptions);
@@ -453,15 +455,15 @@ export class FileManagerBase implements FileManager {
       this.driveList[driveIndex].infoFeedList = [];
     }
 
-    const infoIx = this.driveList[driveIndex].infoFeedList.findIndex((wf) => wf.topic === topic);
+    const infoIx = this.driveList[driveIndex].infoFeedList.findIndex((wf) => wf.topic.toString() === topic.toString());
     if (infoIx === -1) {
       this.driveList[driveIndex].infoFeedList.push({
-        topic,
+        topic: topic.toString(),
       });
     } else {
       // overwrite the existing grantee reference if it exists, as they do not have access to the new version
       this.driveList[driveIndex].infoFeedList[infoIx] = {
-        topic,
+        topic: topic.toString(),
         eGranteeRef: undefined,
       };
     }
@@ -653,6 +655,87 @@ export class FileManagerBase implements FileManager {
       // TODO: refactor everywhere to error.message || error
       throw new DriveError(`Failed to save drive list: ${error}`);
     }
+  }
+
+  /**
+   * Soft‐delete: move a file into “trash” (it stays in swarm but is hidden from your live list).
+   */
+  async trashFile(fileInfo: FileInfo): Promise<void> {
+    const fi = this.fileInfoList.find((f) => f.topic.toString() === fileInfo.topic.toString());
+    if (!fi) {
+      throw new FileInfoError(`Corresponding File Info doesnt exist: ${fileInfo.name}`);
+    }
+
+    if (fi.status === FileStatus.Trashed) {
+      throw new FileInfoError(`File already Thrashed: ${fileInfo.name}`);
+    }
+
+    if (fi.version === undefined) {
+      throw new FileInfoError(`File version is undefined: ${fileInfo.name}`);
+    }
+
+    fi.version = new FeedIndex(fi.version).next().toString();
+    fi.status = FileStatus.Trashed;
+    fi.timestamp = new Date().getTime();
+
+    await this.saveFileInfoFeed(fi);
+
+    this.emitter.emit(FileManagerEvents.FILE_TRASHED, { fileInfo: fi });
+  }
+
+  /**
+   * Recover a previously trashed file.
+   */
+  async recoverFile(fileInfo: FileInfo): Promise<void> {
+    const fi = this.fileInfoList.find((f) => f.topic === fileInfo.topic);
+    if (!fi) {
+      throw new FileInfoError(`Corresponding File Info doesnt exist: ${fileInfo.name}`);
+    }
+
+    if (fi.status !== FileStatus.Trashed) {
+      throw new FileInfoError(`Non-Thrashed files cannot be restored: ${fileInfo.name}`);
+    }
+
+    if (fi.version === undefined) {
+      throw new FileInfoError(`File version is undefined: ${fileInfo.name}`);
+    }
+
+    fi.version = new FeedIndex(fi.version).next().toString();
+    fi.status = FileStatus.Active;
+    fi.timestamp = new Date().getTime();
+
+    await this.saveFileInfoFeed(fi);
+    this.emitter.emit(FileManagerEvents.FILE_RECOVERED, { fileInfo: fi });
+  }
+
+  /**
+   * Hard‐delete: remove from your owner‐feed and in-memory lists.
+   * The underlying Swarm data remains, but it no longer appears in your live list.
+   */
+  async forgetFile(fileInfo: FileInfo): Promise<void> {
+    const topicStr = fileInfo.topic.toString();
+
+    const fiIndex = this.fileInfoList.findIndex((f) => f.topic.toString() === topicStr);
+    if (fiIndex === -1) {
+      throw new FileInfoError(`File info not found for name: ${fileInfo.name}`);
+    }
+
+    const driveIndex = this.driveList.findIndex((d) => d.id.toString() === fileInfo.driveId.toString());
+    if (driveIndex === -1 || this.driveList[driveIndex].infoFeedList === undefined) {
+      throw new FileInfoError(`Drive or file feed not found for name: ${fileInfo.name}`);
+    }
+
+    const infoIx = this.driveList[driveIndex].infoFeedList.findIndex((wf) => wf.topic.toString() === topicStr);
+    if (infoIx === -1) {
+      throw new FileInfoError(`File not found for name: ${fileInfo.name} and topic: ${topicStr}`);
+    }
+
+    this.fileInfoList.splice(fiIndex, 1);
+    this.driveList[driveIndex].infoFeedList.splice(infoIx, 1);
+
+    await this.saveDriveList();
+
+    this.emitter.emit(FileManagerEvents.FILE_FORGOTTEN, { fileInfo });
   }
 
   private async getAdminStamp(): Promise<PostageBatch | undefined> {

@@ -84,6 +84,27 @@ export interface FileManager {
   listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<Record<string, string>>;
 
   /**
+   * Soft-delete: move a file to “trash” (it stays in Swarm but is hidden from your live list).
+   * @param fileInfo - The file info describing the file to trash.
+   * @returns A promise that resolves when the file has been trashed.
+   */
+  trashFile(fileInfo: FileInfo): Promise<void>;
+
+  /**
+   * Recover a previously trashed file back into your live list.
+   * @param fileInfo - The file info describing the file to recover.
+   * @returns A promise that resolves when the file has been recovered.
+   */
+  recoverFile(fileInfo: FileInfo): Promise<void>;
+
+  /**
+   * Hard‐delete: remove from your owner‐feed and in-memory lists.
+   * @param fileInfo - The file info describing the file to forget.
+   * @returns A promise that resolves when the file has been forgotten.
+   */
+  forgetFile(fileInfo: FileInfo): Promise<void>;
+
+  /**
    * Destroys a drive identified by the given batch ID.
    * @param drive - The drive to destroy.
    * @returns A promise that resolves when the drive is destroyed.
@@ -156,6 +177,11 @@ export interface FileManager {
   emitter: EventEmitter;
 }
 
+export enum FileStatus {
+  Active = 'active',
+  Trashed = 'trashed',
+}
+
 export interface FileInfo {
   batchId: string | BatchId;
   file: ReferenceWithHistory;
@@ -170,6 +196,7 @@ export interface FileInfo {
   version?: string | undefined;
   redundancyLevel?: RedundancyLevel;
   customMetadata?: Record<string, string>;
+  status?: FileStatus;
 }
 
 export interface PartialFileInfo

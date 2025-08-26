@@ -18,7 +18,7 @@ import { buyStamp, getFeedData } from '../../src/utils/common';
 import { FEED_INDEX_ZERO, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { FileError, FileInfoError, GranteeError, StampError } from '../../src/utils/errors';
 import { FileManagerEvents } from '../../src/utils/events';
-import { DriveInfo, FileInfo } from '../../src/utils/types';
+import { DriveInfo, FileInfo, FileStatus } from '../../src/utils/types';
 import { createInitializedFileManager } from '../mockHelpers';
 import {
   createWrappedData,
@@ -760,6 +760,123 @@ describe('FileManager download', () => {
       },
     );
     expect(files).toHaveLength(0);
+  });
+});
+
+describe('FileManager file operations', () => {
+  let bee: any;
+  let fileManager: FileManagerBase;
+  let batchId: BatchId;
+  let testFi: any;
+  let drive: DriveInfo;
+  let testFilePath: string;
+  const TEST_NAME = 'trash-restore-forget.txt';
+
+  beforeAll(async () => {
+    const setup = await ensureOwnerStamp();
+    bee = setup.bee;
+    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'fileOpsIntegration');
+    fileManager = await createInitializedFileManager(bee);
+    await fileManager.initialize();
+
+    await fileManager.createDrive(batchId, 'fileoperations', false);
+    const tmpDrive = fileManager.getDrives().find((d) => d.name === 'fileoperations');
+    expect(tmpDrive).toBeDefined();
+    drive = tmpDrive!;
+
+    testFilePath = path.join(__dirname, '../fixtures', TEST_NAME);
+    fs.writeFileSync(testFilePath, 'file ops content');
+    await fileManager.upload(drive, { info: { batchId, name: TEST_NAME }, path: testFilePath });
+
+    testFi = fileManager.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
+    expect(testFi).toBeDefined();
+    expect(testFi.status).toBe(FileStatus.Active);
+  });
+
+  afterAll(() => {
+    fs.rmSync(testFilePath, { force: true });
+  });
+
+  it('should trash a file (soft-delete)', async () => {
+    const initial = fileManager.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
+    const beforeVersion = BigInt(initial.version ?? '0');
+
+    await fileManager.trashFile(initial);
+    expect(initial.status).toBe(FileStatus.Trashed);
+
+    const fm2 = await createInitializedFileManager(bee);
+    await fm2.initialize();
+    const fi2 = fm2.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
+    expect(fi2.status).toBe(FileStatus.Trashed);
+    expect(BigInt(fi2.version!)).toBe(beforeVersion + 1n);
+  });
+
+  it('should recover a previously trashed file', async () => {
+    if (testFi.status !== FileStatus.Trashed) {
+      await fileManager.trashFile(testFi);
+      expect(testFi.status).toBe(FileStatus.Trashed);
+    } else {
+      expect(testFi.status).toBe(FileStatus.Trashed);
+    }
+    const beforeVersion = BigInt(testFi.version!);
+
+    await fileManager.recoverFile(testFi);
+
+    const fm2 = await createInitializedFileManager(bee);
+    await fm2.initialize();
+    const fi2 = fm2.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
+    expect(fi2.status).toBe(FileStatus.Active);
+    expect(BigInt(fi2.version!)).toBe(beforeVersion + 1n);
+  });
+
+  it('should forget (hard-delete) a file', async () => {
+    await fileManager.forgetFile(testFi);
+    expect(fileManager.fileInfoList.find((fi) => fi.name === TEST_NAME)).toBeUndefined();
+
+    const fm2 = await createInitializedFileManager(bee);
+    await fm2.initialize();
+    expect(fm2.fileInfoList.find((fi) => fi.name === TEST_NAME)).toBeUndefined();
+  });
+
+  it('should never duplicate FileInfo entries when trashing/recovering', async () => {
+    const fp = path.join(__dirname, '../fixtures', TEST_NAME);
+    await fileManager.upload(drive, { info: { batchId, name: TEST_NAME }, path: fp });
+
+    const freshFi = fileManager.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
+    const topic = freshFi.topic.toString();
+    expect(fileManager.fileInfoList.filter((fi) => fi.topic.toString() === topic)).toHaveLength(1);
+
+    await fileManager.trashFile(freshFi);
+    expect(freshFi.status).toBe(FileStatus.Trashed);
+
+    await expect(fileManager.trashFile(freshFi)).rejects.toThrow(/File already Thrashed/i);
+
+    await fileManager.recoverFile(freshFi);
+    expect(freshFi.status).toBe(FileStatus.Active);
+
+    await expect(fileManager.recoverFile(freshFi)).rejects.toThrow(/Non-Thrashed files cannot be restored/i);
+
+    expect(fileManager.fileInfoList.filter((fi) => fi.topic.toString() === topic)).toHaveLength(1);
+  });
+
+  it('fileInfoList should never gain duplicate topics when trash/restoring', async () => {
+    const fm = await createInitializedFileManager(bee);
+    await fm.initialize();
+
+    const fi0 = fm.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
+    const topic = fi0.topic.toString();
+    const beforeVer = BigInt(fi0.version!);
+
+    if (fi0.status !== FileStatus.Trashed) {
+      await fm.trashFile(fi0);
+    }
+    await fm.recoverFile(fi0);
+
+    const fm2 = await createInitializedFileManager(bee);
+    await fm2.initialize();
+    const fi2 = fm2.fileInfoList.find((fi) => fi.topic.toString() === topic)!;
+
+    expect(BigInt(fi2.version!)).toBe(beforeVer + 2n);
   });
 });
 
