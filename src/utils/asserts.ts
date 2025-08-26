@@ -45,6 +45,10 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
   if (fi.redundancyLevel !== undefined && typeof fi.redundancyLevel !== 'number') {
     throw new TypeError('redundancyLevel property of FileInfo has to be number!');
   }
+
+  if (fi.status !== undefined && typeof fi.status !== 'string') {
+    throw new TypeError('status property of FileInfo has to be string!');
+  }
 }
 
 export function assertShareItem(value: unknown): asserts value is ShareItem {

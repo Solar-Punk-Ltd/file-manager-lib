@@ -200,13 +200,12 @@ export interface FileInfo {
 }
 
 export interface PartialFileInfo
-  extends Omit<FileInfo, 'owner' | 'actPublisher' | 'file' | 'topic' | 'driveId' | 'batchId'> {
-  owner?: string | EthAddress;
-  actPublisher?: string | PublicKey;
+  extends Omit<
+    FileInfo,
+    'owner' | 'actPublisher' | 'file' | 'topic' | 'driveId' | 'batchId' | 'redundancyLevel' | 'status'
+  > {
   file?: ReferenceWithHistory;
   topic?: string | Topic;
-  driveId?: string | Identifier;
-  batchId?: string | BatchId;
 }
 
 export interface FileInfoOptions {

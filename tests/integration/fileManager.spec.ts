@@ -786,7 +786,7 @@ describe('FileManager file operations', () => {
 
     testFilePath = path.join(__dirname, '../fixtures', TEST_NAME);
     fs.writeFileSync(testFilePath, 'file ops content');
-    await fileManager.upload(drive, { info: { batchId, name: TEST_NAME }, path: testFilePath });
+    await fileManager.upload(drive, { info: { name: TEST_NAME }, path: testFilePath });
 
     testFi = fileManager.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
     expect(testFi).toBeDefined();
@@ -840,7 +840,7 @@ describe('FileManager file operations', () => {
 
   it('should never duplicate FileInfo entries when trashing/recovering', async () => {
     const fp = path.join(__dirname, '../fixtures', TEST_NAME);
-    await fileManager.upload(drive, { info: { batchId, name: TEST_NAME }, path: fp });
+    await fileManager.upload(drive, { info: { name: TEST_NAME }, path: fp });
 
     const freshFi = fileManager.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
     const topic = freshFi.topic.toString();
