@@ -127,7 +127,7 @@ export interface FileManager {
    * @param version - Optional desired version slot as a FeedIndex or hex/string. If omitted, fetches latest.
    * @returns The FileInfo corresponding to the requested version, either cached or fetched.
    */
-  getVersion(fileInfo: FileInfo, version?: FeedIndex): Promise<FileInfo>;
+  getVersion(fileInfo: FileInfo, version?: string | FeedIndex): Promise<FileInfo>;
 
   /**
    * Restore a previous version of a file as the new “head” in your feed.

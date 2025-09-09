@@ -318,11 +318,9 @@ export class FileManagerBase implements FileManager {
     uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
-    if (
-      (infoOptions.info.topic && !uploadOptions?.actHistoryAddress) ||
-      (!infoOptions.info.topic && uploadOptions?.actHistoryAddress)
-    ) {
-      throw new FileInfoError('Options topic and historyRef have to be provided at the same time.');
+    if (uploadOptions && uploadOptions.actHistoryAddress) {
+      // Remove ACT for file data upload
+      delete (uploadOptions as any).actHistoryAddress
     }
 
     if (!this.nodeAddresses) {
@@ -414,7 +412,6 @@ export class FileManagerBase implements FileManager {
     let feedData: FeedResultWithIndex;
     let unwrap = true;
     if (!version) {
-      // Note: feedReader.download() unwraps the data if version is undefined
       feedData = await getFeedData(this.bee, topic, fi.owner);
       unwrap = false;
     } else {

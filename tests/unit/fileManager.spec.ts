@@ -166,7 +166,7 @@ describe('FileManager', () => {
 
       await fm.download(mockFi, ['/root/2.txt']);
 
-      expect(downloadDataSpy).toHaveBeenCalledWith('2'.repeat(64), undefined);
+      expect(downloadDataSpy).toHaveBeenCalledWith('2'.repeat(64));
     });
 
     it('should call download for all of forks', async () => {
