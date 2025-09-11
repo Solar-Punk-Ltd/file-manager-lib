@@ -166,7 +166,7 @@ describe('FileManager', () => {
 
       await fm.download(mockFi, ['/root/2.txt']);
 
-      expect(downloadDataSpy).toHaveBeenCalledWith('2'.repeat(64));
+      expect(downloadDataSpy).toHaveBeenCalledWith('2'.repeat(64), undefined);
     });
 
     it('should call download for all of forks', async () => {
@@ -246,19 +246,26 @@ describe('FileManager', () => {
       expect(uploadFileOrDirectoryPreviewSpy).toHaveBeenCalled();
     });
 
-    it('should throw error if infoTopic and historyRef are not provided at the same time', async () => {
+    it('allows content upload with a provided topic (no historyRef) and ignores ACT for bytes', async () => {
       const fm = await createInitializedFileManager();
-
-      await expect(async () => {
-        await fm.upload({
+      createUploadFilesFromDirectorySpy('1');
+      createUploadFileSpy('2');
+      createUploadDataSpy('3');
+      createUploadDataSpy('4');
+      createMockFeedWriter('5');
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      const { generateTopic } = require('../../src/utils/common');
+      const validTopic = generateTopic().toString();
+      await expect(
+        fm.upload({
           info: {
             batchId: new BatchId(MOCK_BATCH_ID),
             name: 'tests',
-            topic: 'topic',
+            topic: validTopic,
           },
           path: './tests',
-        });
-      }).rejects.toThrow('Options topic and historyRef have to be provided at the same time.');
+        }),
+      ).resolves.toBeUndefined();
     });
 
     it('should not add duplicate entries when re-uploading same topic', async () => {

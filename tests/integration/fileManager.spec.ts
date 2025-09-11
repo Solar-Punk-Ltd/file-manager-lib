@@ -3,9 +3,9 @@ import * as fs from 'fs';
 import path from 'path';
 
 import { FileManagerBase } from '../../src/fileManager';
-import { buyStamp, getFeedData } from '../../src/utils/common';
+import { buyStamp, generateTopic, getFeedData } from '../../src/utils/common';
 import { FEED_INDEX_ZERO, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
-import { FileError, FileInfoError, GranteeError, StampError } from '../../src/utils/errors';
+import { FileError, GranteeError, StampError } from '../../src/utils/errors';
 import { FileManagerEvents } from '../../src/utils/events';
 import { FileInfo, FileStatus } from '../../src/utils/types';
 import { createInitializedFileManager } from '../mockHelpers';
@@ -479,18 +479,18 @@ describe('FileManager upload', () => {
     fs.rmSync(previewDir, { recursive: true, force: true });
   });
 
-  it('should throw an error if topic and historyRef are not provided together', async () => {
+  it('allows content upload with a provided topic and no historyRef (ACT ignored for bytes)', async () => {
+    const validTopic = generateTopic().toString();
     await expect(
       fileManager.upload({
         info: {
           batchId,
-
           name: path.basename(tempUploadDir),
-          topic: 'someInfoTopic',
+          topic: validTopic,
         },
         path: tempUploadDir,
       }),
-    ).rejects.toThrow(new FileInfoError('Options topic and historyRef have to be provided at the same time.'));
+    ).resolves.toBeUndefined();
   });
 
   it('should upload a single file and update the file info list', async () => {

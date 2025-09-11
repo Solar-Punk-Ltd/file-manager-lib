@@ -320,7 +320,7 @@ export class FileManagerBase implements FileManager {
   ): Promise<void> {
     if (uploadOptions && uploadOptions.actHistoryAddress) {
       // Remove ACT for file data upload
-      delete (uploadOptions as any).actHistoryAddress
+      delete (uploadOptions as RedundantUploadOptions).actHistoryAddress
     }
 
     if (!this.nodeAddresses) {
