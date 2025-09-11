@@ -10,17 +10,19 @@ export async function loadMantaray(
   return mantaray;
 }
 
-export function getForkAddresses(root: MantarayNode, paths?: string[]): string[] {
-  let nodes: MantarayNode[] = root.collect();
+export function getForksMap(root: MantarayNode, paths?: string[]): Record<string, string> {
+  const nodesMap: Record<string, string> = root.collectAndMap();
 
   if (paths && paths.length > 0) {
-    nodes = nodes.filter((node) => paths.includes(node.fullPathString));
+    const filteredMap: Record<string, string> = {};
+    for (const path of paths) {
+      if (path in nodesMap) {
+        filteredMap[path] = nodesMap[path];
+      }
+    }
+
+    return filteredMap;
   }
 
-  const addresses: string[] = [];
-  for (const node of nodes) {
-    addresses.push(new Reference(node.targetAddress).toString());
-  }
-
-  return addresses;
+  return nodesMap;
 }

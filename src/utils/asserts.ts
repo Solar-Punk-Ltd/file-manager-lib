@@ -1,7 +1,7 @@
-import { EthAddress, Reference, Topic } from '@ethersphere/bee-js';
+import { BatchId, EthAddress, Identifier, PublicKey, Reference, Topic } from '@ethersphere/bee-js';
 import { Types } from 'cafe-utility';
 
-import { FileInfo, ShareItem, WrappedFileInfoFeed, WrappedUploadResult } from './types';
+import { DriveInfo, FileInfo, ShareItem, WrappedFileInfoFeed, WrappedUploadResult } from './types';
 
 export function isRecord(value: unknown): value is Record<string, string> {
   return Types.isStrictlyObject(value) && Object.values(value).every((v) => typeof v === 'string');
@@ -17,10 +17,9 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
   new Reference(fi.file.reference);
   new Reference(fi.batchId);
   new Reference(fi.file.historyRef);
-
-  if (fi.topic !== undefined) {
-    new Topic(fi.topic);
-  }
+  new EthAddress(fi.owner);
+  new Topic(fi.topic);
+  new PublicKey(fi.actPublisher);
 
   if (fi.customMetadata !== undefined && !isRecord(fi.customMetadata)) {
     throw new TypeError('FileInfo customMetadata has to be object!');
@@ -28,10 +27,6 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
 
   if (fi.timestamp !== undefined && typeof fi.timestamp !== 'number') {
     throw new TypeError('timestamp property of FileInfo has to be number!');
-  }
-
-  if (fi.owner !== undefined) {
-    new EthAddress(fi.owner);
   }
 
   if (fi.name !== undefined && typeof fi.name !== 'string') {
@@ -49,6 +44,10 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
 
   if (fi.redundancyLevel !== undefined && typeof fi.redundancyLevel !== 'number') {
     throw new TypeError('redundancyLevel property of FileInfo has to be number!');
+  }
+
+  if (fi.status !== undefined && typeof fi.status !== 'string') {
+    throw new TypeError('status property of FileInfo has to be string!');
   }
 }
 
@@ -72,10 +71,12 @@ export function assertShareItem(value: unknown): asserts value is ShareItem {
 
 export function assertWrappedFileInoFeed(value: unknown): asserts value is WrappedFileInfoFeed {
   if (!Types.isStrictlyObject(value)) {
-    throw new TypeError('WrappedMantarayFeed has to be object!');
+    throw new TypeError('WrappedFileInfoFeed has to be object!');
   }
 
   const wmf = value as unknown as WrappedFileInfoFeed;
+
+  new Topic(wmf.topic);
 
   if (wmf.eGranteeRef !== undefined) {
     new Reference(wmf.eGranteeRef);
@@ -93,5 +94,35 @@ export function asserWrappedUploadResult(value: unknown): asserts value is Wrapp
 
   if (wur.uploadPreviewRes !== undefined) {
     new Reference(wur.uploadPreviewRes);
+  }
+}
+
+export function assertDriveInfo(value: unknown): asserts value is DriveInfo {
+  if (!Types.isStrictlyObject(value)) {
+    throw new TypeError('DriveInfo has to be object!');
+  }
+
+  const di = value as unknown as DriveInfo;
+
+  new BatchId(di.batchId);
+  new EthAddress(di.owner);
+  new Identifier(di.id);
+
+  if (di.infoFeedList !== undefined) {
+    if (!Array.isArray(di.infoFeedList)) {
+      throw new TypeError('infoFeedList property of DriveInfo has to be array!');
+    }
+
+    for (const item of di.infoFeedList) {
+      assertWrappedFileInoFeed(item);
+    }
+  }
+
+  if (di.name === undefined || typeof di.name !== 'string' || di.name.length === 0) {
+    throw new TypeError('name property of DriveInfo has to be string!');
+  }
+
+  if (di.redundancyLevel === undefined || typeof di.redundancyLevel !== 'number') {
+    throw new TypeError('redundancyLevel property of DriveInfo has to be number!');
   }
 }

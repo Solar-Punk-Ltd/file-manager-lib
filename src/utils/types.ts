@@ -8,6 +8,7 @@ import {
   FeedIndex,
   FileUploadOptions,
   GetGranteesResult,
+  Identifier,
   PublicKey,
   RedundancyLevel,
   RedundantUploadOptions,
@@ -29,6 +30,25 @@ export interface FileManager {
   initialize(): Promise<void>;
 
   /**
+   * Creates a new drive with the specified options.
+   * @param driveInfo - Information about the drive to be created.
+   * @returns A promise that resolves when the drive is created.
+   */
+  createDrive(
+    batchId: string | BatchId,
+    name: string,
+    isAdmin: boolean,
+    uploadOptions?: RedundantUploadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void>;
+
+  /**
+   * Retrieves a list of drives.
+   * @returns A list of DriveInfo objects representing the drives.
+   */
+  getDrives(): DriveInfo[];
+
+  /**
    * Uploads a file with the given options.
    * @param infoOptions - The options for the file info upload.
    * @param uploadOptions - File and collection related upload options.
@@ -36,6 +56,7 @@ export interface FileManager {
    * @returns A promise that resolves when the upload is complete.
    */
   upload(
+    driveInfo: DriveInfo,
     infoOptions: FileInfoOptions,
     uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
     requestOptions?: BeeRequestOptions,
@@ -60,7 +81,7 @@ export interface FileManager {
    * @param options - Optional download options for ACT.
    * @returns A promise that resolves to an array of references with paths.
    */
-  listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<ReferenceWithPath[]>;
+  listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<Record<string, string>>;
 
   /**
    * Soft-delete: move a file to “trash” (it stays in Swarm but is hidden from your live list).
@@ -84,11 +105,11 @@ export interface FileManager {
   forgetFile(fileInfo: FileInfo): Promise<void>;
 
   /**
-   * Destroys a volume identified by the given batch ID.
-   * @param batchId - The ID of the batch to destroy.
-   * @returns A promise that resolves when the volume is destroyed.
+   * Destroys a drive identified by the given batch ID.
+   * @param drive - The drive to destroy.
+   * @returns A promise that resolves when the drive is destroyed.
    */
-  destroyVolume(batchId: BatchId): Promise<void>;
+  destroyDrive(drive: DriveInfo): Promise<void>;
 
   /**
    * Shares a file information with the specified recipients.
@@ -156,7 +177,10 @@ export interface FileManager {
   emitter: EventEmitter;
 }
 
-export enum FileStatus { Active = 'active', Trashed = 'trashed' }
+export enum FileStatus {
+  Active = 'active',
+  Trashed = 'trashed',
+}
 
 export interface FileInfo {
   batchId: string | BatchId;
@@ -165,6 +189,7 @@ export interface FileInfo {
   owner: string | EthAddress;
   actPublisher: string | PublicKey;
   topic: string | Topic;
+  driveId: string;
   timestamp?: number;
   shared?: boolean;
   preview?: ReferenceWithHistory;
@@ -174,9 +199,11 @@ export interface FileInfo {
   status?: FileStatus;
 }
 
-export interface PartialFileInfo extends Omit<FileInfo, 'owner' | 'actPublisher' | 'file' | 'topic'> {
-  owner?: string | EthAddress;
-  actPublisher?: string | PublicKey;
+export interface PartialFileInfo
+  extends Omit<
+    FileInfo,
+    'owner' | 'actPublisher' | 'file' | 'topic' | 'driveId' | 'batchId' | 'redundancyLevel' | 'status'
+  > {
   file?: ReferenceWithHistory;
   topic?: string | Topic;
 }
@@ -188,6 +215,16 @@ export interface FileInfoOptions {
   preview?: File;
   previewPath?: string;
   onUploadProgress?: (progress: UploadProgress) => void;
+}
+
+export interface DriveInfo {
+  id: string | Identifier;
+  batchId: string | BatchId;
+  owner: string | EthAddress;
+  name: string;
+  redundancyLevel: RedundancyLevel;
+  isAdmin: boolean;
+  infoFeedList?: WrappedFileInfoFeed[];
 }
 
 export interface ShareItem {
@@ -204,11 +241,6 @@ export interface ReferenceWithHistory {
 export interface WrappedFileInfoFeed {
   topic: string | Topic;
   eGranteeRef?: string | Reference;
-}
-
-export interface ReferenceWithPath {
-  reference: Reference;
-  path: string;
 }
 
 export interface FileData {

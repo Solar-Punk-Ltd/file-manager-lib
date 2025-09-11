@@ -13,27 +13,28 @@ import { FileInfoOptions, WrappedUploadResult } from '../utils/types';
 
 export async function uploadNode(
   bee: Bee,
-  infoOptions: FileInfoOptions,
+  batchId: string | BatchId,
+  fileOptions: FileInfoOptions,
   uploadOptions?: FileUploadOptions | CollectionUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<UploadResult> {
-  if (!infoOptions.path) {
+  if (!fileOptions.path) {
     throw new FileInfoError('Path option has to be provided.');
   }
 
   const uploadFilesRes = await uploadFileOrDirectory(
     bee,
-    new BatchId(infoOptions.info.batchId),
-    infoOptions.path,
+    new BatchId(batchId),
+    fileOptions.path,
     { ...uploadOptions, act: false },
     requestOptions,
   );
   let uploadPreviewRes: UploadResult | undefined;
-  if (infoOptions.previewPath) {
+  if (fileOptions.previewPath) {
     uploadPreviewRes = await uploadFileOrDirectory(
       bee,
-      new BatchId(infoOptions.info.batchId),
-      infoOptions.previewPath,
+      new BatchId(batchId),
+      fileOptions.previewPath,
       { ...uploadOptions, act: false },
       requestOptions,
     );
@@ -44,12 +45,7 @@ export async function uploadNode(
     uploadPreviewRes: uploadPreviewRes?.reference.toString(),
   };
 
-  return await bee.uploadData(
-    infoOptions.info.batchId,
-    JSON.stringify(wrappedData),
-    { ...uploadOptions, act: true },
-    requestOptions,
-  );
+  return await bee.uploadData(batchId, JSON.stringify(wrappedData), { ...uploadOptions, act: true }, requestOptions);
 }
 
 async function uploadFileOrDirectory(

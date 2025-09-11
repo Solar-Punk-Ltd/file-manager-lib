@@ -7,11 +7,13 @@ import {
   EthAddress,
   FeedReader,
   FeedWriter,
+  Identifier,
   MantarayNode,
   NodeAddresses,
   NumberString,
   PeerAddress,
   PublicKey,
+  RedundancyLevel,
   Reference,
   Size,
   Topic,
@@ -20,10 +22,10 @@ import {
 import { Optional } from 'cafe-utility';
 
 import { FileManagerBase } from '../src/fileManager';
-import { OWNER_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
+import { ADMIN_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
 import { EventEmitter } from '../src/utils/eventEmitter';
 import { FileManagerEvents } from '../src/utils/events';
-import { FileInfo } from '../src/utils/types';
+import { DriveInfo, FileInfo } from '../src/utils/types';
 
 import { BEE_URL, MOCK_SIGNER } from './utils';
 
@@ -70,15 +72,33 @@ export async function createMockFileInfo(
   ref: string = SWARM_ZERO_ADDRESS.toString(),
 ): Promise<FileInfo> {
   return {
-    batchId: new BatchId(MOCK_BATCH_ID),
+    batchId: MOCK_BATCH_ID,
     name: 'john doe',
     topic: Topic.fromString('1'),
+    driveId: Identifier.fromString('123').toString(),
     owner: MOCK_SIGNER.publicKey().address().toString(),
     actPublisher: (await bee.getNodeAddresses()).publicKey.toCompressedHex(),
     file: {
       reference: ref,
       historyRef: SWARM_ZERO_ADDRESS.toString(),
     },
+  };
+}
+
+export function createMockDriveInfo(): DriveInfo {
+  return {
+    id: Identifier.fromString('123'),
+    batchId: MOCK_BATCH_ID,
+    owner: MOCK_SIGNER.publicKey().address().toString(),
+    name: 'Test Drive',
+    redundancyLevel: RedundancyLevel.MEDIUM,
+    infoFeedList: [
+      {
+        topic: Topic.fromString('1'),
+        eGranteeRef: SWARM_ZERO_ADDRESS.toString(),
+      },
+    ],
+    isAdmin: false,
   };
 }
 
@@ -148,7 +168,7 @@ export function createUploadDataSpy(char: string): jest.SpyInstance {
 }
 
 export function loadStampListMock(): jest.SpyInstance {
-  return jest.spyOn(Bee.prototype, 'getAllPostageBatch').mockResolvedValue([
+  return jest.spyOn(Bee.prototype, 'getPostageBatches').mockResolvedValue([
     {
       batchID: new BatchId('1234'.repeat(16)),
       utilization: 2,
@@ -188,7 +208,7 @@ export function loadStampListMock(): jest.SpyInstance {
       utilization: 5,
       usable: true,
       usageText: '2%',
-      label: OWNER_STAMP_LABEL,
+      label: ADMIN_STAMP_LABEL,
       depth: 22,
       amount: '990' as NumberString,
       bucketDepth: 30,

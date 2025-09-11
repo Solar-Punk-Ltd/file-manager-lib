@@ -2,6 +2,7 @@ import {
   BatchId,
   Bee,
   BeeRequestOptions,
+  Bytes,
   DownloadOptions,
   EthAddress,
   FeedIndex,
@@ -51,11 +52,11 @@ export async function getFeedData(
   }
 }
 
-export function generateTopic(): Topic {
+export function generateRandomBytes(len: number): Bytes {
   if (isNode) {
-    return new Topic(getRandomBytesNode(Topic.LENGTH));
+    return getRandomBytesNode(len);
   }
-  return new Topic(getRandomBytesBrowser(Topic.LENGTH));
+  return getRandomBytesBrowser(len);
 }
 
 // status is undefined in the error object
@@ -65,7 +66,7 @@ export function isNotFoundError(error: any): boolean {
 }
 
 export async function buyStamp(bee: Bee, amount: string | bigint, depth: number, label?: string): Promise<BatchId> {
-  const stamp = (await bee.getAllPostageBatch()).find((b) => b.label === label);
+  const stamp = (await bee.getPostageBatches()).find((b) => b.label === label);
   if (stamp && stamp.usable) {
     return stamp.batchID;
   }

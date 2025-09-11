@@ -10,6 +10,12 @@ export class StampError extends Error {
   }
 }
 
+export class DriveError extends Error {
+  public constructor(message: string) {
+    super(message);
+  }
+}
+
 export class SignerError extends Error {
   public constructor(message: string) {
     super(message);
