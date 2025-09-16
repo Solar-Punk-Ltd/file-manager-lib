@@ -38,7 +38,7 @@ export interface FileManager {
     batchId: string | BatchId,
     name: string,
     isAdmin: boolean,
-    uploadOptions?: RedundantUploadOptions,
+    redundancyLevel?: RedundancyLevel,
     requestOptions?: BeeRequestOptions,
   ): Promise<void>;
 

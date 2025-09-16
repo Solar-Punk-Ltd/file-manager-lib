@@ -294,7 +294,7 @@ export class FileManagerBase implements FileManager {
     batchId: string | BatchId,
     name: string,
     isAdmin: boolean,
-    uploadOptions?: RedundantUploadOptions,
+    redundancyLevel?: RedundancyLevel,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
     let driveName = name;
@@ -318,7 +318,7 @@ export class FileManagerBase implements FileManager {
       name: driveName,
       batchId: batchId.toString(),
       owner: this.signer.publicKey().address().toString(),
-      redundancyLevel: uploadOptions?.redundancyLevel ?? RedundancyLevel.OFF,
+      redundancyLevel: redundancyLevel ?? RedundancyLevel.OFF,
       infoFeedList: [],
       isAdmin,
     };
