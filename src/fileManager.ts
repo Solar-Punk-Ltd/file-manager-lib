@@ -363,7 +363,7 @@ export class FileManagerBase implements FileManager {
 
     return await downloadBrowser(Object.values(resources), this.bee.url, 'bytes');
   }
-
+  // TODO: separate file upload and version control
   async upload(
     driveInfo: DriveInfo,
     fileOptions: FileInfoOptions,
@@ -506,8 +506,8 @@ export class FileManagerBase implements FileManager {
       new Topic(versionToRestore.topic),
       versionToRestore.owner.toString(),
     );
-
-    if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
+    // nencessary string compare due to some conversion issues with FeedIndex equals
+    if (feedIndex.toString() === FeedIndex.MINUS_ONE.toString()) {
       throw new FileInfoError('FileInfo feed not found');
     }
 
@@ -515,7 +515,8 @@ export class FileManagerBase implements FileManager {
       throw new Error('Restore version has to be defined');
     }
 
-    if (feedIndex.equals(new FeedIndex(versionToRestore.version))) {
+    const versionToRestoreIndex = new FeedIndex(versionToRestore.version).toString();
+    if (feedIndex.toString() === versionToRestoreIndex) {
       console.debug(`Head Slot cannot be restored. Please select a version lesser than: ${versionToRestore.version}`);
       return;
     }
