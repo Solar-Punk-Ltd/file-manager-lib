@@ -686,7 +686,7 @@ export class FileManagerBase implements FileManager {
    * Soft‐delete: move a file into “trash” (it stays in swarm but is hidden from your live list).
    */
   async trashFile(fileInfo: FileInfo): Promise<void> {
-    const fi = this.fileInfoList.find((f) => f.topic.toString() === fileInfo.topic.toString());
+    const fi = this.fileInfoList.find(f => f.topic.toString() === fileInfo.topic.toString());
     if (!fi) {
       throw new FileInfoError(`Corresponding File Info doesnt exist: ${fileInfo.name}`);
     }
@@ -702,6 +702,7 @@ export class FileManagerBase implements FileManager {
     fi.version = new FeedIndex(fi.version).next().toString();
     fi.status = FileStatus.Trashed;
     fi.timestamp = new Date().getTime();
+    fi.customMetadata = { ...(fi.customMetadata ?? {}), ...(fileInfo.customMetadata ?? {}) };
 
     await this.saveFileInfoFeed(fi);
 
@@ -712,7 +713,7 @@ export class FileManagerBase implements FileManager {
    * Recover a previously trashed file.
    */
   async recoverFile(fileInfo: FileInfo): Promise<void> {
-    const fi = this.fileInfoList.find((f) => f.topic === fileInfo.topic);
+    const fi = this.fileInfoList.find(f => f.topic === fileInfo.topic);
     if (!fi) {
       throw new FileInfoError(`Corresponding File Info doesnt exist: ${fileInfo.name}`);
     }
@@ -728,6 +729,7 @@ export class FileManagerBase implements FileManager {
     fi.version = new FeedIndex(fi.version).next().toString();
     fi.status = FileStatus.Active;
     fi.timestamp = new Date().getTime();
+    fi.customMetadata = { ...(fi.customMetadata ?? {}), ...(fileInfo.customMetadata ?? {}) };
 
     await this.saveFileInfoFeed(fi);
     this.emitter.emit(FileManagerEvents.FILE_RECOVERED, { fileInfo: fi });
