@@ -27,7 +27,7 @@ export interface FileManager {
    * Initializes the file manager.
    * @returns A promise that resolves when the initialization is complete.
    */
-  initialize(): Promise<void>;
+  initialize(batchId?: string | BatchId): Promise<void>;
 
   /**
    * Creates a new drive with the specified options.
@@ -106,10 +106,10 @@ export interface FileManager {
 
   /**
    * Destroys a drive identified by the given batch ID.
-   * @param drive - The drive to destroy.
+   * @param driveInfo - The drive to destroy.
    * @returns A promise that resolves when the drive is destroyed.
    */
-  destroyDrive(drive: DriveInfo): Promise<void>;
+  destroyDrive(driveInfo: DriveInfo): Promise<void>;
 
   /**
    * Shares a file information with the specified recipients.
@@ -194,6 +194,7 @@ export interface FileInfo {
   shared?: boolean;
   preview?: ReferenceWithHistory;
   version?: string | undefined;
+  index?: FeedIndex | undefined;
   redundancyLevel?: RedundancyLevel;
   customMetadata?: Record<string, string>;
   status?: FileStatus;
