@@ -43,7 +43,7 @@ import {
   SendShareMessageError,
   SignerError,
   StampError,
-  SubscribtionError,
+  SubcriptionError,
 } from './utils/errors';
 import { EventEmitter, EventEmitterBase } from './utils/eventEmitter';
 import { FileManagerEvents } from './utils/events';
@@ -867,7 +867,7 @@ export class FileManagerBase implements FileManager {
   async subscribeToSharedInbox(topic: string, callback?: (data: ShareItem) => void): Promise<void> {
     const nodeInfo = await this.bee.getNodeInfo();
     if (nodeInfo.beeMode !== BeeModes.FULL) {
-      throw new SubscribtionError(
+      throw new SubcriptionError(
         `Node has to be in ${BeeModes.FULL} mode but it is running in ${nodeInfo.beeMode} mode.`,
       );
     }
@@ -884,7 +884,7 @@ export class FileManagerBase implements FileManager {
       },
       onError: (e) => {
         console.debug('Error received in shared inbox: ', e.message);
-        throw new SubscribtionError(e.message);
+        throw new SubcriptionError(e.message);
       },
       onClose: () => {
         console.debug('Shared inbox closed');
@@ -933,7 +933,7 @@ export class FileManagerBase implements FileManager {
   // recipient is optional, if not provided the message will be broadcasted == pss public key
   private async sendShareMessage(targetOverlays: string[], item: ShareItem, recipients: string[]): Promise<void> {
     if (recipients.length === 0 || recipients.length !== targetOverlays.length) {
-      throw new SubscribtionError('Invalid recipients or  targetoverlays specified for sharing.');
+      throw new SubcriptionError('Invalid recipients or  targetoverlays specified for sharing.');
     }
 
     // TODO: in case of error, for loop will continue, should it throw ?

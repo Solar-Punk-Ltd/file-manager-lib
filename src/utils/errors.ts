@@ -34,7 +34,7 @@ export class FileError extends Error {
   }
 }
 
-export class SubscribtionError extends Error {
+export class SubcriptionError extends Error {
   public constructor(message: string) {
     super(message);
   }
