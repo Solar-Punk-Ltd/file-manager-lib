@@ -43,7 +43,7 @@ import {
   SendShareMessageError,
   SignerError,
   StampError,
-  SubcriptionError,
+  SubscriptionError,
 } from './utils/errors';
 import { EventEmitter, EventEmitterBase } from './utils/eventEmitter';
 import { FileManagerEvents } from './utils/events';
@@ -112,7 +112,7 @@ export class FileManagerBase implements FileManager {
       const adminStamp = await this.getAdminStamp(batchId?.toString());
       if (adminStamp) {
         console.debug('Admin stamp found, initializing drives');
-        await this.initDrives();
+        await this.initDrives(adminStamp.batchID.toString());
       } else {
         console.debug('Admin stamp not found. Drives not loaded.');
       }
@@ -686,7 +686,7 @@ export class FileManagerBase implements FileManager {
    * Soft‐delete: move a file into “trash” (it stays in swarm but is hidden from your live list).
    */
   async trashFile(fileInfo: FileInfo): Promise<void> {
-    const fi = this.fileInfoList.find(f => f.topic.toString() === fileInfo.topic.toString());
+    const fi = this.fileInfoList.find((f) => f.topic.toString() === fileInfo.topic.toString());
     if (!fi) {
       throw new FileInfoError(`Corresponding File Info doesnt exist: ${fileInfo.name}`);
     }
@@ -713,7 +713,7 @@ export class FileManagerBase implements FileManager {
    * Recover a previously trashed file.
    */
   async recoverFile(fileInfo: FileInfo): Promise<void> {
-    const fi = this.fileInfoList.find(f => f.topic === fileInfo.topic);
+    const fi = this.fileInfoList.find((f) => f.topic === fileInfo.topic);
     if (!fi) {
       throw new FileInfoError(`Corresponding File Info doesnt exist: ${fileInfo.name}`);
     }
@@ -785,7 +785,11 @@ export class FileManagerBase implements FileManager {
 
   async destroyDrive(driveInfo: DriveInfo): Promise<void> {
     const adminStamp = await this.getAdminStamp();
-    if (driveInfo.isAdmin || (adminStamp && new BatchId(driveInfo.batchId).equals(adminStamp.batchID))) {
+    if (!adminStamp) {
+      throw new StampError('Admin stamp not found');
+    }
+
+    if (driveInfo.isAdmin || driveInfo.batchId.toString() === adminStamp.batchID.toString()) {
       throw new DriveError(`Cannot destroy admin drive / stamp, batchId: ${driveInfo.batchId.toString()}`);
     }
     const driveIx = this.driveList.findIndex((d) => d.id.toString() === driveInfo.id.toString());
@@ -793,7 +797,7 @@ export class FileManagerBase implements FileManager {
       throw new DriveError(`Drive ${driveInfo.name} not found`);
     }
 
-    await this.bee.diluteBatch(driveInfo.batchId, STAMPS_DEPTH_MAX);
+    await this.bee.diluteBatch(driveInfo.batchId.toString(), STAMPS_DEPTH_MAX);
 
     this.driveList.splice(driveIx, 1);
 
@@ -867,7 +871,7 @@ export class FileManagerBase implements FileManager {
   async subscribeToSharedInbox(topic: string, callback?: (data: ShareItem) => void): Promise<void> {
     const nodeInfo = await this.bee.getNodeInfo();
     if (nodeInfo.beeMode !== BeeModes.FULL) {
-      throw new SubcriptionError(
+      throw new SubscriptionError(
         `Node has to be in ${BeeModes.FULL} mode but it is running in ${nodeInfo.beeMode} mode.`,
       );
     }
@@ -884,7 +888,7 @@ export class FileManagerBase implements FileManager {
       },
       onError: (e) => {
         console.debug('Error received in shared inbox: ', e.message);
-        throw new SubcriptionError(e.message);
+        throw new SubscriptionError(e.message);
       },
       onClose: () => {
         console.debug('Shared inbox closed');
@@ -933,7 +937,7 @@ export class FileManagerBase implements FileManager {
   // recipient is optional, if not provided the message will be broadcasted == pss public key
   private async sendShareMessage(targetOverlays: string[], item: ShareItem, recipients: string[]): Promise<void> {
     if (recipients.length === 0 || recipients.length !== targetOverlays.length) {
-      throw new SubcriptionError('Invalid recipients or  targetoverlays specified for sharing.');
+      throw new SubscriptionError('Invalid recipients or  targetoverlays specified for sharing.');
     }
 
     // TODO: in case of error, for loop will continue, should it throw ?

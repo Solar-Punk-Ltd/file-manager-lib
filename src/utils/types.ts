@@ -176,12 +176,12 @@ export interface FileManager {
    */
   emitter: EventEmitter;
 }
-
+// TODO: set statuses for trashed, recovered, forgotten
 export enum FileStatus {
   Active = 'active',
   Trashed = 'trashed',
 }
-
+// TODO: separate type files
 export interface FileInfo {
   batchId: string | BatchId;
   file: ReferenceWithHistory;
