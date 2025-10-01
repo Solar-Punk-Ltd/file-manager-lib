@@ -1,18 +1,19 @@
 # File Manager Library
 
-**@solarpunkltd/file-manager-lib** is a TypeScript/JavaScript library for storing and handling files on [Swarm](https://ethersphere.github.io/swarm-home/).  
-It builds on [Bee](https://github.com/ethersphere/bee-js) and [Mantaray](https://github.com/ethersphere/mantaray-js) to provide:
+**@solarpunkltd/file-manager-lib** is a TypeScript/JavaScript library for storing and handling files on
+[Swarm](https://ethersphere.github.io/swarm-home/). It builds on [Bee](https://github.com/ethersphere/bee-js) to
+provide:
 
 - **Drives** — logical containers backed by postage stamps.
 - **Files** — uploaded as manifests, stored in feeds, versioned automatically.
 - **Access Control (ACT)** — enforceable read/unwrapping via publisher + history address.
 - **Versioning** — restore any historical version to head.
 - **Soft delete / recover / forget** — manage lifecycle without losing underlying Swarm data.
-- **Sharing** — manage grantees and push PSS messages.
-- **Browser + Node.js support** — unified API, different inputs/outputs.
+- **Sharing** — manage grantees and share notifications.
+- **Browser + Node.js support** — unified API.
 
-> Full method-level documentation: see [REFERENCE.md](REFERENCE.md).  
-> Test coverage and usage patterns: see [TESTS.md](tests/TESTS.md).
+> Full method-level documentation: see [REFERENCE.md](REFERENCE.md). Test coverage and usage patterns: see
+> [TESTS.md](tests/TESTS.md).
 
 ---
 
@@ -79,35 +80,35 @@ swarm-cli stamp buy --amount 100000000000 --depth 20 --label admin
 ## Quick Start Example
 
 ```ts
-import { Bee } from '@ethersphere/bee-js'
-import { FileManagerBase } from '@solarpunkltd/file-manager-lib'
+import { Bee } from '@ethersphere/bee-js';
+import { FileManagerBase } from '@solarpunkltd/file-manager-lib';
 
-const bee = new Bee('http://localhost:1633', { signer })
-const fm = new FileManagerBase(bee)
-// purchase an 'admin' stamp, and a 'My Drive' stamp in the background, 
+const bee = new Bee('http://localhost:1633', { signer });
+const fm = new FileManagerBase(bee);
+const adminBatchId = new BatchId('your-admin-batchId');
+// purchase an 'admin' stamp, and a 'My Drive' stamp in the background,
 // or use beeApi to purchase the stamp inline before initialization
 // initialize drives & topics
-await fm.initialize()
+await fm.initialize(adminBatchId);
 
+// create an admin drive
+await fm.createDrive(adminBatchId, 'admin', true);
 // create a drive (non-admin)
-await fm.createDrive('<BATCH_ID>', 'My Drive', false)
+await fm.createDrive('<BATCH_ID>', 'My Drive', false);
 
 // upload directory
-const uploaded = await fm.upload(
-  fm.getDrives()[0],
-  { info: { name: 'docs' }, path: './docs' }
-)
+const uploaded = await fm.upload(fm.getDrives()[0], { info: { name: 'docs' }, path: './docs' });
 
 // list + download
-const fi = fm.fileInfoList.find(f => f.name === 'docs')!
+const fi = fm.fileInfoList.find((f) => f.name === 'docs')!;
 const list = await fm.listFiles(fi, {
   actHistoryAddress: fi.file.historyRef,
-  actPublisher: fi.actPublisher
-})
+  actPublisher: fi.actPublisher,
+});
 const data = await fm.download(fi, ['README.md'], {
   actHistoryAddress: fi.file.historyRef,
-  actPublisher: fi.actPublisher
-})
+  actPublisher: fi.actPublisher,
+});
 ```
 
 ### Browser differences

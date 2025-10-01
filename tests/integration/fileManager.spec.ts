@@ -5,6 +5,7 @@ import {
   FeedIndex,
   Identifier,
   MantarayNode,
+  PostageBatch,
   PublicKey,
   RedundancyLevel,
   Reference,
@@ -15,7 +16,7 @@ import path from 'path';
 
 import { FileManagerBase } from '../../src/fileManager';
 import { buyStamp, getFeedData } from '../../src/utils/common';
-import { FEED_INDEX_ZERO, REFERENCE_LIST_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
+import { FEED_INDEX_ZERO, FILEMANAGER_STATE_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { DriveError, FileError, FileInfoError, GranteeError, StampError } from '../../src/utils/errors';
 import { FileManagerEvents } from '../../src/utils/events';
 import { DriveInfo, FileInfo, FileStatus } from '../../src/utils/types';
@@ -78,8 +79,8 @@ describe('FileManager initialization', () => {
     expect(fileManager.fileInfoList).toEqual([]);
     expect(fileManager.sharedWithMe).toEqual([]);
 
-    const feedTopicData = await getFeedData(bee, REFERENCE_LIST_TOPIC, MOCK_SIGNER.publicKey().address(), 0n);
-    const topicHistory = await getFeedData(bee, REFERENCE_LIST_TOPIC, MOCK_SIGNER.publicKey().address(), 1n);
+    const feedTopicData = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, MOCK_SIGNER.publicKey().address(), 0n);
+    const topicHistory = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, MOCK_SIGNER.publicKey().address(), 1n);
     const topicHex = await bee.downloadData(new Reference(feedTopicData.payload), {
       actHistoryAddress: new Reference(topicHistory.payload),
       actPublisher,
@@ -97,8 +98,8 @@ describe('FileManager initialization', () => {
   it('should throw an error if someone else than the owner tries to read the owner feed', async () => {
     const otherBee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
 
-    const feedTopicData = await getFeedData(bee, REFERENCE_LIST_TOPIC, MOCK_SIGNER.publicKey().address(), 0n);
-    const topicHistory = await getFeedData(bee, REFERENCE_LIST_TOPIC, MOCK_SIGNER.publicKey().address(), 1n);
+    const feedTopicData = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, MOCK_SIGNER.publicKey().address(), 0n);
+    const topicHistory = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, MOCK_SIGNER.publicKey().address(), 1n);
 
     try {
       await bee.downloadData(new Reference(feedTopicData.payload), {
@@ -201,14 +202,13 @@ describe('FileManager initialization', () => {
 describe('FileManager drive handling', () => {
   let bee: BeeDev;
   let fileManager: FileManagerBase;
-  let ownerStampId: BatchId | undefined;
+  let ownerBatch: PostageBatch | undefined;
   let tempDir: string;
 
   beforeAll(async () => {
     const { bee: beeDev, ownerStamp } = await ensureOwnerStamp();
     bee = beeDev;
-    ownerStampId = ownerStamp;
-
+    ownerBatch = (await bee.getPostageBatches()).find((s) => s.batchID.toString() === ownerStamp.toString());
     fileManager = await createInitializedFileManager(bee);
 
     tempDir = path.join(__dirname, 'tmpDriveFolder');
@@ -248,28 +248,46 @@ describe('FileManager drive handling', () => {
 
   it('should throw an error when trying to destroy the admin drive/ stamp', async () => {
     await expect(
-      fileManager.destroyDrive({
-        batchId: ownerStampId!.toString(),
-        id: 'mockID',
-        name: 'Owner Drive',
-        owner: MOCK_SIGNER.publicKey().address().toString(),
-        redundancyLevel: RedundancyLevel.OFF,
-        isAdmin: false,
-      }),
-    ).rejects.toThrow(new DriveError(`Cannot destroy admin drive / stamp, batchId: ${ownerStampId!.toString()}`));
+      fileManager.destroyDrive(
+        {
+          batchId: ownerBatch!.batchID!.toString(),
+          id: 'mockID',
+          name: 'Owner Drive',
+          owner: MOCK_SIGNER.publicKey().address().toString(),
+          redundancyLevel: RedundancyLevel.OFF,
+          isAdmin: false,
+        },
+        ownerBatch!,
+      ),
+    ).rejects.toThrow(new DriveError(`Cannot destroy admin drive / stamp, batchId: ${ownerBatch!.batchID.toString()}`));
 
     await expect(
-      fileManager.destroyDrive({
-        batchId: new BatchId('6789'.repeat(16)).toString(),
-        id: 'mockID',
-        name: 'Owner Drive',
-        owner: MOCK_SIGNER.publicKey().address().toString(),
-        redundancyLevel: RedundancyLevel.OFF,
-        isAdmin: true,
-      }),
-    ).rejects.toThrow(
-      new DriveError(`Cannot destroy admin drive / stamp, batchId: ${new BatchId('6789'.repeat(16)).toString()}`),
-    );
+      fileManager.destroyDrive(
+        {
+          batchId: new BatchId('6789'.repeat(16)).toString(),
+          id: 'mockID',
+          name: 'Owner Drive',
+          owner: MOCK_SIGNER.publicKey().address().toString(),
+          redundancyLevel: RedundancyLevel.OFF,
+          isAdmin: true,
+        },
+        ownerBatch!,
+      ),
+    ).rejects.toThrow(new DriveError(`Stamp does not match drive stamp`));
+    // isAdmin true
+    await expect(
+      fileManager.destroyDrive(
+        {
+          batchId: ownerBatch!.batchID!.toString(),
+          id: 'mockID',
+          name: 'Owner Drive',
+          owner: MOCK_SIGNER.publicKey().address().toString(),
+          redundancyLevel: RedundancyLevel.OFF,
+          isAdmin: true,
+        },
+        ownerBatch!,
+      ),
+    ).rejects.toThrow(new DriveError(`Cannot destroy admin drive / stamp, batchId: ${ownerBatch!.batchID.toString()}`));
   });
 
   // todo: not possible to test with devnode: gives 501

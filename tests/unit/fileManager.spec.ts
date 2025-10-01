@@ -1,14 +1,4 @@
-import {
-  BatchId,
-  Bee,
-  Bytes,
-  DownloadOptions,
-  FeedIndex,
-  MantarayNode,
-  Reference,
-  STAMPS_DEPTH_MAX,
-  Topic,
-} from '@ethersphere/bee-js';
+import { BatchId, Bee, Bytes, DownloadOptions, FeedIndex, MantarayNode, Reference, Topic } from '@ethersphere/bee-js';
 
 import { FileManagerBase } from '../../src/fileManager';
 import { getFeedData } from '../../src/utils/common';
@@ -27,6 +17,7 @@ import {
   createUploadFilesFromDirectorySpy,
   createUploadFileSpy,
   MOCK_BATCH_ID,
+  mockPostageBatch,
 } from '../mockHelpers';
 import { BEE_URL, MOCK_SIGNER } from '../utils';
 
@@ -487,14 +478,16 @@ describe('FileManager', () => {
     });
 
     it('destroyDrive should call diluteBatch with batchId and MAX_DEPTH', async () => {
-      const diluteSpy = jest.spyOn(Bee.prototype, 'diluteBatch').mockResolvedValue(new BatchId('1234'.repeat(16)));
+      const diluteSpy = jest.spyOn(Bee.prototype, 'diluteBatch').mockResolvedValue(new BatchId(MOCK_BATCH_ID));
       const fm = await createInitializedFileManager();
       await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
       const di = fm.getDrives()[0];
 
-      await fm.destroyDrive(di);
+      await fm.destroyDrive(di, mockPostageBatch);
 
-      expect(diluteSpy).toHaveBeenCalledWith(di.batchId, STAMPS_DEPTH_MAX);
+      const ttlDays = mockPostageBatch.duration.toDays();
+      const halvings = Math.floor(Math.log2(ttlDays));
+      expect(diluteSpy).toHaveBeenCalledWith(di.batchId, mockPostageBatch.depth + halvings);
     });
 
     it('destroyDrive should throw error if trying to destroy Admin drive / stamp', async () => {
@@ -503,16 +496,22 @@ describe('FileManager', () => {
       await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
       const di = fm.getDrives()[0];
       di.batchId = ownerBatchId;
+      mockPostageBatch.batchID = ownerBatchId;
 
       await expect(async () => {
-        await fm.destroyDrive(di);
+        await fm.destroyDrive(di, mockPostageBatch);
       }).rejects.toThrow(`Cannot destroy admin drive / stamp, batchId: ${ownerBatchId.toString()}`);
 
-      di.isAdmin = true;
       di.batchId = MOCK_BATCH_ID;
       await expect(async () => {
-        await fm.destroyDrive(di);
-      }).rejects.toThrow(`Cannot destroy admin drive / stamp, batchId: ${MOCK_BATCH_ID.toString()}`);
+        await fm.destroyDrive(di, mockPostageBatch);
+      }).rejects.toThrow(`Stamp does not match drive stamp`);
+
+      di.isAdmin = true;
+      di.batchId = ownerBatchId;
+      await expect(async () => {
+        await fm.destroyDrive(di, mockPostageBatch);
+      }).rejects.toThrow(`Cannot destroy admin drive / stamp, batchId: ${ownerBatchId.toString()}`);
     });
   });
 

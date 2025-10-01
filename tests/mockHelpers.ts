@@ -12,6 +12,7 @@ import {
   NodeAddresses,
   NumberString,
   PeerAddress,
+  PostageBatch,
   PublicKey,
   RedundancyLevel,
   Reference,
@@ -167,24 +168,28 @@ export function createUploadDataSpy(char: string): jest.SpyInstance {
   });
 }
 
+export const mockPostageBatch: PostageBatch = {
+  batchID: new BatchId(MOCK_BATCH_ID),
+  utilization: 2,
+  usable: true,
+  usageText: '2%',
+  label: 'one',
+  depth: 22,
+  amount: '480' as NumberString,
+  bucketDepth: 30,
+  blockNumber: 980,
+  immutableFlag: true,
+  duration: Duration.fromDays(3),
+  usage: 0,
+  size: Size.fromGigabytes(100),
+  remainingSize: Size.fromGigabytes(100),
+  theoreticalSize: Size.fromGigabytes(100),
+};
+
 export function loadStampListMock(): jest.SpyInstance {
   return jest.spyOn(Bee.prototype, 'getPostageBatches').mockResolvedValue([
     {
-      batchID: new BatchId('1234'.repeat(16)),
-      utilization: 2,
-      usable: true,
-      usageText: '2%',
-      label: 'one',
-      depth: 22,
-      amount: '480' as NumberString,
-      bucketDepth: 30,
-      blockNumber: 980,
-      immutableFlag: true,
-      duration: Duration.fromSeconds(3),
-      usage: 0,
-      size: Size.fromGigabytes(100),
-      remainingSize: Size.fromGigabytes(100),
-      theoreticalSize: Size.fromGigabytes(100),
+      ...mockPostageBatch,
     },
     {
       batchID: new BatchId('2345'.repeat(16)),

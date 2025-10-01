@@ -9,6 +9,7 @@ import {
   FileUploadOptions,
   GetGranteesResult,
   Identifier,
+  PostageBatch,
   PublicKey,
   RedundancyLevel,
   RedundantUploadOptions,
@@ -106,10 +107,11 @@ export interface FileManager {
 
   /**
    * Destroys a drive identified by the given batch ID.
+   * Dilutes the stamp and shortens its duration (min. 24, max 47 hours) depending on the original TTL.
    * @param driveInfo - The drive to destroy.
    * @returns A promise that resolves when the drive is destroyed.
    */
-  destroyDrive(driveInfo: DriveInfo): Promise<void>;
+  destroyDrive(driveInfo: DriveInfo, stamp: PostageBatch): Promise<void>;
 
   /**
    * Shares a file information with the specified recipients.

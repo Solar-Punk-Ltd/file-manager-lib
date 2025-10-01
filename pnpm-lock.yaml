@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@ethersphere/bee-js':
-        specifier: file:../bee-js
-        version: file:../bee-js
+        specifier: ^10.0.1
+        version: 10.0.1
       cafe-utility:
         specifier: ^32.1.0
         version: 32.1.0
@@ -940,8 +940,8 @@ packages:
     resolution: {integrity: sha512-Z5kJ+wU3oA7MMIqVR9tyZRtjYPr4OC004Q4Rw7pgOKUOKkJfZ3O24nz3WYfGRpMDNmcOi3TwQOmgm7B7Tpii0w==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
-  '@ethersphere/bee-js@file:../bee-js':
-    resolution: {directory: ../bee-js, type: directory}
+  '@ethersphere/bee-js@10.0.1':
+    resolution: {integrity: sha512-RYvONkOIrVAOnTHp4y63AQLM4lwioUKwWc+F+1PRNVUmmUUFqx/ZLKiWuk6weRlXR2kWVVr1RcrQaa7ncA7g7w==}
     engines: {bee: 2.4.0-390a402e, beeApiVersion: 7.2.0}
 
   '@humanfs/core@0.19.1':
@@ -4897,7 +4897,7 @@ snapshots:
       '@eslint/core': 0.15.2
       levn: 0.4.1
 
-  '@ethersphere/bee-js@file:../bee-js':
+  '@ethersphere/bee-js@10.0.1':
     dependencies:
       axios: 0.30.1(debug@4.4.3)
       cafe-utility: 31.1.1

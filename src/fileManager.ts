@@ -16,7 +16,6 @@ import {
   PssSubscription,
   RedundantUploadOptions,
   Reference,
-  STAMPS_DEPTH_MAX,
   Topic,
   Utils,
   UploadResult,
@@ -31,7 +30,7 @@ import { generateRandomBytes, getFeedData, getWrappedData, settlePromises } from
 import {
   FEED_INDEX_ZERO,
   ADMIN_STAMP_LABEL,
-  REFERENCE_LIST_TOPIC,
+  FILEMANAGER_STATE_TOPIC,
   SHARED_INBOX_TOPIC,
   SWARM_ZERO_ADDRESS,
 } from './utils/constants';
@@ -64,6 +63,7 @@ import { downloadBrowser } from './download/download.browser';
 import { downloadNode } from './download/download.node';
 
 // TODO: check everything for: push to list but upload fails ? --> local inconsistency
+// TODO: IT/UT for init with batchId
 export class FileManagerBase implements FileManager {
   private bee: Bee;
   private signer: PrivateKey;
@@ -165,7 +165,7 @@ export class FileManagerBase implements FileManager {
 
     const feedTopicData = await getFeedData(
       this.bee,
-      REFERENCE_LIST_TOPIC,
+      FILEMANAGER_STATE_TOPIC,
       this.signer.publicKey().address().toString(),
       0n,
     );
@@ -178,7 +178,7 @@ export class FileManagerBase implements FileManager {
         act: true,
       });
 
-      const fw = this.bee.makeFeedWriter(REFERENCE_LIST_TOPIC.toUint8Array(), this.signer);
+      const fw = this.bee.makeFeedWriter(FILEMANAGER_STATE_TOPIC.toUint8Array(), this.signer);
       await fw.uploadReference(adminStamp.batchID, topicDataRes.reference, { index: FEED_INDEX_ZERO });
       await fw.uploadReference(adminStamp.batchID, topicDataRes.historyAddress.getOrThrow(), {
         index: FeedIndex.fromBigInt(1n),
@@ -186,7 +186,7 @@ export class FileManagerBase implements FileManager {
     } else {
       const topicHistory = await getFeedData(
         this.bee,
-        REFERENCE_LIST_TOPIC,
+        FILEMANAGER_STATE_TOPIC,
         this.signer.publicKey().address().toString(),
         1n,
       );
@@ -783,10 +783,14 @@ export class FileManagerBase implements FileManager {
     }
   }
 
-  async destroyDrive(driveInfo: DriveInfo): Promise<void> {
+  async destroyDrive(driveInfo: DriveInfo, stamp: PostageBatch): Promise<void> {
     const adminStamp = await this.getAdminStamp();
     if (!adminStamp) {
       throw new StampError('Admin stamp not found');
+    }
+
+    if (driveInfo.batchId.toString() !== stamp.batchID.toString()) {
+      throw new StampError('Stamp does not match drive stamp');
     }
 
     if (driveInfo.isAdmin || driveInfo.batchId.toString() === adminStamp.batchID.toString()) {
@@ -797,7 +801,9 @@ export class FileManagerBase implements FileManager {
       throw new DriveError(`Drive ${driveInfo.name} not found`);
     }
 
-    await this.bee.diluteBatch(driveInfo.batchId.toString(), STAMPS_DEPTH_MAX);
+    const ttlDays = stamp.duration.toDays();
+    const halvings = Math.floor(Math.log2(ttlDays));
+    await this.bee.diluteBatch(driveInfo.batchId.toString(), stamp.depth + halvings);
 
     this.driveList.splice(driveIx, 1);
 

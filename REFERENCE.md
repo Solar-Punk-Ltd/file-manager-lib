@@ -1,8 +1,7 @@
 # File Manager Library — API Reference
 
-This is the technical API reference for **@solarpunkltd/file-manager-lib**.  
-See [README.md](README.md) for installation and quick start.  
-See [TESTS.md](tests/TESTS.md) for test coverage and usage patterns.
+This is the technical API reference for **@solarpunkltd/file-manager-lib**. See [README.md](README.md) for installation
+and quick start. See [TESTS.md](tests/TESTS.md) for test coverage and usage patterns.
 
 ---
 
@@ -15,7 +14,7 @@ constructor(bee: Bee, emitter?: EventEmitter)
 ```
 
 - **bee**: a connected instance of `Bee` from `@ethersphere/bee-js`. Must be initialized with a signer.
-- **emitter** *(optional)*: an `EventEmitter` to receive `FileManagerEvents`.
+- **emitter** _(optional)_: an `EventEmitter` to receive `FileManagerEvents`.
 
 Wraps Bee client, manages drives, file infos, ACT unwrapping, versioning, and events.
 
@@ -26,14 +25,14 @@ Wraps Bee client, manages drives, file infos, ACT unwrapping, versioning, and ev
 ### `initialize(batchId?: BatchId): Promise<void>`
 
 - Reads node addresses.
-- Loads or creates the **admin drive** (if a batch labeled `admin` exists).
-- Hydrates all drives and file infos.
+- Loads the **admin drive** (if a batch labeled `admin` or the provided **batchId** exists).
+- Syncs all drives and file infos.
 
-**Throws**: `StampError` if no usable stamp exists.
+**Throws**: `StampError` if the admin stamp provided is not found.
 
 ### `getDrives(): DriveInfo[]`
 
-- Returns in-memory list of all known drives (including admin).
+- Returns in-memory list of all known drives (excluding admin).
 
 ---
 
@@ -47,13 +46,13 @@ Wraps Bee client, manages drives, file infos, ACT unwrapping, versioning, and ev
 - **redundancyLevel?**: optional redundancy strategy.
 - **requestOptions?**: optional Bee request options.
 
-Creates a new drive, persists it in admin drive list.  
-**Events**: `DRIVE_CREATED`.
+Creates a new drive, persists it in admin drive list. **Events**: `DRIVE_CREATED`.
 
-### `destroyDrive(driveInfo): Promise<void>`
+### `destroyDrive(driveInfo, stamp): Promise<void>`
 
 - Cannot destroy admin drive.
 - Removes from in-memory and admin drive list.
+- Dilutes the **stamp** and shortens its duration (min. 24, max 47 hours)
 
 **Events**: `DRIVE_DESTROYED`.
 
@@ -72,6 +71,7 @@ Creates a new drive, persists it in admin drive list.
 - **requestOptions?**: Bee request options.
 
 Uploads a file/directory:
+
 - Wraps files into Mantaray manifest.
 - Creates/updates a FileInfo in the owner feed.
 - Returns latest `FileInfo`.
@@ -92,6 +92,7 @@ Returns a dictionary `{ path → reference }` collected from mantaray manifest.
 - **options?**: ACT + redundancy options.
 
 Returns:
+
 - Node: `Bytes[]` (array of file contents as Uint8Array).
 - Browser: `ReadableStream[]` (array of streams).
 
@@ -260,28 +261,31 @@ Events are emitted on the provided `EventEmitter`:
 ### Upload & Download (Node)
 
 ```ts
-const drive = fm.getDrives()[0]
-const fi = await fm.upload(drive, { info: { name: 'assets' }, path: './assets' })
-const list = await fm.listFiles(fi, { actHistoryAddress: fi.file.historyRef, actPublisher: fi.actPublisher })
-const files = await fm.download(fi, ['logo.png'], { actHistoryAddress: fi.file.historyRef, actPublisher: fi.actPublisher })
+const drive = fm.getDrives()[0];
+const fi = await fm.upload(drive, { info: { name: 'assets' }, path: './assets' });
+const list = await fm.listFiles(fi, { actHistoryAddress: fi.file.historyRef, actPublisher: fi.actPublisher });
+const files = await fm.download(fi, ['logo.png'], {
+  actHistoryAddress: fi.file.historyRef,
+  actPublisher: fi.actPublisher,
+});
 ```
 
 ### Versioning
 
 ```ts
-const v0 = await fm.getVersion(fi, '0')
-await fm.restoreVersion(v0)
+const v0 = await fm.getVersion(fi, '0');
+await fm.restoreVersion(v0);
 ```
 
 ### Soft Delete / Recover
 
 ```ts
-await fm.trashFile(fi)
-await fm.recoverFile(fi)
+await fm.trashFile(fi);
+await fm.recoverFile(fi);
 ```
 
 ### Sharing (WIP)
 
 ```ts
-await fm.share(fi, [targetOverlay], [recipientPublicKey], 'check this out')
+await fm.share(fi, [targetOverlay], [recipientPublicKey], 'check this out');
 ```
