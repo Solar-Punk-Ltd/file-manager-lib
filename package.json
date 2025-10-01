@@ -1,6 +1,6 @@
 {
   "name": "@solarpunkltd/file-manager-lib",
-  "version": "0.2.1",
+  "version": "0.2.5",
   "description": "A file manager for storing and handling data on Swarm.",
   "main": "dist/index.d.ts",
   "types": "dist/types/index.d.ts",
@@ -48,13 +48,13 @@
   "homepage": "https://github.com/Solar-Punk-Ltd/file-manager-lib",
   "license": "Apache-2.0",
   "dependencies": {
-    "@ethersphere/bee-js": "^10.0.0",
+    "@ethersphere/bee-js": "^10.0.1",
     "cafe-utility": "^32.1.0"
   },
   "devDependencies": {
     "@babel/cli": "^7.19.3",
     "@babel/core": "^7.26.10",
-    "@babel/plugin-proposal-class-properties": "^7.16.7",
+    "@babel/plugin-transform-class-properties": "^7.25.9",
     "@babel/plugin-transform-runtime": "^7.17.0",
     "@babel/preset-env": "^7.26.9",
     "@babel/preset-typescript": "^7.26.0",

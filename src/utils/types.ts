@@ -9,6 +9,7 @@ import {
   FileUploadOptions,
   GetGranteesResult,
   Identifier,
+  PostageBatch,
   PublicKey,
   RedundancyLevel,
   RedundantUploadOptions,
@@ -27,7 +28,7 @@ export interface FileManager {
    * Initializes the file manager.
    * @returns A promise that resolves when the initialization is complete.
    */
-  initialize(): Promise<void>;
+  initialize(batchId?: string | BatchId): Promise<void>;
 
   /**
    * Creates a new drive with the specified options.
@@ -38,7 +39,7 @@ export interface FileManager {
     batchId: string | BatchId,
     name: string,
     isAdmin: boolean,
-    uploadOptions?: RedundantUploadOptions,
+    redundancyLevel?: RedundancyLevel,
     requestOptions?: BeeRequestOptions,
   ): Promise<void>;
 
@@ -106,10 +107,11 @@ export interface FileManager {
 
   /**
    * Destroys a drive identified by the given batch ID.
-   * @param drive - The drive to destroy.
+   * Dilutes the stamp and shortens its duration (min. 24, max 47 hours) depending on the original TTL.
+   * @param driveInfo - The drive to destroy.
    * @returns A promise that resolves when the drive is destroyed.
    */
-  destroyDrive(drive: DriveInfo): Promise<void>;
+  destroyDrive(driveInfo: DriveInfo, stamp: PostageBatch): Promise<void>;
 
   /**
    * Shares a file information with the specified recipients.
@@ -176,12 +178,12 @@ export interface FileManager {
    */
   emitter: EventEmitter;
 }
-
+// TODO: set statuses for trashed, recovered, forgotten
 export enum FileStatus {
   Active = 'active',
   Trashed = 'trashed',
 }
-
+// TODO: separate type files
 export interface FileInfo {
   batchId: string | BatchId;
   file: ReferenceWithHistory;
@@ -194,6 +196,7 @@ export interface FileInfo {
   shared?: boolean;
   preview?: ReferenceWithHistory;
   version?: string | undefined;
+  index?: FeedIndex | undefined;
   redundancyLevel?: RedundancyLevel;
   customMetadata?: Record<string, string>;
   status?: FileStatus;

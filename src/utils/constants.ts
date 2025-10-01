@@ -1,6 +1,6 @@
 import { FeedIndex, NULL_ADDRESS, Reference, Topic } from '@ethersphere/bee-js';
 
-export const REFERENCE_LIST_TOPIC = Topic.fromString('reference-list');
+export const FILEMANAGER_STATE_TOPIC = Topic.fromString('filemanager-state');
 export const SHARED_INBOX_TOPIC = Topic.fromString('shared-inbox');
 export const SHARED_WITH_ME_TOPIC = 'shared-with-me';
 export const ADMIN_STAMP_LABEL = 'admin';
