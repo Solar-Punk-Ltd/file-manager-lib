@@ -7,34 +7,32 @@ import {
   UploadResult,
 } from '@ethersphere/bee-js';
 
-import { FileError, FileInfoError } from '../utils/errors';
+import { FileError } from '../utils/errors';
 import { isDir, readFile } from '../utils/node';
-import { FileInfoOptions, WrappedUploadResult } from '../utils/types';
+import { NodeUploadOptions, WrappedUploadResult } from '../utils/types';
 
 export async function uploadNode(
   bee: Bee,
   batchId: string | BatchId,
-  fileOptions: FileInfoOptions,
+  nodeOptions: NodeUploadOptions,
   uploadOptions?: FileUploadOptions | CollectionUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<UploadResult> {
-  if (!fileOptions.path) {
-    throw new FileInfoError('Path option has to be provided.');
-  }
-
   const uploadFilesRes = await uploadFileOrDirectory(
     bee,
     new BatchId(batchId),
-    fileOptions.path,
+    nodeOptions.path,
     { ...uploadOptions, act: false },
     requestOptions,
   );
+
   let uploadPreviewRes: UploadResult | undefined;
-  if (fileOptions.previewPath) {
+
+  if (nodeOptions.previewPath) {
     uploadPreviewRes = await uploadFileOrDirectory(
       bee,
       new BatchId(batchId),
-      fileOptions.previewPath,
+      nodeOptions.previewPath,
       { ...uploadOptions, act: false },
       requestOptions,
     );

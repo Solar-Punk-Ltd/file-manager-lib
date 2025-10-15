@@ -18,7 +18,7 @@ import {
 } from '@ethersphere/bee-js';
 import { ReadStream } from 'fs';
 
-import { EventEmitter } from './eventEmitter';
+import { EventEmitter } from '../eventEmitter';
 
 /**
  * Interface representing a file manager with various file operations.
@@ -26,9 +26,13 @@ import { EventEmitter } from './eventEmitter';
 export interface FileManager {
   /**
    * Initializes the file manager.
+   * @param createNew - Whether to create a new instance.
+   * @param batchId - Optional batch ID for initialization.
+   * - Must be provided if @createNew is true.
+   * - If not provided, the file manager will attempt to load the existing state and find the appropriate admin stamp.
    * @returns A promise that resolves when the initialization is complete.
    */
-  initialize(batchId?: string | BatchId): Promise<void>;
+  initialize(createNew: boolean, batchId?: string | BatchId): Promise<void>;
 
   /**
    * Creates a new drive with the specified options.
@@ -211,14 +215,18 @@ export interface PartialFileInfo
   topic?: string | Topic;
 }
 
-export interface FileInfoOptions {
-  info: PartialFileInfo;
-  files?: File[] | FileList;
-  path?: string;
+export interface BrowserUploadOptions {
+  files: File[] | FileList;
   preview?: File;
-  previewPath?: string;
   onUploadProgress?: (progress: UploadProgress) => void;
 }
+
+export interface NodeUploadOptions {
+  path: string;
+  previewPath?: string;
+}
+
+export type FileInfoOptions = PartialFileInfo & (BrowserUploadOptions | NodeUploadOptions);
 
 export interface DriveInfo {
   id: string | Identifier;
@@ -271,6 +279,6 @@ export interface UploadProgress {
 }
 
 export interface WrappedUploadResult {
-  uploadFilesRes: Reference | string;
-  uploadPreviewRes?: Reference | string;
+  uploadFilesRes: string | Reference;
+  uploadPreviewRes?: string | Reference;
 }

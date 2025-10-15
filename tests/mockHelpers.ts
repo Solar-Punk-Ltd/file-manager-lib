@@ -22,13 +22,13 @@ import {
 } from '@ethersphere/bee-js';
 import { Optional } from 'cafe-utility';
 
+import { EventEmitter } from '../src/eventEmitter/eventEmitter';
 import { FileManagerBase } from '../src/fileManager';
 import { ADMIN_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
-import { EventEmitter } from '../src/utils/eventEmitter';
 import { FileManagerEvents } from '../src/utils/events';
 import { DriveInfo, FileInfo } from '../src/utils/types';
 
-import { BEE_URL, MOCK_SIGNER } from './utils';
+import { BEE_URL, DEFAULT_MOCK_SIGNER } from './utils';
 
 export const MOCK_BATCH_ID = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
 
@@ -47,14 +47,16 @@ export function createMockMantarayNode(all = true): MantarayNode {
 }
 
 export async function createInitializedFileManager(
-  bee: Bee = new Bee(BEE_URL, { signer: MOCK_SIGNER }),
+  bee: Bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER }),
+  createNew = true,
+  batchId?: string | BatchId,
   emitter?: EventEmitter,
 ): Promise<FileManagerBase> {
   const fm = new FileManagerBase(bee, emitter);
   fm.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, (e) => {
     expect(e).toEqual(true);
   });
-  await fm.initialize();
+  await fm.initialize(createNew, batchId);
   return fm;
 }
 
@@ -69,7 +71,7 @@ export function createMockNodeAddresses(): NodeAddresses {
 }
 
 export async function createMockFileInfo(
-  bee: Bee = new Bee(BEE_URL, { signer: MOCK_SIGNER }),
+  bee: Bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER }),
   ref: string = SWARM_ZERO_ADDRESS.toString(),
 ): Promise<FileInfo> {
   return {
@@ -77,7 +79,7 @@ export async function createMockFileInfo(
     name: 'john doe',
     topic: Topic.fromString('1'),
     driveId: Identifier.fromString('123').toString(),
-    owner: MOCK_SIGNER.publicKey().address().toString(),
+    owner: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
     actPublisher: (await bee.getNodeAddresses()).publicKey.toCompressedHex(),
     file: {
       reference: ref,
@@ -90,7 +92,7 @@ export function createMockDriveInfo(): DriveInfo {
   return {
     id: Identifier.fromString('123'),
     batchId: MOCK_BATCH_ID,
-    owner: MOCK_SIGNER.publicKey().address().toString(),
+    owner: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
     name: 'Test Drive',
     redundancyLevel: RedundancyLevel.MEDIUM,
     infoFeedList: [
@@ -184,6 +186,8 @@ export const mockPostageBatch: PostageBatch = {
   size: Size.fromGigabytes(100),
   remainingSize: Size.fromGigabytes(100),
   theoreticalSize: Size.fromGigabytes(100),
+  calculateSize: () => Size.fromGigabytes(100),
+  calculateRemainingSize: () => Size.fromGigabytes(100),
 };
 
 export function loadStampListMock(): jest.SpyInstance {
@@ -207,6 +211,8 @@ export function loadStampListMock(): jest.SpyInstance {
       size: Size.fromGigabytes(100),
       remainingSize: Size.fromGigabytes(100),
       theoreticalSize: Size.fromGigabytes(100),
+      calculateSize: () => Size.fromGigabytes(100),
+      calculateRemainingSize: () => Size.fromGigabytes(100),
     },
     {
       batchID: new BatchId('3456'.repeat(16)),
@@ -224,6 +230,8 @@ export function loadStampListMock(): jest.SpyInstance {
       size: Size.fromGigabytes(100),
       remainingSize: Size.fromGigabytes(100),
       theoreticalSize: Size.fromGigabytes(100),
+      calculateSize: () => Size.fromGigabytes(100),
+      calculateRemainingSize: () => Size.fromGigabytes(100),
     },
   ]);
 }

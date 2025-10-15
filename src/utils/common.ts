@@ -6,6 +6,7 @@ import {
   DownloadOptions,
   EthAddress,
   FeedIndex,
+  PublicKey,
   Reference,
   Topic,
 } from '@ethersphere/bee-js';
@@ -22,7 +23,7 @@ import { asserWrappedUploadResult } from './asserts';
 export async function getFeedData(
   bee: Bee,
   topic: Topic,
-  address: EthAddress | string,
+  address: string | EthAddress,
   index?: bigint,
   options?: BeeRequestOptions,
 ): Promise<FeedResultWithIndex> {
@@ -59,8 +60,6 @@ export function generateRandomBytes(len: number): Bytes {
   return getRandomBytesBrowser(len);
 }
 
-// status is undefined in the error object
-// Determines if the error is about 'Not Found'
 export function isNotFoundError(error: any): boolean {
   return error.stack?.includes('404') || error.message?.includes('Not Found') || error.message?.includes('404');
 }
@@ -79,11 +78,13 @@ export async function buyStamp(bee: Bee, amount: string | bigint, depth: number,
 
 export async function getWrappedData(
   bee: Bee,
-  eRef: string | Reference,
+  ref: string | Reference,
+  actPublisher: string | PublicKey,
+  actHistoryAddress: string | Reference,
   options?: DownloadOptions,
 ): Promise<WrappedUploadResult> {
   try {
-    const rawData = await bee.downloadData(eRef.toString(), options);
+    const rawData = await bee.downloadData(ref.toString(), { ...options, actPublisher, actHistoryAddress });
     const wrappedResult = rawData.toJSON() as WrappedUploadResult;
     asserWrappedUploadResult(wrappedResult);
     return wrappedResult;

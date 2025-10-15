@@ -1,10 +1,10 @@
 import { BatchId, Bee, Bytes, DownloadOptions, FeedIndex, MantarayNode, Reference, Topic } from '@ethersphere/bee-js';
 
+import { EventEmitterBase } from '../../src/eventEmitter';
 import { FileManagerBase } from '../../src/fileManager';
-import { getFeedData } from '../../src/utils/common';
+import { generateRandomBytes, getFeedData } from '../../src/utils/common';
 import { ADMIN_STAMP_LABEL, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { DriveError, SignerError } from '../../src/utils/errors';
-import { EventEmitterBase } from '../../src/utils/eventEmitter';
 import { FileManagerEvents } from '../../src/utils/events';
 import { DriveInfo, FeedResultWithIndex, FileInfo, FileStatus, WrappedUploadResult } from '../../src/utils/types';
 import {
@@ -19,7 +19,7 @@ import {
   MOCK_BATCH_ID,
   mockPostageBatch,
 } from '../mockHelpers';
-import { BEE_URL, MOCK_SIGNER } from '../utils';
+import { BEE_URL, DEFAULT_MOCK_SIGNER } from '../utils';
 
 jest.mock('../../src/utils/common', () => ({
   ...jest.requireActual('../../src/utils/common'),
@@ -49,17 +49,18 @@ describe('FileManager', () => {
     mockSelfAddr = await mokcMN.calculateSelfAddress();
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-    const { generateRandomBytes, getWrappedData } = require('../../src/utils/common');
+    const { getWrappedData } = require('../../src/utils/common');
     getWrappedData.mockResolvedValue({
       uploadFilesRes: mockSelfAddr.toString(),
     } as WrappedUploadResult);
-    generateRandomBytes.mockReturnValue(new Topic('1'.repeat(64)));
+
+    (generateRandomBytes as jest.Mock).mockImplementation(() => new Topic('1'.repeat(64)));
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
     const { loadMantaray } = require('../../src/utils/mantaray');
     loadMantaray.mockResolvedValue(mokcMN);
   });
-
+  // TODO: test all new cases of init: batchId, createNew
   describe('constructor', () => {
     it('should create new instance of FileManager', async () => {
       const fm = await createInitializedFileManager();
@@ -86,11 +87,11 @@ describe('FileManager', () => {
 
   describe('initialize', () => {
     it('should initialize FileManager', async () => {
-      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const eventHandler = jest.fn((_) => {});
       const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
-      await createInitializedFileManager(bee, emitter);
+      await createInitializedFileManager(bee, true, undefined, emitter);
 
       expect(eventHandler).toHaveBeenCalledWith(true);
     });
@@ -101,9 +102,14 @@ describe('FileManager', () => {
       const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
 
-      const fm = await createInitializedFileManager(new Bee(BEE_URL, { signer: MOCK_SIGNER }), emitter);
+      const fm = await createInitializedFileManager(
+        new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER }),
+        true,
+        undefined,
+        emitter,
+      );
       expect(eventHandler).toHaveBeenCalledWith(true);
-      await fm.initialize();
+      await fm.initialize(false);
       expect(logSpy).toHaveBeenCalledWith('FileManager is already initialized');
     });
 
@@ -113,10 +119,10 @@ describe('FileManager', () => {
       const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
 
-      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const fm = new FileManagerBase(bee, emitter);
-      fm.initialize();
-      fm.initialize();
+      fm.initialize(false);
+      fm.initialize(false);
 
       expect(logSpy).toHaveBeenCalledWith('FileManager is being initialized');
     });
@@ -135,7 +141,7 @@ describe('FileManager', () => {
 
     it('should call mantaray.collect()', async () => {
       createInitMocks();
-      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const fm = await createInitializedFileManager(bee);
       const mockFi = await createMockFileInfo(bee, mockSelfAddr.toString());
       const mantarayCollectSpy = jest.spyOn(MantarayNode.prototype, 'collect');
@@ -146,7 +152,7 @@ describe('FileManager', () => {
 
     it('should call bee.downloadData with only correct fork reference', async () => {
       createInitMocks();
-      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER }); // TODO: these can be removed
       const fm = await createInitializedFileManager(bee);
       const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
       const mockFi = await createMockFileInfo(bee, mockSelfAddr.toString());
@@ -163,7 +169,7 @@ describe('FileManager', () => {
     it('should call download for all of forks', async () => {
       const mockForkRef = new Reference('4'.repeat(64));
       createInitMocks(mockForkRef);
-      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const fm = await createInitializedFileManager(bee);
       const mockFi = await createMockFileInfo(bee, mockSelfAddr.toString());
 
@@ -194,7 +200,7 @@ describe('FileManager', () => {
 
     it('should return correct reference and path', async () => {
       createInitMocks();
-      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const fm = await createInitializedFileManager(bee);
       const mockMantarayNode = createMockMantarayNode(false);
       jest.spyOn(MantarayNode, 'unmarshal').mockResolvedValue(new MantarayNode());
@@ -213,7 +219,8 @@ describe('FileManager', () => {
 
   describe('upload', () => {
     it('should call uploadFilesFromDirectory', async () => {
-      const fm = await createInitializedFileManager();
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee, true, MOCK_BATCH_ID);
       await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
       const di = fm.getDrives()[0];
 
@@ -223,7 +230,7 @@ describe('FileManager', () => {
       createUploadDataSpy('4');
       createMockFeedWriter('5');
 
-      await fm.upload(di, { info: { name: 'tests' }, path: './tests' });
+      await fm.upload(di, { name: 'tests', path: './tests' });
       expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
 
       const fi = fm.fileInfoList.find((fi) => fi.driveId === di.id.toString() && fi.name === 'tests');
@@ -232,7 +239,8 @@ describe('FileManager', () => {
     });
 
     it('should call uploadFileOrDirectory if previewPath is provided', async () => {
-      const fm = await createInitializedFileManager();
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee, true, MOCK_BATCH_ID);
       await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
       const di = fm.getDrives()[0];
       const uploadFileOrDirectorySpy = createUploadFilesFromDirectorySpy('1');
@@ -242,30 +250,30 @@ describe('FileManager', () => {
       createUploadDataSpy('4');
       createMockFeedWriter('5');
 
-      await fm.upload(di, { info: { name: 'tests' }, path: './tests' });
+      await fm.upload(di, { name: 'tests', path: './tests' });
 
       expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
       expect(uploadFileOrDirectoryPreviewSpy).toHaveBeenCalled();
     });
 
     it('should throw error if infoTopic and historyRef are not provided at the same time', async () => {
-      const fm = await createInitializedFileManager();
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee, true, MOCK_BATCH_ID);
       await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
       const di = fm.getDrives()[0];
 
       await expect(async () => {
         await fm.upload(di, {
-          info: {
-            name: 'tests',
-            topic: 'topic',
-          },
+          name: 'tests',
+          topic: 'topic',
           path: './tests',
         });
       }).rejects.toThrow('Options topic and historyRef have to be provided at the same time.');
     });
 
     it('should not add duplicate entries when re-uploading same topic', async () => {
-      const fm = await createInitializedFileManager();
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee, true, MOCK_BATCH_ID);
       await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
       const di = fm.getDrives()[0];
       createUploadFilesFromDirectorySpy('1');
@@ -279,7 +287,7 @@ describe('FileManager', () => {
         payload: SWARM_ZERO_ADDRESS,
       });
 
-      await fm.upload(di, { info: { name: 'hello' }, path: './tests' });
+      await fm.upload(di, { name: 'hello', path: './tests' });
       expect(fm.fileInfoList.filter((fi) => fi.name === 'hello')).toHaveLength(1);
 
       const original = fm.fileInfoList[0];
@@ -298,11 +306,9 @@ describe('FileManager', () => {
       await fm.upload(
         di,
         {
-          info: {
-            name: 'hello',
-            topic: original.topic,
-            file: original.file,
-          },
+          name: 'hello',
+          topic: original.topic,
+          file: original.file,
           path: './tests',
         },
         {
@@ -430,32 +436,35 @@ describe('FileManager', () => {
 
   describe('drive handling', () => {
     it('createDrive should create an admin drive', async () => {
-      const fm = await createInitializedFileManager();
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee, true); // TODO: test with init batch id
       await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', true);
       const di = fm.getDrives()[0];
       expect(di).toBeDefined();
       expect(di.name).toBe(ADMIN_STAMP_LABEL);
       expect(di.batchId.toString()).toBe(MOCK_BATCH_ID.toString());
       expect(di.id.toString()).toHaveLength(64);
-      expect(di.owner).toBe(MOCK_SIGNER.publicKey().address().toString());
+      expect(di.owner).toBe(DEFAULT_MOCK_SIGNER.publicKey().address().toString());
       expect(di.infoFeedList).toStrictEqual(undefined);
       expect(di.isAdmin).toBe(true);
     });
 
     it('createDrive should create a new drive', async () => {
-      const fm = await createInitializedFileManager();
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee, true, MOCK_BATCH_ID);
       await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
       const di = fm.getDrives()[0];
       expect(di).toBeDefined();
       expect(di.name).toBe('Test Drive');
       expect(di.batchId.toString()).toBe(MOCK_BATCH_ID.toString());
       expect(di.id.toString()).toHaveLength(64);
-      expect(di.owner).toBe(MOCK_SIGNER.publicKey().address().toString());
+      expect(di.owner).toBe(DEFAULT_MOCK_SIGNER.publicKey().address().toString());
       expect(di.infoFeedList).toStrictEqual(undefined);
     });
 
     it('createDrive should throw error if drive with same name or batchId exists', async () => {
-      const fm = await createInitializedFileManager();
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee, true, MOCK_BATCH_ID);
       await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
       await expect(fm.createDrive(MOCK_BATCH_ID, 'New Drive', false)).rejects.toThrow(
         new DriveError(`Drive with name "New Drive" or batchId "${MOCK_BATCH_ID}" already exists`),
@@ -470,7 +479,8 @@ describe('FileManager', () => {
     });
 
     it('createDrive should throw error if trying to create a new admin drive', async () => {
-      const fm = await createInitializedFileManager();
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee, true, MOCK_BATCH_ID);
       await fm.createDrive(MOCK_BATCH_ID, ADMIN_STAMP_LABEL, true);
       await expect(fm.createDrive(MOCK_BATCH_ID, 'New Drive', true)).rejects.toThrow(
         new DriveError(`Admin drive already exists`),
@@ -478,12 +488,14 @@ describe('FileManager', () => {
     });
 
     it('destroyDrive should call diluteBatch with batchId and MAX_DEPTH', async () => {
-      const diluteSpy = jest.spyOn(Bee.prototype, 'diluteBatch').mockResolvedValue(new BatchId(MOCK_BATCH_ID));
-      const fm = await createInitializedFileManager();
-      await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
+      const otherBatchId = new BatchId('3456'.repeat(16));
+      const diluteSpy = jest.spyOn(Bee.prototype, 'diluteBatch').mockResolvedValue(new BatchId(otherBatchId));
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee, true, MOCK_BATCH_ID);
+      await fm.createDrive(otherBatchId, 'Test Drive', false);
       const di = fm.getDrives()[0];
 
-      await fm.destroyDrive(di, mockPostageBatch);
+      await fm.destroyDrive(di, { ...mockPostageBatch, batchID: otherBatchId });
 
       const ttlDays = mockPostageBatch.duration.toDays();
       const halvings = Math.floor(Math.log2(ttlDays));
@@ -492,7 +504,8 @@ describe('FileManager', () => {
 
     it('destroyDrive should throw error if trying to destroy Admin drive / stamp', async () => {
       const ownerBatchId = new BatchId('3456'.repeat(16));
-      const fm = await createInitializedFileManager();
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee, true, MOCK_BATCH_ID);
       await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
       const di = fm.getDrives()[0];
       di.batchId = ownerBatchId;
@@ -521,7 +534,8 @@ describe('FileManager', () => {
     let drive: DriveInfo;
 
     beforeEach(async () => {
-      fm = await createInitializedFileManager();
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      fm = await createInitializedFileManager(bee, true, MOCK_BATCH_ID);
       await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
       drive = fm.getDrives()[0];
 
@@ -594,7 +608,7 @@ describe('FileManager', () => {
       const handler = jest.fn();
       fm.emitter.on(FileManagerEvents.FILE_FORGOTTEN, handler);
 
-      await fm.upload(drive, { info: { ...mockFi }, path: './tests' }, { actHistoryAddress: mockFi.file.historyRef });
+      await fm.upload(drive, { ...mockFi, path: './tests' }, { actHistoryAddress: mockFi.file.historyRef });
       await fm.forgetFile(mockFi);
 
       expect(fm.fileInfoList).not.toContain(mockFi);
@@ -607,8 +621,8 @@ describe('FileManager', () => {
 
   describe('getGranteesOfFile', () => {
     it('should throw grantee list not found if the topic not found in driveList', async () => {
-      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
-      const fm = await createInitializedFileManager(bee);
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee, true, MOCK_BATCH_ID);
       await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
       const di = fm.getDrives()[0];
 
@@ -617,7 +631,7 @@ describe('FileManager', () => {
         batchId: MOCK_BATCH_ID,
         driveId: di.id.toString(),
         name: 'john doe',
-        owner: MOCK_SIGNER.publicKey().address().toString(),
+        owner: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
         actPublisher,
         topic: Topic.fromString('example'),
         file: {
@@ -634,11 +648,11 @@ describe('FileManager', () => {
 
   describe('eventEmitter', () => {
     it('should send event after upload happens', async () => {
-      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const emitter = new EventEmitterBase();
       const uploadHandler = jest.fn((_args) => {});
 
-      const fm = await createInitializedFileManager(bee, emitter);
+      const fm = await createInitializedFileManager(bee, true, MOCK_BATCH_ID, emitter);
       fm.emitter.on(FileManagerEvents.FILE_UPLOADED, uploadHandler);
       await fm.createDrive(MOCK_BATCH_ID, 'Test Drive', false);
       const di = fm.getDrives()[0];
@@ -668,7 +682,7 @@ describe('FileManager', () => {
         actPublisher,
         version: FEED_INDEX_ZERO.toString(),
         name: 'tests',
-        owner: MOCK_SIGNER.publicKey().address().toString(),
+        owner: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
         preview: undefined,
         redundancyLevel: 0,
         shared: false,
@@ -677,7 +691,7 @@ describe('FileManager', () => {
         topic: expect.any(String), // leave topic flexible
       } as FileInfo;
 
-      await fm.upload(di, { info: { name: 'tests' }, path: './tests' });
+      await fm.upload(di, { name: 'tests', path: './tests' });
       fm.emitter.off(FileManagerEvents.FILE_UPLOADED, uploadHandler);
 
       expect(uploadHandler).toHaveBeenCalledWith({ fileInfo: expectedFileInfo });
@@ -686,11 +700,11 @@ describe('FileManager', () => {
     });
 
     it('should send an event after the fileManager is initialized', async () => {
-      const bee = new Bee(BEE_URL, { signer: MOCK_SIGNER });
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const eventHandler = jest.fn((_) => {});
       const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
-      await createInitializedFileManager(bee, emitter);
+      await createInitializedFileManager(bee, true, MOCK_BATCH_ID, emitter);
 
       expect(eventHandler).toHaveBeenCalledWith(true);
     });
