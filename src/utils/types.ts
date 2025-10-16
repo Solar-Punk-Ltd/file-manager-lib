@@ -164,6 +164,12 @@ export interface FileManager {
   restoreVersion(versionToRestore: FileInfo, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
+   * Admin postage batch used for drive management operations.
+   * @returns The admin postage batch, or undefined if not set.
+   */
+  adminStamp: PostageBatch | undefined;
+
+  /**
    * Retrieves a list of file information.
    * @returns An array of file information objects.
    */

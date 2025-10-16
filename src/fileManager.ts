@@ -65,17 +65,21 @@ export class FileManagerBase implements FileManager {
   private bee: Bee;
   private signer: PrivateKey;
   private publisher: PublicKey | undefined = undefined;
-  private adminStamp: PostageBatch | undefined = undefined;
   private driveListNextIndex: bigint = 0n;
   private stateFeedTopic: Topic | undefined = undefined;
   private driveList: DriveInfo[] = [];
   private sharedSubscription: PssSubscription | undefined = undefined;
   private isInitialized: boolean = false;
   private isInitializing: boolean = false;
+  private _adminStamp: PostageBatch | undefined = undefined;
 
   readonly fileInfoList: FileInfo[] = [];
   readonly sharedWithMe: ShareItem[] = [];
   readonly emitter: EventEmitter;
+
+  get adminStamp(): PostageBatch | undefined {
+    return this._adminStamp;
+  }
 
   constructor(bee: Bee, emitter: EventEmitter = new EventEmitterBase()) {
     this.bee = bee;
@@ -157,7 +161,6 @@ export class FileManagerBase implements FileManager {
     const stateTopicRef = await this.fetchStateTopicRef();
 
     if (stateTopicRef.equals(SWARM_ZERO_ADDRESS)) {
-      // throw new DriveError('Admin state does not exist');
       console.debug('State not found.');
       return;
     }
@@ -196,7 +199,7 @@ export class FileManagerBase implements FileManager {
     const adminStamp = await this.fetchAndSetAdminStamp(batchId);
 
     if (!adminStamp) {
-      throw new StampError('Admin stamp not found');
+      throw new StampError(`Admin stamp with batchId: ${batchId.toString().slice(0, 6)}... not found`);
     }
 
     const newStateFeedTopic = new Topic(generateRandomBytes(Topic.LENGTH));
@@ -780,7 +783,7 @@ export class FileManagerBase implements FileManager {
     try {
       const adminStamp = (await this.bee.getPostageBatches()).find((s) => s.batchID.toString() === batchId.toString());
       if (adminStamp && adminStamp.usable) {
-        this.adminStamp = adminStamp;
+        this._adminStamp = adminStamp;
       }
 
       return this.adminStamp;

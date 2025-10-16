@@ -71,7 +71,7 @@ describe('FileManager initialization', () => {
       await fm.initialize(adminBatchId);
     } catch (error: any) {
       expect(error).toBeInstanceOf(StampError);
-      expect(error.message).toContain('Admin stamp not found');
+      expect(error.message).toContain(`Admin stamp with batchId: ${adminBatchId.toString().slice(0, 6)}... not found`);
     }
 
     expect(fm.fileInfoList).toEqual([]);
