@@ -55,7 +55,7 @@ export async function createInitializedFileManager(
   fm.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, (e) => {
     expect(e).toEqual(true);
   });
-  await fm.initialize(batchId);
+  await fm.initialize();
   await fm.createDrive(batchId || MOCK_BATCH_ID, ADMIN_STAMP_LABEL, true, RedundancyLevel.MEDIUM);
   return fm;
 }

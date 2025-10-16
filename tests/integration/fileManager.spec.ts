@@ -21,7 +21,7 @@ import { FEED_INDEX_ZERO, FILEMANAGER_STATE_TOPIC, SWARM_ZERO_ADDRESS } from '..
 import { DriveError, FileError, FileInfoError, GranteeError, StampError } from '../../src/utils/errors';
 import { FileManagerEvents } from '../../src/utils/events';
 import { DriveInfo, FileInfo, FileStatus } from '../../src/utils/types';
-import { createInitializedFileManager } from '../mockHelpers';
+import { createInitializedFileManager, MOCK_BATCH_ID } from '../mockHelpers';
 import {
   createWrappedData,
   DEFAULT_BATCH_AMOUNT,
@@ -63,19 +63,20 @@ describe('FileManager initialization', () => {
     expect(fileManager.sharedWithMe).toEqual([]);
 
     const otherBee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
-    const fm = new FileManagerBase(otherBee);
+    const fm2 = new FileManagerBase(otherBee);
     try {
-      fm.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, (e) => {
-        expect(e).toEqual(false);
+      fm2.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, (e) => {
+        expect(e).toBeTruthy();
       });
-      await fm.initialize(adminBatchId);
+      await fm2.initialize();
+      await fm2.createDrive(MOCK_BATCH_ID, 'Admin Drive', true, RedundancyLevel.OFF);
     } catch (error: any) {
       expect(error).toBeInstanceOf(StampError);
-      expect(error.message).toContain(`Admin stamp with batchId: ${adminBatchId.toString().slice(0, 6)}... not found`);
+      expect(error.message).toContain(`Admin stamp with batchId: ${MOCK_BATCH_ID.toString().slice(0, 6)}... not found`);
     }
 
-    expect(fm.fileInfoList).toEqual([]);
-    expect(fm.sharedWithMe).toEqual([]);
+    expect(fm2.fileInfoList).toEqual([]);
+    expect(fm2.sharedWithMe).toEqual([]);
   });
 
   it('should initialize the admin feed and topic', async () => {
@@ -167,7 +168,7 @@ describe('FileManager initialization', () => {
     }
 
     const fm2 = new FileManagerBase(bee);
-    await fm2.initialize(adminBatchId);
+    await fm2.initialize();
     const fileInfoList = fm2.fileInfoList;
     await dowloadAndCompareFiles(fm2, actPublisher.toCompressedHex(), fileInfoList, expFileDataArr);
   });
@@ -799,7 +800,7 @@ describe('FileManager file operations', () => {
     expect(initial.status).toBe(FileStatus.Trashed);
 
     const fm2 = new FileManagerBase(bee);
-    await fm2.initialize(batchId);
+    await fm2.initialize();
 
     const fi2 = fm2.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
     expect(fi2.status).toBe(FileStatus.Trashed);
@@ -818,7 +819,7 @@ describe('FileManager file operations', () => {
     await fileManager.recoverFile(testFi);
 
     const fm2 = new FileManagerBase(bee);
-    await fm2.initialize(batchId);
+    await fm2.initialize();
 
     const fi2 = fm2.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
     expect(fi2.status).toBe(FileStatus.Active);
@@ -830,7 +831,7 @@ describe('FileManager file operations', () => {
     expect(fileManager.fileInfoList.find((fi) => fi.name === TEST_NAME)).toBeUndefined();
 
     const fm2 = new FileManagerBase(bee);
-    await fm2.initialize(batchId);
+    await fm2.initialize();
 
     expect(fm2.fileInfoList.find((fi) => fi.name === TEST_NAME)).toBeUndefined();
   });
@@ -858,7 +859,7 @@ describe('FileManager file operations', () => {
 
   it('fileInfoList should never gain duplicate topics when trash/restoring', async () => {
     const fm = new FileManagerBase(bee);
-    await fm.initialize(batchId);
+    await fm.initialize();
 
     const fi0 = fm.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
     const topic = fi0.topic.toString();
@@ -870,7 +871,7 @@ describe('FileManager file operations', () => {
     await fm.recoverFile(fi0);
 
     const fm2 = new FileManagerBase(bee);
-    await fm2.initialize(batchId);
+    await fm2.initialize();
     const fi2 = fm2.fileInfoList.find((fi) => fi.topic.toString() === topic)!;
 
     expect(BigInt(fi2.version!)).toBe(beforeVer + 2n);

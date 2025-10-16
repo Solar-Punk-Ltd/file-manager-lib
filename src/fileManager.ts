@@ -92,7 +92,7 @@ export class FileManagerBase implements FileManager {
   }
 
   // TODO: import pins
-  async initialize(batchId?: string | BatchId): Promise<void> {
+  async initialize(): Promise<void> {
     if (this.isInitialized) {
       console.debug('FileManager is already initialized');
       this.emitter.emit(FileManagerEvents.FILEMANAGER_INITIALIZED, true);
@@ -115,14 +115,6 @@ export class FileManagerBase implements FileManager {
       await this.tryToFetchAdminState();
       await this.initDriveList();
       await this.initFileInfoList();
-
-      if (batchId) {
-        const adminStamp = await this.fetchAndSetAdminStamp(batchId);
-
-        if (!adminStamp) {
-          throw new StampError('Admin stamp not found');
-        }
-      }
 
       this.isInitialized = true;
       this.emitter.emit(FileManagerEvents.FILEMANAGER_INITIALIZED, true);
