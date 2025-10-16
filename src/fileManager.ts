@@ -88,7 +88,7 @@ export class FileManagerBase implements FileManager {
   }
 
   // TODO: import pins
-  async initialize(createNew: boolean, batchId?: string | BatchId): Promise<void> {
+  async initialize(batchId?: string | BatchId): Promise<void> {
     if (this.isInitialized) {
       console.debug('FileManager is already initialized');
       this.emitter.emit(FileManagerEvents.FILEMANAGER_INITIALIZED, true);
@@ -106,30 +106,18 @@ export class FileManagerBase implements FileManager {
       await this.verifySupportedVersions();
       await this.initPublisher();
 
-      const { payload: stateTopic } = await getFeedData(
-        this.bee,
-        FILEMANAGER_STATE_TOPIC,
-        this.signer.publicKey().address().toString(),
-        0n,
-      );
-      const stateTopicRef = new Reference(stateTopic.toUint8Array());
+      console.debug('Trying to load state from Swarm.');
 
-      if (createNew) {
-        // if (!batchId) {
-        //   throw new StampError('Stamp not provided for creation');
-        // }
-        if (!batchId) {
-          console.debug(`Admin stamp not provided, creating default instance.`);
-          this.isInitialized = true;
-          this.emitter.emit(FileManagerEvents.FILEMANAGER_INITIALIZED, true);
-          return;
+      await this.tryToFetchAdminState();
+      await this.initDriveList();
+      await this.initFileInfoList();
+
+      if (batchId) {
+        const adminStamp = await this.fetchAndSetAdminStamp(batchId);
+
+        if (!adminStamp) {
+          throw new StampError('Admin stamp not found');
         }
-
-        console.debug(`Admin stamp provided: ${batchId.toString().slice(0, 6)}..., saving new instance on Swarm.`);
-        await this.createNewDriveListTopic(stateTopicRef, batchId);
-      } else {
-        console.debug('Loading state from Swarm.');
-        await this.tryToFetchAdminState(stateTopicRef, batchId);
       }
 
       this.isInitialized = true;
@@ -161,29 +149,17 @@ export class FileManagerBase implements FileManager {
     this.publisher = (await this.bee.getNodeAddresses()).publicKey;
   }
 
-  private async initDrives(batchId: string | BatchId): Promise<void> {
-    await this.createNewDriveListTopic(SWARM_ZERO_ADDRESS, batchId);
-    await this.initDriveList();
-    await this.initFileInfoList();
-  }
-
-  private async tryToFetchAdminState(stateTopicRef: Reference, batchId?: string | BatchId): Promise<void> {
+  private async tryToFetchAdminState(): Promise<void> {
     if (!this.publisher) {
       throw new SignerError('Publisher not found');
     }
+
+    const stateTopicRef = await this.fetchStateTopicRef();
 
     if (stateTopicRef.equals(SWARM_ZERO_ADDRESS)) {
       // throw new DriveError('Admin state does not exist');
       console.debug('State not found.');
       return;
-    }
-
-    if (batchId) {
-      const adminStamp = await this.fetchAndSetAdminStamp(batchId);
-
-      if (!adminStamp) {
-        throw new StampError('Admin stamp not found');
-      }
     }
 
     const { payload: topicHistory } = await getFeedData(
@@ -209,7 +185,8 @@ export class FileManagerBase implements FileManager {
   }
 
   // fetches the drive list topic and creates it if it does not exist, protected by ACT
-  private async createNewDriveListTopic(stateTopicRef: Reference, batchId: string | BatchId): Promise<void> {
+  private async createNewDriveListTopic(batchId: string | BatchId): Promise<void> {
+    const stateTopicRef = await this.fetchStateTopicRef();
     const isStateExisting = !stateTopicRef.equals(SWARM_ZERO_ADDRESS);
 
     if (isStateExisting) {
@@ -238,6 +215,17 @@ export class FileManagerBase implements FileManager {
     console.debug('Drive list feed topic successfully set');
   }
 
+  private async fetchStateTopicRef(): Promise<Reference> {
+    const { payload: stateTopic } = await getFeedData(
+      this.bee,
+      FILEMANAGER_STATE_TOPIC,
+      this.signer.publicKey().address().toString(),
+      0n,
+    );
+
+    return new Reference(stateTopic.toUint8Array());
+  }
+
   // fetches the latest list of fileinfo from the drive list topic
   private async initDriveList(): Promise<void> {
     if (!this.publisher) {
@@ -245,7 +233,8 @@ export class FileManagerBase implements FileManager {
     }
 
     if (!this.stateFeedTopic) {
-      throw new DriveError('Drive list topic not initialized');
+      console.debug('Drive list topic not initialized');
+      return;
     }
 
     const { feedIndexNext, payload } = await getFeedData(
@@ -294,6 +283,11 @@ export class FileManagerBase implements FileManager {
     const tmpPublisher = this.publisher;
     if (!tmpPublisher) {
       throw new SignerError('Publisher not found');
+    }
+
+    if (this.driveList.length === 0) {
+      console.debug('Drive list is empty, skipping file info list initialization');
+      return;
     }
 
     const feedDataPromises: Promise<FeedResultWithIndex>[] = [];
@@ -369,7 +363,7 @@ export class FileManagerBase implements FileManager {
     if (isAdmin) {
       console.debug('Creating admin drive with name: ', ADMIN_STAMP_LABEL);
       driveName = ADMIN_STAMP_LABEL;
-      await this.initDrives(batchId.toString());
+      await this.createNewDriveListTopic(batchId.toString());
     }
 
     const driveInfo: DriveInfo = {

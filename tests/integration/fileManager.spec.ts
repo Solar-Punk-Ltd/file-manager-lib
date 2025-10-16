@@ -26,7 +26,6 @@ import {
   createWrappedData,
   DEFAULT_BATCH_AMOUNT,
   DEFAULT_BATCH_DEPTH,
-  DEFAULT_MOCK_SIGNER,
   dowloadAndCompareFiles,
   getTestFile,
   OTHER_BEE_URL,
@@ -44,12 +43,14 @@ describe('FileManager initialization', () => {
   let actPublisher: PublicKey;
   let drive: DriveInfo;
   let adminBatchId: BatchId;
+  let signer: PrivateKey;
 
   beforeAll(async () => {
-    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
+    const { bee: beeDev, ownerStamp, signer: newSigner } = await ensureUniqueSignerWithStamp();
     bee = beeDev;
     adminBatchId = ownerStamp;
-    fileManager = await createInitializedFileManager(bee, true, adminBatchId);
+    signer = newSigner;
+    fileManager = await createInitializedFileManager(bee, adminBatchId);
     actPublisher = (await bee.getNodeAddresses()).publicKey;
   });
 
@@ -67,7 +68,7 @@ describe('FileManager initialization', () => {
       fm.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, (e) => {
         expect(e).toEqual(false);
       });
-      await fm.initialize(true, adminBatchId);
+      await fm.initialize(adminBatchId);
     } catch (error: any) {
       expect(error).toBeInstanceOf(StampError);
       expect(error.message).toContain('Admin stamp not found');
@@ -81,20 +82,15 @@ describe('FileManager initialization', () => {
     expect(fileManager.fileInfoList).toEqual([]);
     expect(fileManager.sharedWithMe).toEqual([]);
 
-    const feedTopicData = await getFeedData(
-      bee,
-      FILEMANAGER_STATE_TOPIC,
-      DEFAULT_MOCK_SIGNER.publicKey().address(),
-      0n,
-    );
-    const topicHistory = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, DEFAULT_MOCK_SIGNER.publicKey().address(), 1n);
+    const feedTopicData = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 0n);
+    const topicHistory = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 1n);
     const topicHex = await bee.downloadData(new Reference(feedTopicData.payload), {
       actHistoryAddress: new Reference(topicHistory.payload),
       actPublisher,
     });
     expect(topicHex).not.toEqual(SWARM_ZERO_ADDRESS);
 
-    await fileManager.initialize(false);
+    await fileManager.initialize();
     const reinitTopicHex = await bee.downloadData(new Reference(feedTopicData.payload), {
       actHistoryAddress: new Reference(topicHistory.payload),
       actPublisher,
@@ -105,13 +101,8 @@ describe('FileManager initialization', () => {
   it('should throw an error if someone else than the admin tries to read the admin feed', async () => {
     const otherBee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
 
-    const feedTopicData = await getFeedData(
-      bee,
-      FILEMANAGER_STATE_TOPIC,
-      DEFAULT_MOCK_SIGNER.publicKey().address(),
-      0n,
-    );
-    const topicHistory = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, DEFAULT_MOCK_SIGNER.publicKey().address(), 1n);
+    const feedTopicData = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 0n);
+    const topicHistory = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 1n);
 
     try {
       await bee.downloadData(new Reference(feedTopicData.payload), {
@@ -175,7 +166,8 @@ describe('FileManager initialization', () => {
       });
     }
 
-    const fm2 = await createInitializedFileManager(bee, false, adminBatchId);
+    const fm2 = new FileManagerBase(bee);
+    await fm2.initialize(adminBatchId);
     const fileInfoList = fm2.fileInfoList;
     await dowloadAndCompareFiles(fm2, actPublisher.toCompressedHex(), fileInfoList, expFileDataArr);
   });
@@ -193,7 +185,7 @@ describe('FileManager initialization', () => {
     fileManager.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, (e) => {
       expect(e).toEqual(true);
     });
-    await fileManager.initialize(false);
+    await fileManager.initialize();
     expect(fileManager.fileInfoList).toEqual(fileInfoListBefore);
   });
 });
@@ -210,11 +202,12 @@ describe('FileManager drive handling', () => {
     bee = beeDev;
     signer = newSigner;
     const stamp = (await bee.getPostageBatches()).find((s) => s.batchID.toString() === ownerStamp.toString());
+
     expect(stamp).toBeDefined();
-    expect(stamp?.batchID === ownerStamp).toBeTruthy();
+    expect(stamp?.batchID.toString() === ownerStamp.toString()).toBeTruthy();
     ownerBatch = stamp!;
 
-    fileManager = await createInitializedFileManager(bee, true, ownerStamp);
+    fileManager = await createInitializedFileManager(bee, ownerStamp);
 
     tempDir = path.join(__dirname, 'tmpDriveFolder');
     fs.mkdirSync(tempDir, { recursive: true });
@@ -337,7 +330,7 @@ describe('FileManager listFiles', () => {
     tempDir = path.join(__dirname, 'tmpIntegrationListFiles');
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'listFilesIntegrationStamp');
 
-    fileManager = await createInitializedFileManager(bee, true, ownerStamp);
+    fileManager = await createInitializedFileManager(bee, ownerStamp);
     actPublisher = (await bee.getNodeAddresses()).publicKey;
 
     await fileManager.createDrive(batchId, 'listFiles', false);
@@ -488,7 +481,7 @@ describe('FileManager upload', () => {
 
     tempUploadDir = path.join(__dirname, 'tmpUploadIntegration');
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'uploadIntegrationStamp');
-    fileManager = await createInitializedFileManager(bee, true, ownerStamp);
+    fileManager = await createInitializedFileManager(bee, ownerStamp);
 
     await fileManager.createDrive(batchId, 'upload', false);
     const tmpDrive = fileManager.getDrives().find((d) => d.name === 'upload');
@@ -635,13 +628,12 @@ describe('FileManager upload', () => {
 
   it('does not create a second fileInfo when bumping to a new version', async () => {
     const dirName = path.basename(tempUploadDir);
-    const localFm = await createInitializedFileManager(bee, false);
 
-    await localFm.upload(drive, { name: dirName, path: tempUploadDir });
-    const original = localFm.fileInfoList.find((fi) => fi.name === dirName)!;
+    await fileManager.upload(drive, { name: dirName, path: tempUploadDir });
+    const original = fileManager.fileInfoList.find((fi) => fi.name === dirName)!;
     expect(original).toBeDefined();
 
-    await localFm.upload(
+    await fileManager.upload(
       drive,
       {
         name: dirName,
@@ -653,7 +645,7 @@ describe('FileManager upload', () => {
       },
     );
 
-    const entries = localFm.fileInfoList.filter((fi) => fi.name === dirName && fi.topic === original.topic);
+    const entries = fileManager.fileInfoList.filter((fi) => fi.name === dirName && fi.topic === original.topic);
     expect(entries).toHaveLength(1);
 
     const bumped = entries[0];
@@ -677,7 +669,7 @@ describe('FileManager download', () => {
     tempDownloadDir = path.join(__dirname, 'tmpDownloadIntegration');
     signer = newSigner;
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'downloadFilesIntegrationStamp');
-    fileManager = await createInitializedFileManager(bee, true, ownerStamp);
+    fileManager = await createInitializedFileManager(bee, ownerStamp);
     actPublisher = (await bee.getNodeAddresses()).publicKey;
 
     await fileManager.createDrive(batchId, 'download', false);
@@ -767,10 +759,10 @@ describe('FileManager download', () => {
 });
 
 describe('FileManager file operations', () => {
-  let bee: any;
+  let bee: BeeDev;
   let fileManager: FileManagerBase;
   let batchId: BatchId;
-  let testFi: any;
+  let testFi: FileInfo;
   let drive: DriveInfo;
   let testFilePath: string;
   const TEST_NAME = 'trash-restore-forget.txt';
@@ -779,7 +771,7 @@ describe('FileManager file operations', () => {
     const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
     bee = beeDev;
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'fileOpsIntegration');
-    fileManager = await createInitializedFileManager(bee, true, ownerStamp);
+    fileManager = await createInitializedFileManager(bee, ownerStamp);
 
     await fileManager.createDrive(batchId, 'fileoperations', false);
     const tmpDrive = fileManager.getDrives().find((d) => d.name === 'fileoperations');
@@ -806,7 +798,9 @@ describe('FileManager file operations', () => {
     await fileManager.trashFile(initial);
     expect(initial.status).toBe(FileStatus.Trashed);
 
-    const fm2 = await createInitializedFileManager(bee, false);
+    const fm2 = new FileManagerBase(bee);
+    await fm2.initialize(batchId);
+
     const fi2 = fm2.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
     expect(fi2.status).toBe(FileStatus.Trashed);
     expect(BigInt(fi2.version!)).toBe(beforeVersion + 1n);
@@ -823,7 +817,9 @@ describe('FileManager file operations', () => {
 
     await fileManager.recoverFile(testFi);
 
-    const fm2 = await createInitializedFileManager(bee, false);
+    const fm2 = new FileManagerBase(bee);
+    await fm2.initialize(batchId);
+
     const fi2 = fm2.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
     expect(fi2.status).toBe(FileStatus.Active);
     expect(BigInt(fi2.version!)).toBe(beforeVersion + 1n);
@@ -833,7 +829,9 @@ describe('FileManager file operations', () => {
     await fileManager.forgetFile(testFi);
     expect(fileManager.fileInfoList.find((fi) => fi.name === TEST_NAME)).toBeUndefined();
 
-    const fm2 = await createInitializedFileManager(bee, false);
+    const fm2 = new FileManagerBase(bee);
+    await fm2.initialize(batchId);
+
     expect(fm2.fileInfoList.find((fi) => fi.name === TEST_NAME)).toBeUndefined();
   });
 
@@ -859,7 +857,8 @@ describe('FileManager file operations', () => {
   });
 
   it('fileInfoList should never gain duplicate topics when trash/restoring', async () => {
-    const fm = await createInitializedFileManager(bee, false);
+    const fm = new FileManagerBase(bee);
+    await fm.initialize(batchId);
 
     const fi0 = fm.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
     const topic = fi0.topic.toString();
@@ -870,7 +869,8 @@ describe('FileManager file operations', () => {
     }
     await fm.recoverFile(fi0);
 
-    const fm2 = await createInitializedFileManager(bee, false);
+    const fm2 = new FileManagerBase(bee);
+    await fm2.initialize(batchId);
     const fi2 = fm2.fileInfoList.find((fi) => fi.topic.toString() === topic)!;
 
     expect(BigInt(fi2.version!)).toBe(beforeVer + 2n);
@@ -896,12 +896,12 @@ describe('FileManager version control', () => {
   };
 
   beforeAll(async () => {
-    const { bee: beeDev, signer: newSigner } = await ensureUniqueSignerWithStamp();
+    const { bee: beeDev, ownerStamp, signer: newSigner } = await ensureUniqueSignerWithStamp();
     bee = beeDev;
     signer = newSigner;
 
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'versioningStamp');
-    fileManager = await createInitializedFileManager(bee);
+    fileManager = await createInitializedFileManager(bee, ownerStamp);
 
     await fileManager.createDrive(batchId, 'versioncontrol', false);
     const tmpDrive = fileManager.getDrives().find((d) => d.name === 'versioncontrol');
@@ -1130,7 +1130,7 @@ describe('FileManager getGranteesOfFile', () => {
   beforeAll(async () => {
     const { bee: beeDev, ownerStamp, signer: newSigner } = await ensureUniqueSignerWithStamp();
     bee = beeDev;
-    fileManager = await createInitializedFileManager(bee, true, ownerStamp);
+    fileManager = await createInitializedFileManager(bee, ownerStamp);
     signer = newSigner;
   });
 
@@ -1155,29 +1155,6 @@ describe('FileManager getGranteesOfFile', () => {
     );
   });
 });
-// TODO: why is this tested?
-describe('Utils getFeedData', () => {
-  let bee: BeeDev;
-  let actPublisher: PublicKey;
-
-  beforeAll(async () => {
-    const { bee: beeDev } = await ensureUniqueSignerWithStamp();
-    bee = beeDev;
-    actPublisher = (await bee.getNodeAddresses()).publicKey;
-  });
-
-  it('should return a valid feed data object when index is provided', async () => {
-    const topic = Topic.fromString(actPublisher.toCompressedHex());
-    const feedData = await getFeedData(bee, topic, DEFAULT_MOCK_SIGNER.publicKey().address(), 0n);
-    expect(feedData.payload).not.toEqual('0'.repeat(64));
-  });
-
-  it('should return a valid feed data object when index is not provided', async () => {
-    const topic = Topic.fromString(actPublisher.toCompressedHex());
-    const feedData = await getFeedData(bee, topic, DEFAULT_MOCK_SIGNER.publicKey().address());
-    expect(feedData.payload).not.toEqual('0'.repeat(64));
-  });
-});
 
 describe('FileManager End-to-End User Workflow', () => {
   let bee: BeeDev;
@@ -1190,9 +1167,8 @@ describe('FileManager End-to-End User Workflow', () => {
   beforeAll(async () => {
     const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
     bee = beeDev;
-    batchId = ownerStamp;
     tempBaseDir = path.join(__dirname, 'e2eTestSession');
-    fileManager = await createInitializedFileManager(bee);
+    fileManager = await createInitializedFileManager(bee, ownerStamp);
     fs.mkdirSync(tempBaseDir, { recursive: true });
     actPublisher = (await bee.getNodeAddresses()).publicKey;
 

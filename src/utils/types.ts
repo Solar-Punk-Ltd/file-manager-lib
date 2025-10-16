@@ -26,13 +26,11 @@ import { EventEmitter } from '../eventEmitter';
 export interface FileManager {
   /**
    * Initializes the file manager.
-   * @param createNew - Whether to create a new instance.
    * @param batchId - Optional batch ID for initialization.
-   * - Must be provided if @createNew is true.
    * - If not provided, the file manager will attempt to load the existing state and find the appropriate admin stamp.
    * @returns A promise that resolves when the initialization is complete.
    */
-  initialize(createNew: boolean, batchId?: string | BatchId): Promise<void>;
+  initialize(batchId?: string | BatchId): Promise<void>;
 
   /**
    * Creates a new drive with the specified options.

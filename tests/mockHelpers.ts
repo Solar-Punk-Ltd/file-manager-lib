@@ -48,7 +48,6 @@ export function createMockMantarayNode(all = true): MantarayNode {
 
 export async function createInitializedFileManager(
   bee: Bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER }),
-  createNew = true,
   batchId?: string | BatchId,
   emitter?: EventEmitter,
 ): Promise<FileManagerBase> {
@@ -56,7 +55,8 @@ export async function createInitializedFileManager(
   fm.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, (e) => {
     expect(e).toEqual(true);
   });
-  await fm.initialize(createNew, batchId);
+  await fm.initialize(batchId);
+  await fm.createDrive(batchId || MOCK_BATCH_ID, ADMIN_STAMP_LABEL, true, RedundancyLevel.MEDIUM);
   return fm;
 }
 
@@ -71,7 +71,8 @@ export function createMockNodeAddresses(): NodeAddresses {
 }
 
 export async function createMockFileInfo(
-  bee: Bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER }),
+  owner: string,
+  actPublisher: string,
   ref: string = SWARM_ZERO_ADDRESS.toString(),
 ): Promise<FileInfo> {
   return {
@@ -79,8 +80,8 @@ export async function createMockFileInfo(
     name: 'john doe',
     topic: Topic.fromString('1'),
     driveId: Identifier.fromString('123').toString(),
-    owner: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
-    actPublisher: (await bee.getNodeAddresses()).publicKey.toCompressedHex(),
+    owner: owner,
+    actPublisher,
     file: {
       reference: ref,
       historyRef: SWARM_ZERO_ADDRESS.toString(),
@@ -147,6 +148,7 @@ export function createInitMocks(data?: Reference): any {
   } as unknown as UploadResult);
   jest.spyOn(Bee.prototype, 'makeFeedWriter').mockReturnValue(createMockFeedWriter());
   jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue(createMockFeedReader());
+  jest.spyOn(Bee.prototype, 'getPostageBatches').mockResolvedValue(loadStampListMock());
 }
 
 export function createUploadFilesFromDirectorySpy(char: string): jest.SpyInstance {
@@ -190,8 +192,8 @@ export const mockPostageBatch: PostageBatch = {
   calculateRemainingSize: () => Size.fromGigabytes(100),
 };
 
-export function loadStampListMock(): jest.SpyInstance {
-  return jest.spyOn(Bee.prototype, 'getPostageBatches').mockResolvedValue([
+export function loadStampListMock(): PostageBatch[] {
+  return [
     {
       ...mockPostageBatch,
     },
@@ -233,5 +235,5 @@ export function loadStampListMock(): jest.SpyInstance {
       calculateSize: () => Size.fromGigabytes(100),
       calculateRemainingSize: () => Size.fromGigabytes(100),
     },
-  ]);
+  ];
 }

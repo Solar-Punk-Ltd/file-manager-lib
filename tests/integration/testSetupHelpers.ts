@@ -10,25 +10,26 @@ interface BeeWithStampAndSigner {
   signer: PrivateKey;
 }
 
-let globalOwnerStamp: BatchId | null = null;
+let globalAdminStamp: BatchId | null = null;
+
 export async function ensureUniqueSignerWithStamp(isNewSigner: boolean = true): Promise<BeeWithStampAndSigner> {
   const signerBytes = generateRandomBytes(PrivateKey.LENGTH);
   const signer = isNewSigner ? new PrivateKey(signerBytes) : DEFAULT_MOCK_SIGNER;
 
   const bee = new BeeDev(BEE_URL, { signer });
 
-  if (!globalOwnerStamp) {
+  if (!globalAdminStamp) {
     try {
-      globalOwnerStamp = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, ADMIN_STAMP_LABEL);
+      globalAdminStamp = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, ADMIN_STAMP_LABEL);
     } catch (error: any) {
       console.error('Failed to create/find owner stamp:', error);
       throw error;
     }
   }
 
-  return { bee, ownerStamp: globalOwnerStamp, signer };
+  return { bee, ownerStamp: globalAdminStamp, signer };
 }
 
 export function resetGlobalStampState(): void {
-  globalOwnerStamp = null;
+  globalAdminStamp = null;
 }
