@@ -52,11 +52,17 @@ export async function createInitializedFileManager(
   emitter?: EventEmitter,
 ): Promise<FileManagerBase> {
   const fm = new FileManagerBase(bee, emitter);
-  fm.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, (e) => {
-    expect(e).toEqual(true);
+
+  fm.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, (ok: boolean) => {
+    expect(ok).toBe(true);
   });
+
   await fm.initialize();
-  await fm.createDrive(batchId || MOCK_BATCH_ID, ADMIN_STAMP_LABEL, true, RedundancyLevel.MEDIUM);
+
+  if (!fm.getDrives().some((d) => d.isAdmin)) {
+    await fm.createDrive(batchId ?? MOCK_BATCH_ID, ADMIN_STAMP_LABEL, true, RedundancyLevel.MEDIUM);
+  }
+
   return fm;
 }
 

@@ -522,6 +522,81 @@ describe('FileManager', () => {
         await fm.destroyDrive(di, mockPostageBatch);
       }).rejects.toThrow(`Cannot destroy admin drive / stamp, batchId: ${MOCK_BATCH_ID.toString()}`);
     });
+
+    it('forgetDrive should remove a user drive, prune its files, persist, and emit DRIVE_FORGOTTEN', async () => {
+      const genMock = generateRandomBytes as jest.Mock;
+      genMock.mockReset();
+      genMock
+        .mockImplementationOnce(() => new Topic('a'.repeat(64))) // admin drive id
+        .mockImplementationOnce(() => new Topic('b'.repeat(64))) // "Drive to forget (unit)" id
+        .mockImplementation(() => new Topic('c'.repeat(64))); // any further calls
+
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Drive to forget (unit)', false);
+      const target = fm.getDrives().find((d) => d.name === 'Drive to forget (unit)')!;
+      expect(target).toBeDefined();
+
+      const now = Date.now();
+      const mkFi = (topic: string, name: string): FileInfo =>
+        ({
+          batchId: target.batchId.toString(),
+          owner: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
+          topic,
+          name,
+          actPublisher: DEFAULT_MOCK_SIGNER.publicKey().toCompressedHex(),
+          file: { reference: '0x' + 'aa'.repeat(32), historyRef: '0x' + 'bb'.repeat(32) },
+          driveId: target.id.toString(),
+          timestamp: now,
+          shared: false,
+          version: '0',
+          redundancyLevel: RedundancyLevel.OFF,
+          status: FileStatus.Active,
+        }) as FileInfo;
+
+      fm.fileInfoList.push(mkFi('topic-x', 'x.txt'));
+      fm.fileInfoList.push(mkFi('topic-y', 'y.txt'));
+
+      const diluteSpy = jest.spyOn(Bee.prototype, 'diluteBatch');
+      const saveSpy = jest.spyOn(fm as any, 'saveDriveList');
+
+      const eventPromise = new Promise<void>((resolve) => {
+        const handler = ({ driveInfo }: { driveInfo: DriveInfo }): void => {
+          try {
+            expect(driveInfo.id.toString()).toBe(target.id.toString());
+            resolve();
+          } finally {
+            fm.emitter?.off?.(FileManagerEvents.DRIVE_FORGOTTEN, handler);
+          }
+        };
+        fm.emitter.on(FileManagerEvents.DRIVE_FORGOTTEN, handler);
+      });
+
+      await fm.forgetDrive(target);
+      await eventPromise;
+
+      const after = fm.getDrives();
+      expect(after.find((d) => d.id.toString() === target.id.toString())).toBeUndefined();
+
+      expect(fm.fileInfoList.some((fi) => fi.driveId === target.id.toString())).toBe(false);
+
+      expect(saveSpy).toHaveBeenCalled();
+      expect(diluteSpy).not.toHaveBeenCalled();
+    });
+
+    it('forgetDrive should throw when the drive does not exist', async () => {
+      const fm = await createInitializedFileManager();
+
+      const ghost: DriveInfo = {
+        id: '9'.repeat(64),
+        name: 'ghost',
+        batchId: otherMockBatchId.toString(),
+        owner: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
+        redundancyLevel: RedundancyLevel.OFF,
+        isAdmin: false,
+      } as any;
+
+      await expect(fm.forgetDrive(ghost)).rejects.toThrow(new DriveError('Drive ghost not found'));
+    });
   });
 
   describe('file operations', () => {
