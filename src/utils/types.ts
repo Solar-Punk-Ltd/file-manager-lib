@@ -114,6 +114,14 @@ export interface FileManager {
   destroyDrive(driveInfo: DriveInfo, stamp: PostageBatch): Promise<void>;
 
   /**
+   * Removes the drive and all of its file metadata from local state and persists the updated drive list.
+   * Does NOT touch the underlying Swarm batch (no dilution).
+   * @param driveInfo - The drive to forget.
+   * @returns A promise that resolves when the drive is forgotten.
+   */
+  forgetDrive(driveInfo: DriveInfo): Promise<void>;
+
+  /**
    * Shares a file information with the specified recipients.
    * @param fileInfo - Information about the file(s) to share.
    * @param targetOverlays - An array of target overlays.

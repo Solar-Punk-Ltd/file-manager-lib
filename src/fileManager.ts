@@ -272,6 +272,20 @@ export class FileManagerBase implements FileManager {
     console.debug('DriveInfo list fetched successfully.');
   }
 
+  private async pruneDriveMetadata(driveInfo: DriveInfo): Promise<void> {
+    const driveIx = this.driveList.findIndex((d) => d.id.toString() === driveInfo.id.toString());
+    if (driveIx === -1) {
+      throw new DriveError(`Drive ${driveInfo.name} not found`);
+    }
+    this.driveList.splice(driveIx, 1);
+    for (let i = this.fileInfoList.length - 1; i >= 0; --i) {
+      if (this.fileInfoList[i].driveId === driveInfo.id.toString()) {
+        this.fileInfoList.splice(i, 1);
+      }
+    }
+    await this.saveDriveList();
+  }
+
   // fetches the file info list from the admin feed and unwraps the data encrypted with ACT
   private async initFileInfoList(): Promise<void> {
     // need a temporary variable to avoid async issues
@@ -798,27 +812,22 @@ export class FileManagerBase implements FileManager {
     if (driveInfo.isAdmin || driveInfo.batchId.toString() === adminStamp.batchID.toString()) {
       throw new DriveError(`Cannot destroy admin drive / stamp, batchId: ${driveInfo.batchId.toString()}`);
     }
-    const driveIx = this.driveList.findIndex((d) => d.id.toString() === driveInfo.id.toString());
-    if (driveIx === -1) {
-      throw new DriveError(`Drive ${driveInfo.name} not found`);
-    }
 
     const ttlDays = stamp.duration.toDays();
     const halvings = Math.floor(Math.log2(ttlDays));
     await this.bee.diluteBatch(driveInfo.batchId.toString(), stamp.depth + halvings);
-
-    this.driveList.splice(driveIx, 1);
-
-    for (let i = this.fileInfoList.length - 1; i >= 0; --i) {
-      if (this.fileInfoList[i].driveId === driveInfo.id.toString()) {
-        this.fileInfoList.splice(i, 1);
-      }
-    }
-
-    await this.saveDriveList();
-
+    await this.pruneDriveMetadata(driveInfo);
     console.debug(`Drive destroyed: ${driveInfo.name}`);
     this.emitter.emit(FileManagerEvents.DRIVE_DESTROYED, { driveInfo });
+  }
+
+  async forgetDrive(driveInfo: DriveInfo): Promise<void> {
+    if (driveInfo.isAdmin) {
+      throw new DriveError('Cannot forget admin drive');
+    }
+    await this.pruneDriveMetadata(driveInfo);
+    console.debug(`Drive forgotten (metadata only): ${driveInfo.name}`);
+    this.emitter.emit(FileManagerEvents.DRIVE_FORGOTTEN, { driveInfo });
   }
 
   async getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult> {

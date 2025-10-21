@@ -8,5 +8,6 @@ export enum FileManagerEvents {
   SHARE_MESSAGE_SENT = 'file-shared',
   FILEMANAGER_INITIALIZED = 'filemanager-initialized',
   DRIVE_CREATED = 'drive-created',
+  DRIVE_FORGOTTEN = 'drive-forgotten',
   DRIVE_DESTROYED = 'drive-destroyed',
 }

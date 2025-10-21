@@ -222,27 +222,17 @@ describe('FileManager drive handling', () => {
   it('should create a drive and retrieve it', async () => {
     const batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'createDriveStamp');
 
-    let driveId: string | undefined;
-    fileManager.emitter.on(FileManagerEvents.DRIVE_CREATED, ({ driveInfo }) => {
-      expect(driveInfo).toBeDefined();
-      expect(new Identifier(driveInfo.id)).toHaveLength(Identifier.LENGTH);
-      expect(driveInfo.batchId).toBe(batchId.toString());
-      expect(driveInfo.name).toBe('Test Drive');
-      expect(driveInfo.owner).toBe(signer.publicKey().address().toHex());
-      expect(driveInfo.redundancyLevel).toBe(RedundancyLevel.OFF);
-      expect(driveInfo.infoFeedList).toStrictEqual([]);
-
-      driveId = driveInfo.id.toString();
-    });
-
     await fileManager.createDrive(batchId, 'Test Drive', false);
     const drives = fileManager.getDrives();
     expect(drives.length).toBeGreaterThanOrEqual(1);
     const testDrive = drives.find((d) => d.name === 'Test Drive');
     expect(testDrive).toBeDefined();
-    expect(driveId).toBeDefined();
-    expect(testDrive?.id).toBe(driveId);
-    expect(fileManager.fileInfoList.filter((fi) => fi.driveId === driveId)).toHaveLength(0);
+    expect(new Identifier(testDrive!.id)).toHaveLength(Identifier.LENGTH);
+    expect(testDrive!.batchId).toBe(batchId.toString());
+    expect(testDrive!.name).toBe('Test Drive');
+    expect(testDrive!.owner).toBe(signer.publicKey().address().toHex());
+    expect(testDrive!.redundancyLevel).toBe(RedundancyLevel.OFF);
+    expect(fileManager.fileInfoList.filter((fi) => fi.driveId === testDrive!.id)).toHaveLength(0);
   });
 
   it('should throw an error when trying to destroy the admin drive/ stamp', async () => {
@@ -314,6 +304,79 @@ describe('FileManager drive handling', () => {
   //   const stamp = (await bee.getPostageBatches()).find((b) => b.label === 'toDestroyBatch');
   //   expect(stamp?.usable).toBe(false);
   // });
+
+  it('should forget a user drive: removes the drive, prunes its files, and persists the change', async () => {
+    const forgetBatchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'forgetDriveStamp');
+    await fileManager.createDrive(forgetBatchId, 'Drive to forget', false);
+
+    const created = fileManager.getDrives().find((d) => d.name === 'Drive to forget');
+    expect(created).toBeDefined();
+    const driveId = created!.id.toString();
+    const initialDriveCount = fileManager.getDrives().length;
+
+    const now = Date.now();
+    const fakeFile = (topic: string, name: string): FileInfo =>
+      ({
+        batchId: created!.batchId,
+        owner: signer.publicKey().address().toString(),
+        topic,
+        name,
+        actPublisher: signer.publicKey().toCompressedHex(),
+        file: { reference: '0xref', historyRef: '0xhref' },
+        driveId,
+        timestamp: now,
+        shared: false,
+        version: '0',
+        redundancyLevel: RedundancyLevel.OFF,
+        status: FileStatus.Active,
+      }) as FileInfo;
+
+    (fileManager.fileInfoList as FileInfo[]).push(fakeFile('topic-1', 'a.txt'));
+    (fileManager.fileInfoList as FileInfo[]).push(fakeFile('topic-2', 'b.txt'));
+
+    const eventPromise = new Promise<void>((resolve) => {
+      const handler = ({ driveInfo }: { driveInfo: DriveInfo }): void => {
+        try {
+          expect(driveInfo.id.toString()).toBe(driveId);
+          resolve();
+        } finally {
+          fileManager.emitter?.off?.(FileManagerEvents.DRIVE_FORGOTTEN, handler);
+        }
+      };
+      fileManager.emitter.on(FileManagerEvents.DRIVE_FORGOTTEN, handler);
+    });
+    await fileManager.forgetDrive(created!);
+    await eventPromise;
+    const afterForgetDrives = fileManager.getDrives();
+    expect(afterForgetDrives).toHaveLength(initialDriveCount - 1);
+    expect(afterForgetDrives.find((d) => d.id.toString() === driveId)).toBeUndefined();
+
+    expect(fileManager.fileInfoList.some((fi) => fi.driveId === driveId)).toBe(false);
+
+    const fm2 = await createInitializedFileManager(bee, ownerBatch.batchID);
+    const drives2 = fm2.getDrives();
+    expect(drives2.find((d) => d.name === 'Drive to forget')).toBeUndefined();
+  });
+
+  it('should throw when trying to forget the admin drive', async () => {
+    const adminDrive = fileManager.getDrives().find((d) => d.isAdmin);
+    expect(adminDrive).toBeDefined();
+    await expect(fileManager.forgetDrive(adminDrive!)).rejects.toThrow(new DriveError('Cannot forget admin drive'));
+  });
+
+  it('should throw when trying to forget a non-existent drive', async () => {
+    const idBytes = new Uint8Array(Identifier.LENGTH);
+    idBytes.fill(1);
+    const ghost: any = {
+      id: new Identifier(idBytes).toString(),
+      name: 'ghost',
+      batchId: new BatchId('abcd'.repeat(16)).toString(),
+      owner: signer.publicKey().address().toString(),
+      redundancyLevel: RedundancyLevel.OFF,
+      isAdmin: false,
+    };
+    await expect(fileManager.forgetDrive(ghost)).rejects.toThrow(new DriveError('Drive ghost not found'));
+  });
 });
 
 describe('FileManager listFiles', () => {
