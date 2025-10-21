@@ -1,35 +1,28 @@
 import { BatchId, Bee, BeeRequestOptions, RedundantUploadOptions, UploadResult } from '@ethersphere/bee-js';
-import { FileInfoOptions, WrappedUploadResult } from '../utils/types';
-import { FileInfoError } from '../utils/errors';
+import { BrowserUploadOptions, WrappedUploadResult } from '../utils/types';
 
 export async function uploadBrowser(
   bee: Bee,
   batchId: string | BatchId,
-  fileOptions: FileInfoOptions,
+  browserOptions: BrowserUploadOptions,
   uploadOptions?: RedundantUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<UploadResult> {
-  if (!fileOptions.files) {
-    throw new FileInfoError('Files option has to be provided.');
-  }
-
-  const streamFilesOpts = uploadOptions
-    ? { ...uploadOptions, act: false, actHistoryAddress: undefined }
-    : undefined;
+  const streamFilesOpts = uploadOptions ? { ...uploadOptions, act: false, actHistoryAddress: undefined } : undefined;
 
   const uploadFilesRes = await bee.streamFiles(
     batchId,
-    fileOptions.files,
-    fileOptions.onUploadProgress,
+    browserOptions.files,
+    browserOptions.onUploadProgress,
     streamFilesOpts,
     requestOptions,
   );
   let uploadPreviewRes: UploadResult | undefined;
-  if (fileOptions.preview) {
+  if (browserOptions.preview) {
     uploadPreviewRes = await bee.streamFiles(
       batchId,
-      [fileOptions.preview],
-      fileOptions.onUploadProgress,
+      [browserOptions.preview],
+      browserOptions.onUploadProgress,
       streamFilesOpts,
       requestOptions,
     );

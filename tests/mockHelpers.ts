@@ -22,13 +22,13 @@ import {
 } from '@ethersphere/bee-js';
 import { Optional } from 'cafe-utility';
 
+import { EventEmitter } from '../src/eventEmitter/eventEmitter';
 import { FileManagerBase } from '../src/fileManager';
 import { ADMIN_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
-import { EventEmitter } from '../src/utils/eventEmitter';
 import { FileManagerEvents } from '../src/utils/events';
 import { DriveInfo, FileInfo } from '../src/utils/types';
 
-import { BEE_URL, MOCK_SIGNER } from './utils';
+import { BEE_URL, DEFAULT_MOCK_SIGNER } from './utils';
 
 export const MOCK_BATCH_ID = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
 
@@ -47,7 +47,8 @@ export function createMockMantarayNode(all = true): MantarayNode {
 }
 
 export async function createInitializedFileManager(
-  bee: Bee = new Bee(BEE_URL, { signer: MOCK_SIGNER }),
+  bee: Bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER }),
+  batchId?: string | BatchId,
   emitter?: EventEmitter,
 ): Promise<FileManagerBase> {
   const fm = new FileManagerBase(bee, emitter);
@@ -55,6 +56,7 @@ export async function createInitializedFileManager(
     expect(e).toEqual(true);
   });
   await fm.initialize();
+  await fm.createDrive(batchId || MOCK_BATCH_ID, ADMIN_STAMP_LABEL, true, RedundancyLevel.MEDIUM);
   return fm;
 }
 
@@ -69,7 +71,8 @@ export function createMockNodeAddresses(): NodeAddresses {
 }
 
 export async function createMockFileInfo(
-  bee: Bee = new Bee(BEE_URL, { signer: MOCK_SIGNER }),
+  owner: string,
+  actPublisher: string,
   ref: string = SWARM_ZERO_ADDRESS.toString(),
 ): Promise<FileInfo> {
   return {
@@ -77,8 +80,8 @@ export async function createMockFileInfo(
     name: 'john doe',
     topic: Topic.fromString('1'),
     driveId: Identifier.fromString('123').toString(),
-    owner: MOCK_SIGNER.publicKey().address().toString(),
-    actPublisher: (await bee.getNodeAddresses()).publicKey.toCompressedHex(),
+    owner: owner,
+    actPublisher,
     file: {
       reference: ref,
       historyRef: SWARM_ZERO_ADDRESS.toString(),
@@ -90,7 +93,7 @@ export function createMockDriveInfo(): DriveInfo {
   return {
     id: Identifier.fromString('123'),
     batchId: MOCK_BATCH_ID,
-    owner: MOCK_SIGNER.publicKey().address().toString(),
+    owner: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
     name: 'Test Drive',
     redundancyLevel: RedundancyLevel.MEDIUM,
     infoFeedList: [
@@ -145,6 +148,7 @@ export function createInitMocks(data?: Reference): any {
   } as unknown as UploadResult);
   jest.spyOn(Bee.prototype, 'makeFeedWriter').mockReturnValue(createMockFeedWriter());
   jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue(createMockFeedReader());
+  jest.spyOn(Bee.prototype, 'getPostageBatches').mockResolvedValue(loadStampListMock());
 }
 
 export function createUploadFilesFromDirectorySpy(char: string): jest.SpyInstance {
@@ -184,10 +188,12 @@ export const mockPostageBatch: PostageBatch = {
   size: Size.fromGigabytes(100),
   remainingSize: Size.fromGigabytes(100),
   theoreticalSize: Size.fromGigabytes(100),
+  calculateSize: () => Size.fromGigabytes(100),
+  calculateRemainingSize: () => Size.fromGigabytes(100),
 };
 
-export function loadStampListMock(): jest.SpyInstance {
-  return jest.spyOn(Bee.prototype, 'getPostageBatches').mockResolvedValue([
+export function loadStampListMock(): PostageBatch[] {
+  return [
     {
       ...mockPostageBatch,
     },
@@ -207,6 +213,8 @@ export function loadStampListMock(): jest.SpyInstance {
       size: Size.fromGigabytes(100),
       remainingSize: Size.fromGigabytes(100),
       theoreticalSize: Size.fromGigabytes(100),
+      calculateSize: () => Size.fromGigabytes(100),
+      calculateRemainingSize: () => Size.fromGigabytes(100),
     },
     {
       batchID: new BatchId('3456'.repeat(16)),
@@ -224,6 +232,8 @@ export function loadStampListMock(): jest.SpyInstance {
       size: Size.fromGigabytes(100),
       remainingSize: Size.fromGigabytes(100),
       theoreticalSize: Size.fromGigabytes(100),
+      calculateSize: () => Size.fromGigabytes(100),
+      calculateRemainingSize: () => Size.fromGigabytes(100),
     },
-  ]);
+  ];
 }

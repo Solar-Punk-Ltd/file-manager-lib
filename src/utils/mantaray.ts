@@ -2,7 +2,7 @@ import { Bee, DownloadOptions, MantarayNode, Reference } from '@ethersphere/bee-
 
 export async function loadMantaray(
   bee: Bee,
-  mantarayRef: Reference | string,
+  mantarayRef: string | Reference,
   options?: DownloadOptions,
 ): Promise<MantarayNode> {
   const mantaray = await MantarayNode.unmarshal(bee, mantarayRef, options);

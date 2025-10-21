@@ -10,7 +10,6 @@ import {
   FileUploadOptions,
   GetGranteesResult,
   GranteesResult,
-  NodeAddresses,
   PostageBatch,
   PrivateKey,
   PssSubscription,
@@ -18,11 +17,11 @@ import {
   Reference,
   Topic,
   Utils,
-  UploadResult,
   RedundancyLevel,
   Identifier,
+  PublicKey,
+  EthAddress,
 } from '@ethersphere/bee-js';
-import { isNode } from 'std-env';
 
 import { assertDriveInfo, assertFileInfo, assertShareItem } from './utils/asserts';
 import { generateRandomBytes, getFeedData, getWrappedData, settlePromises } from './utils/common';
@@ -44,7 +43,7 @@ import {
   StampError,
   SubscriptionError,
 } from './utils/errors';
-import { EventEmitter, EventEmitterBase } from './utils/eventEmitter';
+import { EventEmitter, EventEmitterBase } from './eventEmitter';
 import { FileManagerEvents } from './utils/events';
 import {
   FeedResultWithIndex,
@@ -56,29 +55,31 @@ import {
   ShareItem,
   DriveInfo,
 } from './utils/types';
-import { uploadBrowser } from './upload/upload.browser';
-import { uploadNode } from './upload/upload.node';
 import { getForksMap, loadMantaray } from './utils/mantaray';
-import { downloadBrowser } from './download/download.browser';
-import { downloadNode } from './download/download.node';
+import { processUpload } from './upload';
+import { processDownload } from './download';
 
 // TODO: check everything for: push to list but upload fails ? --> local inconsistency
 // TODO: IT/UT for init with batchId
 export class FileManagerBase implements FileManager {
   private bee: Bee;
   private signer: PrivateKey;
-  private nodeAddresses: NodeAddresses | undefined = undefined;
-  private adminStamp: PostageBatch | undefined = undefined;
+  private publisher: PublicKey | undefined = undefined;
   private driveListNextIndex: bigint = 0n;
-  private driveListTopic: Topic | undefined = undefined;
+  private stateFeedTopic: Topic | undefined = undefined;
   private driveList: DriveInfo[] = [];
   private sharedSubscription: PssSubscription | undefined = undefined;
   private isInitialized: boolean = false;
   private isInitializing: boolean = false;
+  private _adminStamp: PostageBatch | undefined = undefined;
 
   readonly fileInfoList: FileInfo[] = [];
   readonly sharedWithMe: ShareItem[] = [];
   readonly emitter: EventEmitter;
+
+  get adminStamp(): PostageBatch | undefined {
+    return this._adminStamp;
+  }
 
   constructor(bee: Bee, emitter: EventEmitter = new EventEmitterBase()) {
     this.bee = bee;
@@ -91,7 +92,7 @@ export class FileManagerBase implements FileManager {
   }
 
   // TODO: import pins
-  async initialize(batchId?: string | BatchId): Promise<void> {
+  async initialize(): Promise<void> {
     if (this.isInitialized) {
       console.debug('FileManager is already initialized');
       this.emitter.emit(FileManagerEvents.FILEMANAGER_INITIALIZED, true);
@@ -107,15 +108,13 @@ export class FileManagerBase implements FileManager {
 
     try {
       await this.verifySupportedVersions();
-      await this.initNodeAddresses();
+      await this.initPublisher();
 
-      const adminStamp = await this.getAdminStamp(batchId?.toString());
-      if (adminStamp) {
-        console.debug('Admin stamp found, initializing drives');
-        await this.initDrives(adminStamp.batchID.toString());
-      } else {
-        console.debug('Admin stamp not found. Drives not loaded.');
-      }
+      console.debug('Trying to load state from Swarm.');
+
+      await this.tryToFetchAdminState();
+      await this.initDriveList();
+      await this.initFileInfoList();
 
       this.isInitialized = true;
       this.emitter.emit(FileManagerEvents.FILEMANAGER_INITIALIZED, true);
@@ -141,81 +140,101 @@ export class FileManagerBase implements FileManager {
     }
   }
 
-  // fetches the node addresses neccessary for feed and ACT handling
-  private async initNodeAddresses(): Promise<void> {
-    this.nodeAddresses = await this.bee.getNodeAddresses();
+  // fetches the node public key neccessary for ACT handling
+  private async initPublisher(): Promise<void> {
+    this.publisher = (await this.bee.getNodeAddresses()).publicKey;
   }
 
-  private async initDrives(batchId?: string): Promise<void> {
-    await this.initDriveListTopic(batchId);
-    await this.initDriveList();
-    await this.initFileInfoList();
+  private async tryToFetchAdminState(): Promise<void> {
+    if (!this.publisher) {
+      throw new SignerError('Publisher not found');
+    }
+
+    const stateTopicRef = await this.fetchStateTopicRef();
+
+    if (stateTopicRef.equals(SWARM_ZERO_ADDRESS)) {
+      console.debug('State not found.');
+      return;
+    }
+
+    const { payload: topicHistory } = await getFeedData(
+      this.bee,
+      FILEMANAGER_STATE_TOPIC,
+      this.signer.publicKey().address().toString(),
+      1n,
+    );
+    const topicHistoryRef = new Reference(topicHistory.toUint8Array());
+
+    if (topicHistoryRef.equals(SWARM_ZERO_ADDRESS)) {
+      throw new DriveError('History for drive list not found, cannot initialize');
+    }
+
+    const topicBytes = await this.bee.downloadData(stateTopicRef.toUint8Array(), {
+      actHistoryAddress: topicHistoryRef.toUint8Array(),
+      actPublisher: this.publisher,
+    });
+
+    this.stateFeedTopic = new Topic(topicBytes.toUint8Array());
+
+    console.debug('Drive list feed successfully fetched');
   }
 
   // fetches the drive list topic and creates it if it does not exist, protected by ACT
-  private async initDriveListTopic(batchId?: string): Promise<void> {
-    if (!this.nodeAddresses) {
-      throw new SignerError('Node addresses not found');
+  private async createNewDriveListTopic(batchId: string | BatchId): Promise<void> {
+    const stateTopicRef = await this.fetchStateTopicRef();
+    const isStateExisting = !stateTopicRef.equals(SWARM_ZERO_ADDRESS);
+
+    if (isStateExisting) {
+      throw new DriveError('Admin state already exists');
     }
 
-    const adminStamp = await this.getAdminStamp(batchId);
+    const adminStamp = await this.fetchAndSetAdminStamp(batchId);
+
     if (!adminStamp) {
-      throw new StampError('Admin stamp not found');
+      throw new StampError(`Admin stamp with batchId: ${batchId.toString().slice(0, 6)}... not found`);
     }
 
-    const feedTopicData = await getFeedData(
+    const newStateFeedTopic = new Topic(generateRandomBytes(Topic.LENGTH));
+
+    const topicDataRes = await this.bee.uploadData(adminStamp.batchID, newStateFeedTopic.toUint8Array(), {
+      act: true,
+    });
+
+    const fw = this.bee.makeFeedWriter(FILEMANAGER_STATE_TOPIC.toUint8Array(), this.signer);
+    await fw.uploadReference(adminStamp.batchID, topicDataRes.reference, { index: FEED_INDEX_ZERO });
+    await fw.uploadReference(adminStamp.batchID, topicDataRes.historyAddress.getOrThrow(), {
+      index: FeedIndex.fromBigInt(1n),
+    });
+
+    this.stateFeedTopic = newStateFeedTopic;
+    console.debug('Drive list feed topic successfully set');
+  }
+
+  private async fetchStateTopicRef(): Promise<Reference> {
+    const { payload: stateTopic } = await getFeedData(
       this.bee,
       FILEMANAGER_STATE_TOPIC,
       this.signer.publicKey().address().toString(),
       0n,
     );
-    const topicRef = new Reference(feedTopicData.payload.toUint8Array());
 
-    if (topicRef.equals(SWARM_ZERO_ADDRESS)) {
-      this.driveListTopic = new Topic(generateRandomBytes(Topic.LENGTH));
-
-      const topicDataRes = await this.bee.uploadData(adminStamp.batchID, this.driveListTopic.toUint8Array(), {
-        act: true,
-      });
-
-      const fw = this.bee.makeFeedWriter(FILEMANAGER_STATE_TOPIC.toUint8Array(), this.signer);
-      await fw.uploadReference(adminStamp.batchID, topicDataRes.reference, { index: FEED_INDEX_ZERO });
-      await fw.uploadReference(adminStamp.batchID, topicDataRes.historyAddress.getOrThrow(), {
-        index: FeedIndex.fromBigInt(1n),
-      });
-    } else {
-      const topicHistory = await getFeedData(
-        this.bee,
-        FILEMANAGER_STATE_TOPIC,
-        this.signer.publicKey().address().toString(),
-        1n,
-      );
-      const topicHistoryRef = new Reference(topicHistory.payload.toUint8Array());
-
-      const topicBytes = await this.bee.downloadData(topicRef.toUint8Array(), {
-        actHistoryAddress: topicHistoryRef.toUint8Array(),
-        actPublisher: this.nodeAddresses.publicKey,
-      });
-
-      this.driveListTopic = new Topic(topicBytes.toUint8Array());
-    }
-
-    console.debug('Admin feed topic successfully initialized');
+    return new Reference(stateTopic.toUint8Array());
   }
 
   // fetches the latest list of fileinfo from the drive list topic
   private async initDriveList(): Promise<void> {
-    if (!this.nodeAddresses) {
-      throw new SignerError('Node addresses not found');
+    if (!this.publisher) {
+      throw new SignerError('Publisher not found');
     }
 
-    if (!this.driveListTopic) {
-      throw new DriveError('Drive list topic not initialized');
+    if (!this.stateFeedTopic) {
+      console.debug('Drive list topic not initialized');
+      return;
     }
 
     const { feedIndexNext, payload } = await getFeedData(
       this.bee,
-      this.driveListTopic,
+      this.stateFeedTopic,
       this.signer.publicKey().address().toString(),
     );
 
@@ -229,7 +248,7 @@ export class FileManagerBase implements FileManager {
 
     const driveListRawData = await this.bee.downloadData(refWithHistory.reference, {
       actHistoryAddress: refWithHistory.historyRef,
-      actPublisher: this.nodeAddresses.publicKey,
+      actPublisher: this.publisher,
     });
     const driveListData = driveListRawData.toJSON() as DriveInfo[];
 
@@ -237,6 +256,14 @@ export class FileManagerBase implements FileManager {
       try {
         assertDriveInfo(feedItem);
         this.driveList.push(feedItem);
+
+        if (!this.adminStamp && feedItem.isAdmin) {
+          const adminStamp = await this.fetchAndSetAdminStamp(feedItem.batchId.toString());
+
+          if (!adminStamp) {
+            throw new StampError('Admin stamp not found during drive list initialization.');
+          }
+        }
       } catch (error: any) {
         console.error(`Invalid DriveInfo item: ${JSON.stringify(feedItem)}, skipping it\n${error.message || error}`);
       }
@@ -245,12 +272,17 @@ export class FileManagerBase implements FileManager {
     console.debug('DriveInfo list fetched successfully.');
   }
 
-  // fetches the file info list from the owner feed and unwraps the data encrypted with ACT
+  // fetches the file info list from the admin feed and unwraps the data encrypted with ACT
   private async initFileInfoList(): Promise<void> {
     // need a temporary variable to avoid async issues
-    const tmpAddresses = this.nodeAddresses;
-    if (!tmpAddresses) {
-      throw new SignerError('Node addresses not found');
+    const tmpPublisher = this.publisher;
+    if (!tmpPublisher) {
+      throw new SignerError('Publisher not found');
+    }
+
+    if (this.driveList.length === 0) {
+      console.debug('Drive list is empty, skipping file info list initialization');
+      return;
     }
 
     const feedDataPromises: Promise<FeedResultWithIndex>[] = [];
@@ -271,7 +303,7 @@ export class FileManagerBase implements FileManager {
       rawDataPromises.push(
         this.bee.downloadData(fileInfoFeedData.reference.toString(), {
           actHistoryAddress: fileInfoFeedData.historyRef,
-          actPublisher: tmpAddresses.publicKey,
+          actPublisher: tmpPublisher,
         }),
       );
     });
@@ -326,7 +358,7 @@ export class FileManagerBase implements FileManager {
     if (isAdmin) {
       console.debug('Creating admin drive with name: ', ADMIN_STAMP_LABEL);
       driveName = ADMIN_STAMP_LABEL;
-      await this.initDrives(batchId.toString());
+      await this.createNewDriveListTopic(batchId.toString());
     }
 
     const driveInfo: DriveInfo = {
@@ -345,13 +377,14 @@ export class FileManagerBase implements FileManager {
     this.emitter.emit(FileManagerEvents.DRIVE_CREATED, { driveInfo });
   }
 
-  // lists all the files found under the reference of the provided fileInfo
   async listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<Record<string, string>> {
-    const wrappedData = await getWrappedData(this.bee, fileInfo.file.reference.toString(), {
-      ...options,
-      actPublisher: fileInfo.actPublisher,
-      actHistoryAddress: fileInfo.file.historyRef,
-    } as DownloadOptions);
+    const wrappedData = await getWrappedData(
+      this.bee,
+      fileInfo.file.reference,
+      fileInfo.actPublisher,
+      fileInfo.file.historyRef,
+      options,
+    );
 
     const mantaray = await loadMantaray(this.bee, wrappedData.uploadFilesRes.toString());
 
@@ -363,21 +396,19 @@ export class FileManagerBase implements FileManager {
     paths?: string[],
     options?: DownloadOptions,
   ): Promise<ReadableStream<Uint8Array>[] | Bytes[]> {
-    const wrappedData = await getWrappedData(this.bee, fileInfo.file.reference.toString(), {
-      ...options,
-      actPublisher: fileInfo.actPublisher,
-      actHistoryAddress: fileInfo.file.historyRef,
-    } as DownloadOptions);
+    const wrappedData = await getWrappedData(
+      this.bee,
+      fileInfo.file.reference,
+      fileInfo.actPublisher,
+      fileInfo.file.historyRef,
+      options,
+    );
 
     const unmarshalled = await loadMantaray(this.bee, wrappedData.uploadFilesRes.toString());
 
     const resources = getForksMap(unmarshalled, paths);
 
-    if (isNode) {
-      return await downloadNode(this.bee, Object.values(resources));
-    }
-
-    return await downloadBrowser(Object.values(resources), this.bee.url, 'bytes');
+    return await processDownload(this.bee, Object.values(resources));
   }
   // TODO: separate file upload and version control
   async upload(
@@ -386,19 +417,19 @@ export class FileManagerBase implements FileManager {
     uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
-    if (!this.driveListTopic) {
+    if (!this.stateFeedTopic) {
       throw new DriveError('FileManager is not initialized.');
     }
 
     if (
-      (fileOptions.info.topic && !uploadOptions?.actHistoryAddress) ||
-      (!fileOptions.info.topic && uploadOptions?.actHistoryAddress)
+      (fileOptions.topic && !uploadOptions?.actHistoryAddress) ||
+      (!fileOptions.topic && uploadOptions?.actHistoryAddress)
     ) {
       throw new FileInfoError('Options topic and historyRef have to be provided at the same time.');
     }
 
-    if (!this.nodeAddresses) {
-      throw new SignerError('Node addresses not found');
+    if (!this.publisher) {
+      throw new SignerError('Publisher not found');
     }
 
     const driveIndex = this.driveList.findIndex((d) => d.id.toString() === driveInfo.id.toString());
@@ -407,63 +438,23 @@ export class FileManagerBase implements FileManager {
     }
 
     const owner = this.signer.publicKey().address().toString();
-    let version: string | undefined;
-    let topic: string;
+    const { topic, version } = await this.getTopicAndVersion(owner, fileOptions.topic, fileOptions.version);
 
-    if (!fileOptions.info.topic) {
-      version = FEED_INDEX_ZERO.toString();
-      topic = new Topic(generateRandomBytes(Topic.LENGTH)).toString();
-    } else {
-      version = fileOptions.info.version;
-      topic = fileOptions.info.topic.toString();
-    }
-
-    if (!version) {
-      const { feedIndexNext } = await getFeedData(this.bee, new Topic(topic), owner);
-      version = feedIndexNext.toString();
-    }
-
-    let file: ReferenceWithHistory;
-    uploadOptions = { ...uploadOptions, redundancyLevel: driveInfo.redundancyLevel };
-
-    if (fileOptions.info.file) {
-      file = {
-        reference: fileOptions.info.file.reference.toString(),
-        historyRef: fileOptions.info.file.historyRef.toString(),
-      };
-    } else {
-      let uploadResult: UploadResult;
-      if (isNode) {
-        uploadResult = await uploadNode(this.bee, driveInfo.batchId, fileOptions, uploadOptions, requestOptions);
-      } else {
-        uploadResult = await uploadBrowser(
-          this.bee,
-          driveInfo.batchId,
-          fileOptions,
-          uploadOptions as RedundantUploadOptions,
-          requestOptions,
-        );
-      }
-
-      file = {
-        reference: uploadResult.reference.toString(),
-        historyRef: uploadResult.historyAddress.getOrThrow().toString(),
-      };
-    }
+    const file = await processUpload(this.bee, driveInfo, fileOptions, uploadOptions, requestOptions);
 
     const fileInfo: FileInfo = {
       batchId: driveInfo.batchId.toString(),
       owner,
       topic,
-      name: fileOptions.info.name,
-      actPublisher: this.nodeAddresses.publicKey.toCompressedHex(),
+      name: fileOptions.name,
+      actPublisher: this.publisher.toCompressedHex(),
       file,
       driveId: driveInfo.id.toString(),
       timestamp: new Date().getTime(),
       shared: false,
       preview: undefined,
       version,
-      customMetadata: fileOptions.info.customMetadata,
+      customMetadata: fileOptions.customMetadata,
       redundancyLevel: driveInfo.redundancyLevel,
       status: FileStatus.Active,
     };
@@ -493,6 +484,30 @@ export class FileManagerBase implements FileManager {
     this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
   }
 
+  private async getTopicAndVersion(
+    address: string | EthAddress,
+    currentTopic?: string | Topic,
+    currentVersion?: string,
+  ): Promise<{ topic: string; version: string }> {
+    let version: string | undefined;
+    let topic: string;
+
+    if (!currentTopic) {
+      version = FEED_INDEX_ZERO.toString();
+      topic = new Topic(generateRandomBytes(Topic.LENGTH)).toString();
+    } else {
+      version = currentVersion;
+      topic = currentTopic.toString();
+    }
+
+    if (!version) {
+      const { feedIndexNext } = await getFeedData(this.bee, new Topic(topic), address);
+      version = feedIndexNext.toString();
+    }
+
+    return { topic, version };
+  }
+
   async getVersion(fi: FileInfo, version?: string | FeedIndex): Promise<FileInfo> {
     const localHead = this.fileInfoList.find((f) => f.topic === fi.topic);
 
@@ -519,7 +534,6 @@ export class FileManagerBase implements FileManager {
     return this.fetchFileInfo(fi, feedData, unwrap);
   }
 
-  // Restore a previous version of a file as the new head
   async restoreVersion(versionToRestore: FileInfo, requestOptions?: BeeRequestOptions): Promise<void> {
     const { feedIndex, feedIndexNext } = await getFeedData(
       this.bee,
@@ -643,11 +657,11 @@ export class FileManagerBase implements FileManager {
   }
 
   private async saveDriveList(requestOptions?: BeeRequestOptions): Promise<void> {
-    if (!this.driveListTopic) {
+    if (!this.stateFeedTopic) {
       throw new DriveError('Drive list topic not initialized');
     }
 
-    const adminStamp = await this.getAdminStamp();
+    const adminStamp = this.adminStamp;
     if (!adminStamp) {
       throw new StampError('Admin stamp not found');
     }
@@ -662,7 +676,7 @@ export class FileManagerBase implements FileManager {
         requestOptions,
       );
 
-      const fw = this.bee.makeFeedWriter(this.driveListTopic.toUint8Array(), this.signer, requestOptions);
+      const fw = this.bee.makeFeedWriter(this.stateFeedTopic.toUint8Array(), this.signer, requestOptions);
       const driveListData = await this.bee.uploadData(
         adminStamp.batchID,
         JSON.stringify({
@@ -682,9 +696,6 @@ export class FileManagerBase implements FileManager {
     }
   }
 
-  /**
-   * Soft‐delete: move a file into “trash” (it stays in swarm but is hidden from your live list).
-   */
   async trashFile(fileInfo: FileInfo): Promise<void> {
     const fi = this.fileInfoList.find((f) => f.topic.toString() === fileInfo.topic.toString());
     if (!fi) {
@@ -709,9 +720,6 @@ export class FileManagerBase implements FileManager {
     this.emitter.emit(FileManagerEvents.FILE_TRASHED, { fileInfo: fi });
   }
 
-  /**
-   * Recover a previously trashed file.
-   */
   async recoverFile(fileInfo: FileInfo): Promise<void> {
     const fi = this.fileInfoList.find((f) => f.topic === fileInfo.topic);
     if (!fi) {
@@ -735,10 +743,6 @@ export class FileManagerBase implements FileManager {
     this.emitter.emit(FileManagerEvents.FILE_RECOVERED, { fileInfo: fi });
   }
 
-  /**
-   * Hard‐delete: remove from your owner‐feed and in-memory lists.
-   * The underlying Swarm data remains, but it no longer appears in your live list.
-   */
   async forgetFile(fileInfo: FileInfo): Promise<void> {
     const topicStr = fileInfo.topic.toString();
 
@@ -765,15 +769,13 @@ export class FileManagerBase implements FileManager {
     this.emitter.emit(FileManagerEvents.FILE_FORGOTTEN, { fileInfo });
   }
 
-  private async getAdminStamp(batchId?: string): Promise<PostageBatch | undefined> {
+  private async fetchAndSetAdminStamp(batchId: string | BatchId): Promise<PostageBatch | undefined> {
     if (this.adminStamp) return this.adminStamp;
 
     try {
-      const adminStamp = (await this.bee.getPostageBatches()).find((s) =>
-        batchId ? s.batchID.toString() === batchId : s.label === ADMIN_STAMP_LABEL,
-      );
+      const adminStamp = (await this.bee.getPostageBatches()).find((s) => s.batchID.toString() === batchId.toString());
       if (adminStamp && adminStamp.usable) {
-        this.adminStamp = adminStamp;
+        this._adminStamp = adminStamp;
       }
 
       return this.adminStamp;
@@ -784,7 +786,7 @@ export class FileManagerBase implements FileManager {
   }
 
   async destroyDrive(driveInfo: DriveInfo, stamp: PostageBatch): Promise<void> {
-    const adminStamp = await this.getAdminStamp();
+    const adminStamp = this.adminStamp;
     if (!adminStamp) {
       throw new StampError('Admin stamp not found');
     }
@@ -819,7 +821,6 @@ export class FileManagerBase implements FileManager {
     this.emitter.emit(FileManagerEvents.DRIVE_DESTROYED, { driveInfo });
   }
 
-  // fetches the list of grantees who can access the file reference
   async getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult> {
     const driveIx = this.driveList.findIndex((d) => d.id.toString() === fileInfo.driveId);
     if (driveIx === -1) {
