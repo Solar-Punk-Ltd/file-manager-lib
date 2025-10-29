@@ -25,15 +25,18 @@ export async function getFeedData(
   topic: Topic,
   address: string | EthAddress,
   index?: bigint,
+  isLegacy?: boolean,
   options?: BeeRequestOptions,
 ): Promise<FeedResultWithIndex> {
   try {
     let data: FeedPayloadResult;
     const feedReader = bee.makeFeedReader(topic.toUint8Array(), address, options);
+    const reader = isLegacy ? feedReader.download : feedReader.downloadPayload;
+
     if (index !== undefined) {
-      data = await feedReader.download({ index: FeedIndex.fromBigInt(index) });
+      data = await reader({ index: FeedIndex.fromBigInt(index) });
     } else {
-      data = await feedReader.download();
+      data = await reader();
     }
 
     return {

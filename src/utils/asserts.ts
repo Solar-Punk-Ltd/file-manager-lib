@@ -1,7 +1,7 @@
-import { BatchId, EthAddress, Identifier, PublicKey, Reference, Topic } from '@ethersphere/bee-js';
+import { BatchId, EthAddress, FeedIndex, Identifier, PublicKey, Reference, Topic } from '@ethersphere/bee-js';
 import { Types } from 'cafe-utility';
 
-import { DriveInfo, FileInfo, ShareItem, WrappedFileInfoFeed, WrappedUploadResult } from './types';
+import { DriveInfo, FileInfo, ShareItem, StateTopicInfo, WrappedFileInfoFeed, WrappedUploadResult } from './types';
 
 export function isRecord(value: unknown): value is Record<string, string> {
   return Types.isStrictlyObject(value) && Object.values(value).every((v) => typeof v === 'string');
@@ -125,4 +125,20 @@ export function assertDriveInfo(value: unknown): asserts value is DriveInfo {
   if (di.redundancyLevel === undefined || typeof di.redundancyLevel !== 'number') {
     throw new TypeError('redundancyLevel property of DriveInfo has to be number!');
   }
+
+  if (di.isAdmin === undefined || typeof di.isAdmin !== 'boolean') {
+    throw new TypeError('isAdmin property of DriveInfo has to be boolean!');
+  }
+}
+
+export function assertStateTopicInfo(value: unknown): asserts value is StateTopicInfo {
+  if (!Types.isStrictlyObject(value)) {
+    throw new TypeError('StateTopicInfo has to be object!');
+  }
+
+  const sti = value as unknown as StateTopicInfo;
+
+  new Reference(sti.topicReference);
+  new Reference(sti.historyAddress);
+  new FeedIndex(sti.index);
 }

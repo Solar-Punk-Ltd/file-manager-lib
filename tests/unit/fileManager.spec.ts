@@ -50,10 +50,14 @@ describe('FileManager', () => {
 
     (getFeedData as jest.Mock).mockResolvedValue({
       feedIndex: FEED_INDEX_ZERO,
-      feedIndexNext: FeedIndex.fromBigInt(1n),
+      feedIndexNext: FEED_INDEX_ZERO,
       payload: {
         toUint8Array: () => SWARM_ZERO_ADDRESS.toUint8Array(),
-        toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
+        toJSON: () => ({
+          topicReference: SWARM_ZERO_ADDRESS.toString(),
+          historyAddress: SWARM_ZERO_ADDRESS.toString(),
+          index: FEED_INDEX_ZERO.toString(),
+        }),
       },
     });
 
@@ -336,15 +340,16 @@ describe('FileManager', () => {
     let fm: FileManagerBase;
 
     const dummyTopic = Topic.fromString('deadbeef').toString();
-    const dummyFi = {
+    const dummyFi: FileInfo = {
       topic: dummyTopic,
       file: { historyRef: '00'.repeat(32), reference: '11'.repeat(32) },
       owner: '',
-      batchId: { toString: () => 'aa'.repeat(32) },
+      batchId: 'aa'.repeat(32),
+      driveId: 'bb'.repeat(32),
       name: 'x',
       actPublisher: 'ff'.repeat(66),
       version: '0',
-    } as FileInfo;
+    };
 
     beforeEach(async () => {
       fm = await createInitializedFileManager();
@@ -442,7 +447,7 @@ describe('FileManager', () => {
       expect(spyEmit).not.toHaveBeenCalledWith(FileManagerEvents.FILE_VERSION_RESTORED, expect.anything());
     });
   });
-
+  // TODO: test resetState
   describe('drive handling', () => {
     it('createDrive should create an admin drive', async () => {
       const fm = await createInitializedFileManager();
@@ -537,21 +542,20 @@ describe('FileManager', () => {
       expect(target).toBeDefined();
 
       const now = Date.now();
-      const mkFi = (topic: string, name: string): FileInfo =>
-        ({
-          batchId: target.batchId.toString(),
-          owner: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
-          topic,
-          name,
-          actPublisher: DEFAULT_MOCK_SIGNER.publicKey().toCompressedHex(),
-          file: { reference: '0x' + 'aa'.repeat(32), historyRef: '0x' + 'bb'.repeat(32) },
-          driveId: target.id.toString(),
-          timestamp: now,
-          shared: false,
-          version: '0',
-          redundancyLevel: RedundancyLevel.OFF,
-          status: FileStatus.Active,
-        }) as FileInfo;
+      const mkFi = (topic: string, name: string): FileInfo => ({
+        batchId: target.batchId.toString(),
+        owner: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
+        topic,
+        name,
+        actPublisher: DEFAULT_MOCK_SIGNER.publicKey().toCompressedHex(),
+        file: { reference: '0x' + 'aa'.repeat(32), historyRef: '0x' + 'bb'.repeat(32) },
+        driveId: target.id.toString(),
+        timestamp: now,
+        shared: false,
+        version: '0',
+        redundancyLevel: RedundancyLevel.OFF,
+        status: FileStatus.Active,
+      });
 
       fm.fileInfoList.push(mkFi('topic-x', 'x.txt'));
       fm.fileInfoList.push(mkFi('topic-y', 'y.txt'));
@@ -715,7 +719,7 @@ describe('FileManager', () => {
       }).rejects.toThrow(`Grantee list or file not found for file: ${fileInfo.name}`);
     });
   });
-
+  // TODO: test invalid state emit
   describe('eventEmitter', () => {
     const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
 
@@ -742,7 +746,7 @@ describe('FileManager', () => {
       const fixedNow = 1_755_158_248_500; // any number you like
       jest.setSystemTime(new Date(fixedNow));
 
-      const expectedFileInfo = {
+      const expectedFileInfo: FileInfo = {
         batchId: MOCK_BATCH_ID,
         driveId: di.id.toString(),
         customMetadata: undefined,
@@ -760,7 +764,7 @@ describe('FileManager', () => {
         status: FileStatus.Active,
         timestamp: fixedNow, // ← was expect.any(Number)
         topic: expect.any(String), // leave topic flexible
-      } as FileInfo;
+      };
 
       await fm.upload(di, { name: 'tests', path: './tests' });
       fm.emitter.off(FileManagerEvents.FILE_UPLOADED, uploadHandler);

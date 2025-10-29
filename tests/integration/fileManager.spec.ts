@@ -16,11 +16,12 @@ import * as fs from 'fs';
 import path from 'path';
 
 import { FileManagerBase } from '../../src/fileManager';
+import { assertStateTopicInfo } from '../../src/utils/asserts';
 import { buyStamp, getFeedData } from '../../src/utils/common';
 import { FEED_INDEX_ZERO, FILEMANAGER_STATE_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { DriveError, FileError, FileInfoError, GranteeError, StampError } from '../../src/utils/errors';
 import { FileManagerEvents } from '../../src/utils/events';
-import { DriveInfo, FileInfo, FileStatus } from '../../src/utils/types';
+import { DriveInfo, FileInfo, FileStatus, StateTopicInfo } from '../../src/utils/types';
 import { createInitializedFileManager, MOCK_BATCH_ID } from '../mockHelpers';
 import {
   createWrappedData,
@@ -83,17 +84,18 @@ describe('FileManager initialization', () => {
     expect(fileManager.fileInfoList).toEqual([]);
     expect(fileManager.sharedWithMe).toEqual([]);
 
-    const feedTopicData = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 0n);
-    const topicHistory = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 1n);
-    const topicHex = await bee.downloadData(new Reference(feedTopicData.payload), {
-      actHistoryAddress: new Reference(topicHistory.payload),
+    const { payload } = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 0n);
+    const feedTopicState = payload.toJSON() as StateTopicInfo;
+    assertStateTopicInfo(feedTopicState);
+    const topicHex = await bee.downloadData(new Reference(feedTopicState.topicReference), {
+      actHistoryAddress: new Reference(feedTopicState.historyAddress),
       actPublisher,
     });
     expect(topicHex).not.toEqual(SWARM_ZERO_ADDRESS);
 
     await fileManager.initialize();
-    const reinitTopicHex = await bee.downloadData(new Reference(feedTopicData.payload), {
-      actHistoryAddress: new Reference(topicHistory.payload),
+    const reinitTopicHex = await bee.downloadData(new Reference(feedTopicState.topicReference), {
+      actHistoryAddress: new Reference(feedTopicState.historyAddress),
       actPublisher,
     });
     expect(topicHex).toEqual(reinitTopicHex);
@@ -102,12 +104,12 @@ describe('FileManager initialization', () => {
   it('should throw an error if someone else than the admin tries to read the admin feed', async () => {
     const otherBee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
 
-    const feedTopicData = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 0n);
-    const topicHistory = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 1n);
+    const { payload } = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 0n);
+    const feedTopicState = payload.toJSON() as StateTopicInfo;
 
     try {
-      await bee.downloadData(new Reference(feedTopicData.payload), {
-        actHistoryAddress: new Reference(topicHistory.payload),
+      await bee.downloadData(new Reference(feedTopicState.topicReference), {
+        actHistoryAddress: new Reference(feedTopicState.historyAddress),
         actPublisher: OTHER_MOCK_SIGNER.publicKey(),
       });
     } catch (error) {
@@ -116,8 +118,8 @@ describe('FileManager initialization', () => {
     }
 
     try {
-      await otherBee.downloadData(new Reference(feedTopicData.payload), {
-        actHistoryAddress: new Reference(topicHistory.payload),
+      await otherBee.downloadData(new Reference(feedTopicState.topicReference), {
+        actHistoryAddress: new Reference(feedTopicState.historyAddress),
         actPublisher,
       });
     } catch (error) {
@@ -315,24 +317,23 @@ describe('FileManager drive handling', () => {
     const initialDriveCount = fileManager.getDrives().length;
 
     const now = Date.now();
-    const fakeFile = (topic: string, name: string): FileInfo =>
-      ({
-        batchId: created!.batchId,
-        owner: signer.publicKey().address().toString(),
-        topic,
-        name,
-        actPublisher: signer.publicKey().toCompressedHex(),
-        file: { reference: '0xref', historyRef: '0xhref' },
-        driveId,
-        timestamp: now,
-        shared: false,
-        version: '0',
-        redundancyLevel: RedundancyLevel.OFF,
-        status: FileStatus.Active,
-      }) as FileInfo;
+    const fakeFile = (topic: string, name: string): FileInfo => ({
+      batchId: created!.batchId,
+      owner: signer.publicKey().address().toString(),
+      topic,
+      name,
+      actPublisher: signer.publicKey().toCompressedHex(),
+      file: { reference: '0xref', historyRef: '0xhref' },
+      driveId,
+      timestamp: now,
+      shared: false,
+      version: '0',
+      redundancyLevel: RedundancyLevel.OFF,
+      status: FileStatus.Active,
+    });
 
-    (fileManager.fileInfoList as FileInfo[]).push(fakeFile('topic-1', 'a.txt'));
-    (fileManager.fileInfoList as FileInfo[]).push(fakeFile('topic-2', 'b.txt'));
+    fileManager.fileInfoList.push(fakeFile('topic-1', 'a.txt'));
+    fileManager.fileInfoList.push(fakeFile('topic-2', 'b.txt'));
 
     const eventPromise = new Promise<void>((resolve) => {
       const handler = ({ driveInfo }: { driveInfo: DriveInfo }): void => {

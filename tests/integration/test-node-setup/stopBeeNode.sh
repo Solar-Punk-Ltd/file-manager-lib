@@ -50,13 +50,20 @@ rm -f "$TMP_DIR/$LOG_FILE_1733" "$TMP_DIR/$LOG_FILE_1633"
 # Remove Bee repository and any associated data (if desired).
 BEE_DIR="$TMP_DIR/bee-dev"
 BEE_DATA_DIR="$TMP_DIR/bee-data"
-if [ -d "$BEE_DIR" ]; then
-  echo "Deleting Bee repository folder..."
-  rm -rf "$BEE_DIR"
-fi
-if [ -d "$BEE_DATA_DIR" ]; then
-  echo "Deleting Bee data directory..."
-  rm -rf "$BEE_DATA_DIR"
-fi
 
-echo "Cleanup completed."
+# Check if we should keep the directories (pass "keep" as first argument)
+KEEP_DIRS="$1"
+
+if [ "$KEEP_DIRS" != "keep" ]; then
+  if [ -d "$BEE_DIR" ]; then
+    echo "Deleting Bee repository folder..."
+    rm -rf "$BEE_DIR"
+  fi
+  if [ -d "$BEE_DATA_DIR" ]; then
+    echo "Deleting Bee data directory..."
+    rm -rf "$BEE_DATA_DIR"
+  fi
+  echo "Cleanup completed."
+else
+  echo "Keeping Bee directories for reuse in next test run."
+fi
