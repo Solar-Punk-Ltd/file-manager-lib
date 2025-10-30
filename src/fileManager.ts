@@ -96,7 +96,7 @@ export class FileManagerBase implements FileManager {
   async initialize(): Promise<void> {
     if (this.isInitialized) {
       console.debug('FileManager is already initialized');
-      this.emitter.emit(FileManagerEvents.FILEMANAGER_INITIALIZED, true);
+      this.emitter.emit(FileManagerEvents.INITIALIZED, true);
       return;
     }
 
@@ -118,11 +118,11 @@ export class FileManagerBase implements FileManager {
       await this.initFileInfoList();
 
       this.isInitialized = true;
-      this.emitter.emit(FileManagerEvents.FILEMANAGER_INITIALIZED, true);
+      this.emitter.emit(FileManagerEvents.INITIALIZED, true);
     } catch (error: any) {
       console.error(`Failed to initialize FileManager: ${error.message || error}`);
       this.isInitialized = false;
-      this.emitter.emit(FileManagerEvents.FILEMANAGER_INITIALIZED, false);
+      this.emitter.emit(FileManagerEvents.INITIALIZED, false);
     } finally {
       this.isInitializing = false;
     }
@@ -168,7 +168,7 @@ export class FileManagerBase implements FileManager {
       assertStateTopicInfo(stateTopicInfo);
     } catch (error: any) {
       console.error(`Failed to fetch admin state: ${error.message || error}`);
-      this.emitter.emit(FileManagerEvents.FILEMANAGER_STATE_INVALID, true);
+      this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
       return;
     }
 
@@ -278,7 +278,7 @@ export class FileManagerBase implements FileManager {
             )}... not found. Admin state is invalid and must be reset.`,
           );
 
-          this.emitter.emit(FileManagerEvents.FILEMANAGER_STATE_INVALID, true);
+          this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
 
           return;
         }

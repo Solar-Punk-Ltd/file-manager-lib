@@ -6,9 +6,9 @@ export enum FileManagerEvents {
   FILE_FORGOTTEN = 'file-forgotten',
   FILE_VERSION_RESTORED = 'file-version-restored',
   SHARE_MESSAGE_SENT = 'file-shared',
-  FILEMANAGER_INITIALIZED = 'filemanager-initialized',
+  INITIALIZED = 'initialized',
   DRIVE_CREATED = 'drive-created',
   DRIVE_FORGOTTEN = 'drive-forgotten',
   DRIVE_DESTROYED = 'drive-destroyed',
-  FILEMANAGER_STATE_INVALID = 'filemanager-state-invalid',
+  STATE_INVALID = 'state-invalid',
 }

@@ -106,7 +106,7 @@ describe('FileManager', () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const eventHandler = jest.fn((_) => {});
       const emitter = new EventEmitterBase();
-      emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
+      emitter.on(FileManagerEvents.INITIALIZED, eventHandler);
       await createInitializedFileManager(bee, undefined, emitter);
 
       expect(eventHandler).toHaveBeenCalledWith(true);
@@ -116,7 +116,7 @@ describe('FileManager', () => {
       const logSpy = jest.spyOn(console, 'debug');
       const eventHandler = jest.fn((_) => {});
       const emitter = new EventEmitterBase();
-      emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
+      emitter.on(FileManagerEvents.INITIALIZED, eventHandler);
 
       const fm = await createInitializedFileManager(
         new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER }),
@@ -132,7 +132,7 @@ describe('FileManager', () => {
       const logSpy = jest.spyOn(console, 'debug');
       const eventHandler = jest.fn((_) => {});
       const emitter = new EventEmitterBase();
-      emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
+      emitter.on(FileManagerEvents.INITIALIZED, eventHandler);
 
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const fm = new FileManagerBase(bee, emitter);
@@ -778,7 +778,7 @@ describe('FileManager', () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const eventHandler = jest.fn((_) => {});
       const emitter = new EventEmitterBase();
-      emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
+      emitter.on(FileManagerEvents.INITIALIZED, eventHandler);
       await createInitializedFileManager(bee, MOCK_BATCH_ID, emitter);
 
       expect(eventHandler).toHaveBeenCalledWith(true);

@@ -66,7 +66,7 @@ describe('FileManager initialization', () => {
     const otherBee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
     const fm2 = new FileManagerBase(otherBee);
     try {
-      fm2.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, (e) => {
+      fm2.emitter.on(FileManagerEvents.INITIALIZED, (e) => {
         expect(e).toBeTruthy();
       });
       await fm2.initialize();
@@ -185,7 +185,7 @@ describe('FileManager initialization', () => {
   // TODO: test failure: create = true but it exists
   it('should not reinitialize if already initialized', async () => {
     const fileInfoListBefore = [...fileManager.fileInfoList];
-    fileManager.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, (e) => {
+    fileManager.emitter.on(FileManagerEvents.INITIALIZED, (e) => {
       expect(e).toEqual(true);
     });
     await fileManager.initialize();

@@ -26,7 +26,8 @@ import { EventEmitter } from '../eventEmitter';
 export interface FileManager {
   /**
    * Initializes the file manager.
-   * @emits FileManagerEvents.FILEMANAGER_INITIALIZED
+   * @emits FileManagerEvents.INITIALIZED
+   * @emits FileManagerEvents.STATE_INVALID
    * @returns A promise that resolves when the initialization is complete.
    */
   initialize(): Promise<void>;
