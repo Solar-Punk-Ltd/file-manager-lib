@@ -157,9 +157,6 @@ export class FileManagerBase implements FileManager {
       this.signer.publicKey().address().toString(),
     );
 
-    console.log('bagoy payload: ', payload);
-    console.log('bagoy feedIndex: ', feedIndex);
-
     if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
       console.debug('State not found.');
       return;
@@ -177,9 +174,6 @@ export class FileManagerBase implements FileManager {
 
     const stateTopicRef = new Reference(stateTopicInfo.topicReference);
     const topicHistoryRef = new Reference(stateTopicInfo.historyAddress);
-
-    console.log('bagoy stateTopicRef: ', stateTopicRef.toString());
-    console.log('bagoy topicHistoryRef: ', topicHistoryRef.toString());
 
     const topicBytes = await this.bee.downloadData(stateTopicRef, {
       actHistoryAddress: topicHistoryRef,
@@ -291,7 +285,6 @@ export class FileManagerBase implements FileManager {
       }
 
       this.driveList.push(item);
-      console.log('bagoy feedItem: ', item);
     }
 
     console.debug('DriveInfo list fetched successfully.');
