@@ -76,7 +76,7 @@ describe('FileManager', () => {
     const { loadMantaray } = require('../../src/utils/mantaray');
     loadMantaray.mockResolvedValue(mokcMN);
   });
-  // TODO: test all new cases of init: batchId, createNew
+
   describe('constructor', () => {
     it('should create new instance of FileManager', async () => {
       const fm = await createInitializedFileManager();

@@ -20,6 +20,7 @@ import { ReadStream } from 'fs';
 
 import { EventEmitter } from '../eventEmitter';
 
+// TODO: test invalid state emit
 /**
  * Interface representing a file manager with various file operations.
  */

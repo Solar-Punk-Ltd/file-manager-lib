@@ -182,7 +182,7 @@ describe('FileManager initialization', () => {
     const supported = await bee.isSupportedApiVersion();
     expect(supported).toBeTruthy();
   });
-  // TODO: test failure: create = true but it exists
+
   it('should not reinitialize if already initialized', async () => {
     const fileInfoListBefore = [...fileManager.fileInfoList];
     fileManager.emitter.on(FileManagerEvents.INITIALIZED, (e) => {
@@ -280,32 +280,6 @@ describe('FileManager drive handling', () => {
       ),
     ).rejects.toThrow(new DriveError(`Cannot destroy admin drive / stamp, batchId: ${ownerBatch.batchID.toString()}`));
   });
-
-  // todo: not possible to test with devnode: gives 501
-  // it('should destroy the given drive', async () => {
-  //   const batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'toDestroyBatch');
-  //   await fileManager.createDrive(batchId, 'Drive to destroy', false);
-  //   const initialDrivesLength = fileManager.getDrives().length;
-
-  //   const driveToDestroy = fileManager.getDrives().find((d) => d.name === 'Drive to destroy');
-  //   expect(driveToDestroy).toBeDefined();
-
-  //   fileManager.emitter.on(FileManagerEvents.DRIVE_DESTROYED, (drive: DriveInfo) => {
-  //     expect(drive).toBe(driveToDestroy);
-  //   });
-
-  //  await fileManager.destroyDrive(driveToDestroy!);
-
-  //   const finalDrives = fileManager.getDrives();
-  //   expect(finalDrives).toHaveLength(initialDrivesLength - 1);
-
-  //   const drive = finalDrives.find((d) => d.name === 'Drive to destroy');
-  //   expect(drive).toBeUndefined();
-
-  //   // TODO: what else flag is set after dilute ?
-  //   const stamp = (await bee.getPostageBatches()).find((b) => b.label === 'toDestroyBatch');
-  //   expect(stamp?.usable).toBe(false);
-  // });
 
   it('should forget a user drive: removes the drive, prunes its files, and persists the change', async () => {
     const forgetBatchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'forgetDriveStamp');

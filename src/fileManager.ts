@@ -60,8 +60,6 @@ import { getForksMap, loadMantaray } from './utils/mantaray';
 import { processUpload } from './upload';
 import { processDownload } from './download';
 
-// TODO: check everything for: push to list but upload fails ? --> local inconsistency
-// TODO: IT/UT for init with batchId
 export class FileManagerBase implements FileManager {
   private bee: Bee;
   private signer: PrivateKey;
@@ -92,7 +90,6 @@ export class FileManagerBase implements FileManager {
     this.signer = this.bee.signer;
   }
 
-  // TODO: import pins
   async initialize(): Promise<void> {
     if (this.isInitialized) {
       console.debug('FileManager is already initialized');
@@ -443,7 +440,7 @@ export class FileManagerBase implements FileManager {
 
     return await processDownload(this.bee, Object.values(resources));
   }
-  // TODO: separate file upload and version control
+
   async upload(
     driveInfo: DriveInfo,
     fileOptions: FileInfoOptions,
@@ -657,7 +654,6 @@ export class FileManagerBase implements FileManager {
     }
   }
 
-  // TODO: unwrap and payload parsing can be reused maybe
   private async fetchFileInfo(fi: FileInfo, feeData: FeedResultWithIndex, unwrap: boolean): Promise<FileInfo> {
     if (feeData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
       throw new FileInfoError(`File info not found for topic: ${fi.topic}`);
@@ -977,7 +973,7 @@ export class FileManagerBase implements FileManager {
     // TODO: in case of error, for loop will continue, should it throw ?
     for (let i = 0; i < recipients.length; i++) {
       try {
-        // TODO: mining will take too long, 2 bytes are enough
+        // TODO: mining will take too long
         const target = Utils.makeMaxTarget(targetOverlays[i]);
         const msgData = Bytes.fromUtf8(JSON.stringify(item)).toUint8Array();
         this.bee.pssSend(item.fileInfo.batchId, SHARED_INBOX_TOPIC, target, msgData, recipients[i]);
