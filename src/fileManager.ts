@@ -165,8 +165,15 @@ export class FileManagerBase implements FileManager {
       return;
     }
 
-    const stateTopicInfo = payload.toJSON() as StateTopicInfo;
-    assertStateTopicInfo(stateTopicInfo);
+    let stateTopicInfo: StateTopicInfo;
+    try {
+      stateTopicInfo = payload.toJSON() as StateTopicInfo;
+      assertStateTopicInfo(stateTopicInfo);
+    } catch (error: any) {
+      console.error(`Failed to fetch admin state: ${error.message || error}`);
+      this.emitter.emit(FileManagerEvents.FILEMANAGER_STATE_INVALID, true);
+      return;
+    }
 
     const stateTopicRef = new Reference(stateTopicInfo.topicReference);
     const topicHistoryRef = new Reference(stateTopicInfo.historyAddress);
@@ -288,7 +295,6 @@ export class FileManagerBase implements FileManager {
     }
 
     console.debug('DriveInfo list fetched successfully.');
-    this.emitter.emit(FileManagerEvents.FILEMANAGER_STATE_INVALID, false);
   }
 
   private async pruneDriveMetadata(driveInfo: DriveInfo): Promise<void> {
@@ -348,7 +354,7 @@ export class FileManagerBase implements FileManager {
         assertFileInfo(unwrappedFileInfoData);
         this.fileInfoList.push(unwrappedFileInfoData);
       } catch (error: any) {
-        console.error(`Invalid FileInfo item, skipping it: ${error}`);
+        console.error(`Invalid FileInfo item, skipping it: ${error.message || error}`);
       }
     });
 
@@ -631,7 +637,7 @@ export class FileManagerBase implements FileManager {
         historyRef: uploadInfoRes.historyAddress.getOrThrow().toString(),
       };
     } catch (error: any) {
-      throw new FileInfoError(`Failed to save fileinfo: ${error}`);
+      throw new FileInfoError(`Failed to save fileinfo: ${error.message || error}`);
     }
   }
 
@@ -655,7 +661,7 @@ export class FileManagerBase implements FileManager {
         index: fi.version !== undefined ? new FeedIndex(fi.version) : undefined,
       });
     } catch (error: any) {
-      throw new FileInfoError(`Failed to save wrapped fileInfo feed: ${error}`);
+      throw new FileInfoError(`Failed to save wrapped fileInfo feed: ${error.message || error}`);
     }
   }
 
@@ -726,8 +732,7 @@ export class FileManagerBase implements FileManager {
 
       this.driveListNextIndex += 1n;
     } catch (error: any) {
-      // TODO: refactor everywhere to error.message || error
-      throw new DriveError(`Failed to save drive list: ${error}`);
+      throw new DriveError(`Failed to save drive list: ${error.message || error}`);
     }
   }
 
@@ -815,7 +820,7 @@ export class FileManagerBase implements FileManager {
 
       return this.adminStamp;
     } catch (error: any) {
-      console.error(`Failed to get admin stamp: ${error}`);
+      console.error(`Failed to get admin stamp: ${error.message || error}`);
       return;
     }
   }
@@ -898,8 +903,8 @@ export class FileManagerBase implements FileManager {
         grantResult = await this.bee.createGrantees(fileInfo.batchId, grantees.add);
         console.debug('Access granted, new grantee list reference: ', grantResult.ref.toString());
       }
-    } catch (error) {
-      throw new GranteeError(`Failed to handle grantees: ${error}`);
+    } catch (error: any) {
+      throw new GranteeError(`Failed to handle grantees: ${error.message || error}`);
     }
 
     return grantResult;
@@ -985,8 +990,9 @@ export class FileManagerBase implements FileManager {
         const msgData = Bytes.fromUtf8(JSON.stringify(item)).toUint8Array();
         this.bee.pssSend(item.fileInfo.batchId, SHARED_INBOX_TOPIC, target, msgData, recipients[i]);
       } catch (error: any) {
-        console.error(`Failed to share item with recipient: ${recipients[i]}\n `, error);
-        throw new SendShareMessageError(`Failed to share item with recipient: ${recipients[i]}\n ${error}`);
+        const errMsg = `Failed to share item with recipient: ${recipients[i]}\n ${error.message || error}`;
+        console.error(errMsg);
+        throw new SendShareMessageError(errMsg);
       }
     }
   }
