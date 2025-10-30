@@ -373,8 +373,7 @@ export class FileManagerBase implements FileManager {
     resetState?: boolean,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
-    // Allow creating admin drive with resetState even if not initialized (for recovery)
-    if (!this.isInitialized && !(isAdmin && resetState)) {
+    if (!this.isInitialized) {
       throw new DriveError('FileManager is not initialized.');
     }
 
