@@ -93,6 +93,23 @@ export class FileManagerBase implements FileManager {
   async initialize(): Promise<void> {
     if (this.isInitialized) {
       console.debug('FileManager is already initialized');
+      if (this.driveList.length > 0) {
+        const adminDrive = this.driveList.find((d) => d.isAdmin);
+        if (adminDrive) {
+          this._adminStamp = undefined;
+          const stamp = await this.fetchAndSetAdminStamp(adminDrive.batchId.toString());
+          if (!stamp) {
+            console.error('Admin stamp validation failed during re-initialization check');
+            this.isInitialized = false;
+            this.driveList = [];
+            this.fileInfoList.length = 0;
+            this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
+            this.emitter.emit(FileManagerEvents.INITIALIZED, false);
+            return;
+          }
+        }
+      }
+      
       this.emitter.emit(FileManagerEvents.INITIALIZED, true);
       return;
     }
@@ -235,6 +252,8 @@ export class FileManagerBase implements FileManager {
       return;
     }
 
+    this.driveList = [];
+
     const { feedIndexNext, payload } = await getFeedData(
       this.bee,
       this.stateFeedTopic,
@@ -263,7 +282,8 @@ export class FileManagerBase implements FileManager {
         continue;
       }
 
-      if (!this.adminStamp && item.isAdmin) {
+      if (item.isAdmin) {
+        this._adminStamp = undefined;
         const adminStamp = await this.fetchAndSetAdminStamp(item.batchId.toString());
 
         if (!adminStamp) {
@@ -274,6 +294,10 @@ export class FileManagerBase implements FileManager {
               6,
             )}... not found. Admin state is invalid and must be reset.`,
           );
+
+          this.isInitialized = false;
+          this.driveList = [];
+          this.fileInfoList.length = 0;
 
           this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
 
@@ -798,15 +822,20 @@ export class FileManagerBase implements FileManager {
   }
 
   private async fetchAndSetAdminStamp(batchId: string | BatchId): Promise<PostageBatch | undefined> {
-    if (this.adminStamp) return this.adminStamp;
-
     try {
       const adminStamp = (await this.bee.getPostageBatches()).find((s) => s.batchID.toString() === batchId.toString());
+      
       if (adminStamp && adminStamp.usable) {
         this._adminStamp = adminStamp;
+        return this.adminStamp;
       }
 
-      return this.adminStamp;
+      // If stamp is found but not usable, clear the cached admin stamp
+      if (adminStamp && !adminStamp.usable) {
+        this._adminStamp = undefined;
+      }
+
+      return undefined;
     } catch (error: any) {
       console.error(`Failed to get admin stamp: ${error.message || error}`);
       return;
