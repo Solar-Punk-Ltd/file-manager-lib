@@ -53,8 +53,12 @@ export async function createInitializedFileManager(
 ): Promise<FileManagerBase> {
   const fm = new FileManagerBase(bee, emitter);
 
-  fm.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, (ok: boolean) => {
-    expect(ok).toBe(true);
+  let isFirstInit = true;
+  fm.emitter.on(FileManagerEvents.INITIALIZED, (ok: boolean) => {
+    if (isFirstInit) {
+      expect(ok).toBe(true);
+      isFirstInit = false;
+    }
   });
 
   await fm.initialize();

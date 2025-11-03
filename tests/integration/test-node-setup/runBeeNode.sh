@@ -4,7 +4,7 @@
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 BEE_DIR="$SCRIPT_DIR/bee-dev"
 BEE_REPO="https://github.com/Solar-Punk-Ltd/bee.git"
-BEE_BRANCH="tmp/dev-feed"
+BEE_BRANCH="tmp/dev-test"
 BEE_BINARY_PATH="$BEE_DIR/dist/bee"
 BEE_URL="127.0.0.1:1633"
 OTHER_BEE_URL="127.0.0.1:1733"
@@ -22,15 +22,22 @@ cd "$SCRIPT_DIR" || exit
 if [ ! -d "$BEE_DIR" ]; then
   echo "Cloning Bee repository into $BEE_DIR..."
   git clone "$BEE_REPO" "$BEE_DIR"
+  echo "Repository cloned successfully."
+else
+  echo "Bee repository already exists at $BEE_DIR, reusing..."
 fi
 
 cd "$BEE_DIR" || exit
 
 # Checkout the desired branch and update.
-if [ "$(git branch --show-current)" != "$BEE_BRANCH" ]; then
+CURRENT_BRANCH=$(git branch --show-current)
+if [ "$CURRENT_BRANCH" != "$BEE_BRANCH" ]; then
   echo "Switching to branch $BEE_BRANCH..."
   git fetch origin "$BEE_BRANCH"
   git checkout "$BEE_BRANCH"
+else
+  echo "Already on branch $BEE_BRANCH, pulling latest changes..."
+  git pull origin "$BEE_BRANCH" || echo "Pull failed or no changes to pull."
 fi
 
 # Build the Bee binary.

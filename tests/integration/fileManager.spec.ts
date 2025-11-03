@@ -14,13 +14,20 @@ import {
 } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
+import { setTimeout } from 'timers';
 
 import { FileManagerBase } from '../../src/fileManager';
+import { assertStateTopicInfo } from '../../src/utils/asserts';
 import { buyStamp, getFeedData } from '../../src/utils/common';
-import { FEED_INDEX_ZERO, FILEMANAGER_STATE_TOPIC, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
+import {
+  ADMIN_STAMP_LABEL,
+  FEED_INDEX_ZERO,
+  FILEMANAGER_STATE_TOPIC,
+  SWARM_ZERO_ADDRESS,
+} from '../../src/utils/constants';
 import { DriveError, FileError, FileInfoError, GranteeError, StampError } from '../../src/utils/errors';
 import { FileManagerEvents } from '../../src/utils/events';
-import { DriveInfo, FileInfo, FileStatus } from '../../src/utils/types';
+import { DriveInfo, FileInfo, FileStatus, StateTopicInfo } from '../../src/utils/types';
 import { createInitializedFileManager, MOCK_BATCH_ID } from '../mockHelpers';
 import {
   createWrappedData,
@@ -65,7 +72,7 @@ describe('FileManager initialization', () => {
     const otherBee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
     const fm2 = new FileManagerBase(otherBee);
     try {
-      fm2.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, (e) => {
+      fm2.emitter.on(FileManagerEvents.INITIALIZED, (e) => {
         expect(e).toBeTruthy();
       });
       await fm2.initialize();
@@ -83,17 +90,18 @@ describe('FileManager initialization', () => {
     expect(fileManager.fileInfoList).toEqual([]);
     expect(fileManager.sharedWithMe).toEqual([]);
 
-    const feedTopicData = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 0n);
-    const topicHistory = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 1n);
-    const topicHex = await bee.downloadData(new Reference(feedTopicData.payload), {
-      actHistoryAddress: new Reference(topicHistory.payload),
+    const { payload } = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 0n);
+    const feedTopicState = payload.toJSON() as StateTopicInfo;
+    assertStateTopicInfo(feedTopicState);
+    const topicHex = await bee.downloadData(new Reference(feedTopicState.topicReference), {
+      actHistoryAddress: new Reference(feedTopicState.historyAddress),
       actPublisher,
     });
     expect(topicHex).not.toEqual(SWARM_ZERO_ADDRESS);
 
     await fileManager.initialize();
-    const reinitTopicHex = await bee.downloadData(new Reference(feedTopicData.payload), {
-      actHistoryAddress: new Reference(topicHistory.payload),
+    const reinitTopicHex = await bee.downloadData(new Reference(feedTopicState.topicReference), {
+      actHistoryAddress: new Reference(feedTopicState.historyAddress),
       actPublisher,
     });
     expect(topicHex).toEqual(reinitTopicHex);
@@ -102,12 +110,12 @@ describe('FileManager initialization', () => {
   it('should throw an error if someone else than the admin tries to read the admin feed', async () => {
     const otherBee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
 
-    const feedTopicData = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 0n);
-    const topicHistory = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 1n);
+    const { payload } = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 0n);
+    const feedTopicState = payload.toJSON() as StateTopicInfo;
 
     try {
-      await bee.downloadData(new Reference(feedTopicData.payload), {
-        actHistoryAddress: new Reference(topicHistory.payload),
+      await bee.downloadData(new Reference(feedTopicState.topicReference), {
+        actHistoryAddress: new Reference(feedTopicState.historyAddress),
         actPublisher: OTHER_MOCK_SIGNER.publicKey(),
       });
     } catch (error) {
@@ -116,8 +124,8 @@ describe('FileManager initialization', () => {
     }
 
     try {
-      await otherBee.downloadData(new Reference(feedTopicData.payload), {
-        actHistoryAddress: new Reference(topicHistory.payload),
+      await otherBee.downloadData(new Reference(feedTopicState.topicReference), {
+        actHistoryAddress: new Reference(feedTopicState.historyAddress),
         actPublisher,
       });
     } catch (error) {
@@ -180,14 +188,269 @@ describe('FileManager initialization', () => {
     const supported = await bee.isSupportedApiVersion();
     expect(supported).toBeTruthy();
   });
-  // TODO: test failure: create = true but it exists
+
   it('should not reinitialize if already initialized', async () => {
     const fileInfoListBefore = [...fileManager.fileInfoList];
-    fileManager.emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, (e) => {
+    fileManager.emitter.on(FileManagerEvents.INITIALIZED, (e) => {
       expect(e).toEqual(true);
     });
     await fileManager.initialize();
     expect(fileManager.fileInfoList).toEqual(fileInfoListBefore);
+  });
+
+  it('should maintain isInitialized flag after successful reinitialization', async () => {
+    expect((fileManager as any).isInitialized).toBe(true);
+    await fileManager.initialize();
+    expect((fileManager as any).isInitialized).toBe(true);
+  });
+
+  it('should not clear drives when reinitializing with valid stamp', async () => {
+    const drivesBefore = fileManager.getDrives();
+    expect(drivesBefore.length).toBeGreaterThan(0);
+
+    await fileManager.initialize();
+
+    const drivesAfter = fileManager.getDrives();
+    expect(drivesAfter).toEqual(drivesBefore);
+  });
+
+  it('should maintain admin stamp reference after reinitialization', async () => {
+    const adminStampBefore = fileManager.adminStamp;
+    expect(adminStampBefore).toBeDefined();
+
+    await fileManager.initialize();
+
+    const adminStampAfter = fileManager.adminStamp;
+    expect(adminStampAfter).toBeDefined();
+    expect(adminStampAfter?.batchID.toString()).toBe(adminStampBefore?.batchID.toString());
+  });
+});
+
+describe('FileManager reinitialization', () => {
+  it('should emit STATE_INVALID after expiry and have empty state', async () => {
+    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
+    await createInitializedFileManager(beeDev, ownerStamp);
+
+    const originalFn = beeDev.getPostageBatches.bind(beeDev);
+    const spy = jest.spyOn(beeDev, 'getPostageBatches');
+
+    spy.mockImplementation(async () => [
+      {
+        ...(await originalFn())[0],
+        usable: false,
+        label: 'admin',
+      },
+    ]);
+
+    let stateInvalidEmitted = false;
+    let initEmittedValue: boolean | undefined;
+
+    const newFileManager = new FileManagerBase(beeDev);
+
+    newFileManager.emitter.on(FileManagerEvents.STATE_INVALID, () => {
+      stateInvalidEmitted = true;
+    });
+
+    newFileManager.emitter.on(FileManagerEvents.INITIALIZED, (success: boolean) => {
+      initEmittedValue = success;
+    });
+
+    await newFileManager.initialize();
+
+    expect(stateInvalidEmitted).toBe(true);
+    expect(initEmittedValue).toBe(true);
+    expect(newFileManager.getDrives()).toHaveLength(0);
+    expect(newFileManager.fileInfoList).toHaveLength(0);
+
+    spy.mockRestore();
+  });
+
+  it('should successfully revalidate when admin stamp is still valid', async () => {
+    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
+    const fileManager = await createInitializedFileManager(beeDev, ownerStamp);
+
+    const initialDrives = fileManager.getDrives();
+    const initialFileCount = fileManager.fileInfoList.length;
+
+    expect(initialDrives.length).toBeGreaterThanOrEqual(1);
+
+    let initEventFired = false;
+    let invalidEventFired = false;
+
+    fileManager.emitter.on(FileManagerEvents.INITIALIZED, (success: boolean) => {
+      initEventFired = true;
+      expect(success).toBe(true);
+    });
+
+    fileManager.emitter.on(FileManagerEvents.STATE_INVALID, () => {
+      invalidEventFired = true;
+    });
+
+    await fileManager.initialize();
+
+    expect(initEventFired).toBe(true);
+    expect(invalidEventFired).toBe(false);
+    expect(fileManager.getDrives()).toEqual(initialDrives);
+    expect(fileManager.fileInfoList).toHaveLength(initialFileCount);
+  });
+
+  it('should preserve user data when creating a new instance with valid stamp', async () => {
+    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
+    const fileManager = await createInitializedFileManager(beeDev, ownerStamp);
+
+    const userBatchId = await buyStamp(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'userDrive');
+    await fileManager.createDrive(userBatchId, 'User Drive', false);
+
+    const drivesBeforeReinit = fileManager.getDrives();
+    const userDrive = drivesBeforeReinit.find((d) => d.name === 'User Drive');
+    expect(userDrive).toBeDefined();
+
+    const newFileManager = new FileManagerBase(beeDev);
+    await newFileManager.initialize();
+
+    const drivesAfterReinit = newFileManager.getDrives();
+    expect(drivesAfterReinit).toHaveLength(drivesBeforeReinit.length);
+    const userDriveAfter = drivesAfterReinit.find((d) => d.name === 'User Drive');
+    expect(userDriveAfter).toBeDefined();
+    expect(userDriveAfter?.id).toBe(userDrive?.id);
+  });
+
+  it('should handle multiple sequential reinitializations with valid stamp', async () => {
+    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
+    const fileManager = await createInitializedFileManager(beeDev, ownerStamp);
+
+    const initialDriveCount = fileManager.getDrives().length;
+
+    for (let i = 0; i < 3; i++) {
+      await fileManager.initialize();
+      expect(fileManager.getDrives()).toHaveLength(initialDriveCount);
+    }
+
+    for (let i = 0; i < 2; i++) {
+      const freshManager = new FileManagerBase(beeDev);
+      await freshManager.initialize();
+      expect(freshManager.getDrives()).toHaveLength(initialDriveCount);
+    }
+  });
+
+  it('should reset state completely when admin stamp becomes invalid', async () => {
+    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
+    const fileManager = await createInitializedFileManager(beeDev, ownerStamp);
+
+    const userBatchId = await buyStamp(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'userData');
+    await fileManager.createDrive(userBatchId, 'Test Drive', false);
+
+    expect(fileManager.getDrives().length).toBeGreaterThan(1);
+
+    const originalFn = beeDev.getPostageBatches.bind(beeDev);
+    const spy = jest.spyOn(beeDev, 'getPostageBatches');
+
+    spy.mockImplementation(async () => [
+      {
+        ...(await originalFn())[0],
+        usable: false,
+        label: 'admin',
+      },
+    ]);
+
+    const stateInvalidPromise = new Promise<void>((resolve) => {
+      const newFileManager = new FileManagerBase(beeDev);
+      newFileManager.emitter.on(FileManagerEvents.STATE_INVALID, () => {
+        resolve();
+      });
+      newFileManager.initialize();
+    });
+
+    await stateInvalidPromise;
+
+    const verifyManager = new FileManagerBase(beeDev);
+    await verifyManager.initialize();
+
+    expect(verifyManager.getDrives()).toHaveLength(0);
+    expect(verifyManager.fileInfoList).toHaveLength(0);
+
+    spy.mockRestore();
+  });
+
+  it('should allow operations after successful revalidation', async () => {
+    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
+    const fileManager = await createInitializedFileManager(beeDev, ownerStamp);
+
+    await fileManager.initialize();
+
+    const newBatchId = await buyStamp(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'afterReinit');
+    await fileManager.createDrive(newBatchId, 'Post Reinit Drive', false);
+
+    const drives = fileManager.getDrives();
+    const newDrive = drives.find((d) => d.name === 'Post Reinit Drive');
+    expect(newDrive).toBeDefined();
+  });
+
+  it('should emit correct events during revalidation failure', async () => {
+    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
+    const originalFn = beeDev.getPostageBatches.bind(beeDev);
+    const spy = jest.spyOn(beeDev, 'getPostageBatches');
+
+    spy.mockImplementation(async () => {
+      const batches = await originalFn();
+      return batches.map((b) => ({
+        ...b,
+        usable: true,
+        label: b.label === ADMIN_STAMP_LABEL ? 'admin' : b.label,
+      }));
+    });
+
+    await createInitializedFileManager(beeDev, ownerStamp);
+
+    spy.mockImplementation(async () => {
+      const batches = await originalFn();
+      return batches.map((b) => ({
+        ...b,
+        usable: b.label === ADMIN_STAMP_LABEL ? false : true,
+        label: b.label === ADMIN_STAMP_LABEL ? 'admin' : b.label,
+      }));
+    });
+
+    const events: string[] = [];
+
+    const newFileManager = new FileManagerBase(beeDev);
+    newFileManager.emitter.on(FileManagerEvents.STATE_INVALID, () => {
+      events.push('STATE_INVALID');
+    });
+    newFileManager.emitter.on(FileManagerEvents.INITIALIZED, (success: boolean) => {
+      events.push(`INITIALIZED:${success}`);
+    });
+
+    await newFileManager.initialize();
+
+    expect(events).toContain('STATE_INVALID');
+    expect(events).toContain('INITIALIZED:true');
+
+    spy.mockRestore();
+  });
+
+  it('should not affect other drives when revalidating admin stamp', async () => {
+    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
+    const fileManager = await createInitializedFileManager(beeDev, ownerStamp);
+
+    const batch1 = await buyStamp(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'drive1');
+    const batch2 = await buyStamp(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'drive2');
+
+    await fileManager.createDrive(batch1, 'Drive 1', false);
+    await fileManager.createDrive(batch2, 'Drive 2', false);
+
+    const drivesBeforeReinit = fileManager.getDrives();
+    const drive1 = drivesBeforeReinit.find((d) => d.name === 'Drive 1');
+    const drive2 = drivesBeforeReinit.find((d) => d.name === 'Drive 2');
+
+    expect(drive1).toBeDefined();
+    expect(drive2).toBeDefined();
+
+    await fileManager.initialize();
+
+    const drivesAfterReinit = fileManager.getDrives();
+    expect(drivesAfterReinit.find((d) => d.id === drive1?.id)).toBeDefined();
+    expect(drivesAfterReinit.find((d) => d.id === drive2?.id)).toBeDefined();
   });
 });
 
@@ -263,7 +526,7 @@ describe('FileManager drive handling', () => {
         ownerBatch,
       ),
     ).rejects.toThrow(new DriveError(`Stamp does not match drive stamp`));
-    // isAdmin true
+
     await expect(
       fileManager.destroyDrive(
         {
@@ -279,32 +542,6 @@ describe('FileManager drive handling', () => {
     ).rejects.toThrow(new DriveError(`Cannot destroy admin drive / stamp, batchId: ${ownerBatch.batchID.toString()}`));
   });
 
-  // todo: not possible to test with devnode: gives 501
-  // it('should destroy the given drive', async () => {
-  //   const batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'toDestroyBatch');
-  //   await fileManager.createDrive(batchId, 'Drive to destroy', false);
-  //   const initialDrivesLength = fileManager.getDrives().length;
-
-  //   const driveToDestroy = fileManager.getDrives().find((d) => d.name === 'Drive to destroy');
-  //   expect(driveToDestroy).toBeDefined();
-
-  //   fileManager.emitter.on(FileManagerEvents.DRIVE_DESTROYED, (drive: DriveInfo) => {
-  //     expect(drive).toBe(driveToDestroy);
-  //   });
-
-  //  await fileManager.destroyDrive(driveToDestroy!);
-
-  //   const finalDrives = fileManager.getDrives();
-  //   expect(finalDrives).toHaveLength(initialDrivesLength - 1);
-
-  //   const drive = finalDrives.find((d) => d.name === 'Drive to destroy');
-  //   expect(drive).toBeUndefined();
-
-  //   // TODO: what else flag is set after dilute ?
-  //   const stamp = (await bee.getPostageBatches()).find((b) => b.label === 'toDestroyBatch');
-  //   expect(stamp?.usable).toBe(false);
-  // });
-
   it('should forget a user drive: removes the drive, prunes its files, and persists the change', async () => {
     const forgetBatchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'forgetDriveStamp');
     await fileManager.createDrive(forgetBatchId, 'Drive to forget', false);
@@ -315,24 +552,23 @@ describe('FileManager drive handling', () => {
     const initialDriveCount = fileManager.getDrives().length;
 
     const now = Date.now();
-    const fakeFile = (topic: string, name: string): FileInfo =>
-      ({
-        batchId: created!.batchId,
-        owner: signer.publicKey().address().toString(),
-        topic,
-        name,
-        actPublisher: signer.publicKey().toCompressedHex(),
-        file: { reference: '0xref', historyRef: '0xhref' },
-        driveId,
-        timestamp: now,
-        shared: false,
-        version: '0',
-        redundancyLevel: RedundancyLevel.OFF,
-        status: FileStatus.Active,
-      }) as FileInfo;
+    const fakeFile = (topic: string, name: string): FileInfo => ({
+      batchId: created!.batchId,
+      owner: signer.publicKey().address().toString(),
+      topic,
+      name,
+      actPublisher: signer.publicKey().toCompressedHex(),
+      file: { reference: '0xref', historyRef: '0xhref' },
+      driveId,
+      timestamp: now,
+      shared: false,
+      version: '0',
+      redundancyLevel: RedundancyLevel.OFF,
+      status: FileStatus.Active,
+    });
 
-    (fileManager.fileInfoList as FileInfo[]).push(fakeFile('topic-1', 'a.txt'));
-    (fileManager.fileInfoList as FileInfo[]).push(fakeFile('topic-2', 'b.txt'));
+    fileManager.fileInfoList.push(fakeFile('topic-1', 'a.txt'));
+    fileManager.fileInfoList.push(fakeFile('topic-2', 'b.txt'));
 
     const eventPromise = new Promise<void>((resolve) => {
       const handler = ({ driveInfo }: { driveInfo: DriveInfo }): void => {

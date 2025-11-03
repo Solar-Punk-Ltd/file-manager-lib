@@ -50,10 +50,14 @@ describe('FileManager', () => {
 
     (getFeedData as jest.Mock).mockResolvedValue({
       feedIndex: FEED_INDEX_ZERO,
-      feedIndexNext: FeedIndex.fromBigInt(1n),
+      feedIndexNext: FEED_INDEX_ZERO,
       payload: {
         toUint8Array: () => SWARM_ZERO_ADDRESS.toUint8Array(),
-        toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
+        toJSON: () => ({
+          topicReference: SWARM_ZERO_ADDRESS.toString(),
+          historyAddress: SWARM_ZERO_ADDRESS.toString(),
+          index: FEED_INDEX_ZERO.toString(),
+        }),
       },
     });
 
@@ -72,7 +76,7 @@ describe('FileManager', () => {
     const { loadMantaray } = require('../../src/utils/mantaray');
     loadMantaray.mockResolvedValue(mokcMN);
   });
-  // TODO: test all new cases of init: batchId, createNew
+
   describe('constructor', () => {
     it('should create new instance of FileManager', async () => {
       const fm = await createInitializedFileManager();
@@ -102,7 +106,7 @@ describe('FileManager', () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const eventHandler = jest.fn((_) => {});
       const emitter = new EventEmitterBase();
-      emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
+      emitter.on(FileManagerEvents.INITIALIZED, eventHandler);
       await createInitializedFileManager(bee, undefined, emitter);
 
       expect(eventHandler).toHaveBeenCalledWith(true);
@@ -112,7 +116,7 @@ describe('FileManager', () => {
       const logSpy = jest.spyOn(console, 'debug');
       const eventHandler = jest.fn((_) => {});
       const emitter = new EventEmitterBase();
-      emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
+      emitter.on(FileManagerEvents.INITIALIZED, eventHandler);
 
       const fm = await createInitializedFileManager(
         new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER }),
@@ -128,7 +132,7 @@ describe('FileManager', () => {
       const logSpy = jest.spyOn(console, 'debug');
       const eventHandler = jest.fn((_) => {});
       const emitter = new EventEmitterBase();
-      emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
+      emitter.on(FileManagerEvents.INITIALIZED, eventHandler);
 
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const fm = new FileManagerBase(bee, emitter);
@@ -136,6 +140,205 @@ describe('FileManager', () => {
       fm.initialize();
 
       expect(logSpy).toHaveBeenCalledWith('FileManager is being initialized');
+    });
+  });
+
+  describe('reinitialization', () => {
+    it('should emit STATE_INVALID when admin stamp becomes unusable during reinitialization', async () => {
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const emitter = new EventEmitterBase();
+
+      const getPostageBatchesSpy = jest.spyOn(Bee.prototype, 'getPostageBatches');
+      getPostageBatchesSpy.mockResolvedValue([
+        {
+          ...mockPostageBatch,
+          usable: true,
+          label: ADMIN_STAMP_LABEL,
+        },
+      ]);
+
+      const fm = await createInitializedFileManager(bee, MOCK_BATCH_ID, emitter);
+      expect(fm.adminStamp?.usable).toBe(true);
+      expect(fm.getDrives()).toHaveLength(1);
+
+      let reinitFired = false;
+      emitter.on(FileManagerEvents.INITIALIZED, () => {
+        reinitFired = true;
+      });
+
+      await fm.initialize();
+      expect(reinitFired).toBe(true);
+      expect(fm.getDrives()).toHaveLength(1);
+
+      getPostageBatchesSpy.mockRestore();
+    });
+
+    it('should successfully revalidate when admin stamp is still valid', async () => {
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const emitter = new EventEmitterBase();
+
+      const fm = await createInitializedFileManager(bee, MOCK_BATCH_ID, emitter);
+      const initialDrives = fm.getDrives();
+      const initialFileCount = fm.fileInfoList.length;
+
+      let initEventFired = false;
+      let invalidEventFired = false;
+
+      emitter.on(FileManagerEvents.INITIALIZED, (success: boolean) => {
+        if (success) {
+          initEventFired = true;
+        }
+      });
+
+      emitter.on(FileManagerEvents.STATE_INVALID, () => {
+        invalidEventFired = true;
+      });
+
+      await fm.initialize();
+
+      expect(initEventFired).toBe(true);
+      expect(invalidEventFired).toBe(false);
+      expect(fm.getDrives()).toEqual(initialDrives);
+      expect(fm.fileInfoList).toHaveLength(initialFileCount);
+    });
+
+    it('should handle multiple sequential reinitializations with valid stamp', async () => {
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee, MOCK_BATCH_ID);
+
+      const initialDriveCount = fm.getDrives().length;
+
+      for (let i = 0; i < 3; i++) {
+        await fm.initialize();
+        expect(fm.getDrives()).toHaveLength(initialDriveCount);
+      }
+    });
+
+    it('should reset isInitialized flag when admin stamp becomes invalid', async () => {
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      await createInitializedFileManager(bee, MOCK_BATCH_ID);
+
+      const getPostageBatchesSpy = jest.spyOn(Bee.prototype, 'getPostageBatches');
+      getPostageBatchesSpy.mockResolvedValue([
+        {
+          ...mockPostageBatch,
+          usable: false,
+          label: ADMIN_STAMP_LABEL,
+        },
+      ]);
+
+      const newFm = new FileManagerBase(bee);
+      await newFm.initialize();
+
+      expect((newFm as any).isInitialized).toBe(true);
+      expect(newFm.getDrives()).toHaveLength(0);
+      expect(newFm.fileInfoList).toHaveLength(0);
+
+      getPostageBatchesSpy.mockRestore();
+    });
+
+    it('should emit correct events during revalidation failure', async () => {
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const emitter = new EventEmitterBase();
+
+      const getPostageBatchesSpy = jest.spyOn(Bee.prototype, 'getPostageBatches');
+      getPostageBatchesSpy.mockImplementation(async () => [
+        {
+          ...mockPostageBatch,
+          usable: true,
+          label: ADMIN_STAMP_LABEL,
+        },
+      ]);
+
+      await createInitializedFileManager(bee, MOCK_BATCH_ID, emitter);
+
+      const events: string[] = [];
+      emitter.on(FileManagerEvents.INITIALIZED, (success: boolean) => {
+        events.push(`INITIALIZED:${success}`);
+      });
+
+      const fm2 = new FileManagerBase(bee, emitter);
+      await fm2.initialize();
+
+      expect(events).toContain('INITIALIZED:true');
+
+      getPostageBatchesSpy.mockRestore();
+    });
+
+    it('should maintain isInitialized flag after successful reinitialization', async () => {
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee, MOCK_BATCH_ID);
+
+      expect((fm as any).isInitialized).toBe(true);
+
+      await fm.initialize();
+
+      expect((fm as any).isInitialized).toBe(true);
+    });
+
+    it('should not clear drives when reinitializing with valid stamp', async () => {
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee, MOCK_BATCH_ID);
+
+      const drivesBefore = fm.getDrives();
+      expect(drivesBefore.length).toBeGreaterThan(0);
+
+      await fm.initialize();
+
+      const drivesAfter = fm.getDrives();
+      expect(drivesAfter).toEqual(drivesBefore);
+    });
+
+    it('should maintain admin stamp reference after reinitialization', async () => {
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const fm = await createInitializedFileManager(bee, MOCK_BATCH_ID);
+
+      const adminStampBefore = fm.adminStamp;
+      expect(adminStampBefore).toBeDefined();
+
+      await fm.initialize();
+
+      const adminStampAfter = fm.adminStamp;
+      expect(adminStampAfter).toBeDefined();
+      expect(adminStampAfter?.batchID.toString()).toBe(adminStampBefore?.batchID.toString());
+    });
+
+    it('should clear fileInfoList when admin stamp becomes invalid', async () => {
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      await createInitializedFileManager(bee, MOCK_BATCH_ID);
+
+      const getPostageBatchesSpy = jest.spyOn(Bee.prototype, 'getPostageBatches');
+      getPostageBatchesSpy.mockResolvedValue([
+        {
+          ...mockPostageBatch,
+          usable: false,
+          label: ADMIN_STAMP_LABEL,
+        },
+      ]);
+
+      const newFm = new FileManagerBase(bee);
+      await newFm.initialize();
+
+      expect(newFm.fileInfoList).toHaveLength(0);
+      expect(newFm.getDrives()).toHaveLength(0);
+
+      getPostageBatchesSpy.mockRestore();
+    });
+
+    it('should not emit STATE_INVALID when admin stamp remains valid', async () => {
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const emitter = new EventEmitterBase();
+
+      const fm = await createInitializedFileManager(bee, MOCK_BATCH_ID, emitter);
+
+      let invalidEventFired = false;
+      emitter.on(FileManagerEvents.STATE_INVALID, () => {
+        invalidEventFired = true;
+      });
+
+      await fm.initialize();
+
+      expect(invalidEventFired).toBe(false);
     });
   });
 
@@ -336,15 +539,16 @@ describe('FileManager', () => {
     let fm: FileManagerBase;
 
     const dummyTopic = Topic.fromString('deadbeef').toString();
-    const dummyFi = {
+    const dummyFi: FileInfo = {
       topic: dummyTopic,
       file: { historyRef: '00'.repeat(32), reference: '11'.repeat(32) },
       owner: '',
-      batchId: { toString: () => 'aa'.repeat(32) },
+      batchId: 'aa'.repeat(32),
+      driveId: 'bb'.repeat(32),
       name: 'x',
       actPublisher: 'ff'.repeat(66),
       version: '0',
-    } as FileInfo;
+    };
 
     beforeEach(async () => {
       fm = await createInitializedFileManager();
@@ -442,7 +646,7 @@ describe('FileManager', () => {
       expect(spyEmit).not.toHaveBeenCalledWith(FileManagerEvents.FILE_VERSION_RESTORED, expect.anything());
     });
   });
-
+  // TODO: test resetState
   describe('drive handling', () => {
     it('createDrive should create an admin drive', async () => {
       const fm = await createInitializedFileManager();
@@ -537,21 +741,20 @@ describe('FileManager', () => {
       expect(target).toBeDefined();
 
       const now = Date.now();
-      const mkFi = (topic: string, name: string): FileInfo =>
-        ({
-          batchId: target.batchId.toString(),
-          owner: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
-          topic,
-          name,
-          actPublisher: DEFAULT_MOCK_SIGNER.publicKey().toCompressedHex(),
-          file: { reference: '0x' + 'aa'.repeat(32), historyRef: '0x' + 'bb'.repeat(32) },
-          driveId: target.id.toString(),
-          timestamp: now,
-          shared: false,
-          version: '0',
-          redundancyLevel: RedundancyLevel.OFF,
-          status: FileStatus.Active,
-        }) as FileInfo;
+      const mkFi = (topic: string, name: string): FileInfo => ({
+        batchId: target.batchId.toString(),
+        owner: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
+        topic,
+        name,
+        actPublisher: DEFAULT_MOCK_SIGNER.publicKey().toCompressedHex(),
+        file: { reference: '0x' + 'aa'.repeat(32), historyRef: '0x' + 'bb'.repeat(32) },
+        driveId: target.id.toString(),
+        timestamp: now,
+        shared: false,
+        version: '0',
+        redundancyLevel: RedundancyLevel.OFF,
+        status: FileStatus.Active,
+      });
 
       fm.fileInfoList.push(mkFi('topic-x', 'x.txt'));
       fm.fileInfoList.push(mkFi('topic-y', 'y.txt'));
@@ -715,7 +918,7 @@ describe('FileManager', () => {
       }).rejects.toThrow(`Grantee list or file not found for file: ${fileInfo.name}`);
     });
   });
-
+  // TODO: test invalid state emit
   describe('eventEmitter', () => {
     const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
 
@@ -742,7 +945,7 @@ describe('FileManager', () => {
       const fixedNow = 1_755_158_248_500; // any number you like
       jest.setSystemTime(new Date(fixedNow));
 
-      const expectedFileInfo = {
+      const expectedFileInfo: FileInfo = {
         batchId: MOCK_BATCH_ID,
         driveId: di.id.toString(),
         customMetadata: undefined,
@@ -760,7 +963,7 @@ describe('FileManager', () => {
         status: FileStatus.Active,
         timestamp: fixedNow, // ← was expect.any(Number)
         topic: expect.any(String), // leave topic flexible
-      } as FileInfo;
+      };
 
       await fm.upload(di, { name: 'tests', path: './tests' });
       fm.emitter.off(FileManagerEvents.FILE_UPLOADED, uploadHandler);
@@ -774,7 +977,7 @@ describe('FileManager', () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const eventHandler = jest.fn((_) => {});
       const emitter = new EventEmitterBase();
-      emitter.on(FileManagerEvents.FILEMANAGER_INITIALIZED, eventHandler);
+      emitter.on(FileManagerEvents.INITIALIZED, eventHandler);
       await createInitializedFileManager(bee, MOCK_BATCH_ID, emitter);
 
       expect(eventHandler).toHaveBeenCalledWith(true);

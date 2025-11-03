@@ -20,19 +20,29 @@ import { ReadStream } from 'fs';
 
 import { EventEmitter } from '../eventEmitter';
 
+// TODO: test invalid state emit
 /**
  * Interface representing a file manager with various file operations.
  */
 export interface FileManager {
   /**
    * Initializes the file manager.
+   * @emits FileManagerEvents.INITIALIZED
+   * @emits FileManagerEvents.STATE_INVALID
    * @returns A promise that resolves when the initialization is complete.
    */
   initialize(): Promise<void>;
 
   /**
    * Creates a new drive with the specified options.
-   * @param driveInfo - Information about the drive to be created.
+   * @param batchId - The batch ID for the drive.
+   * @param name - The name of the drive.
+   * @param isAdmin - Indicates if the drive is an admin drive.
+   * @param redundancyLevel - Optional redundancy level for the drive.
+   * @param resetState - Optional flag to reset the state, if it is invalid/ no stamp is found for it.
+   *                   - It enables the creation of a new admin drive.
+   * @param requestOptions - Additional Bee request options.
+   * @emits FileManagerEvents.DRIVE_CREATED
    * @returns A promise that resolves when the drive is created.
    */
   createDrive(
@@ -40,6 +50,7 @@ export interface FileManager {
     name: string,
     isAdmin: boolean,
     redundancyLevel?: RedundancyLevel,
+    resetState?: boolean,
     requestOptions?: BeeRequestOptions,
   ): Promise<void>;
 
@@ -54,6 +65,7 @@ export interface FileManager {
    * @param infoOptions - The options for the file info upload.
    * @param uploadOptions - File and collection related upload options.
    * @param requestOptions - Additional Bee request options.
+   * @emits FileManagerEvents.FILE_UPLOADED
    * @returns A promise that resolves when the upload is complete.
    */
   upload(
@@ -68,6 +80,7 @@ export interface FileManager {
    * @param eRef - The encrypted reference to the file(s) to be downloaded.
    * @param paths - Optional array of fork paths to download.
    * @param options - Optional download options for ACT and redundancy.
+   * @emits FileManagerEvents.FILE_DOWNLOADED
    * @returns A promise that resolves to an array of strings representing the downloaded file(s).
    */
   download(
@@ -87,6 +100,7 @@ export interface FileManager {
   /**
    * Soft-delete: move a file to “trash” (it stays in Swarm but is hidden from your live list).
    * @param fileInfo - The file info describing the file to trash.
+   * @emits FileManagerEvents.FILE_TRASHED
    * @returns A promise that resolves when the file has been trashed.
    */
   trashFile(fileInfo: FileInfo): Promise<void>;
@@ -94,6 +108,7 @@ export interface FileManager {
   /**
    * Recover a previously trashed file back into your live list.
    * @param fileInfo - The file info describing the file to recover.
+   * @emits FileManagerEvents.FILE_RECOVERED
    * @returns A promise that resolves when the file has been recovered.
    */
   recoverFile(fileInfo: FileInfo): Promise<void>;
@@ -101,6 +116,7 @@ export interface FileManager {
   /**
    * Hard‐delete: remove from your owner‐feed and in-memory lists.
    * @param fileInfo - The file info describing the file to forget.
+   * @emits FileManagerEvents.FILE_FORGOTTEN
    * @returns A promise that resolves when the file has been forgotten.
    */
   forgetFile(fileInfo: FileInfo): Promise<void>;
@@ -109,6 +125,7 @@ export interface FileManager {
    * Destroys a drive identified by the given batch ID.
    * Dilutes the stamp and shortens its duration (min. 24, max 47 hours) depending on the original TTL.
    * @param driveInfo - The drive to destroy.
+   * @emits FileManagerEvents.DRIVE_DESTROYED
    * @returns A promise that resolves when the drive is destroyed.
    */
   destroyDrive(driveInfo: DriveInfo, stamp: PostageBatch): Promise<void>;
@@ -117,6 +134,7 @@ export interface FileManager {
    * Removes the drive and all of its file metadata from local state and persists the updated drive list.
    * Does NOT touch the underlying Swarm batch (no dilution).
    * @param driveInfo - The drive to forget.
+   * @emits FileManagerEvents.DRIVE_FORGOTTEN
    * @returns A promise that resolves when the drive is forgotten.
    */
   forgetDrive(driveInfo: DriveInfo): Promise<void>;
@@ -127,6 +145,7 @@ export interface FileManager {
    * @param targetOverlays - An array of target overlays.
    * @param recipients - An array of recipient overlay addresses.
    * @param message - Optional message to include with the share.
+   * @emits FileManagerEvents.SHARE_MESSAGE_SENT
    * @returns A promise that resolves when the file is shared.
    */
   share(fileInfo: FileInfo, targetOverlays: string[], recipients: string[], message?: string): Promise<void>;
@@ -165,6 +184,7 @@ export interface FileManager {
    *
    * @param versionToRestore - The FileInfo instance representing the version to restore.
    * @param requestOptions - Optional BeeRequestOptions for upload operations.
+   * @emits FileManagerEvents.FILE_VERSION_RESTORED
    * @throws FileInfoError if no versions are found.
    */
   restoreVersion(versionToRestore: FileInfo, requestOptions?: BeeRequestOptions): Promise<void>;
@@ -214,6 +234,12 @@ export interface FileInfo {
   redundancyLevel?: RedundancyLevel;
   customMetadata?: Record<string, string>;
   status?: FileStatus;
+}
+
+export interface StateTopicInfo {
+  topicReference: string;
+  historyAddress: string;
+  index: string;
 }
 
 export interface PartialFileInfo
