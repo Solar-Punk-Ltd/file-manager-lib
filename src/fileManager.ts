@@ -93,7 +93,7 @@ export class FileManagerBase implements FileManager {
   async initialize(): Promise<void> {
     if (this.isInitialized) {
       console.debug('FileManager is already initialized');
-      
+
       this.emitter.emit(FileManagerEvents.INITIALIZED, true);
       return;
     }
@@ -264,7 +264,7 @@ export class FileManagerBase implements FileManager {
         continue;
       }
 
-      if (!this.adminStamp && item.isAdmin) {
+      if (item.isAdmin) {
         const adminStamp = await this.fetchAndSetAdminStamp(item.batchId.toString());
 
         if (!adminStamp) {
@@ -801,7 +801,7 @@ export class FileManagerBase implements FileManager {
   private async fetchAndSetAdminStamp(batchId: string | BatchId): Promise<PostageBatch | undefined> {
     try {
       const adminStamp = (await this.bee.getPostageBatches()).find((s) => s.batchID.toString() === batchId.toString());
-      
+
       if (adminStamp && adminStamp.usable) {
         this._adminStamp = adminStamp;
         return this.adminStamp;
