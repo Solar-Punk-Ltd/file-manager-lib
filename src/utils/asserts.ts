@@ -69,7 +69,7 @@ export function assertShareItem(value: unknown): asserts value is ShareItem {
   }
 }
 
-export function assertWrappedFileInoFeed(value: unknown): asserts value is WrappedFileInfoFeed {
+export function assertWrappedFileInfoFeed(value: unknown): asserts value is WrappedFileInfoFeed {
   if (!Types.isStrictlyObject(value)) {
     throw new TypeError('WrappedFileInfoFeed has to be object!');
   }
@@ -83,7 +83,7 @@ export function assertWrappedFileInoFeed(value: unknown): asserts value is Wrapp
   }
 }
 
-export function asserWrappedUploadResult(value: unknown): asserts value is WrappedUploadResult {
+export function assertWrappedUploadResult(value: unknown): asserts value is WrappedUploadResult {
   if (!Types.isStrictlyObject(value)) {
     throw new TypeError('WrappedUploadResult has to be object!');
   }
@@ -114,7 +114,7 @@ export function assertDriveInfo(value: unknown): asserts value is DriveInfo {
     }
 
     for (const item of di.infoFeedList) {
-      assertWrappedFileInoFeed(item);
+      assertWrappedFileInfoFeed(item);
     }
   }
 
