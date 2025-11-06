@@ -111,9 +111,11 @@ export class FileManagerBase implements FileManager {
 
       console.debug('Trying to load state from Swarm.');
 
-      await this.tryToFetchAdminState();
-      await this.initDriveList();
-      await this.initFileInfoList();
+      const success = await this.tryToFetchAdminState();
+      if (success) {
+        await this.initDriveList();
+        await this.initFileInfoList();
+      }
 
       this.isInitialized = true;
       this.emitter.emit(FileManagerEvents.INITIALIZED, true);
@@ -144,7 +146,7 @@ export class FileManagerBase implements FileManager {
     this.publisher = (await this.bee.getNodeAddresses()).publicKey;
   }
 
-  private async tryToFetchAdminState(): Promise<void> {
+  private async tryToFetchAdminState(): Promise<boolean> {
     if (!this.publisher) {
       throw new SignerError('Publisher not found');
     }
@@ -157,7 +159,7 @@ export class FileManagerBase implements FileManager {
 
     if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
       console.debug('State not found.');
-      return;
+      return false;
     }
 
     let stateTopicInfo: StateTopicInfo;
@@ -167,7 +169,7 @@ export class FileManagerBase implements FileManager {
     } catch (error: any) {
       console.error(`Failed to fetch admin state: ${error.message || error}`);
       this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
-      return;
+      return false;
     }
 
     const stateTopicRef = new Reference(stateTopicInfo.topicReference);
@@ -182,11 +184,13 @@ export class FileManagerBase implements FileManager {
     } catch (error: any) {
       console.error(`Failed to decrypt admin state: ${error.message || error}`);
       this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
-      return;
+      return false;
     }
 
     this.stateFeedTopic = new Topic(topicBytes.toUint8Array());
     console.debug('Drive list feed successfully fetched');
+
+    return true;
   }
 
   // fetches the drive list topic and creates it if it does not exist, protected by ACT
@@ -240,6 +244,7 @@ export class FileManagerBase implements FileManager {
 
     if (!this.stateFeedTopic) {
       console.debug('Drive list topic not initialized');
+      this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
       return;
     }
 
@@ -250,7 +255,8 @@ export class FileManagerBase implements FileManager {
     );
 
     if (SWARM_ZERO_ADDRESS.equals(payload.toUint8Array())) {
-      console.debug("Drive list doesn't exist yet.");
+      console.debug('Invalid drive list');
+      this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
       return;
     }
 
@@ -459,7 +465,7 @@ export class FileManagerBase implements FileManager {
     uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
-    if (!this.stateFeedTopic) {
+    if (!this.stateFeedTopic || !this.isInitialized) {
       throw new DriveError('FileManager is not initialized.');
     }
 
@@ -698,7 +704,7 @@ export class FileManagerBase implements FileManager {
   }
 
   private async saveDriveList(requestOptions?: BeeRequestOptions): Promise<void> {
-    if (!this.stateFeedTopic) {
+    if (!this.stateFeedTopic || !this.isInitialized) {
       throw new DriveError('Drive list topic not initialized');
     }
 
@@ -812,17 +818,19 @@ export class FileManagerBase implements FileManager {
   private async fetchAndSetAdminStamp(batchId: string | BatchId): Promise<PostageBatch | undefined> {
     try {
       const adminStamp = (await this.bee.getPostageBatches()).find((s) => s.batchID.toString() === batchId.toString());
-      const logText = `Admin stamp with batchId: ${batchId.toString().slice(0, 6)}...`;
 
-      if (adminStamp && adminStamp.usable) {
+      if (adminStamp) {
+        const logText = `Admin stamp with batchId: ${batchId.toString().slice(0, 6)}...`;
+
+        if (adminStamp.usable) {
+          console.debug(`${logText} found and set.`);
+        } else {
+          console.warn(`${logText} is unusable.`);
+        }
+
         this._adminStamp = adminStamp;
-        console.debug(`${logText} found and set.`);
-        return this.adminStamp;
-      }
 
-      if (adminStamp && !adminStamp.usable) {
-        console.debug(`${logText} is unusable.`);
-        this._adminStamp = undefined;
+        return this.adminStamp;
       }
 
       return undefined;

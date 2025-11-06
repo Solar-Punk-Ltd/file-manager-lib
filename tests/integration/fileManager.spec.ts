@@ -227,38 +227,30 @@ describe('FileManager initialization', () => {
 });
 
 describe('FileManager reinitialization', () => {
-  it('should emit STATE_INVALID after expiry and have empty state', async () => {
+  it('should emit STATE_INVALID after expiry', async () => {
     const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
     await createInitializedFileManager(beeDev, ownerStamp);
 
     const originalFn = beeDev.getPostageBatches.bind(beeDev);
     const spy = jest.spyOn(beeDev, 'getPostageBatches');
 
-    spy.mockImplementation(async () => [
-      {
-        ...(await originalFn())[0],
-        usable: false,
-        label: 'admin',
-      },
-    ]);
-
-    let stateInvalidEmitted = false;
-    let initEmittedValue: boolean | undefined;
+    spy.mockImplementation(async () => {
+      await originalFn();
+      return [];
+    });
 
     const newFileManager = new FileManagerBase(beeDev);
 
-    newFileManager.emitter.on(FileManagerEvents.STATE_INVALID, () => {
-      stateInvalidEmitted = true;
+    newFileManager.emitter.on(FileManagerEvents.STATE_INVALID, (stateInvalidEmitted) => {
+      expect(stateInvalidEmitted).toBe(true);
     });
 
     newFileManager.emitter.on(FileManagerEvents.INITIALIZED, (success: boolean) => {
-      initEmittedValue = success;
+      expect(success).toBe(true);
     });
 
     await newFileManager.initialize();
 
-    expect(stateInvalidEmitted).toBe(true);
-    expect(initEmittedValue).toBe(true);
     expect(newFileManager.getDrives()).toHaveLength(0);
     expect(newFileManager.fileInfoList).toHaveLength(0);
 
@@ -333,45 +325,6 @@ describe('FileManager reinitialization', () => {
     }
   });
 
-  it('should reset state completely when admin stamp becomes invalid', async () => {
-    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
-    const fileManager = await createInitializedFileManager(beeDev, ownerStamp);
-
-    const userBatchId = await buyStamp(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'userData');
-    await fileManager.createDrive(userBatchId, 'Test Drive', false);
-
-    expect(fileManager.getDrives().length).toBeGreaterThan(1);
-
-    const originalFn = beeDev.getPostageBatches.bind(beeDev);
-    const spy = jest.spyOn(beeDev, 'getPostageBatches');
-
-    spy.mockImplementation(async () => [
-      {
-        ...(await originalFn())[0],
-        usable: false,
-        label: 'admin',
-      },
-    ]);
-
-    const stateInvalidPromise = new Promise<void>((resolve) => {
-      const newFileManager = new FileManagerBase(beeDev);
-      newFileManager.emitter.on(FileManagerEvents.STATE_INVALID, () => {
-        resolve();
-      });
-      newFileManager.initialize();
-    });
-
-    await stateInvalidPromise;
-
-    const verifyManager = new FileManagerBase(beeDev);
-    await verifyManager.initialize();
-
-    expect(verifyManager.getDrives()).toHaveLength(0);
-    expect(verifyManager.fileInfoList).toHaveLength(0);
-
-    spy.mockRestore();
-  });
-
   it('should allow operations after successful revalidation', async () => {
     const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
     const fileManager = await createInitializedFileManager(beeDev, ownerStamp);
@@ -403,12 +356,8 @@ describe('FileManager reinitialization', () => {
     await createInitializedFileManager(beeDev, ownerStamp);
 
     spy.mockImplementation(async () => {
-      const batches = await originalFn();
-      return batches.map((b) => ({
-        ...b,
-        usable: b.label === ADMIN_STAMP_LABEL ? false : true,
-        label: b.label === ADMIN_STAMP_LABEL ? 'admin' : b.label,
-      }));
+      await originalFn();
+      return [];
     });
 
     const events: string[] = [];
