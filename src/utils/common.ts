@@ -17,7 +17,7 @@ import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from './constants';
 import { getRandomBytesNode } from './node';
 import { FeedResultWithIndex, FeedPayloadResult, WrappedUploadResult } from './types';
 import { FileInfoError } from './errors';
-import { asserWrappedUploadResult } from './asserts';
+import { assertWrappedUploadResult } from './asserts';
 
 export async function getFeedData(
   bee: Bee,
@@ -51,6 +51,7 @@ export async function getFeedData(
         payload: SWARM_ZERO_ADDRESS,
       };
     }
+
     throw error;
   }
 }
@@ -88,7 +89,7 @@ export async function getWrappedData(
   try {
     const rawData = await bee.downloadData(ref.toString(), { ...options, actPublisher, actHistoryAddress });
     const wrappedResult = rawData.toJSON() as WrappedUploadResult;
-    asserWrappedUploadResult(wrappedResult);
+    assertWrappedUploadResult(wrappedResult);
     return wrappedResult;
   } catch (error) {
     throw new FileInfoError(`Failed to get wrapped data: ${error}`);

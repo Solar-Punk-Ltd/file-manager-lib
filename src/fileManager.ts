@@ -173,13 +173,19 @@ export class FileManagerBase implements FileManager {
     const stateTopicRef = new Reference(stateTopicInfo.topicReference);
     const topicHistoryRef = new Reference(stateTopicInfo.historyAddress);
 
-    const topicBytes = await this.bee.downloadData(stateTopicRef, {
-      actHistoryAddress: topicHistoryRef,
-      actPublisher: this.publisher,
-    });
+    let topicBytes: Bytes;
+    try {
+      topicBytes = await this.bee.downloadData(stateTopicRef, {
+        actHistoryAddress: topicHistoryRef,
+        actPublisher: this.publisher,
+      });
+    } catch (error: any) {
+      console.error(`Failed to decrypt admin state: ${error.message || error}`);
+      this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
+      return;
+    }
 
     this.stateFeedTopic = new Topic(topicBytes.toUint8Array());
-
     console.debug('Drive list feed successfully fetched');
   }
 
@@ -223,6 +229,7 @@ export class FileManagerBase implements FileManager {
 
     this.stateFeedTopic = newStateFeedTopic;
     console.debug('Drive list feed topic successfully set');
+    this.emitter.emit(FileManagerEvents.STATE_INVALID, false);
   }
 
   // fetches the latest list of fileinfo from the drive list topic
@@ -376,15 +383,19 @@ export class FileManagerBase implements FileManager {
     }
 
     let driveName = name;
-    this.driveList.forEach((d) => {
-      if (isAdmin && !resetState && (d.isAdmin || this.adminStamp)) {
-        throw new DriveError('Admin drive already exists');
-      }
+    if (resetState) {
+      this.driveList = [];
+    } else {
+      this.driveList.forEach((d) => {
+        if (isAdmin && (d.isAdmin || this.adminStamp)) {
+          throw new DriveError('Admin drive already exists');
+        }
 
-      if (d.name === driveName || d.batchId.toString() === batchId.toString()) {
-        throw new DriveError(`Drive with name "${driveName}" or batchId "${batchId}" already exists`);
-      }
-    });
+        if (d.name === driveName || d.batchId.toString() === batchId.toString()) {
+          throw new DriveError(`Drive with name "${driveName}" or batchId "${batchId}" already exists`);
+        }
+      });
+    }
 
     if (isAdmin) {
       console.debug('Creating admin drive with name: ', ADMIN_STAMP_LABEL);
@@ -801,13 +812,16 @@ export class FileManagerBase implements FileManager {
   private async fetchAndSetAdminStamp(batchId: string | BatchId): Promise<PostageBatch | undefined> {
     try {
       const adminStamp = (await this.bee.getPostageBatches()).find((s) => s.batchID.toString() === batchId.toString());
+      const logText = `Admin stamp with batchId: ${batchId.toString().slice(0, 6)}...`;
 
       if (adminStamp && adminStamp.usable) {
         this._adminStamp = adminStamp;
+        console.debug(`${logText} found and set.`);
         return this.adminStamp;
       }
 
       if (adminStamp && !adminStamp.usable) {
+        console.debug(`${logText} is unusable.`);
         this._adminStamp = undefined;
       }
 
