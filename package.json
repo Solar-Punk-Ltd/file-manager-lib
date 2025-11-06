@@ -19,7 +19,7 @@
     "build:node": "tsc -p tsconfig.json",
     "build:types": "tsc --emitDeclarationOnly --declaration --outDir dist/types",
     "build:browser": "vite build",
-    "test": "cross-env KEEP_BEE_DIRS=true jest --config=jest.config.ts --runInBand --verbose",
+    "test": "jest --config=jest.config.ts --runInBand --verbose",
     "test:keep": "cross-env KEEP_BEE_DIRS=true npm run test",
     "test:coverage": "jest --coverage",
     "lint": "eslint . --report-unused-disable-directives",
