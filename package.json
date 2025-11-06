@@ -1,6 +1,6 @@
 {
   "name": "@solarpunkltd/file-manager-lib",
-  "version": "0.2.10",
+  "version": "0.2.11",
   "description": "A file manager for storing and handling data on Swarm.",
   "main": "dist/index.d.ts",
   "types": "dist/types/index.d.ts",
@@ -19,7 +19,7 @@
     "build:node": "tsc -p tsconfig.json",
     "build:types": "tsc --emitDeclarationOnly --declaration --outDir dist/types",
     "build:browser": "vite build",
-    "test": "jest --config=jest.config.ts --runInBand --verbose",
+    "test": "cross-env KEEP_BEE_DIRS=true jest --config=jest.config.ts --runInBand --verbose",
     "test:keep": "cross-env KEEP_BEE_DIRS=true npm run test",
     "test:coverage": "jest --coverage",
     "lint": "eslint . --report-unused-disable-directives",
