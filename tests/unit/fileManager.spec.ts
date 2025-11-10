@@ -49,7 +49,7 @@ describe('FileManager', () => {
     createInitMocks();
 
     (getFeedData as jest.Mock).mockResolvedValue({
-      feedIndex: FEED_INDEX_ZERO,
+      feedIndex: FeedIndex.MINUS_ONE,
       feedIndexNext: FEED_INDEX_ZERO,
       payload: {
         toUint8Array: () => SWARM_ZERO_ADDRESS.toUint8Array(),
