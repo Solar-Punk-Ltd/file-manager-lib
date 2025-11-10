@@ -248,13 +248,13 @@ export class FileManagerBase implements FileManager {
       return;
     }
 
-    const { feedIndexNext, payload } = await getFeedData(
+    const { feedIndexNext, payload, feedIndex } = await getFeedData(
       this.bee,
       this.stateFeedTopic,
       this.signer.publicKey().address().toString(),
     );
 
-    if (SWARM_ZERO_ADDRESS.equals(payload.toUint8Array())) {
+    if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
       console.debug('Invalid drive list');
       this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
       return;
