@@ -1,7 +1,6 @@
 import {
   BatchId,
   Bee,
-  BeeModes,
   BeeRequestOptions,
   Bytes,
   CollectionUploadOptions,
@@ -9,40 +8,22 @@ import {
   FeedIndex,
   FileUploadOptions,
   GetGranteesResult,
-  GranteesResult,
   PostageBatch,
   PrivateKey,
-  PssSubscription,
   RedundantUploadOptions,
   Reference,
   Topic,
-  Utils,
   RedundancyLevel,
   Identifier,
   PublicKey,
   EthAddress,
 } from '@ethersphere/bee-js';
 
-import { assertDriveInfo, assertFileInfo, assertShareItem, assertStateTopicInfo } from './utils/asserts';
+import { assertDriveInfo, assertFileInfo, assertStateTopicInfo } from './utils/asserts';
 import { generateRandomBytes, getFeedData, getWrappedData, settlePromises } from './utils/common';
 
-import {
-  FEED_INDEX_ZERO,
-  ADMIN_STAMP_LABEL,
-  FILEMANAGER_STATE_TOPIC,
-  SHARED_INBOX_TOPIC,
-  SWARM_ZERO_ADDRESS,
-} from './utils/constants';
-import {
-  BeeVersionError,
-  DriveError,
-  FileInfoError,
-  GranteeError,
-  SendShareMessageError,
-  SignerError,
-  StampError,
-  SubscriptionError,
-} from './utils/errors';
+import { FEED_INDEX_ZERO, ADMIN_STAMP_LABEL, FILEMANAGER_STATE_TOPIC, SWARM_ZERO_ADDRESS } from './utils/constants';
+import { BeeVersionError, DriveError, FileInfoError, GranteeError, SignerError, StampError } from './utils/errors';
 import { EventEmitter, EventEmitterBase } from './eventEmitter';
 import { FileManagerEvents } from './utils/events';
 import {
@@ -67,7 +48,6 @@ export class FileManagerBase implements FileManager {
   private driveListNextIndex: bigint = 0n;
   private stateFeedTopic: Topic | undefined = undefined;
   private driveList: DriveInfo[] = [];
-  private sharedSubscription: PssSubscription | undefined = undefined;
   private isInitialized: boolean = false;
   private isInitializing: boolean = false;
   private _adminStamp: PostageBatch | undefined = undefined;
@@ -519,7 +499,6 @@ export class FileManagerBase implements FileManager {
         topic: topic.toString(),
       });
     } else {
-      // TODO: new version needs to call handleGrantees:
       // overwrite the existing grantee reference if it exists, as they do not have access to the new version
       this.driveList[driveIndex].infoFeedList[infoIx] = {
         topic: topic.toString(),
@@ -885,130 +864,18 @@ export class FileManagerBase implements FileManager {
     return this.bee.getGrantees(info.eGranteeRef);
   }
 
-  // updates the list of grantees who can access the file reference under the history reference
-  // only add is supported as of now
-  private async handleGrantees(
-    fileInfo: FileInfo,
-    grantees: {
-      add: string[];
-      revoke?: string[];
-    },
-    eGranteeRef?: string | Reference,
-  ): Promise<GranteesResult> {
-    if (grantees.add.length === 0) {
-      throw new GranteeError(`No grantees specified.`);
-    }
-
-    const fIx = this.fileInfoList.findIndex((f) => f.file === fileInfo.file);
-    if (fIx === -1) {
-      throw new GranteeError(`Provided fileinfo not found: ${JSON.stringify(fileInfo.file)}`);
-    }
-
-    let grantResult: GranteesResult;
-    try {
-      if (eGranteeRef) {
-        grantResult = await this.bee.patchGrantees(
-          fileInfo.batchId,
-          eGranteeRef,
-          fileInfo.file.historyRef || SWARM_ZERO_ADDRESS,
-          grantees,
-        );
-        console.debug('Grantee list patched, grantee list reference: ', grantResult.ref.toString());
-      } else {
-        grantResult = await this.bee.createGrantees(fileInfo.batchId, grantees.add);
-        console.debug('Access granted, new grantee list reference: ', grantResult.ref.toString());
-      }
-    } catch (error: any) {
-      throw new GranteeError(`Failed to handle grantees: ${error.message || error}`);
-    }
-
-    return grantResult;
-  }
-
-  async subscribeToSharedInbox(topic: string, callback?: (data: ShareItem) => void): Promise<void> {
-    const nodeInfo = await this.bee.getNodeInfo();
-    if (nodeInfo.beeMode !== BeeModes.FULL) {
-      throw new SubscriptionError(
-        `Node has to be in ${BeeModes.FULL} mode but it is running in ${nodeInfo.beeMode} mode.`,
-      );
-    }
-
-    console.debug('Subscribing to shared inbox, topic: ', topic);
-    this.sharedSubscription = this.bee.pssSubscribe(Topic.fromString(topic), {
-      onMessage: (message) => {
-        console.debug('Received shared inbox message: ', message);
-        assertShareItem(message);
-        this.sharedWithMe.push(message);
-        if (callback) {
-          callback(message);
-        }
-      },
-      onError: (e) => {
-        console.debug('Error received in shared inbox: ', e.message);
-        throw new SubscriptionError(e.message);
-      },
-      onClose: () => {
-        console.debug('Shared inbox closed');
-      },
-    });
+  async subscribeToSharedInbox(_topic: string, _callback?: (_data: ShareItem) => void): Promise<void> {
+    /** no-op */
+    return;
   }
 
   unsubscribeFromSharedInbox(): void {
-    if (this.sharedSubscription) {
-      console.debug('Unsubscribed from shared inbox, topic: ', this.sharedSubscription.topic.toString());
-      this.sharedSubscription.cancel();
-    }
+    /** no-op */
+    return;
   }
 
-  async share(fileInfo: FileInfo, targetOverlays: string[], recipients: string[], message?: string): Promise<void> {
-    const driveIx = this.driveList.findIndex((d) => d.id.toString() === fileInfo.driveId);
-    if (driveIx === -1 || !this.driveList[driveIx].infoFeedList) {
-      throw new SendShareMessageError(`Drive or info feed not found for file: ${fileInfo.name}`);
-    }
-
-    const infoIx = this.driveList[driveIx].infoFeedList.findIndex((wf) => wf.topic === fileInfo.topic);
-    if (infoIx === -1) {
-      throw new SendShareMessageError(`FileInfo not found for file: ${fileInfo.name}`);
-    }
-
-    const grantResult = await this.handleGrantees(
-      fileInfo,
-      { add: recipients },
-      this.driveList[driveIx].infoFeedList[infoIx].eGranteeRef,
-    );
-
-    this.driveList[driveIx].infoFeedList[infoIx].eGranteeRef = grantResult.ref.toString();
-
-    await this.saveDriveList();
-
-    const item: ShareItem = {
-      fileInfo: fileInfo,
-      timestamp: Date.now(),
-      message: message,
-    };
-
-    await this.sendShareMessage(targetOverlays, item, recipients);
-    this.emitter.emit(FileManagerEvents.SHARE_MESSAGE_SENT, { recipients: recipients, shareItem: item });
-  }
-
-  // recipient is optional, if not provided the message will be broadcasted == pss public key
-  private async sendShareMessage(targetOverlays: string[], item: ShareItem, recipients: string[]): Promise<void> {
-    if (recipients.length === 0 || recipients.length !== targetOverlays.length) {
-      throw new SubscriptionError('Invalid recipients or  targetoverlays specified for sharing.');
-    }
-
-    // TODO: in case of error, for loop will continue, should it throw ?
-    for (let i = 0; i < recipients.length; i++) {
-      try {
-        // TODO: mining will take too long
-        const target = Utils.makeMaxTarget(targetOverlays[i]);
-        const msgData = Bytes.fromUtf8(JSON.stringify(item)).toUint8Array();
-        this.bee.pssSend(item.fileInfo.batchId, SHARED_INBOX_TOPIC, target, msgData, recipients[i]);
-      } catch (error: any) {
-        const errMsg = `Failed to share item with recipient: ${recipients[i]}\n ${error.message || error}`;
-        console.error(errMsg);
-        throw new SendShareMessageError(errMsg);
-      }
-    }
+  async share(_fileInfo: FileInfo, _targetOverlays: string[], _recipients: string[], _message?: string): Promise<void> {
+    /** no-op */
+    return;
   }
 }
