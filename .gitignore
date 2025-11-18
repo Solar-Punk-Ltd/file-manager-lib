@@ -27,3 +27,5 @@ yalc.lock
 *.sw?
 coverage/
 *.pid
+pnpm-workspace.yaml
+tests/**/bee-dev/

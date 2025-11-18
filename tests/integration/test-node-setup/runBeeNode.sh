@@ -3,9 +3,11 @@
 # Compute the absolute directory of this script.
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 BEE_DIR="$SCRIPT_DIR/bee-dev"
-BEE_REPO="git@github.com:Solar-Punk-Ltd/bee.git"
-BEE_BRANCH="tmp/dev-feed"
+BEE_REPO="https://github.com/Solar-Punk-Ltd/bee.git"
+BEE_BRANCH="tmp/dev-test"
 BEE_BINARY_PATH="$BEE_DIR/dist/bee"
+BEE_URL="127.0.0.1:1633"
+OTHER_BEE_URL="127.0.0.1:1733"
 
 # Define separate log and pid files for each node.
 LOG_FILE_1733="bee_1733.log"
@@ -20,18 +22,23 @@ cd "$SCRIPT_DIR" || exit
 if [ ! -d "$BEE_DIR" ]; then
   echo "Cloning Bee repository into $BEE_DIR..."
   git clone "$BEE_REPO" "$BEE_DIR"
+  echo "Repository cloned successfully."
+else
+  echo "Bee repository already exists at $BEE_DIR, reusing..."
 fi
 
 cd "$BEE_DIR" || exit
 
 # Checkout the desired branch and update.
-echo "Fetching latest code..."
-git fetch origin "$BEE_BRANCH"
-git checkout "$BEE_BRANCH"
-
-LATEST_COMMIT=$(git rev-parse --short HEAD)
-echo "Latest Bee commit: $LATEST_COMMIT"
-git checkout "$LATEST_COMMIT"
+CURRENT_BRANCH=$(git branch --show-current)
+if [ "$CURRENT_BRANCH" != "$BEE_BRANCH" ]; then
+  echo "Switching to branch $BEE_BRANCH..."
+  git fetch origin "$BEE_BRANCH"
+  git checkout "$BEE_BRANCH"
+else
+  echo "Already on branch $BEE_BRANCH, pulling latest changes..."
+  git pull origin "$BEE_BRANCH" || echo "Pull failed or no changes to pull."
+fi
 
 # Build the Bee binary.
 if ! make binary; then
@@ -53,7 +60,7 @@ cd "$SCRIPT_DIR" || exit
 # --- Start Bee Node on port 1733 ---
 echo "Starting Bee node on port 1733..."
 nohup "$BEE_BINARY_PATH" dev \
-  --api-addr="127.0.0.1:1733" \
+  --api-addr="$OTHER_BEE_URL" \
   --verbosity=5 \
   --cors-allowed-origins="*" > "$LOG_FILE_1733" 2>&1 &
 BEE_PID_1733=$!
@@ -62,25 +69,20 @@ echo $BEE_PID_1733 > "$BEE_PID_FILE_1733"
 # --- Start Bee Node on port 1633 ---
 echo "Starting Bee node on port 1633..."
 nohup "$BEE_BINARY_PATH" dev \
-  --api-addr="127.0.0.1:1633" \
+  --api-addr="$BEE_URL" \
   --verbosity=5 \
   --cors-allowed-origins="*" > "$LOG_FILE_1633" 2>&1 &
 BEE_PID_1633=$!
 echo $BEE_PID_1633 > "$BEE_PID_FILE_1633"
 
 # Wait a few seconds to let both nodes initialize.
-sleep 10
-
-# Health check for port 1733.
-if ! curl --silent --fail http://127.0.0.1:1733/health; then
-  echo "Bee node on port 1733 health check failed. Exiting."
-  exit 1
-fi
-
-# Health check for port 1633.
-if ! curl --silent --fail http://127.0.0.1:1633/health; then
-  echo "Bee node on port 1633 health check failed. Exiting."
-  exit 1
-fi
+for i in {1..10}; do
+  if curl --silent --fail "http://$OTHER_BEE_URL/health" && curl --silent --fail "http://$BEE_URL/health"; then
+    echo Both Bee nodes are healthy
+    break
+  fi
+  echo "Waiting for Bee nodes…"
+  sleep 1
+done
 
 echo "Both Bee nodes are healthy and ready to process requests."

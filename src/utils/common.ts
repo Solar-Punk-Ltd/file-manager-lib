@@ -1,0 +1,109 @@
+import {
+  BatchId,
+  Bee,
+  BeeRequestOptions,
+  Bytes,
+  DownloadOptions,
+  EthAddress,
+  FeedIndex,
+  PublicKey,
+  Reference,
+  Topic,
+} from '@ethersphere/bee-js';
+import { isNode } from 'std-env';
+
+import { getRandomBytesBrowser } from './browser';
+import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from './constants';
+import { getRandomBytesNode } from './node';
+import { FeedResultWithIndex, FeedPayloadResult, WrappedUploadResult } from './types';
+import { FileInfoError } from './errors';
+import { assertWrappedUploadResult } from './asserts';
+
+export async function getFeedData(
+  bee: Bee,
+  topic: Topic,
+  address: string | EthAddress,
+  index?: bigint,
+  isLegacy?: boolean,
+  options?: BeeRequestOptions,
+): Promise<FeedResultWithIndex> {
+  try {
+    let data: FeedPayloadResult;
+    const feedReader = bee.makeFeedReader(topic.toUint8Array(), address, options);
+    const reader = isLegacy ? feedReader.download : feedReader.downloadPayload;
+
+    if (index !== undefined) {
+      data = await reader({ index: FeedIndex.fromBigInt(index) });
+    } else {
+      data = await reader();
+    }
+
+    return {
+      feedIndex: data.feedIndex,
+      feedIndexNext: data.feedIndexNext ?? data.feedIndex.next(),
+      payload: data.payload,
+    };
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return {
+        feedIndex: FeedIndex.MINUS_ONE,
+        feedIndexNext: FEED_INDEX_ZERO,
+        payload: SWARM_ZERO_ADDRESS,
+      };
+    }
+
+    throw error;
+  }
+}
+
+export function generateRandomBytes(len: number): Bytes {
+  if (isNode) {
+    return getRandomBytesNode(len);
+  }
+  return getRandomBytesBrowser(len);
+}
+
+export function isNotFoundError(error: any): boolean {
+  return error.stack?.includes('404') || error.message?.includes('Not Found') || error.message?.includes('404');
+}
+
+export async function buyStamp(bee: Bee, amount: string | bigint, depth: number, label?: string): Promise<BatchId> {
+  const stamp = (await bee.getPostageBatches()).find((b) => b.label === label);
+  if (stamp && stamp.usable) {
+    return stamp.batchID;
+  }
+
+  return await bee.createPostageBatch(amount, depth, {
+    waitForUsable: true,
+    label,
+  });
+}
+
+export async function getWrappedData(
+  bee: Bee,
+  ref: string | Reference,
+  actPublisher: string | PublicKey,
+  actHistoryAddress: string | Reference,
+  options?: DownloadOptions,
+): Promise<WrappedUploadResult> {
+  try {
+    const rawData = await bee.downloadData(ref.toString(), { ...options, actPublisher, actHistoryAddress });
+    const wrappedResult = rawData.toJSON() as WrappedUploadResult;
+    assertWrappedUploadResult(wrappedResult);
+    return wrappedResult;
+  } catch (error) {
+    throw new FileInfoError(`Failed to get wrapped data: ${error}`);
+  }
+}
+
+export async function settlePromises<T>(promises: Promise<T>[], cb: (value: T) => void): Promise<void> {
+  await Promise.allSettled(promises).then((results) => {
+    results.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        cb(result.value);
+      } else {
+        console.error(`Failed to resolve promise: ${result.reason}`);
+      }
+    });
+  });
+}

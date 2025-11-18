@@ -17,5 +17,5 @@ module.exports = {
   importPlugin,
   pluginJest,
   prettierPlugin,
-  simpleImportSort
+  simpleImportSort,
 };
