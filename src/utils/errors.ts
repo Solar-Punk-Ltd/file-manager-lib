@@ -51,3 +51,9 @@ export class SendShareMessageError extends Error {
     super(message);
   }
 }
+
+export class AdminStampCapacityError extends Error {
+  public constructor(message: string) {
+    super(message);
+  }
+}

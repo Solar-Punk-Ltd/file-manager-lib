@@ -21,9 +21,23 @@ import {
 
 import { assertDriveInfo, assertFileInfo, assertStateTopicInfo } from './utils/asserts';
 import { generateRandomBytes, getFeedData, getWrappedData, settlePromises } from './utils/common';
+import { checkDriveCreationCapacity, estimateDriveListMetadataSize } from './utils/capacity';
 
-import { FEED_INDEX_ZERO, ADMIN_STAMP_LABEL, FILEMANAGER_STATE_TOPIC, SWARM_ZERO_ADDRESS } from './utils/constants';
-import { BeeVersionError, DriveError, FileInfoError, GranteeError, SignerError, StampError } from './utils/errors';
+import {
+  FEED_INDEX_ZERO,
+  ADMIN_STAMP_LABEL,
+  FILEMANAGER_STATE_TOPIC,
+  SWARM_ZERO_ADDRESS,
+} from './utils/constants';
+import {
+  AdminStampCapacityError,
+  BeeVersionError,
+  DriveError,
+  FileInfoError,
+  GranteeError,
+  SignerError,
+  StampError,
+} from './utils/errors';
 import { EventEmitter, EventEmitterBase } from './eventEmitter';
 import { FileManagerEvents } from './utils/events';
 import {
@@ -356,6 +370,15 @@ export class FileManagerBase implements FileManager {
     }));
   }
 
+  public canCreateDrive(): {
+    canCreate: boolean;
+    requiredBytes: number;
+    availableBytes: number;
+    message?: string;
+  } {
+    return checkDriveCreationCapacity(this.adminStamp, this.driveList, this.driveListNextIndex, this.stateFeedTopic);
+  }
+
   async createDrive(
     batchId: string | BatchId,
     name: string,
@@ -381,6 +404,38 @@ export class FileManagerBase implements FileManager {
           throw new DriveError(`Drive with name "${driveName}" or batchId "${batchId}" already exists`);
         }
       });
+    }
+
+    if (!isAdmin) {
+      if (!this.adminStamp) {
+        const adminDrive = this.driveList.find((d) => d.isAdmin);
+        if (adminDrive) {
+          await this.fetchAndSetAdminStamp(adminDrive.batchId.toString());
+        }
+      }
+
+      const adminStamp = this.adminStamp;
+      if (!adminStamp) {
+        throw new StampError('Admin stamp not found');
+      }
+
+      if (!adminStamp.usable) {
+        throw new AdminStampCapacityError('Admin stamp is not usable.');
+      }
+
+      const estimatedMetadataSize = estimateDriveListMetadataSize(
+        this.driveList,
+        this.driveList.length + 1,
+        this.driveListNextIndex,
+        this.stateFeedTopic,
+      );
+      const remainingBytes = adminStamp.remainingSize.toBytes();
+
+      if (remainingBytes < estimatedMetadataSize) {
+        throw new AdminStampCapacityError(
+          `Insufficient admin drive capacity. Required: ~${estimatedMetadataSize} bytes, Available: ${remainingBytes} bytes. Please top up the admin drive.`,
+        );
+      }
     }
 
     if (isAdmin) {
@@ -690,6 +745,10 @@ export class FileManagerBase implements FileManager {
     const adminStamp = this.adminStamp;
     if (!adminStamp) {
       throw new StampError('Admin stamp not found');
+    }
+
+    if (!adminStamp.usable || adminStamp.remainingSize.toBytes() <= 0) {
+      throw new AdminStampCapacityError('Admin drive capacity is full. Please top up the admin drive.');
     }
 
     try {
