@@ -1,6 +1,6 @@
 {
   "name": "@solarpunkltd/file-manager-lib",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A file manager for storing and handling data on Swarm.",
   "main": "dist/index.d.ts",
   "types": "dist/types/index.d.ts",

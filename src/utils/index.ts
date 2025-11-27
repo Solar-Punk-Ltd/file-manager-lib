@@ -11,3 +11,20 @@ export type {
 export { FileStatus } from './types';
 export { FileManagerEvents } from './events';
 export { ADMIN_STAMP_LABEL } from './constants';
+export {
+  AdminStampCapacityError,
+  BeeVersionError,
+  DriveError,
+  FileError,
+  FileInfoError,
+  GranteeError,
+  SendShareMessageError,
+  SignerError,
+  StampError,
+  SubscriptionError,
+} from './errors';
+export {
+  estimateDriveListMetadataSize,
+  checkDriveCreationCapacity,
+} from './capacity';
+export type { CapacityCheckResult } from './capacity';
