@@ -26,7 +26,5 @@ export {
 export {
   estimateDriveListMetadataSize,
   checkDriveCreationCapacity,
-  setMockAdminDriveFull,
-  isMockAdminDriveFull,
 } from './capacity';
 export type { CapacityCheckResult } from './capacity';
