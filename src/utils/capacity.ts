@@ -8,18 +8,6 @@ export interface CapacityCheckResult {
   message?: string;
 }
 
-// Mock mode for testing - simulates admin drive full scenario
-let mockAdminDriveFull = false;
-
-export function setMockAdminDriveFull(isFull: boolean): void {
-  mockAdminDriveFull = isFull;
-  console.warn(`[FileManager Mock] Admin drive full simulation: ${isFull ? 'ENABLED' : 'DISABLED'}`);
-}
-
-export function isMockAdminDriveFull(): boolean {
-  return mockAdminDriveFull;
-}
-
 export function estimateDriveListMetadataSize(
   driveList: DriveInfo[],
   driveCount: number,
@@ -39,6 +27,7 @@ export function estimateDriveListMetadataSize(
     estimatedDriveListSize = currentDriveListSize;
   }
 
+  // Add 20% overhead for ACT (Access Control Trie) encryption/wrapping
   const actOverhead = Math.ceil(estimatedDriveListSize * 0.2);
 
   const sampleReferenceWrapper = JSON.stringify({
@@ -53,6 +42,7 @@ export function estimateDriveListMetadataSize(
   const feedOverhead = feedIndexSize + topicSize;
 
   const totalBeforeMargin = estimatedDriveListSize + actOverhead + referenceWrapperSize + feedOverhead;
+  // Add 15% safety margin to account for potential variations in serialization and encoding
   const safetyMargin = Math.ceil(totalBeforeMargin * 0.15);
 
   return totalBeforeMargin + safetyMargin;
@@ -64,19 +54,6 @@ export function checkDriveCreationCapacity(
   nextIndex: bigint,
   stateFeedTopic?: Topic,
 ): CapacityCheckResult {
-  // Mock mode - simulate admin drive full
-  if (mockAdminDriveFull) {
-    const mockRequiredBytes = 50000;
-    const mockAvailableBytes = 10000; // Intentionally less than required
-    console.warn('[FileManager Mock] Simulating FULL admin drive');
-    return {
-      canCreate: false,
-      requiredBytes: mockRequiredBytes,
-      availableBytes: mockAvailableBytes,
-      message: `Insufficient capacity. Required: ~${mockRequiredBytes} bytes, Available: ${mockAvailableBytes} bytes`,
-    };
-  }
-
   if (!adminStamp) {
     return {
       canCreate: false,

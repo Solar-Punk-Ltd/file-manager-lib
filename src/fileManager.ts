@@ -21,7 +21,7 @@ import {
 
 import { assertDriveInfo, assertFileInfo, assertStateTopicInfo } from './utils/asserts';
 import { generateRandomBytes, getFeedData, getWrappedData, settlePromises } from './utils/common';
-import { checkDriveCreationCapacity, estimateDriveListMetadataSize } from './utils/capacity';
+import { checkDriveCreationCapacity, estimateDriveListMetadataSize, CapacityCheckResult } from './utils/capacity';
 
 import {
   FEED_INDEX_ZERO,
@@ -370,12 +370,7 @@ export class FileManagerBase implements FileManager {
     }));
   }
 
-  public canCreateDrive(): {
-    canCreate: boolean;
-    requiredBytes: number;
-    availableBytes: number;
-    message?: string;
-  } {
+  public canCreateDrive(): CapacityCheckResult {
     return checkDriveCreationCapacity(this.adminStamp, this.driveList, this.driveListNextIndex, this.stateFeedTopic);
   }
 
