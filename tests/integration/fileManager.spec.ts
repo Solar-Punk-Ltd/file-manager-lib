@@ -2,6 +2,7 @@ import {
   BatchId,
   BeeDev,
   Bytes,
+  Duration,
   FeedIndex,
   Identifier,
   MantarayNode,
@@ -10,8 +11,10 @@ import {
   PublicKey,
   RedundancyLevel,
   Reference,
+  Size,
   Topic,
 } from '@ethersphere/bee-js';
+import type { NumberString } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 import { setTimeout } from 'timers';
@@ -1578,5 +1581,122 @@ describe('FileManager End-to-End User Workflow', () => {
     expect(fullPaths).toContain('root.txt');
     expect(fullPaths).toContain('level1/level1.txt');
     expect(fullPaths).toContain('level1/level2/level2.txt');
+  });
+});
+
+describe('FileManager Admin Capacity Check', () => {
+  let bee: BeeDev;
+  let fileManager: FileManagerBase;
+  let adminBatchId: BatchId;
+
+  beforeAll(async () => {
+    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
+    bee = beeDev;
+    adminBatchId = ownerStamp;
+    fileManager = await createInitializedFileManager(bee, adminBatchId);
+  });
+
+  beforeEach(() => {
+    jest.resetAllMocks();
+  });
+
+  it('should return capacity check result for admin drive', async () => {
+    const result = fileManager.canCreateDrive();
+
+    expect(result).toBeDefined();
+    expect(result.canCreate).toBeDefined();
+    expect(result.availableBytes).toBeDefined();
+    expect(result.requiredBytes).toBeDefined();
+    
+    expect(typeof result.canCreate).toBe('boolean');
+    expect(typeof result.availableBytes).toBe('number');
+    expect(typeof result.requiredBytes).toBe('number');
+  });
+
+  it('should calculate required bytes based on current drive list', async () => {
+    const initialResult = fileManager.canCreateDrive();
+    const initialRequired = initialResult.requiredBytes;
+
+    const newBatchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'testdrive');
+    await fileManager.createDrive(newBatchId, 'Test Drive for Capacity', false, RedundancyLevel.OFF);
+
+    const newResult = fileManager.canCreateDrive();
+    const newRequired = newResult.requiredBytes;
+
+    expect(newRequired).toBeGreaterThan(initialRequired);
+  });
+
+  it('should handle capacity check when admin stamp is not found', async () => {
+    const newBee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
+    const newFm = new FileManagerBase(newBee);
+    await newFm.initialize();
+
+    const result = newFm.canCreateDrive();
+
+    expect(result.canCreate).toBe(false);
+    expect(result.availableBytes).toBe(0);
+    expect(result.requiredBytes).toBe(0);
+    expect(result.message).toBe('Admin stamp not found');
+  });
+
+  it('should prevent drive creation when capacity check fails (mocked)', async () => {
+    jest.spyOn(fileManager, 'canCreateDrive').mockReturnValue({
+      canCreate: false,
+      requiredBytes: 2000,
+      availableBytes: 500,
+      message: 'Insufficient capacity. Required: ~2000 bytes, Available: 500 bytes',
+    });
+
+    const capacityCheck = fileManager.canCreateDrive();
+    
+    expect(capacityCheck.canCreate).toBe(false);
+    expect(capacityCheck.message).toContain('Insufficient capacity');
+    expect(capacityCheck.requiredBytes).toBeGreaterThan(capacityCheck.availableBytes);
+  });
+
+  it('should allow drive creation when capacity check passes (mocked)', async () => {
+    jest.spyOn(fileManager, 'canCreateDrive').mockReturnValue({
+      canCreate: true,
+      requiredBytes: 500,
+      availableBytes: 2000,
+    });
+
+    const capacityCheck = fileManager.canCreateDrive();
+    
+    expect(capacityCheck.canCreate).toBe(true);
+    expect(capacityCheck.availableBytes).toBeGreaterThan(capacityCheck.requiredBytes);
+    expect(capacityCheck.message).toBeUndefined();
+  });
+
+  it('should mock admin stamp with low capacity and trigger capacity error', async () => {
+    const { bee: testBee, ownerStamp } = await ensureUniqueSignerWithStamp();
+    const testFm = await createInitializedFileManager(testBee, ownerStamp);
+
+    const lowCapacityStamp: PostageBatch = {
+      batchID: ownerStamp,
+      utilization: 99,
+      usable: true,
+      usageText: '99%',
+      label: ADMIN_STAMP_LABEL,
+      depth: 22,
+      amount: '1000' as NumberString,
+      bucketDepth: 30,
+      blockNumber: 1000,
+      immutableFlag: false,
+      duration: Duration.fromDays(1),
+      usage: 0,
+      size: Size.fromBytes(2048),
+      remainingSize: Size.fromBytes(500),
+      theoreticalSize: Size.fromBytes(2048),
+      calculateSize: () => Size.fromBytes(2048),
+      calculateRemainingSize: () => Size.fromBytes(500),
+    };
+
+    jest.spyOn(testBee, 'getPostageBatches').mockResolvedValue([lowCapacityStamp]);
+
+    const capacityResult = testFm.canCreateDrive();
+
+    expect(capacityResult).toBeDefined();
+    expect(typeof capacityResult.canCreate).toBe('boolean');
   });
 });

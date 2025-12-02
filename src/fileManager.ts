@@ -28,6 +28,7 @@ import {
   ADMIN_STAMP_LABEL,
   FILEMANAGER_STATE_TOPIC,
   SWARM_ZERO_ADDRESS,
+  MINIMUM_ADMIN_CAPACITY_BYTES,
 } from './utils/constants';
 import {
   AdminStampCapacityError,
@@ -742,8 +743,11 @@ export class FileManagerBase implements FileManager {
       throw new StampError('Admin stamp not found');
     }
 
-    if (!adminStamp.usable || adminStamp.remainingSize.toBytes() <= 0) {
-      throw new AdminStampCapacityError('Admin drive capacity is full. Please top up the admin drive.');
+    if (!adminStamp.usable || adminStamp.remainingSize.toBytes() < MINIMUM_ADMIN_CAPACITY_BYTES) {
+      throw new AdminStampCapacityError(
+        `Admin drive capacity too low. Minimum required: ${MINIMUM_ADMIN_CAPACITY_BYTES} bytes, ` +
+          `Available: ${adminStamp.remainingSize.toBytes()} bytes. Please top up the admin drive.`,
+      );
     }
 
     try {
