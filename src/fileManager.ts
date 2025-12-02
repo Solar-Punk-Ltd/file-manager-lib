@@ -27,7 +27,6 @@ import {
   FEED_INDEX_ZERO,
   ADMIN_STAMP_LABEL,
   FILEMANAGER_STATE_TOPIC,
-  SWARM_ZERO_ADDRESS,
   MINIMUM_ADMIN_CAPACITY_BYTES,
 } from './utils/constants';
 import {

@@ -988,9 +988,9 @@ describe('FileManager', () => {
   describe('Admin Capacity Check', () => {
     it('should return canCreate: true when admin stamp has sufficient capacity', async () => {
       const fm = await createInitializedFileManager();
-      
+
       const result = fm.canCreateDrive();
-      
+
       expect(result.canCreate).toBe(true);
       expect(result.availableBytes).toBeGreaterThan(0);
       expect(result.requiredBytes).toBeGreaterThan(0);
@@ -1001,9 +1001,9 @@ describe('FileManager', () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const fm = new FileManagerBase(bee);
       await fm.initialize();
-      
+
       const result = fm.canCreateDrive();
-      
+
       expect(result.canCreate).toBe(false);
       expect(result.availableBytes).toBe(0);
       expect(result.requiredBytes).toBe(0);
@@ -1012,7 +1012,7 @@ describe('FileManager', () => {
 
     it('should return canCreate: false when admin stamp is not usable', async () => {
       const fm = await createInitializedFileManager();
-      
+
       // @ts-expect-error accessing private property for testing
       fm._adminStamp = {
         ...mockPostageBatch,
@@ -1021,16 +1021,16 @@ describe('FileManager', () => {
         usable: false,
         remainingSize: Size.fromGigabytes(100),
       };
-      
+
       const result = fm.canCreateDrive();
-      
+
       expect(result.canCreate).toBe(false);
       expect(result.message).toBe('Admin stamp is not usable');
     });
 
     it('should return canCreate: false when admin stamp has insufficient capacity', async () => {
       const fm = await createInitializedFileManager();
-      
+
       // @ts-expect-error accessing private property for testing
       fm._adminStamp = {
         ...mockPostageBatch,
@@ -1039,9 +1039,9 @@ describe('FileManager', () => {
         usable: true,
         remainingSize: Size.fromBytes(100),
       };
-      
+
       const result = fm.canCreateDrive();
-      
+
       expect(result.canCreate).toBe(false);
       expect(result.availableBytes).toBe(100);
       expect(result.requiredBytes).toBeGreaterThan(100);

@@ -1,3 +1,4 @@
+import type { NumberString } from '@ethersphere/bee-js';
 import {
   BatchId,
   BeeDev,
@@ -14,7 +15,6 @@ import {
   Size,
   Topic,
 } from '@ethersphere/bee-js';
-import type { NumberString } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 import { setTimeout } from 'timers';
@@ -1588,16 +1588,26 @@ describe('FileManager Admin Capacity Check', () => {
   let bee: BeeDev;
   let fileManager: FileManagerBase;
   let adminBatchId: BatchId;
+  let originalAdminStamp: PostageBatch | undefined;
 
   beforeAll(async () => {
     const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
     bee = beeDev;
     adminBatchId = ownerStamp;
     fileManager = await createInitializedFileManager(bee, adminBatchId);
+    originalAdminStamp = fileManager.adminStamp;
   });
 
   beforeEach(() => {
     jest.resetAllMocks();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    if (originalAdminStamp) {
+      // @ts-expect-error accessing private property for testing
+      fileManager._adminStamp = originalAdminStamp;
+    }
   });
 
   it('should return capacity check result for admin drive', async () => {
@@ -1607,7 +1617,7 @@ describe('FileManager Admin Capacity Check', () => {
     expect(result.canCreate).toBeDefined();
     expect(result.availableBytes).toBeDefined();
     expect(result.requiredBytes).toBeDefined();
-    
+
     expect(typeof result.canCreate).toBe('boolean');
     expect(typeof result.availableBytes).toBe('number');
     expect(typeof result.requiredBytes).toBe('number');
@@ -1648,7 +1658,7 @@ describe('FileManager Admin Capacity Check', () => {
     });
 
     const capacityCheck = fileManager.canCreateDrive();
-    
+
     expect(capacityCheck.canCreate).toBe(false);
     expect(capacityCheck.message).toContain('Insufficient capacity');
     expect(capacityCheck.requiredBytes).toBeGreaterThan(capacityCheck.availableBytes);
@@ -1662,18 +1672,15 @@ describe('FileManager Admin Capacity Check', () => {
     });
 
     const capacityCheck = fileManager.canCreateDrive();
-    
+
     expect(capacityCheck.canCreate).toBe(true);
     expect(capacityCheck.availableBytes).toBeGreaterThan(capacityCheck.requiredBytes);
     expect(capacityCheck.message).toBeUndefined();
   });
 
   it('should mock admin stamp with low capacity and trigger capacity error', async () => {
-    const { bee: testBee, ownerStamp } = await ensureUniqueSignerWithStamp();
-    const testFm = await createInitializedFileManager(testBee, ownerStamp);
-
     const lowCapacityStamp: PostageBatch = {
-      batchID: ownerStamp,
+      batchID: adminBatchId,
       utilization: 99,
       usable: true,
       usageText: '99%',
@@ -1692,11 +1699,14 @@ describe('FileManager Admin Capacity Check', () => {
       calculateRemainingSize: () => Size.fromBytes(500),
     };
 
-    jest.spyOn(testBee, 'getPostageBatches').mockResolvedValue([lowCapacityStamp]);
+    // @ts-expect-error accessing private property for testing
+    fileManager._adminStamp = lowCapacityStamp;
 
-    const capacityResult = testFm.canCreateDrive();
+    const capacityResult = fileManager.canCreateDrive();
 
-    expect(capacityResult).toBeDefined();
-    expect(typeof capacityResult.canCreate).toBe('boolean');
+    expect(capacityResult.canCreate).toBe(false);
+    expect(capacityResult.availableBytes).toBe(500);
+    expect(capacityResult.requiredBytes).toBeGreaterThan(500);
+    expect(capacityResult.message).toContain('Insufficient capacity');
   });
 });
