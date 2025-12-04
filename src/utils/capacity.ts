@@ -1,5 +1,5 @@
 import { BatchId, FeedIndex, PrivateKey, RedundancyLevel, Topic } from '@ethersphere/bee-js';
-import { DriveInfo, FileInfo, ReferenceWithHistory } from './types';
+import { DriveInfo, FileInfo, ReferenceWithHistory, WrappedFileInfoFeed } from './types';
 import { SWARM_ZERO_ADDRESS } from './constants';
 
 const REFERENCE_WRAPPER_SIZE = new TextEncoder().encode(
@@ -7,6 +7,13 @@ const REFERENCE_WRAPPER_SIZE = new TextEncoder().encode(
     reference: SWARM_ZERO_ADDRESS.toString(),
     historyRef: SWARM_ZERO_ADDRESS.toString(),
   } as ReferenceWithHistory),
+).length;
+// TODO: shouldn't eGranteeRef be 64 bytes -> verify with bee-js
+const INFOFEED_WRAPPER_SIZE = new TextEncoder().encode(
+  JSON.stringify({
+    topic: SWARM_ZERO_ADDRESS.toString(),
+    eGranteeRef: SWARM_ZERO_ADDRESS.toString(),
+  } as WrappedFileInfoFeed),
 ).length;
 const FEED_OVERHEAD_SIZE = FeedIndex.MINUS_ONE.toString().length + Topic.LENGTH;
 const DUMMY_SIGNER = new PrivateKey('634fb5a872396d9693e5c9f9d7233cfa93f395c093371017ff44aa9ae6564cdd');
@@ -25,8 +32,6 @@ const dummyDriveInfo: DriveInfo = {
   isAdmin: true,
 };
 const dummyDriveInfoSize = new TextEncoder().encode(JSON.stringify(dummyDriveInfo)).length;
-// 5% safety margin
-const margin = 1.05;
 const dummyFileInfo: FileInfo = {
   batchId: DUMMY_STAMP.toString(),
   file: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
@@ -39,16 +44,28 @@ const dummyFileInfo: FileInfo = {
 const dummyFileInfoSize = new TextEncoder().encode(JSON.stringify(dummyFileInfo)).length;
 
 // TODO: extend these if ACT trie expands
-export function estimateDriveListMetadataSize(driveList: DriveInfo[]): number {
-  const driveListSize = new TextEncoder().encode(JSON.stringify(driveList)).length;
-  const estimatedDriveListSize = driveListSize + dummyDriveInfoSize;
-  const total = estimatedDriveListSize + ACT_OVERHEAD_SIZE + REFERENCE_WRAPPER_SIZE + FEED_OVERHEAD_SIZE;
+/**
+ * Estimates the total metadata size for saving the drive list.
+ *
+ * @param driveListLen - Number of DriveInfo objects in the list
+ * @param infoFeedListLen - Total number of WrappedFileInfoFeed objects across all drives
+ * @returns Estimated size in bytes accounted for the json representaion
+ */
+export function estimateDriveListMetadataSize(driveListLen: number, infoFeedListLen: number): number {
+  if (driveListLen === 0) {
+    return 0;
+  }
 
-  return Math.ceil(total * margin);
+  const estimatedDriveListSize =
+    driveListLen * dummyDriveInfoSize + infoFeedListLen * INFOFEED_WRAPPER_SIZE + driveListLen + 1;
+  return estimatedDriveListSize + ACT_OVERHEAD_SIZE + REFERENCE_WRAPPER_SIZE + FEED_OVERHEAD_SIZE;
 }
 
+/**
+ * Estimates the total metadata size for saving a single FileInfo.
+ *
+ * @returns Estimated size in bytes  accounted for the json representaion
+ */
 export function estimateFileInfoMetadataSize(): number {
-  const total = dummyFileInfoSize + ACT_OVERHEAD_SIZE + REFERENCE_WRAPPER_SIZE + FEED_OVERHEAD_SIZE;
-
-  return Math.ceil(total * margin);
+  return dummyFileInfoSize + ACT_OVERHEAD_SIZE + REFERENCE_WRAPPER_SIZE + FEED_OVERHEAD_SIZE;
 }
