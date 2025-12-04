@@ -7,7 +7,6 @@ import {
   MantarayNode,
   RedundancyLevel,
   Reference,
-  Size,
   Topic,
 } from '@ethersphere/bee-js';
 
@@ -982,72 +981,6 @@ describe('FileManager', () => {
       await createInitializedFileManager(bee, MOCK_BATCH_ID, emitter);
 
       expect(eventHandler).toHaveBeenCalledWith(true);
-    });
-  });
-
-  describe('Admin Capacity Check', () => {
-    it('should return canCreate: true when admin stamp has sufficient capacity', async () => {
-      const fm = await createInitializedFileManager();
-
-      const result = fm.canCreateDrive();
-
-      expect(result.canCreate).toBe(true);
-      expect(result.availableBytes).toBeGreaterThan(0);
-      expect(result.requiredBytes).toBeGreaterThan(0);
-      expect(result.message).toBeUndefined();
-    });
-
-    it('should return canCreate: false when admin stamp is not found', async () => {
-      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
-      const fm = new FileManagerBase(bee);
-      await fm.initialize();
-
-      const result = fm.canCreateDrive();
-
-      expect(result.canCreate).toBe(false);
-      expect(result.availableBytes).toBe(0);
-      expect(result.requiredBytes).toBe(0);
-      expect(result.message).toBe('Admin stamp not found');
-    });
-
-    it('should return canCreate: false when admin stamp is not usable', async () => {
-      const fm = await createInitializedFileManager();
-
-      // @ts-expect-error accessing private property for testing
-      fm._adminStamp = {
-        ...mockPostageBatch,
-        batchID: new BatchId(MOCK_BATCH_ID),
-        label: ADMIN_STAMP_LABEL,
-        usable: false,
-        remainingSize: Size.fromGigabytes(100),
-      };
-
-      const result = fm.canCreateDrive();
-
-      expect(result.canCreate).toBe(false);
-      expect(result.message).toBe('Admin stamp is not usable');
-    });
-
-    it('should return canCreate: false when admin stamp has insufficient capacity', async () => {
-      const fm = await createInitializedFileManager();
-
-      // @ts-expect-error accessing private property for testing
-      fm._adminStamp = {
-        ...mockPostageBatch,
-        batchID: new BatchId(MOCK_BATCH_ID),
-        label: ADMIN_STAMP_LABEL,
-        usable: true,
-        remainingSize: Size.fromBytes(100),
-      };
-
-      const result = fm.canCreateDrive();
-
-      expect(result.canCreate).toBe(false);
-      expect(result.availableBytes).toBe(100);
-      expect(result.requiredBytes).toBeGreaterThan(100);
-      expect(result.message).toContain('Insufficient capacity');
-      expect(result.message).toContain('Required:');
-      expect(result.message).toContain('Available:');
     });
   });
 });

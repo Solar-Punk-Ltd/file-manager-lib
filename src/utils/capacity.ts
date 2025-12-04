@@ -1,92 +1,54 @@
-import { FeedIndex, PostageBatch, Topic } from '@ethersphere/bee-js';
-import { DriveInfo } from './types';
+import { BatchId, FeedIndex, PrivateKey, RedundancyLevel, Topic } from '@ethersphere/bee-js';
+import { DriveInfo, FileInfo, ReferenceWithHistory } from './types';
+import { SWARM_ZERO_ADDRESS } from './constants';
 
-export interface CapacityCheckResult {
-  canCreate: boolean;
-  requiredBytes: number;
-  availableBytes: number;
-  message?: string;
+const REFERENCE_WRAPPER_SIZE = new TextEncoder().encode(
+  JSON.stringify({
+    reference: SWARM_ZERO_ADDRESS.toString(),
+    historyRef: SWARM_ZERO_ADDRESS.toString(),
+  } as ReferenceWithHistory),
+).length;
+const FEED_OVERHEAD_SIZE = FeedIndex.MINUS_ONE.toString().length + Topic.LENGTH;
+const DUMMY_SIGNER = new PrivateKey('634fb5a872396d9693e5c9f9d7233cfa93f395c093371017ff44aa9ae6564cdd');
+const DUMMY_STAMP = new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51');
+// Estimate overhead for ACT: circa 250 bytes per history entry (storageRefSize, historyRefSize, eGranteeRef, keypairs etc.)
+const ACT_OVERHEAD_SIZE = 250;
+// shall be about 304 bytes with an upper limit of 40 on the name length
+const dummyId = SWARM_ZERO_ADDRESS;
+const dummyDriveInfo: DriveInfo = {
+  id: dummyId.toString(),
+  name: 'a'.repeat(40),
+  batchId: DUMMY_STAMP.toString(),
+  owner: DUMMY_SIGNER.publicKey().address().toString(),
+  redundancyLevel: RedundancyLevel.OFF,
+  infoFeedList: [],
+  isAdmin: true,
+};
+const dummyDriveInfoSize = new TextEncoder().encode(JSON.stringify(dummyDriveInfo)).length;
+// 5% safety margin
+const margin = 1.05;
+const dummyFileInfo: FileInfo = {
+  batchId: DUMMY_STAMP.toString(),
+  file: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+  name: 'a'.repeat(40),
+  owner: DUMMY_SIGNER.publicKey().address().toString(),
+  actPublisher: DUMMY_SIGNER.publicKey().toString(),
+  topic: SWARM_ZERO_ADDRESS.toString(),
+  driveId: dummyId.toString(),
+};
+const dummyFileInfoSize = new TextEncoder().encode(JSON.stringify(dummyFileInfo)).length;
+
+// TODO: extend these if ACT trie expands
+export function estimateDriveListMetadataSize(driveList: DriveInfo[]): number {
+  const driveListSize = new TextEncoder().encode(JSON.stringify(driveList)).length;
+  const estimatedDriveListSize = driveListSize + dummyDriveInfoSize;
+  const total = estimatedDriveListSize + ACT_OVERHEAD_SIZE + REFERENCE_WRAPPER_SIZE + FEED_OVERHEAD_SIZE;
+
+  return Math.ceil(total * margin);
 }
 
-export function estimateDriveListMetadataSize(
-  driveList: DriveInfo[],
-  driveCount: number,
-  nextIndex: bigint,
-  stateFeedTopic?: Topic,
-): number {
-  const currentDriveListJson = JSON.stringify(driveList);
-  const currentDriveListSize = new TextEncoder().encode(currentDriveListJson).length;
+export function estimateFileInfoMetadataSize(): number {
+  const total = dummyFileInfoSize + ACT_OVERHEAD_SIZE + REFERENCE_WRAPPER_SIZE + FEED_OVERHEAD_SIZE;
 
-  let estimatedDriveListSize: number;
-  if (driveList.length > 0 && driveCount > driveList.length) {
-    const avgDriveSize = currentDriveListSize / driveList.length;
-    estimatedDriveListSize = Math.ceil(avgDriveSize * driveCount);
-  } else if (driveCount === 0) {
-    estimatedDriveListSize = new TextEncoder().encode('[]').length;
-  } else {
-    estimatedDriveListSize = currentDriveListSize;
-  }
-
-  // Add 20% overhead for ACT (Access Control Trie) encryption/wrapping
-  const actOverhead = Math.ceil(estimatedDriveListSize * 0.2);
-
-  const sampleReferenceWrapper = JSON.stringify({
-    reference: '0'.repeat(64),
-    historyRef: '0'.repeat(64),
-  });
-  const referenceWrapperSize = new TextEncoder().encode(sampleReferenceWrapper).length;
-
-  const sampleFeedIndex = FeedIndex.fromBigInt(nextIndex);
-  const feedIndexSize = new TextEncoder().encode(sampleFeedIndex.toString()).length;
-  const topicSize = stateFeedTopic ? stateFeedTopic.toUint8Array().length : 32; // Topics are 32 bytes
-  const feedOverhead = feedIndexSize + topicSize;
-
-  const totalBeforeMargin = estimatedDriveListSize + actOverhead + referenceWrapperSize + feedOverhead;
-  // Add 15% safety margin to account for potential variations in serialization and encoding
-  const safetyMargin = Math.ceil(totalBeforeMargin * 0.15);
-
-  return totalBeforeMargin + safetyMargin;
-}
-
-export function checkDriveCreationCapacity(
-  adminStamp: PostageBatch | undefined,
-  driveList: DriveInfo[],
-  nextIndex: bigint,
-  stateFeedTopic?: Topic,
-): CapacityCheckResult {
-  if (!adminStamp) {
-    return {
-      canCreate: false,
-      requiredBytes: 0,
-      availableBytes: 0,
-      message: 'Admin stamp not found',
-    };
-  }
-
-  if (!adminStamp.usable) {
-    return {
-      canCreate: false,
-      requiredBytes: 0,
-      availableBytes: 0,
-      message: 'Admin stamp is not usable',
-    };
-  }
-
-  const requiredBytes = estimateDriveListMetadataSize(driveList, driveList.length + 1, nextIndex, stateFeedTopic);
-  const availableBytes = adminStamp.remainingSize.toBytes();
-
-  if (availableBytes < requiredBytes) {
-    return {
-      canCreate: false,
-      requiredBytes,
-      availableBytes,
-      message: `Insufficient capacity. Required: ~${requiredBytes} bytes, Available: ${availableBytes} bytes`,
-    };
-  }
-
-  return {
-    canCreate: true,
-    requiredBytes,
-    availableBytes,
-  };
+  return Math.ceil(total * margin);
 }
