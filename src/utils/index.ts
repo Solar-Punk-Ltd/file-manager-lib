@@ -10,9 +10,8 @@ export type {
 } from './types';
 export { FileStatus } from './types';
 export { FileManagerEvents } from './events';
-export { ADMIN_STAMP_LABEL, MINIMUM_ADMIN_CAPACITY_BYTES } from './constants';
+export { ADMIN_STAMP_LABEL } from './constants';
 export {
-  AdminStampCapacityError,
   BeeVersionError,
   DriveError,
   FileError,
@@ -23,8 +22,4 @@ export {
   StampError,
   SubscriptionError,
 } from './errors';
-export {
-  estimateDriveListMetadataSize,
-  checkDriveCreationCapacity,
-} from './capacity';
-export type { CapacityCheckResult } from './capacity';
+export { estimateDriveListMetadataSize, estimateFileInfoMetadataSize } from './capacity';

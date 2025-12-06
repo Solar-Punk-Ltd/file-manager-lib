@@ -7,13 +7,12 @@ import {
   MantarayNode,
   RedundancyLevel,
   Reference,
-  Size,
   Topic,
 } from '@ethersphere/bee-js';
 
 import { EventEmitterBase } from '../../src/eventEmitter';
 import { FileManagerBase } from '../../src/fileManager';
-import { generateRandomBytes, getFeedData } from '../../src/utils/common';
+import { fetchStamp, generateRandomBytes, getFeedData } from '../../src/utils/common';
 import { ADMIN_STAMP_LABEL, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { DriveError, SignerError } from '../../src/utils/errors';
 import { FileManagerEvents } from '../../src/utils/events';
@@ -36,6 +35,7 @@ import { BEE_URL, DEFAULT_MOCK_SIGNER } from '../utils';
 jest.mock('../../src/utils/common', () => ({
   ...jest.requireActual('../../src/utils/common'),
   getFeedData: jest.fn(),
+  fetchStamp: jest.fn(),
   getWrappedData: jest.fn(),
   generateRandomBytes: jest.fn(),
 }));
@@ -64,6 +64,8 @@ describe('FileManager', () => {
 
     const mokcMN = createMockMantarayNode(true);
     mockSelfAddr = await mokcMN.calculateSelfAddress();
+
+    (fetchStamp as jest.Mock).mockResolvedValue({ ...mockPostageBatch });
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
     const { getWrappedData } = require('../../src/utils/common');
@@ -882,14 +884,15 @@ describe('FileManager', () => {
       const handler = jest.fn();
       fm.emitter.on(FileManagerEvents.FILE_FORGOTTEN, handler);
 
-      await fm.upload(drive, { ...mockFi, path: './tests' }, { actHistoryAddress: mockFi.file.historyRef });
-      await fm.forgetFile(mockFi);
+      await fm.upload(drive, { name: 'test-file', path: './tests' });
+      const uploadedFile = fm.fileInfoList[fm.fileInfoList.length - 1];
+      await fm.forgetFile(uploadedFile);
 
-      expect(fm.fileInfoList).not.toContain(mockFi);
+      expect(fm.fileInfoList).not.toContain(uploadedFile);
       expect((fm as any).driveList.infoFeedList).not.toBe([]);
 
       expect(saveOwnerSpy).toHaveBeenCalled();
-      expect(handler).toHaveBeenCalledWith({ fileInfo: mockFi });
+      expect(handler).toHaveBeenCalledWith({ fileInfo: uploadedFile });
     });
   });
 
@@ -982,72 +985,6 @@ describe('FileManager', () => {
       await createInitializedFileManager(bee, MOCK_BATCH_ID, emitter);
 
       expect(eventHandler).toHaveBeenCalledWith(true);
-    });
-  });
-
-  describe('Admin Capacity Check', () => {
-    it('should return canCreate: true when admin stamp has sufficient capacity', async () => {
-      const fm = await createInitializedFileManager();
-
-      const result = fm.canCreateDrive();
-
-      expect(result.canCreate).toBe(true);
-      expect(result.availableBytes).toBeGreaterThan(0);
-      expect(result.requiredBytes).toBeGreaterThan(0);
-      expect(result.message).toBeUndefined();
-    });
-
-    it('should return canCreate: false when admin stamp is not found', async () => {
-      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
-      const fm = new FileManagerBase(bee);
-      await fm.initialize();
-
-      const result = fm.canCreateDrive();
-
-      expect(result.canCreate).toBe(false);
-      expect(result.availableBytes).toBe(0);
-      expect(result.requiredBytes).toBe(0);
-      expect(result.message).toBe('Admin stamp not found');
-    });
-
-    it('should return canCreate: false when admin stamp is not usable', async () => {
-      const fm = await createInitializedFileManager();
-
-      // @ts-expect-error accessing private property for testing
-      fm._adminStamp = {
-        ...mockPostageBatch,
-        batchID: new BatchId(MOCK_BATCH_ID),
-        label: ADMIN_STAMP_LABEL,
-        usable: false,
-        remainingSize: Size.fromGigabytes(100),
-      };
-
-      const result = fm.canCreateDrive();
-
-      expect(result.canCreate).toBe(false);
-      expect(result.message).toBe('Admin stamp is not usable');
-    });
-
-    it('should return canCreate: false when admin stamp has insufficient capacity', async () => {
-      const fm = await createInitializedFileManager();
-
-      // @ts-expect-error accessing private property for testing
-      fm._adminStamp = {
-        ...mockPostageBatch,
-        batchID: new BatchId(MOCK_BATCH_ID),
-        label: ADMIN_STAMP_LABEL,
-        usable: true,
-        remainingSize: Size.fromBytes(100),
-      };
-
-      const result = fm.canCreateDrive();
-
-      expect(result.canCreate).toBe(false);
-      expect(result.availableBytes).toBe(100);
-      expect(result.requiredBytes).toBeGreaterThan(100);
-      expect(result.message).toContain('Insufficient capacity');
-      expect(result.message).toContain('Required:');
-      expect(result.message).toContain('Available:');
     });
   });
 });

@@ -6,4 +6,3 @@ export const SHARED_WITH_ME_TOPIC = 'shared-with-me';
 export const ADMIN_STAMP_LABEL = 'admin';
 export const SWARM_ZERO_ADDRESS = new Reference(NULL_ADDRESS);
 export const FEED_INDEX_ZERO = FeedIndex.fromBigInt(0n);
-export const MINIMUM_ADMIN_CAPACITY_BYTES = 1024;
