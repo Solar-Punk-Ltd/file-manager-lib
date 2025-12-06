@@ -80,7 +80,7 @@ describe('FileManager initialization', () => {
     } catch (error: any) {
       expect(error).toBeInstanceOf(StampError);
       expect(error.message).toContain(
-        `Admin stamp with batchId: ${MOCK_BATCH_ID.toString().slice(0, 6)}... not found OR not usable`,
+        `Stamp with batchId: ${MOCK_BATCH_ID.toString().slice(0, 6)}... not found OR not usable`,
       );
     }
 
