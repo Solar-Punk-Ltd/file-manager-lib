@@ -16,13 +16,13 @@ stop_bee_node() {
   if [ -f "$PID_FILE" ]; then
     BEE_PID=$(cat "$PID_FILE")
     echo "Stopping Bee node on port $PORT with PID $BEE_PID..."
-    kill "$BEE_PID" 2>/dev/null
+    kill "$BEE_PID" 2>/dev/null || true
 
     sleep 1
 
-    if ps -p $BEE_PID > /dev/null; then
+    if ps -p $BEE_PID > /dev/null 2>&1; then
       echo "Force killing Bee node on port $PORT with PID $BEE_PID..."
-      kill -9 "$BEE_PID"
+      kill -9 "$BEE_PID" 2>/dev/null || true
     fi
 
     rm -f "$PID_FILE"
@@ -33,10 +33,10 @@ stop_bee_node() {
   fi
 
   # Ensure no process is still bound to the port.
-  BEE_PROCESS=$(lsof -t -i:$PORT)
+  BEE_PROCESS=$(lsof -t -i:$PORT 2>/dev/null)
   if [ -n "$BEE_PROCESS" ]; then
     echo "Killing process using port $PORT..."
-    kill -9 $BEE_PROCESS
+    kill -9 $BEE_PROCESS 2>/dev/null || true
   fi
 }
 
