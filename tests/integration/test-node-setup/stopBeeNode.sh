@@ -33,10 +33,18 @@ stop_bee_node() {
   fi
 
   # Ensure no process is still bound to the port.
-  BEE_PROCESS=$(lsof -t -i:$PORT 2>/dev/null)
+  BEE_PROCESS=$(lsof -t -i:$PORT 2>/dev/null || true)
   if [ -n "$BEE_PROCESS" ]; then
-    echo "Killing process using port $PORT..."
-    kill -9 $BEE_PROCESS 2>/dev/null || true
+    # Only kill if it's actually a bee process, not something else
+    for pid in $BEE_PROCESS; do
+      PROC_NAME=$(ps -p $pid -o comm= 2>/dev/null || true)
+      if [[ "$PROC_NAME" == *"bee"* ]] || [[ "$PROC_NAME" == *"Bee"* ]]; then
+        echo "Killing bee process $pid using port $PORT..."
+        kill -9 $pid 2>/dev/null || true
+      else
+        echo "Skipping non-bee process $pid ($PROC_NAME) on port $PORT"
+      fi
+    done
   fi
 }
 
