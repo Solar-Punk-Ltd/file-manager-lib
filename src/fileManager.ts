@@ -47,11 +47,11 @@ export class FileManagerBase implements FileManager {
   private publisher: PublicKey | undefined = undefined;
   private driveListNextIndex: bigint = 0n;
   private stateFeedTopic: Topic | undefined = undefined;
-  private driveList: DriveInfo[] = [];
   private isInitialized: boolean = false;
   private isInitializing: boolean = false;
   private _adminStamp: PostageBatch | undefined = undefined;
 
+  readonly driveList: DriveInfo[] = [];
   readonly fileInfoList: FileInfo[] = [];
   readonly sharedWithMe: ShareItem[] = [];
   readonly emitter: EventEmitter;
@@ -345,17 +345,6 @@ export class FileManagerBase implements FileManager {
     console.debug('File info lists fetched successfully.');
   }
 
-  public getDrives(): DriveInfo[] {
-    return this.driveList.map((d) => ({
-      name: d.name,
-      id: d.id.toString(),
-      batchId: d.batchId.toString(),
-      owner: d.owner.toString(),
-      isAdmin: d.isAdmin,
-      redundancyLevel: d.redundancyLevel,
-    }));
-  }
-
   async createDrive(
     batchId: string | BatchId,
     name: string,
@@ -370,7 +359,7 @@ export class FileManagerBase implements FileManager {
 
     let driveName = name;
     if (resetState) {
-      this.driveList = [];
+      this.driveList.length = 0;
     } else {
       this.driveList.forEach((d) => {
         if (isAdmin && (d.isAdmin || this.adminStamp)) {
