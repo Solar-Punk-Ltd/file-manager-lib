@@ -18,42 +18,47 @@ BEE_PID_FILE_1633="bee_1633.pid"
 # Navigate to the directory where this script resides.
 cd "$SCRIPT_DIR" || exit
 
-# Clone the Bee repository if not already present.
-if [ ! -d "$BEE_DIR" ]; then
-  echo "Cloning Bee repository into $BEE_DIR..."
-  git clone "$BEE_REPO" "$BEE_DIR"
-  echo "Repository cloned successfully."
+# Check if Bee binary already exists (from cache)
+if [ -f "$BEE_BINARY_PATH" ] && [ -x "$BEE_BINARY_PATH" ]; then
+  echo "Bee binary found in cache at $BEE_BINARY_PATH, skipping clone and build."
 else
-  echo "Bee repository already exists at $BEE_DIR, reusing..."
+  # Clone the Bee repository if not already present.
+  if [ ! -d "$BEE_DIR" ]; then
+    echo "Cloning Bee repository into $BEE_DIR..."
+    git clone "$BEE_REPO" "$BEE_DIR"
+    echo "Repository cloned successfully."
+  else
+    echo "Bee repository already exists at $BEE_DIR, reusing..."
+  fi
+
+  cd "$BEE_DIR" || exit
+
+  # Checkout the desired branch and update.
+  CURRENT_BRANCH=$(git branch --show-current)
+  if [ "$CURRENT_BRANCH" != "$BEE_BRANCH" ]; then
+    echo "Switching to branch $BEE_BRANCH..."
+    git fetch origin "$BEE_BRANCH" || git fetch origin
+    git checkout "$BEE_BRANCH" || git checkout -b "$BEE_BRANCH" "origin/$BEE_BRANCH"
+  else
+    echo "Already on branch $BEE_BRANCH, pulling latest changes..."
+    git pull origin "$BEE_BRANCH" || echo "Pull failed or no changes to pull."
+  fi
+
+  # Build the Bee binary.
+  if ! make binary; then
+    echo "Build failed. Exiting."
+    exit 1
+  fi
+
+  # Ensure the Bee binary exists and is executable.
+  if [ ! -f "$BEE_BINARY_PATH" ]; then
+    echo "Bee binary not found at $BEE_BINARY_PATH. Exiting."
+    exit 1
+  fi
+
+  chmod +x "$BEE_BINARY_PATH"
+  echo "Bee binary built successfully."
 fi
-
-cd "$BEE_DIR" || exit
-
-# Checkout the desired branch and update.
-CURRENT_BRANCH=$(git branch --show-current)
-if [ "$CURRENT_BRANCH" != "$BEE_BRANCH" ]; then
-  echo "Switching to branch $BEE_BRANCH..."
-  git fetch origin "$BEE_BRANCH"
-  git checkout "$BEE_BRANCH"
-else
-  echo "Already on branch $BEE_BRANCH, pulling latest changes..."
-  git pull origin "$BEE_BRANCH" || echo "Pull failed or no changes to pull."
-fi
-
-# Build the Bee binary.
-if ! make binary; then
-  echo "Build failed. Exiting."
-  exit 1
-fi
-
-# Ensure the Bee binary exists and is executable.
-if [ ! -f "$BEE_BINARY_PATH" ]; then
-  echo "Bee binary not found at $BEE_BINARY_PATH. Exiting."
-  exit 1
-fi
-
-chmod +x "$BEE_BINARY_PATH"
-echo "Bee binary built successfully."
 
 cd "$SCRIPT_DIR" || exit
 
