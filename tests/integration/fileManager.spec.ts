@@ -151,7 +151,7 @@ describe('FileManager initialization', () => {
     const batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'initstamp');
 
     await fileManager.createDrive(batchId, 'initialization', false);
-    const tmpDrive = fileManager.getDrives().find((d) => d.name === 'initialization');
+    const tmpDrive = fileManager.driveList.find((d) => d.name === 'initialization');
     expect(tmpDrive).toBeDefined();
     drive = tmpDrive!;
 
@@ -207,12 +207,12 @@ describe('FileManager initialization', () => {
   });
 
   it('should not clear drives when reinitializing with valid stamp', async () => {
-    const drivesBefore = fileManager.getDrives();
+    const drivesBefore = fileManager.driveList;
     expect(drivesBefore.length).toBeGreaterThan(0);
 
     await fileManager.initialize();
 
-    const drivesAfter = fileManager.getDrives();
+    const drivesAfter = fileManager.driveList;
     expect(drivesAfter).toEqual(drivesBefore);
   });
 
@@ -253,7 +253,7 @@ describe('FileManager reinitialization', () => {
 
     await newFileManager.initialize();
 
-    expect(newFileManager.getDrives()).toHaveLength(0);
+    expect(newFileManager.driveList).toHaveLength(0);
     expect(newFileManager.fileInfoList).toHaveLength(0);
 
     spy.mockRestore();
@@ -263,7 +263,7 @@ describe('FileManager reinitialization', () => {
     const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
     const fileManager = await createInitializedFileManager(beeDev, ownerStamp);
 
-    const initialDrives = fileManager.getDrives();
+    const initialDrives = fileManager.driveList;
     const initialFileCount = fileManager.fileInfoList.length;
 
     expect(initialDrives.length).toBeGreaterThanOrEqual(1);
@@ -284,7 +284,7 @@ describe('FileManager reinitialization', () => {
 
     expect(initEventFired).toBe(true);
     expect(invalidEventFired).toBe(false);
-    expect(fileManager.getDrives()).toEqual(initialDrives);
+    expect(fileManager.driveList).toEqual(initialDrives);
     expect(fileManager.fileInfoList).toHaveLength(initialFileCount);
   });
 
@@ -295,14 +295,14 @@ describe('FileManager reinitialization', () => {
     const userBatchId = await buyStamp(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'userDrive');
     await fileManager.createDrive(userBatchId, 'User Drive', false);
 
-    const drivesBeforeReinit = fileManager.getDrives();
+    const drivesBeforeReinit = fileManager.driveList;
     const userDrive = drivesBeforeReinit.find((d) => d.name === 'User Drive');
     expect(userDrive).toBeDefined();
 
     const newFileManager = new FileManagerBase(beeDev);
     await newFileManager.initialize();
 
-    const drivesAfterReinit = newFileManager.getDrives();
+    const drivesAfterReinit = newFileManager.driveList;
     expect(drivesAfterReinit).toHaveLength(drivesBeforeReinit.length);
     const userDriveAfter = drivesAfterReinit.find((d) => d.name === 'User Drive');
     expect(userDriveAfter).toBeDefined();
@@ -313,17 +313,17 @@ describe('FileManager reinitialization', () => {
     const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
     const fileManager = await createInitializedFileManager(beeDev, ownerStamp);
 
-    const initialDriveCount = fileManager.getDrives().length;
+    const initialDriveCount = fileManager.driveList.length;
 
     for (let i = 0; i < 3; i++) {
       await fileManager.initialize();
-      expect(fileManager.getDrives()).toHaveLength(initialDriveCount);
+      expect(fileManager.driveList).toHaveLength(initialDriveCount);
     }
 
     for (let i = 0; i < 2; i++) {
       const freshManager = new FileManagerBase(beeDev);
       await freshManager.initialize();
-      expect(freshManager.getDrives()).toHaveLength(initialDriveCount);
+      expect(freshManager.driveList).toHaveLength(initialDriveCount);
     }
   });
 
@@ -336,7 +336,7 @@ describe('FileManager reinitialization', () => {
     const newBatchId = await buyStamp(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'afterReinit');
     await fileManager.createDrive(newBatchId, 'Post Reinit Drive', false);
 
-    const drives = fileManager.getDrives();
+    const drives = fileManager.driveList;
     const newDrive = drives.find((d) => d.name === 'Post Reinit Drive');
     expect(newDrive).toBeDefined();
   });
@@ -390,7 +390,7 @@ describe('FileManager reinitialization', () => {
     await fileManager.createDrive(batch1, 'Drive 1', false);
     await fileManager.createDrive(batch2, 'Drive 2', false);
 
-    const drivesBeforeReinit = fileManager.getDrives();
+    const drivesBeforeReinit = fileManager.driveList;
     const drive1 = drivesBeforeReinit.find((d) => d.name === 'Drive 1');
     const drive2 = drivesBeforeReinit.find((d) => d.name === 'Drive 2');
 
@@ -399,7 +399,7 @@ describe('FileManager reinitialization', () => {
 
     await fileManager.initialize();
 
-    const drivesAfterReinit = fileManager.getDrives();
+    const drivesAfterReinit = fileManager.driveList;
     expect(drivesAfterReinit.find((d) => d.id === drive1?.id)).toBeDefined();
     expect(drivesAfterReinit.find((d) => d.id === drive2?.id)).toBeDefined();
   });
@@ -437,7 +437,7 @@ describe('FileManager drive handling', () => {
     const batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'createDriveStamp');
 
     await fileManager.createDrive(batchId, 'Test Drive', false);
-    const drives = fileManager.getDrives();
+    const drives = fileManager.driveList;
     expect(drives.length).toBeGreaterThanOrEqual(1);
     const testDrive = drives.find((d) => d.name === 'Test Drive');
     expect(testDrive).toBeDefined();
@@ -497,10 +497,10 @@ describe('FileManager drive handling', () => {
     const forgetBatchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'forgetDriveStamp');
     await fileManager.createDrive(forgetBatchId, 'Drive to forget', false);
 
-    const created = fileManager.getDrives().find((d) => d.name === 'Drive to forget');
+    const created = fileManager.driveList.find((d) => d.name === 'Drive to forget');
     expect(created).toBeDefined();
     const driveId = created!.id.toString();
-    const initialDriveCount = fileManager.getDrives().length;
+    const initialDriveCount = fileManager.driveList.length;
 
     const now = Date.now();
     const fakeFile = (topic: string, name: string): FileInfo => ({
@@ -534,19 +534,19 @@ describe('FileManager drive handling', () => {
     });
     await fileManager.forgetDrive(created!);
     await eventPromise;
-    const afterForgetDrives = fileManager.getDrives();
+    const afterForgetDrives = fileManager.driveList;
     expect(afterForgetDrives).toHaveLength(initialDriveCount - 1);
     expect(afterForgetDrives.find((d) => d.id.toString() === driveId)).toBeUndefined();
 
     expect(fileManager.fileInfoList.some((fi) => fi.driveId === driveId)).toBe(false);
 
     const fm2 = await createInitializedFileManager(bee, ownerBatch.batchID);
-    const drives2 = fm2.getDrives();
+    const drives2 = fm2.driveList;
     expect(drives2.find((d) => d.name === 'Drive to forget')).toBeUndefined();
   });
 
   it('should throw when trying to forget the admin drive', async () => {
-    const adminDrive = fileManager.getDrives().find((d) => d.isAdmin);
+    const adminDrive = fileManager.driveList.find((d) => d.isAdmin);
     expect(adminDrive).toBeDefined();
     await expect(fileManager.forgetDrive(adminDrive!)).rejects.toThrow(new DriveError('Cannot forget admin drive'));
   });
@@ -585,7 +585,7 @@ describe('FileManager listFiles', () => {
     actPublisher = (await bee.getNodeAddresses()).publicKey;
 
     await fileManager.createDrive(batchId, 'listFiles', false);
-    const tmpDrive = fileManager.getDrives().find((d) => d.name === 'listFiles');
+    const tmpDrive = fileManager.driveList.find((d) => d.name === 'listFiles');
     expect(tmpDrive).toBeDefined();
     drive = tmpDrive!;
 
@@ -735,7 +735,7 @@ describe('FileManager upload', () => {
     fileManager = await createInitializedFileManager(bee, ownerStamp);
 
     await fileManager.createDrive(batchId, 'upload', false);
-    const tmpDrive = fileManager.getDrives().find((d) => d.name === 'upload');
+    const tmpDrive = fileManager.driveList.find((d) => d.name === 'upload');
     expect(tmpDrive).toBeDefined();
     drive = tmpDrive!;
 
@@ -924,7 +924,7 @@ describe('FileManager download', () => {
     actPublisher = (await bee.getNodeAddresses()).publicKey;
 
     await fileManager.createDrive(batchId, 'download', false);
-    const tmpDrive = fileManager.getDrives().find((d) => d.name === 'download');
+    const tmpDrive = fileManager.driveList.find((d) => d.name === 'download');
     expect(tmpDrive).toBeDefined();
     drive = tmpDrive!;
 
@@ -1025,7 +1025,7 @@ describe('FileManager file operations', () => {
     fileManager = await createInitializedFileManager(bee, ownerStamp);
 
     await fileManager.createDrive(batchId, 'fileoperations', false);
-    const tmpDrive = fileManager.getDrives().find((d) => d.name === 'fileoperations');
+    const tmpDrive = fileManager.driveList.find((d) => d.name === 'fileoperations');
     expect(tmpDrive).toBeDefined();
     drive = tmpDrive!;
 
@@ -1155,7 +1155,7 @@ describe('FileManager version control', () => {
     fileManager = await createInitializedFileManager(bee, ownerStamp);
 
     await fileManager.createDrive(batchId, 'versioncontrol', false);
-    const tmpDrive = fileManager.getDrives().find((d) => d.name === 'versioncontrol');
+    const tmpDrive = fileManager.driveList.find((d) => d.name === 'versioncontrol');
     expect(tmpDrive).toBeDefined();
     drive = tmpDrive!;
   });
@@ -1425,7 +1425,7 @@ describe('FileManager End-to-End User Workflow', () => {
 
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'e2eStamp');
     await fileManager.createDrive(batchId, 'e2e', false);
-    const tmpDrive = fileManager.getDrives().find((d) => d.name === 'e2e');
+    const tmpDrive = fileManager.driveList.find((d) => d.name === 'e2e');
     expect(tmpDrive).toBeDefined();
     drive = tmpDrive!;
   });

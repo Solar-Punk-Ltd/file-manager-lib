@@ -30,9 +30,9 @@ Wraps Bee client, manages drives, file infos, ACT unwrapping, versioning, and ev
 
 **Throws**: `StampError` if the admin stamp provided is not found.
 
-### `getDrives(): DriveInfo[]`
+### `driveList: DriveInfo[]`
 
-- Returns in-memory list of all known drives (excluding admin).
+- Returns in-memory list of all known drives.
 
 ---
 
@@ -261,7 +261,7 @@ Events are emitted on the provided `EventEmitter`:
 ### Upload & Download (Node)
 
 ```ts
-const drive = fm.getDrives()[0];
+const drive = fm.driveList[0];
 const fi = await fm.upload(drive, { info: { name: 'assets' }, path: './assets' });
 const list = await fm.listFiles(fi, { actHistoryAddress: fi.file.historyRef, actPublisher: fi.actPublisher });
 const files = await fm.download(fi, ['logo.png'], {

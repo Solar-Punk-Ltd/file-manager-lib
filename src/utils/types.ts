@@ -55,12 +55,6 @@ export interface FileManager {
   ): Promise<void>;
 
   /**
-   * Retrieves a list of drives.
-   * @returns A list of DriveInfo objects representing the drives.
-   */
-  getDrives(): DriveInfo[];
-
-  /**
    * Uploads a file with the given options.
    * @param infoOptions - The options for the file info upload.
    * @param uploadOptions - File and collection related upload options.
@@ -194,6 +188,12 @@ export interface FileManager {
    * @returns The admin postage batch, or undefined if not set.
    */
   adminStamp: PostageBatch | undefined;
+
+  /**
+   * Retrieves a list of drive information.
+   * @returns An array of drive information objects.
+   */
+  driveList: DriveInfo[];
 
   /**
    * Retrieves a list of file information.

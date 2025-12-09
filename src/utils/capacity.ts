@@ -47,17 +47,17 @@ const dummyFileInfoSize = new TextEncoder().encode(JSON.stringify(dummyFileInfo)
 /**
  * Estimates the total metadata size for saving the drive list.
  *
- * @param driveListLen - Number of DriveInfo objects in the list
- * @param infoFeedListLen - Total number of WrappedFileInfoFeed objects across all drives
+ * @param drives - Number of DriveInfo objects in the list
  * @returns Estimated size in bytes accounted for the json representaion
  */
-export function estimateDriveListMetadataSize(driveListLen: number, infoFeedListLen: number): number {
-  if (driveListLen === 0) {
+export function estimateDriveListMetadataSize(drives: DriveInfo[]): number {
+  if (drives.length === 0) {
     return 0;
   }
 
+  const totalInfoFeedItems = drives.reduce((acc, d) => acc + (d.infoFeedList?.length ?? 0), 0);
   const estimatedDriveListSize =
-    driveListLen * dummyDriveInfoSize + infoFeedListLen * INFOFEED_WRAPPER_SIZE + driveListLen + 1;
+    drives.length * dummyDriveInfoSize + totalInfoFeedItems * INFOFEED_WRAPPER_SIZE + drives.length + 1;
   return estimatedDriveListSize + ACT_OVERHEAD_SIZE + REFERENCE_WRAPPER_SIZE + FEED_OVERHEAD_SIZE;
 }
 
