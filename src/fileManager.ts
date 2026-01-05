@@ -37,6 +37,8 @@ import {
   ShareItem,
   DriveInfo,
   StateTopicInfo,
+  AddressBook,
+  GranteeDelta,
 } from './utils/types';
 import { getForksMap, loadMantaray } from './utils/mantaray';
 import { processUpload } from './upload';
@@ -860,8 +862,9 @@ export class FileManagerBase implements FileManager {
 
   async handleGrantees(
     fileInfo: FileInfo,
-    grantees: string[],
+    grantees: GranteeDelta,
     requestOptions?: BeeRequestOptions,
+    _eGranteeRef?: string | Reference,
   ): Promise<ReferenceWithHistory> {
     const driveId = fileInfo.driveId.toString();
     const driveIx = this.driveList.findIndex((d) => d.id.toString() === driveId);
@@ -887,28 +890,15 @@ export class FileManagerBase implements FileManager {
     let result: GranteesResult;
 
     if (existingHistoryRef && existingRef) {
-      const currentGranteesRes = await this.bee.getGrantees(existingRef, requestOptions);
-      const currentGrantees = currentGranteesRes.grantees.map((k) => k.toString());
-
-      const toAdd = grantees.filter((g) => !currentGrantees.includes(g));
-      const toRevoke = currentGrantees.filter((g) => !grantees.includes(g));
-
-      if (toAdd.length === 0 && toRevoke.length === 0) {
-        return currentInfo.granteeList!;
-      }
-
       result = await this.bee.patchGrantees(
         driveInfo.batchId,
         existingRef,
         existingHistoryRef,
-        {
-          add: toAdd.length > 0 ? toAdd : undefined,
-          revoke: toRevoke.length > 0 ? toRevoke : undefined,
-        },
+        grantees,
         requestOptions,
       );
     } else {
-      result = await this.bee.createGrantees(driveInfo.batchId, grantees, requestOptions);
+      result = await this.bee.createGrantees(driveInfo.batchId, grantees.add || [], requestOptions);
     }
 
     const newPointer: ReferenceWithHistory = {
@@ -952,7 +942,11 @@ export class FileManagerBase implements FileManager {
     return;
   }
 
-  async share(_fileInfo: FileInfo, _targetOverlays: string[], _recipients: string[], _message?: string): Promise<void> {
+  async share(
+    _fileInfoList: FileInfo[],
+    _grantees: AddressBook,
+    _requestOptions?: BeeRequestOptions,
+  ): Promise<void> {
     /** no-op */
     return;
   }

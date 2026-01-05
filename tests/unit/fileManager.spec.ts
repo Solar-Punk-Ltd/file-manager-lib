@@ -108,7 +108,7 @@ describe('FileManager', () => {
   describe('initialize', () => {
     it('should initialize FileManager', async () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
-      const eventHandler = jest.fn((_) => {});
+      const eventHandler = jest.fn((_) => { });
       const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.INITIALIZED, eventHandler);
       await createInitializedFileManager(bee, undefined, emitter);
@@ -118,7 +118,7 @@ describe('FileManager', () => {
 
     it('should not initialize, if already initialized', async () => {
       const logSpy = jest.spyOn(console, 'debug');
-      const eventHandler = jest.fn((_) => {});
+      const eventHandler = jest.fn((_) => { });
       const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.INITIALIZED, eventHandler);
 
@@ -134,7 +134,7 @@ describe('FileManager', () => {
 
     it('should not initialize, if currently being initialized', async () => {
       const logSpy = jest.spyOn(console, 'debug');
-      const eventHandler = jest.fn((_) => {});
+      const eventHandler = jest.fn((_) => { });
       const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.INITIALIZED, eventHandler);
 
@@ -930,7 +930,7 @@ describe('FileManager', () => {
     it('should send event after upload happens', async () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const emitter = new EventEmitterBase();
-      const uploadHandler = jest.fn((_args) => {});
+      const uploadHandler = jest.fn((_args) => { });
 
       const fm = await createInitializedFileManager(bee, MOCK_BATCH_ID, emitter);
       fm.emitter.on(FileManagerEvents.FILE_UPLOADED, uploadHandler);
@@ -980,7 +980,7 @@ describe('FileManager', () => {
 
     it('should send an event after the fileManager is initialized', async () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
-      const eventHandler = jest.fn((_) => {});
+      const eventHandler = jest.fn((_) => { });
       const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.INITIALIZED, eventHandler);
       await createInitializedFileManager(bee, MOCK_BATCH_ID, emitter);
@@ -1011,7 +1011,7 @@ describe('FileManager', () => {
       });
       createUploadDataSpy('c');
 
-      const result = await fm.handleGrantees(fileInfo, ['key1', 'key2']);
+      const result = await fm.handleGrantees(fileInfo, { add: ['key1', 'key2'] });
 
       expect(createGranteesSpy).toHaveBeenCalledWith(drive.batchId, ['key1', 'key2'], undefined);
       expect(result.reference).toBe('a'.repeat(64));
@@ -1055,17 +1055,14 @@ describe('FileManager', () => {
       });
       createUploadDataSpy('c');
 
-      const newGrantees = [key1, key2];
-      await fm.handleGrantees(fileInfo, newGrantees);
+      const newGranteesDelta = { add: [key2] };
+      await fm.handleGrantees(fileInfo, newGranteesDelta);
 
       expect(patchGranteesSpy).toHaveBeenCalledWith(
         drive.batchId,
         'oldRef',
         'oldHist',
-        {
-          add: [key2],
-          revoke: undefined,
-        },
+        newGranteesDelta,
         undefined,
       );
     });
@@ -1078,7 +1075,7 @@ describe('FileManager', () => {
       );
       fileInfo.driveId = 'non-existent';
 
-      await expect(fm.handleGrantees(fileInfo, [])).rejects.toThrow(DriveError);
+      await expect(fm.handleGrantees(fileInfo, {})).rejects.toThrow(DriveError);
     });
 
     it('should throw FileInfoError if topic not found in drive', async () => {
@@ -1093,7 +1090,7 @@ describe('FileManager', () => {
       fileInfo.topic = 'non-existent-topic';
       drive.infoFeedList = [];
 
-      await expect(fm.handleGrantees(fileInfo, [])).rejects.toThrow(FileInfoError);
+      await expect(fm.handleGrantees(fileInfo, {})).rejects.toThrow(FileInfoError);
     });
   });
 });

@@ -142,7 +142,11 @@ export interface FileManager {
    * @emits FileManagerEvents.SHARE_MESSAGE_SENT
    * @returns A promise that resolves when the file is shared.
    */
-  share(fileInfo: FileInfo, targetOverlays: string[], recipients: string[], message?: string): Promise<void>;
+  share(
+    fileInfoList: FileInfo[],
+    grantees: AddressBook,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void>;
 
   /**
    * Subscribes to the shared inbox with the given topic and callback.
@@ -166,7 +170,7 @@ export interface FileManager {
    */
   handleGrantees(
     fileInfo: FileInfo,
-    grantees: string[],
+    grantees: GranteeDelta,
     requestOptions?: BeeRequestOptions,
   ): Promise<ReferenceWithHistory>;
 
@@ -248,6 +252,13 @@ export interface FileInfo {
   customMetadata?: Record<string, string>;
   status?: FileStatus;
   resetGrantees?: boolean;
+}
+
+export type AddressBook = Map<string, string>;
+
+export interface GranteeDelta {
+  add?: string[];
+  revoke?: string[];
 }
 
 export interface StateTopicInfo {
