@@ -158,6 +158,19 @@ export interface FileManager {
   unsubscribeFromSharedInbox(): void;
 
   /**
+   * Create or update the grantee list for a file.
+   * @param fileInfo - Information about the file.
+   * @param grantees - List of grantee public keys.
+   * @param requestOptions - Additional Bee request options.
+   * @returns A promise that resolves to the new reference and history reference.
+   */
+  handleGrantees(
+    fileInfo: FileInfo,
+    grantees: string[],
+    requestOptions?: BeeRequestOptions,
+  ): Promise<ReferenceWithHistory>;
+
+  /**
    * Retrieves the grantees of a file.
    * @param fileInfo - Information about the file.
    * @returns A promise that resolves to list of grantee public keys.

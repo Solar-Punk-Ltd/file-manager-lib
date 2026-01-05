@@ -17,9 +17,10 @@ import {
   Identifier,
   PublicKey,
   EthAddress,
+  GranteesResult,
 } from '@ethersphere/bee-js';
 
-import { assertDriveInfo, assertFileInfo, assertStateTopicInfo } from './utils/asserts';
+import { assertDriveInfo, assertFileInfo, assertReferenceWithHistory, assertStateTopicInfo } from './utils/asserts';
 import { fetchStamp, generateRandomBytes, getFeedData, getWrappedData, settlePromises } from './utils/common';
 
 import { FEED_INDEX_ZERO, ADMIN_STAMP_LABEL, FILEMANAGER_STATE_TOPIC } from './utils/constants';
@@ -855,6 +856,76 @@ export class FileManagerBase implements FileManager {
     await this.pruneDriveMetadata(driveInfo);
     console.debug(`Drive forgotten (metadata only): ${driveInfo.name}`);
     this.emitter.emit(FileManagerEvents.DRIVE_FORGOTTEN, { driveInfo });
+  }
+
+  async handleGrantees(
+    fileInfo: FileInfo,
+    grantees: string[],
+    requestOptions?: BeeRequestOptions,
+  ): Promise<ReferenceWithHistory> {
+    const driveId = fileInfo.driveId.toString();
+    const driveIx = this.driveList.findIndex((d) => d.id.toString() === driveId);
+    if (driveIx === -1) {
+      throw new DriveError(`Drive not found: ${driveId}`);
+    }
+
+    const topic = fileInfo.topic.toString();
+    const driveInfo = this.driveList[driveIx];
+    if (!driveInfo.infoFeedList) {
+      driveInfo.infoFeedList = [];
+    }
+
+    const infoIx = driveInfo.infoFeedList.findIndex((wf) => wf.topic === topic);
+    if (infoIx === -1) {
+      throw new FileInfoError(`File info topic not found in drive: ${topic}`);
+    }
+
+    const currentInfo = driveInfo.infoFeedList[infoIx];
+    const existingHistoryRef = currentInfo.granteeList?.historyRef;
+    const existingRef = currentInfo.granteeList?.reference;
+
+    let result: GranteesResult;
+
+    if (existingHistoryRef && existingRef) {
+      const currentGranteesRes = await this.bee.getGrantees(existingRef, requestOptions);
+      const currentGrantees = currentGranteesRes.grantees.map((k) => k.toString());
+
+      const toAdd = grantees.filter((g) => !currentGrantees.includes(g));
+      const toRevoke = currentGrantees.filter((g) => !grantees.includes(g));
+
+      if (toAdd.length === 0 && toRevoke.length === 0) {
+        return currentInfo.granteeList!;
+      }
+
+      result = await this.bee.patchGrantees(
+        driveInfo.batchId,
+        existingRef,
+        existingHistoryRef,
+        {
+          add: toAdd.length > 0 ? toAdd : undefined,
+          revoke: toRevoke.length > 0 ? toRevoke : undefined,
+        },
+        requestOptions,
+      );
+    } else {
+      result = await this.bee.createGrantees(driveInfo.batchId, grantees, requestOptions);
+    }
+
+    const newPointer: ReferenceWithHistory = {
+      reference: result.ref.toString(),
+      historyRef: result.historyref.toString(),
+    };
+
+    assertReferenceWithHistory(newPointer);
+
+    driveInfo.infoFeedList[infoIx] = {
+      ...currentInfo,
+      granteeList: newPointer,
+    };
+
+    await this.saveDriveList(requestOptions);
+
+    return newPointer;
   }
 
   async getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult> {
