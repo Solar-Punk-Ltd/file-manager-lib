@@ -575,11 +575,11 @@ describe('FileManager', () => {
       const spyFetch = jest.spyOn(FileManagerBase.prototype as any, 'fetchFileInfo').mockResolvedValue(fakeFi);
       let got = await fm.getVersion(dummyFi, FeedIndex.fromBigInt(1n));
 
-      expect(spyFetch).toHaveBeenCalledWith(dummyFi, rawMock, true);
+      expect(spyFetch).toHaveBeenCalledWith(dummyFi, rawMock);
       expect(got).toBe(fakeFi);
 
       got = await fm.getVersion(dummyFi);
-      expect(spyFetch).toHaveBeenCalledWith(dummyFi, rawMock, false);
+      expect(spyFetch).toHaveBeenCalledWith(dummyFi, rawMock);
       expect(got).toBe(fakeFi);
     });
 
