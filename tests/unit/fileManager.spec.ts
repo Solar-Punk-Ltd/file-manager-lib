@@ -12,8 +12,9 @@ import {
 
 import { EventEmitterBase } from '../../src/eventEmitter';
 import { FileManagerBase } from '../../src/fileManager';
-import { fetchStamp, generateRandomBytes, getFeedData } from '../../src/utils/common';
+import { fetchStamp, getFeedData } from '../../src/utils/common';
 import { ADMIN_STAMP_LABEL, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
+import { generateRandomBytes } from '../../src/utils/crypto';
 import { DriveError, SignerError } from '../../src/utils/errors';
 import { FileManagerEvents } from '../../src/utils/events';
 import { DriveInfo, FeedResultWithIndex, FileInfo, FileStatus, WrappedUploadResult } from '../../src/utils/types';

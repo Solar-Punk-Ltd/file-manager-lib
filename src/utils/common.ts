@@ -2,7 +2,6 @@ import {
   BatchId,
   Bee,
   BeeRequestOptions,
-  Bytes,
   DownloadOptions,
   EthAddress,
   FeedIndex,
@@ -11,11 +10,8 @@ import {
   Reference,
   Topic,
 } from '@ethersphere/bee-js';
-import { isNode } from 'std-env';
 
-import { getRandomBytesBrowser } from './browser';
 import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from './constants';
-import { getRandomBytesNode } from './node';
 import { FeedResultWithIndex, FeedPayloadResult, WrappedUploadResult } from './types';
 import { FileInfoError } from './errors';
 import { assertWrappedUploadResult } from './asserts';
@@ -55,13 +51,6 @@ export async function getFeedData(
 
     throw error;
   }
-}
-
-export function generateRandomBytes(len: number): Bytes {
-  if (isNode) {
-    return getRandomBytesNode(len);
-  }
-  return getRandomBytesBrowser(len);
 }
 
 export function isNotFoundError(error: any): boolean {

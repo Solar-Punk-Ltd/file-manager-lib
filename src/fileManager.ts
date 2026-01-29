@@ -20,7 +20,7 @@ import {
 } from '@ethersphere/bee-js';
 
 import { assertDriveInfo, assertFileInfo, assertStateTopicInfo } from './utils/asserts';
-import { fetchStamp, generateRandomBytes, getFeedData, getWrappedData, settlePromises } from './utils/common';
+import { fetchStamp, getFeedData, getWrappedData, settlePromises } from './utils/common';
 
 import { FEED_INDEX_ZERO, ADMIN_STAMP_LABEL, FILEMANAGER_STATE_TOPIC } from './utils/constants';
 import { BeeVersionError, DriveError, FileInfoError, GranteeError, SignerError, StampError } from './utils/errors';
@@ -40,6 +40,7 @@ import {
 import { getForksMap, loadMantaray } from './utils/mantaray';
 import { processUpload } from './upload';
 import { processDownload } from './download';
+import { generateRandomBytes } from './utils/crypto';
 
 export class FileManagerBase implements FileManager {
   private bee: Bee;
@@ -194,7 +195,8 @@ export class FileManagerBase implements FileManager {
     const adminStamp = await this.fetchAndSetAdminStamp(batchId);
     const verifiedAdminStamp = this.verifyStampUsability(adminStamp, batchId.toString());
 
-    const newStateFeedTopic = new Topic(generateRandomBytes(Topic.LENGTH));
+    const randomTopic = await generateRandomBytes(Topic.LENGTH);
+    const newStateFeedTopic = new Topic(randomTopic);
     const topicUploadRes = await this.bee.uploadData(verifiedAdminStamp.batchID, newStateFeedTopic.toUint8Array(), {
       act: true,
     });
@@ -380,8 +382,9 @@ export class FileManagerBase implements FileManager {
       this.verifyStampUsability(stamp, batchId.toString());
     }
 
+    const randomId = await generateRandomBytes(Identifier.LENGTH);
     const driveInfo: DriveInfo = {
-      id: new Identifier(generateRandomBytes(Identifier.LENGTH)).toString(),
+      id: new Identifier(randomId).toString(),
       name: driveName,
       batchId: batchId.toString(),
       owner: this.signer.publicKey().address().toString(),
@@ -528,8 +531,9 @@ export class FileManagerBase implements FileManager {
     let topic: string;
 
     if (!currentTopic) {
+      const randomTopic = await generateRandomBytes(Topic.LENGTH);
       version = FEED_INDEX_ZERO.toString();
-      topic = new Topic(generateRandomBytes(Topic.LENGTH)).toString();
+      topic = new Topic(randomTopic).toString();
     } else {
       version = currentVersion;
       topic = currentTopic.toString();

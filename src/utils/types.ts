@@ -16,7 +16,6 @@ import {
   Reference,
   Topic,
 } from '@ethersphere/bee-js';
-import { ReadStream } from 'fs';
 
 import { EventEmitter } from '../eventEmitter';
 
@@ -242,11 +241,10 @@ export interface StateTopicInfo {
   index: string;
 }
 
-export interface PartialFileInfo
-  extends Omit<
-    FileInfo,
-    'owner' | 'actPublisher' | 'file' | 'topic' | 'driveId' | 'batchId' | 'redundancyLevel' | 'status'
-  > {
+export interface PartialFileInfo extends Omit<
+  FileInfo,
+  'owner' | 'actPublisher' | 'file' | 'topic' | 'driveId' | 'batchId' | 'redundancyLevel' | 'status'
+> {
   file?: ReferenceWithHistory;
   topic?: string | Topic;
 }
@@ -288,12 +286,6 @@ export interface ReferenceWithHistory {
 export interface WrappedFileInfoFeed {
   topic: string | Topic;
   eGranteeRef?: string | Reference;
-}
-
-export interface FileData {
-  data: string | Uint8Array | ReadStream;
-  name: string;
-  contentType: string;
 }
 
 interface FeedUpdateHeaders {

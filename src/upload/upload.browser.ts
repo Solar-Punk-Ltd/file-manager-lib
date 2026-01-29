@@ -1,5 +1,19 @@
-import { BatchId, Bee, BeeRequestOptions, RedundantUploadOptions, UploadResult } from '@ethersphere/bee-js';
-import { BrowserUploadOptions, WrappedUploadResult } from '../utils/types';
+import {
+  BatchId,
+  Bee,
+  BeeRequestOptions,
+  CollectionUploadOptions,
+  FileUploadOptions,
+  RedundantUploadOptions,
+  UploadResult,
+} from '@ethersphere/bee-js';
+import {
+  BrowserUploadOptions,
+  DriveInfo,
+  FileInfoOptions,
+  ReferenceWithHistory,
+  WrappedUploadResult,
+} from '../utils/types';
 
 export async function uploadBrowser(
   bee: Bee,
@@ -34,4 +48,42 @@ export async function uploadBrowser(
   };
 
   return await bee.uploadData(batchId, JSON.stringify(wrappedData), { ...uploadOptions, act: true }, requestOptions);
+}
+
+export async function processUploadBrowser(
+  bee: Bee,
+  driveInfo: DriveInfo,
+  fileOptions: FileInfoOptions,
+  uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
+  requestOptions?: BeeRequestOptions,
+): Promise<ReferenceWithHistory> {
+  uploadOptions = { ...uploadOptions, redundancyLevel: driveInfo.redundancyLevel };
+
+  if (fileOptions.file) {
+    return {
+      reference: fileOptions.file.reference.toString(),
+      historyRef: fileOptions.file.historyRef.toString(),
+    } as ReferenceWithHistory;
+  }
+
+  const batchId = driveInfo.batchId;
+
+  const browserOptions: BrowserUploadOptions = fileOptions as BrowserUploadOptions;
+
+  if (!browserOptions.files) {
+    throw new Error('Files are required.');
+  }
+
+  const uploadResult = await uploadBrowser(
+    bee,
+    batchId,
+    browserOptions,
+    uploadOptions as RedundantUploadOptions,
+    requestOptions,
+  );
+
+  return {
+    reference: uploadResult.reference.toString(),
+    historyRef: uploadResult.historyAddress.getOrThrow().toString(),
+  } as ReferenceWithHistory;
 }

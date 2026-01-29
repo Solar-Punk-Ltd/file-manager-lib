@@ -1,7 +1,8 @@
 import { BatchId, BeeDev, PrivateKey } from '@ethersphere/bee-js';
 
-import { buyStamp, generateRandomBytes } from '../../src/utils/common';
+import { buyStamp } from '../../src/utils/common';
 import { ADMIN_STAMP_LABEL } from '../../src/utils/constants';
+import { generateRandomBytes } from '../../src/utils/crypto';
 import { BEE_URL, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, DEFAULT_MOCK_SIGNER } from '../utils';
 
 interface BeeWithStampAndSigner {
@@ -13,7 +14,7 @@ interface BeeWithStampAndSigner {
 let globalAdminStamp: BatchId | null = null;
 
 export async function ensureUniqueSignerWithStamp(isNewSigner: boolean = true): Promise<BeeWithStampAndSigner> {
-  const signerBytes = generateRandomBytes(PrivateKey.LENGTH);
+  const signerBytes = await generateRandomBytes(PrivateKey.LENGTH);
   const signer = isNewSigner ? new PrivateKey(signerBytes) : DEFAULT_MOCK_SIGNER;
 
   const bee = new BeeDev(BEE_URL, { signer });
