@@ -1,6 +1,6 @@
 {
-  "include": ["src", "tests"],
-  "exclude": ["node_modules", "dist"],
+  "include": ["src"],
+  "exclude": ["node_modules", "dist", "tests"],
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
@@ -10,6 +10,8 @@
     "resolveJsonModule": true,
     "declaration": true,
     "emitDeclarationOnly": false,
+    "declarationDir": "dist/types",
+    "rootDir": "src",
     "esModuleInterop": true,
     "types": ["node", "jest"],
     "skipLibCheck": true,
