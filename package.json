@@ -1,6 +1,6 @@
 {
   "name": "@solarpunkltd/file-manager-lib",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "A file manager for storing and handling data on Swarm.",
   "main": "dist/cjs/index.js",
   "module": "dist/esm/index.js",
@@ -14,19 +14,19 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "prepublishOnly": "cross-env NODE_ENV=production npm run build",
-    "build": "rimraf dist && npm run build:types && npm run build:cjs && npm run build:esm",
+    "prepublishOnly": "cross-env NODE_ENV=production pnpm run build",
+    "build": "rimraf dist && pnpm run build:types && pnpm run build:cjs && pnpm run build:esm",
     "build:cjs": "tsc -p tsconfig.cjs.json",
     "build:esm": "tsc -p tsconfig.esm.json",
     "build:types": "tsc --emitDeclarationOnly --declaration --outDir dist/types",
     "test": "jest --config=jest.config.ts --runInBand --verbose --silent",
-    "test:keep": "cross-env KEEP_BEE_DIRS=true npm run test",
-    "test:ut": "cross-env KEEP_BEE_DIRS=true npm run test -- --selectProjects=unit",
-    "test:it": "cross-env KEEP_BEE_DIRS=true npm run test -- --selectProjects=integration",
+    "test:keep": "cross-env KEEP_BEE_DIRS=true pnpm run test",
+    "test:ut": "cross-env KEEP_BEE_DIRS=true pnpm run test -- --selectProjects=unit",
+    "test:it": "cross-env KEEP_BEE_DIRS=true pnpm run test -- --selectProjects=integration",
     "test:coverage": "jest --coverage",
-    "lint": "eslint . --report-unused-disable-directives",
-    "lint:fix": "npm run lint -- --fix",
-    "prepare": "npm run lint"
+    "lint": "eslint . --report-unused-disable-directives --no-cache",
+    "lint:fix": "pnpm run lint --fix",
+    "prepare": "pnpm run lint"
   },
   "files": [
     "dist"

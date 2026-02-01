@@ -2,8 +2,8 @@ import { BatchId, Bee, Bytes, MantarayNode, PrivateKey } from '@ethersphere/bee-
 import * as fs from 'fs';
 import path from 'path';
 
-import { SWARM_ZERO_ADDRESS } from '../src/utils/constants';
-import { FileInfo, FileManager, ReferenceWithHistory, WrappedUploadResult } from '../src/utils/types';
+import { SWARM_ZERO_ADDRESS } from '@/utils/constants';
+import { FileInfo, FileManager, ReferenceWithHistory, WrappedUploadResult } from '@/utils/types';
 
 export const BEE_URL = 'http://127.0.0.1:1633';
 export const OTHER_BEE_URL = 'http://127.0.0.1:1733';

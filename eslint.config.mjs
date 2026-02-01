@@ -53,7 +53,15 @@ const prettierRecommended = {
 
 export default [
   {
-    ignores: ['**/node_modules/**', '**/dist/**', 'eslint.config.mjs', 'eslint-compat.cjs', '**/*commitlint.config.js'],
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      'eslint.config.mjs',
+      'eslint-compat.cjs',
+      'commitlint.config.js', // TODO: configure
+      'tests/fixtures/**',
+      'tests/coverage/**',
+    ],
   },
   {
     settings: {
@@ -82,22 +90,6 @@ export default [
       },
     },
   },
-  {
-    files: ['tests/**/*.ts'],
-    plugins: {
-      jest: pluginJest,
-    },
-    languageOptions: {
-      globals: pluginJest.environments.globals.globals,
-    },
-    rules: {
-      'jest/no-disabled-tests': 'warn',
-      'jest/no-focused-tests': 'error',
-      'jest/no-identical-title': 'error',
-      'jest/prefer-to-have-length': 'warn',
-      'jest/valid-expect': 'error',
-    },
-  },
   // Include all the extended configs
   eslintRecommended,
   typescriptRecommended,
@@ -111,9 +103,9 @@ export default [
       'simple-import-sort': simpleImportSort,
     },
     rules: {
-      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/explicit-function-return-type': 'error',
-      '@typescript-eslint/no-non-null-assertion': 'off',
+      '@typescript-eslint/no-non-null-assertion': 'error',
       '@typescript-eslint/no-unused-vars': [
         'warn',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
@@ -130,6 +122,25 @@ export default [
           ],
         },
       ],
+    },
+  },
+  {
+    // tests
+    files: ['tests/**/*.{ts,tsx}'],
+    plugins: {
+      jest: pluginJest,
+    },
+    languageOptions: {
+      globals: pluginJest.environments.globals.globals,
+    },
+    rules: {
+      'jest/no-disabled-tests': 'warn',
+      'jest/no-focused-tests': 'error',
+      'jest/no-identical-title': 'error',
+      'jest/prefer-to-have-length': 'warn',
+      'jest/valid-expect': 'error',
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-non-null-assertion': 'off',
     },
   },
 ];
