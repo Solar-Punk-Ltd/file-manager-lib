@@ -72,7 +72,7 @@ export default [
       },
     },
     languageOptions: {
-      ecmaVersion: 2020,
+      ecmaVersion: 2022,
       sourceType: 'module',
       parser: tsParser,
       globals: {
@@ -84,7 +84,6 @@ export default [
         module: 'readonly',
         __dirname: 'readonly',
         process: 'readonly',
-        Buffer: 'readonly',
         setTimeout: 'readonly',
         TextEncoder: 'readonly',
       },

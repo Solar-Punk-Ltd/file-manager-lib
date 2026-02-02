@@ -472,7 +472,7 @@ describe('FileManager drive handling', () => {
         },
         ownerBatch,
       ),
-    ).rejects.toThrow(new DriveError(`Stamp does not match drive stamp`));
+    ).rejects.toThrow(new StampError(`Stamp does not match drive stamp`));
 
     await expect(
       fileManager.destroyDrive(

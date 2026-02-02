@@ -3,3 +3,5 @@ yarn.lock
 package-lock.json
 dist/
 pnpm-lock.yaml
+tests/coverage/
+tests/fixtures/

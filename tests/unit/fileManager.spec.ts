@@ -39,6 +39,8 @@ jest.mock('@/utils/common', () => ({
   getFeedData: jest.fn(),
   fetchStamp: jest.fn(),
   getWrappedData: jest.fn(),
+}));
+jest.mock('@/utils/crypto', () => ({
   generateRandomBytes: jest.fn(),
 }));
 jest.mock('@/utils/mantaray');

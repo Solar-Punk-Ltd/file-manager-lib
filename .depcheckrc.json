@@ -1,0 +1,16 @@
+{
+  "ignores": [
+    "@commitlint/cli",
+    "@commitlint/config-conventional",
+    "cross-env",
+    "rimraf",
+    "ts-node",
+    "@types/*",
+    "@babel/*",
+    "eslint*",
+    "@eslint/*",
+    "@jest/globals",
+    "ts-jest",
+    "husky"
+  ]
+}
