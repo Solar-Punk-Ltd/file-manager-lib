@@ -1583,6 +1583,7 @@ describe('FileManager End-to-End User Workflow', () => {
   });
 });
 
+/* eslint-disable no-undef */
 describe('FileManager AbortController', () => {
   let bee: BeeDev;
   let fileManager: FileManagerBase;
@@ -1648,7 +1649,7 @@ describe('FileManager AbortController', () => {
     try {
       await uploadPromise;
     } catch (error: any) {
-      expect(error.code === 'ERR_CANCELED' || error.message.includes('aborted')).toBe(true);
+      expect(error.statusText === 'ERR_CANCELED' || error.message.includes('aborted')).toBe(true);
     }
   });
 
