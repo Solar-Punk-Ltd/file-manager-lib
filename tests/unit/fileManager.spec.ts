@@ -107,7 +107,7 @@ describe('FileManager', () => {
   describe('initialize', () => {
     it('should initialize FileManager', async () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
-      const eventHandler = jest.fn((_) => {});
+      const eventHandler = jest.fn((_) => { });
       const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.INITIALIZED, eventHandler);
       await createInitializedFileManager(bee, undefined, emitter);
@@ -117,7 +117,7 @@ describe('FileManager', () => {
 
     it('should not initialize, if already initialized', async () => {
       const logSpy = jest.spyOn(console, 'debug');
-      const eventHandler = jest.fn((_) => {});
+      const eventHandler = jest.fn((_) => { });
       const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.INITIALIZED, eventHandler);
 
@@ -133,7 +133,7 @@ describe('FileManager', () => {
 
     it('should not initialize, if currently being initialized', async () => {
       const logSpy = jest.spyOn(console, 'debug');
-      const eventHandler = jest.fn((_) => {});
+      const eventHandler = jest.fn((_) => { });
       const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.INITIALIZED, eventHandler);
 
@@ -929,7 +929,7 @@ describe('FileManager', () => {
     it('should send event after upload happens', async () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const emitter = new EventEmitterBase();
-      const uploadHandler = jest.fn((_args) => {});
+      const uploadHandler = jest.fn((_args) => { });
 
       const fm = await createInitializedFileManager(bee, MOCK_BATCH_ID, emitter);
       fm.emitter.on(FileManagerEvents.FILE_UPLOADED, uploadHandler);
@@ -979,12 +979,94 @@ describe('FileManager', () => {
 
     it('should send an event after the fileManager is initialized', async () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
-      const eventHandler = jest.fn((_) => {});
+      const eventHandler = jest.fn((_) => { });
       const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.INITIALIZED, eventHandler);
       await createInitializedFileManager(bee, MOCK_BATCH_ID, emitter);
 
       expect(eventHandler).toHaveBeenCalledWith(true);
+    });
+  });
+
+  describe('AbortController', () => {
+    const otherMockBatchId = new BatchId('4'.repeat(64));
+
+    it('should pass requestOptions with signal to uploadFilesFromDirectory', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
+      const di = fm.driveList[0];
+
+      const uploadFileOrDirectorySpy = createUploadFilesFromDirectorySpy('1');
+      createUploadFileSpy('2');
+      createUploadDataSpy('3');
+      createUploadDataSpy('4');
+      createMockFeedWriter('5');
+
+      const controller = new AbortController();
+      await fm.upload(di, { name: 'tests', path: './tests' }, undefined, { signal: controller.signal });
+
+      expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
+      const callArgs = uploadFileOrDirectorySpy.mock.calls[0];
+      expect(callArgs[3]).toHaveProperty('signal', controller.signal);
+    });
+
+    it('should pass requestOptions with signal to uploadFile', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
+      const di = fm.driveList[0];
+
+      createUploadFilesFromDirectorySpy('1');
+      const uploadFileSpy = createUploadFileSpy('2');
+      createUploadDataSpy('3');
+      createUploadDataSpy('4');
+      createMockFeedWriter('5');
+
+      const controller = new AbortController();
+      await fm.upload(di, { name: 'test.txt', path: './tests/fixtures/test.txt' }, undefined, {
+        signal: controller.signal,
+      });
+
+      expect(uploadFileSpy).toHaveBeenCalled();
+      const callArgs = uploadFileSpy.mock.calls[0];
+      expect(callArgs[4]).toHaveProperty('signal', controller.signal);
+    });
+
+    it('should not pass signal if requestOptions is undefined', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
+      const di = fm.driveList[0];
+
+      const uploadFileOrDirectorySpy = createUploadFilesFromDirectorySpy('1');
+      createUploadFileSpy('2');
+      createUploadDataSpy('3');
+      createUploadDataSpy('4');
+      createMockFeedWriter('5');
+
+      await fm.upload(di, { name: 'tests', path: './tests' });
+
+      expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
+      const callArgs = uploadFileOrDirectorySpy.mock.calls[0];
+      // When requestOptions is not provided, the options object should not have signal
+      expect(callArgs[3]?.signal).toBeUndefined();
+    });
+
+    it('should allow upload to proceed when signal is not aborted', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
+      const di = fm.driveList[0];
+
+      createUploadFilesFromDirectorySpy('1');
+      createUploadFileSpy('2');
+      createUploadDataSpy('3');
+      createUploadDataSpy('4');
+      createMockFeedWriter('5');
+
+      const controller = new AbortController();
+
+      // Should not throw when signal is not aborted
+      await expect(
+        fm.upload(di, { name: 'tests', path: './tests' }, undefined, { signal: controller.signal }),
+      ).resolves.not.toThrow();
     });
   });
 });
