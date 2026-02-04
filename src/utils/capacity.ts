@@ -1,20 +1,21 @@
 import { BatchId, FeedIndex, PrivateKey, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 import { DriveInfo, FileInfo, ReferenceWithHistory, WrappedFileInfoFeed } from './types';
 import { SWARM_ZERO_ADDRESS } from './constants';
+import { getEncodedSize } from './common';
 
-const REFERENCE_WRAPPER_SIZE = new TextEncoder().encode(
+const REFERENCE_WRAPPER_SIZE = getEncodedSize(
   JSON.stringify({
     reference: SWARM_ZERO_ADDRESS.toString(),
     historyRef: SWARM_ZERO_ADDRESS.toString(),
   } as ReferenceWithHistory),
-).length;
+);
 // TODO: shouldn't eGranteeRef be 64 bytes -> verify with bee-js
-const INFOFEED_WRAPPER_SIZE = new TextEncoder().encode(
+const INFOFEED_WRAPPER_SIZE = getEncodedSize(
   JSON.stringify({
     topic: SWARM_ZERO_ADDRESS.toString(),
     eGranteeRef: SWARM_ZERO_ADDRESS.toString(),
   } as WrappedFileInfoFeed),
-).length;
+);
 const FEED_OVERHEAD_SIZE = FeedIndex.MINUS_ONE.toString().length + Topic.LENGTH;
 const DUMMY_SIGNER = new PrivateKey('634fb5a872396d9693e5c9f9d7233cfa93f395c093371017ff44aa9ae6564cdd');
 const DUMMY_STAMP = new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51');
@@ -31,7 +32,7 @@ const dummyDriveInfo: DriveInfo = {
   infoFeedList: [],
   isAdmin: true,
 };
-const dummyDriveInfoSize = new TextEncoder().encode(JSON.stringify(dummyDriveInfo)).length;
+const dummyDriveInfoSize = getEncodedSize(JSON.stringify(dummyDriveInfo));
 const dummyFileInfo: FileInfo = {
   batchId: DUMMY_STAMP.toString(),
   file: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
@@ -41,7 +42,7 @@ const dummyFileInfo: FileInfo = {
   topic: SWARM_ZERO_ADDRESS.toString(),
   driveId: dummyId.toString(),
 };
-const dummyFileInfoSize = new TextEncoder().encode(JSON.stringify(dummyFileInfo)).length;
+const dummyFileInfoSize = getEncodedSize(JSON.stringify(dummyFileInfo));
 
 // TODO: extend these if ACT trie expands
 /**

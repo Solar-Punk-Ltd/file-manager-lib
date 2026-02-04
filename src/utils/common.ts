@@ -117,3 +117,7 @@ export async function fetchStamp(bee: Bee, batchId: string | BatchId): Promise<P
     return;
   }
 }
+
+export const getEncodedSize = (input: string): number => {
+  return new TextEncoder().encode(input).length;
+};
