@@ -6,6 +6,7 @@ import {
   DownloadOptions,
   EthAddress,
   FeedIndex,
+  PostageBatch,
   PublicKey,
   Reference,
   Topic,
@@ -107,3 +108,16 @@ export async function settlePromises<T>(promises: Promise<T>[], cb: (value: T) =
     });
   });
 }
+
+export async function fetchStamp(bee: Bee, batchId: string | BatchId): Promise<PostageBatch | undefined> {
+  try {
+    return (await bee.getPostageBatches()).find((s) => s.batchID.toString() === batchId.toString());
+  } catch (error: any) {
+    console.error(`Failed to fetch stamp: ${error.message || error}`);
+    return;
+  }
+}
+
+export const getEncodedSize = (input: string): number => {
+  return new TextEncoder().encode(input).length;
+};

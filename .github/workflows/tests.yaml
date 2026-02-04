@@ -1,0 +1,92 @@
+# This workflow will do a clean installation of node dependencies, cache/restore them, build the source code and run the tests
+
+name: Tests
+
+on:
+  push:
+    branches: ['master']
+  pull_request:
+    branches:
+      - '**'
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [24.x]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Run unit tests
+        run: pnpm run test:ut
+
+  integration-tests:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [24.x]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: false
+
+      - name: Get Bee branch commit SHA
+        id: bee-commit
+        run: |
+          BEE_COMMIT=$(git ls-remote https://github.com/Solar-Punk-Ltd/bee.git refs/heads/tmp/dev-test | cut -f1)
+          echo "sha=$BEE_COMMIT" >> $GITHUB_OUTPUT
+          echo "Bee tmp/dev-test branch commit: $BEE_COMMIT"
+
+      - name: Cache Bee binary
+        uses: actions/cache@v4
+        with:
+          path: tests/integration/test-node-setup/bee-dev/dist/bee
+          key: bee-binary-${{ runner.os }}-${{ steps.bee-commit.outputs.sha }}
+          restore-keys: |
+            bee-binary-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Run integration tests
+        run: pnpm run test:it

@@ -97,7 +97,7 @@ await fm.createDrive(adminBatchId, 'admin', true);
 await fm.createDrive('<BATCH_ID>', 'My Drive', false);
 
 // upload directory
-const uploaded = await fm.upload(fm.getDrives()[0], { info: { name: 'docs' }, path: './docs' });
+const uploaded = await fm.upload(fm.driveList[0], { info: { name: 'docs' }, path: './docs' });
 
 // list + download
 const fi = fm.fileInfoList.find((f) => f.name === 'docs')!;
