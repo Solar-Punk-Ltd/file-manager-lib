@@ -52,7 +52,7 @@ export default [
       '**/dist/**',
       'eslint.config.mjs',
       'eslint-compat.cjs',
-      'commitlint.config.js',
+      'commitlint.config.cjs',
       'tests/fixtures/**',
       'tests/**/bee-dev/**',
       '**/coverage/**',

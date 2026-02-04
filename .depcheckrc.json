@@ -1,7 +1,6 @@
 {
   "ignores": [
-    "@commitlint/cli",
-    "@commitlint/config-conventional",
+    "@commitlint/*",
     "cross-env",
     "rimraf",
     "ts-node",
