@@ -27,12 +27,12 @@ import { BEE_URL, DEFAULT_MOCK_SIGNER } from '../utils';
 
 import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
+import { DriveInfo, FileInfo, FileStatus } from '@/types';
+import { FeedResultWithIndex, WrappedUploadResult } from '@/types/utils';
+import { DriveError, FileManagerEvents, SignerError } from '@/utils';
 import { fetchStamp, getFeedData } from '@/utils/common';
 import { ADMIN_STAMP_LABEL, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 import { generateRandomBytes } from '@/utils/crypto';
-import { DriveError, SignerError } from '@/utils/errors';
-import { FileManagerEvents } from '@/utils/events';
-import { DriveInfo, FeedResultWithIndex, FileInfo, FileStatus, WrappedUploadResult } from '@/utils/types';
 
 jest.mock('@/utils/common', () => ({
   ...jest.requireActual('@/utils/common'),

@@ -1,5 +1,8 @@
 import { BatchId, FeedIndex, PrivateKey, RedundancyLevel, Topic } from '@ethersphere/bee-js';
-import { DriveInfo, FileInfo, ReferenceWithHistory, WrappedFileInfoFeed } from './types';
+
+import { DriveInfo, FileInfo } from '../types';
+import { ReferenceWithHistory, WrappedFileInfoFeed } from '../types/utils';
+
 import { SWARM_ZERO_ADDRESS } from './constants';
 
 const REFERENCE_WRAPPER_SIZE = new TextEncoder().encode(
@@ -8,7 +11,6 @@ const REFERENCE_WRAPPER_SIZE = new TextEncoder().encode(
     historyRef: SWARM_ZERO_ADDRESS.toString(),
   } as ReferenceWithHistory),
 ).length;
-// TODO: shouldn't eGranteeRef be 64 bytes -> verify with bee-js
 const INFOFEED_WRAPPER_SIZE = new TextEncoder().encode(
   JSON.stringify({
     topic: SWARM_ZERO_ADDRESS.toString(),

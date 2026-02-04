@@ -1,7 +1,8 @@
 import { Bee, Bytes, Reference } from '@ethersphere/bee-js';
-import { downloadNode } from './download.node';
-import { downloadBrowser } from './download.browser';
 import { isNode } from 'std-env';
+
+import { downloadBrowser } from './download.browser';
+import { downloadNode } from './download.node';
 
 const bytesEndpoint = 'bytes';
 

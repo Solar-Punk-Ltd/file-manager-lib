@@ -1,7 +1,8 @@
 import { Bytes } from '@ethersphere/bee-js';
 import { isNode } from 'std-env';
-import { getRandomBytesNode } from './crypto.node';
+
 import { getRandomBytesBrowser } from './crypto.browser';
+import { getRandomBytesNode } from './crypto.node';
 
 export async function generateRandomBytes(len: number): Promise<Bytes> {
   if (isNode) {

@@ -31,12 +31,21 @@ import {
 import { ensureUniqueSignerWithStamp } from './testSetupHelpers';
 
 import { FileManagerBase } from '@/fileManager';
+import { DriveInfo, FileInfo, FileStatus } from '@/types';
+import { StateTopicInfo } from '@/types/utils';
+import {
+  ADMIN_STAMP_LABEL,
+  DriveError,
+  FileError,
+  FileInfoError,
+  FILEMANAGER_STATE_TOPIC,
+  FileManagerEvents,
+  GranteeError,
+  StampError,
+} from '@/utils';
 import { assertStateTopicInfo } from '@/utils/asserts';
 import { buyStamp, getFeedData } from '@/utils/common';
-import { ADMIN_STAMP_LABEL, FEED_INDEX_ZERO, FILEMANAGER_STATE_TOPIC, SWARM_ZERO_ADDRESS } from '@/utils/constants';
-import { DriveError, FileError, FileInfoError, GranteeError, StampError } from '@/utils/errors';
-import { FileManagerEvents } from '@/utils/events';
-import { DriveInfo, FileInfo, FileStatus, StateTopicInfo } from '@/utils/types';
+import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
 // TODO: emitter test for all events
 // TODO: separate IT cases into different files
@@ -104,7 +113,7 @@ describe('FileManager initialization', () => {
     });
     expect(topicHex).toEqual(reinitTopicHex);
   });
-  // TODO: review this case
+
   it('should throw an error if someone else than the admin tries to read the admin feed', async () => {
     const otherBee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
 

@@ -8,14 +8,9 @@ import {
   UploadResult,
 } from '@ethersphere/bee-js';
 
+import { DriveInfo, FileInfoOptions, NodeUploadOptions } from '../types';
+import { ReferenceWithHistory, WrappedUploadResult } from '../types/utils';
 import { FileError } from '../utils/errors';
-import {
-  DriveInfo,
-  FileInfoOptions,
-  NodeUploadOptions,
-  ReferenceWithHistory,
-  WrappedUploadResult,
-} from '../utils/types';
 
 async function uploadNode(
   bee: Bee,
@@ -90,6 +85,7 @@ async function uploadFile(
       },
       requestOptions,
     );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     throw new FileError(`Failed to upload file ${resolvedPath}: ${error}`);
   }
@@ -104,6 +100,7 @@ async function uploadDirectory(
 ): Promise<UploadResult> {
   try {
     return await bee.uploadFilesFromDirectory(batchId, resolvedPath, uploadOptions, requestOptions);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     throw new FileError(`Failed to upload directory ${resolvedPath}: ${error}`);
   }

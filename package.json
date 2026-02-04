@@ -24,8 +24,7 @@
     "test:ut": "cross-env KEEP_BEE_DIRS=true pnpm run test --selectProjects=unit",
     "test:it": "cross-env KEEP_BEE_DIRS=true pnpm run test --selectProjects=integration",
     "test:coverage": "jest --coverage",
-    "lint": "eslint . --report-unused-disable-directives --no-cache",
-    "lint:check": "pnpm run lint . --max-warnings=5",
+    "lint": "eslint . --report-unused-disable-directives --no-cache --max-warnings=5",
     "lint:fix": "pnpm run lint --fix",
     "depcheck": "depcheck ."
   },

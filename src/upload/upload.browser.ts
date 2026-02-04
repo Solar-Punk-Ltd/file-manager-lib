@@ -7,13 +7,9 @@ import {
   RedundantUploadOptions,
   UploadResult,
 } from '@ethersphere/bee-js';
-import {
-  BrowserUploadOptions,
-  DriveInfo,
-  FileInfoOptions,
-  ReferenceWithHistory,
-  WrappedUploadResult,
-} from '../utils/types';
+
+import { BrowserUploadOptions, DriveInfo, FileInfoOptions } from '../types';
+import { ReferenceWithHistory, WrappedUploadResult } from '../types/utils';
 
 export async function uploadBrowser(
   bee: Bee,

@@ -1,10 +1,8 @@
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
-// Calculate current directory for proper file path resolution
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Import the modules from our CommonJS compatibility wrapper
 const compat = await import(`${__dirname}/eslint-compat.cjs`);
 const js = compat.default.js;
 const ts = compat.default.ts;
@@ -15,10 +13,8 @@ const pluginJest = compat.default.pluginJest;
 const prettierPlugin = compat.default.prettierPlugin;
 const simpleImportSort = compat.default.simpleImportSort;
 
-// Recreate eslint:recommended
 const eslintRecommended = js.configs.recommended;
 
-// Recreate plugin:@typescript-eslint/recommended
 const typescriptRecommended = {
   plugins: {
     '@typescript-eslint': ts,
@@ -28,7 +24,6 @@ const typescriptRecommended = {
   },
 };
 
-// Recreate plugin:import/errors, plugin:import/warnings, plugin:import/typescript
 const importRules = {
   plugins: {
     import: importPlugin,
@@ -40,7 +35,6 @@ const importRules = {
   },
 };
 
-// Recreate plugin:prettier/recommended
 const prettierRecommended = {
   plugins: {
     prettier: prettierPlugin,
@@ -58,9 +52,10 @@ export default [
       '**/dist/**',
       'eslint.config.mjs',
       'eslint-compat.cjs',
-      'commitlint.config.js', // TODO: configure
+      'commitlint.config.js',
       'tests/fixtures/**',
-      'tests/coverage/**',
+      'tests/**/bee-dev/**',
+      '**/coverage/**',
     ],
   },
   {
@@ -76,7 +71,6 @@ export default [
       sourceType: 'module',
       parser: tsParser,
       globals: {
-        // Browser environment
         window: 'readonly',
         document: 'readonly',
         navigator: 'readonly',
@@ -85,18 +79,21 @@ export default [
         __dirname: 'readonly',
         process: 'readonly',
         setTimeout: 'readonly',
+        fetch: 'readonly',
         TextEncoder: 'readonly',
+        File: 'readonly',
+        FileList: 'readonly',
+        ReadableStream: 'readonly',
       },
     },
   },
-  // Include all the extended configs
   eslintRecommended,
   typescriptRecommended,
   importRules,
   prettierRecommended,
-  prettier, // Additional prettier config
+  prettier,
   {
-    // Plugin and rule configurations
+    files: ['**/*.{ts,js}'],
     plugins: {
       '@typescript-eslint': ts,
       'simple-import-sort': simpleImportSort,

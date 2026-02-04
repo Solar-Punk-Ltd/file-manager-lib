@@ -17,7 +17,7 @@ module.exports = {
   },
   coverageProvider: 'v8',
   collectCoverage: true,
-  coverageDirectory: 'coverage',
+  coverageDirectory: '<rootDir>/tests/coverage',
   coverageReporters: ['lcov'],
   collectCoverageFrom: ['./src/**'],
   coveragePathIgnorePatterns: ['/node_modules/', './tests/**'],

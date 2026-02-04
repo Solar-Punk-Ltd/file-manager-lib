@@ -1,1 +1,1 @@
-pnpm run lint:check && pnpm run depcheck
+pnpm run lint && pnpm run depcheck

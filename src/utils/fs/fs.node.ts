@@ -1,5 +1,6 @@
-import { FileError } from '../errors';
 import type { ReadStream } from 'fs';
+
+import { FileError } from '../errors';
 
 export interface FileData {
   data: string | Uint8Array | ReadStream;

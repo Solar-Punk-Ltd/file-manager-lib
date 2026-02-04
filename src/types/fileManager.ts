@@ -4,22 +4,19 @@ import {
   Bytes,
   CollectionUploadOptions,
   DownloadOptions,
-  EthAddress,
   FeedIndex,
   FileUploadOptions,
   GetGranteesResult,
-  Identifier,
   PostageBatch,
-  PublicKey,
   RedundancyLevel,
   RedundantUploadOptions,
-  Reference,
-  Topic,
 } from '@ethersphere/bee-js';
 
 import { EventEmitter } from '../eventEmitter';
 
-// TODO: test invalid state emit
+import { DriveInfo, FileInfo, ShareItem } from './info';
+import { FileInfoOptions } from './utils';
+
 /**
  * Interface representing a file manager with various file operations.
  */
@@ -210,103 +207,4 @@ export interface FileManager {
    * Event emitter for handling file manager events.
    */
   emitter: EventEmitter;
-}
-// TODO: set statuses for trashed, recovered, forgotten
-export enum FileStatus {
-  Active = 'active',
-  Trashed = 'trashed',
-}
-// TODO: separate type files
-export interface FileInfo {
-  batchId: string | BatchId;
-  file: ReferenceWithHistory;
-  name: string;
-  owner: string | EthAddress;
-  actPublisher: string | PublicKey;
-  topic: string | Topic;
-  driveId: string;
-  timestamp?: number;
-  shared?: boolean;
-  preview?: ReferenceWithHistory;
-  version?: string | undefined;
-  index?: FeedIndex | undefined;
-  redundancyLevel?: RedundancyLevel;
-  customMetadata?: Record<string, string>;
-  status?: FileStatus;
-}
-
-export interface StateTopicInfo {
-  topicReference: string;
-  historyAddress: string;
-  index: string;
-}
-
-export interface PartialFileInfo extends Omit<
-  FileInfo,
-  'owner' | 'actPublisher' | 'file' | 'topic' | 'driveId' | 'batchId' | 'redundancyLevel' | 'status'
-> {
-  file?: ReferenceWithHistory;
-  topic?: string | Topic;
-}
-
-export interface BrowserUploadOptions {
-  files: File[] | FileList;
-  preview?: File;
-  onUploadProgress?: (progress: UploadProgress) => void;
-}
-
-export interface NodeUploadOptions {
-  path: string;
-  previewPath?: string;
-}
-
-export type FileInfoOptions = PartialFileInfo & (BrowserUploadOptions | NodeUploadOptions);
-
-export interface DriveInfo {
-  id: string | Identifier;
-  batchId: string | BatchId;
-  owner: string | EthAddress;
-  name: string;
-  redundancyLevel: RedundancyLevel;
-  isAdmin: boolean;
-  infoFeedList?: WrappedFileInfoFeed[];
-}
-
-export interface ShareItem {
-  fileInfo: FileInfo;
-  timestamp?: number;
-  message?: string;
-}
-
-export interface ReferenceWithHistory {
-  reference: string | Reference;
-  historyRef: string | Reference;
-}
-
-export interface WrappedFileInfoFeed {
-  topic: string | Topic;
-  eGranteeRef?: string | Reference;
-}
-
-interface FeedUpdateHeaders {
-  feedIndex: FeedIndex;
-  feedIndexNext?: FeedIndex;
-}
-export interface FeedPayloadResult extends FeedUpdateHeaders {
-  payload: Bytes;
-}
-export interface FeedReferenceResult extends FeedUpdateHeaders {
-  reference: Reference;
-}
-export interface FeedResultWithIndex extends FeedPayloadResult {
-  feedIndexNext: FeedIndex;
-}
-export interface UploadProgress {
-  total: number;
-  processed: number;
-}
-
-export interface WrappedUploadResult {
-  uploadFilesRes: string | Reference;
-  uploadPreviewRes?: string | Reference;
 }

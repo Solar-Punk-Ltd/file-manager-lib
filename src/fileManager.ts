@@ -5,42 +5,41 @@ import {
   Bytes,
   CollectionUploadOptions,
   DownloadOptions,
+  EthAddress,
   FeedIndex,
   FileUploadOptions,
   GetGranteesResult,
+  Identifier,
   PostageBatch,
   PrivateKey,
+  PublicKey,
+  RedundancyLevel,
   RedundantUploadOptions,
   Reference,
   Topic,
-  RedundancyLevel,
-  Identifier,
-  PublicKey,
-  EthAddress,
 } from '@ethersphere/bee-js';
 
+import { FeedResultWithIndex, ReferenceWithHistory, StateTopicInfo } from './types/utils';
 import { assertDriveInfo, assertFileInfo, assertStateTopicInfo } from './utils/asserts';
 import { fetchStamp, getFeedData, getWrappedData, settlePromises } from './utils/common';
-
-import { FEED_INDEX_ZERO, ADMIN_STAMP_LABEL, FILEMANAGER_STATE_TOPIC } from './utils/constants';
-import { BeeVersionError, DriveError, FileInfoError, GranteeError, SignerError, StampError } from './utils/errors';
-import { EventEmitter, EventEmitterBase } from './eventEmitter';
-import { FileManagerEvents } from './utils/events';
-import {
-  FeedResultWithIndex,
-  FileInfo,
-  FileManager,
-  FileInfoOptions,
-  FileStatus,
-  ReferenceWithHistory,
-  ShareItem,
-  DriveInfo,
-  StateTopicInfo,
-} from './utils/types';
-import { getForksMap, loadMantaray } from './utils/mantaray';
-import { processUpload } from './upload';
-import { processDownload } from './download';
+import { FEED_INDEX_ZERO } from './utils/constants';
 import { generateRandomBytes } from './utils/crypto';
+import { getForksMap, loadMantaray } from './utils/mantaray';
+import { processDownload } from './download';
+import { EventEmitter, EventEmitterBase } from './eventEmitter';
+import { DriveInfo, FileInfo, FileInfoOptions, FileManager, FileStatus, ShareItem } from './types';
+import { processUpload } from './upload';
+import {
+  ADMIN_STAMP_LABEL,
+  BeeVersionError,
+  DriveError,
+  FileInfoError,
+  FILEMANAGER_STATE_TOPIC,
+  FileManagerEvents,
+  GranteeError,
+  SignerError,
+  StampError,
+} from './utils';
 
 export class FileManagerBase implements FileManager {
   private bee: Bee;
@@ -100,6 +99,7 @@ export class FileManagerBase implements FileManager {
 
       this.isInitialized = true;
       this.emitter.emit(FileManagerEvents.INITIALIZED, true);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       console.error(`Failed to initialize FileManager: ${error.message || error}`);
       this.isInitialized = false;
@@ -147,6 +147,7 @@ export class FileManagerBase implements FileManager {
     try {
       stateTopicInfo = payload.toJSON() as StateTopicInfo;
       assertStateTopicInfo(stateTopicInfo);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       console.error(`Failed to fetch admin state: ${error.message || error}`);
       this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
@@ -162,6 +163,7 @@ export class FileManagerBase implements FileManager {
         actHistoryAddress: topicHistoryRef,
         actPublisher: this.publisher,
       });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       console.error(`Failed to decrypt admin state: ${error.message || error}`);
       this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
@@ -250,6 +252,7 @@ export class FileManagerBase implements FileManager {
     for (const item of driveListData) {
       try {
         assertDriveInfo(item);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (error: any) {
         console.error(`Invalid DriveInfo item: ${JSON.stringify(item)}, skipping it\n${error.message || error}`);
         continue;
@@ -338,6 +341,7 @@ export class FileManagerBase implements FileManager {
       try {
         assertFileInfo(unwrappedFileInfoData);
         this.fileInfoList.push(unwrappedFileInfoData);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (error: any) {
         console.error(`Invalid FileInfo item, skipping it: ${error.message || error}`);
       }
@@ -398,7 +402,7 @@ export class FileManagerBase implements FileManager {
 
     this.emitter.emit(FileManagerEvents.DRIVE_CREATED, { driveInfo });
   }
-  // TODO: use listFiles in download?
+
   async listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<Record<string, string>> {
     const wrappedData = await getWrappedData(
       this.bee,
@@ -544,7 +548,7 @@ export class FileManagerBase implements FileManager {
       version = feedIndexNext.toString();
     }
 
-    return { topic, version };
+    return { topic, version: version ? version : FEED_INDEX_ZERO.toString() };
   }
 
   async getVersion(fi: FileInfo, version?: string | FeedIndex): Promise<FileInfo> {
@@ -626,6 +630,7 @@ export class FileManagerBase implements FileManager {
         reference: uploadInfoRes.reference.toString(),
         historyRef: uploadInfoRes.historyAddress.getOrThrow().toString(),
       };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       throw new FileInfoError(`Failed to save fileinfo: ${error.message || error}`);
     }
@@ -645,6 +650,7 @@ export class FileManagerBase implements FileManager {
       await fw.uploadPayload(fi.batchId, fileInfoState, {
         index: fi.version !== undefined ? new FeedIndex(fi.version) : undefined,
       });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       throw new FileInfoError(`Failed to save wrapped fileInfo feed: ${error.message || error}`);
     }
@@ -699,6 +705,7 @@ export class FileManagerBase implements FileManager {
       });
 
       this.driveListNextIndex += 1n;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       throw new DriveError(`Failed to save drive list: ${error.message || error}`);
     }

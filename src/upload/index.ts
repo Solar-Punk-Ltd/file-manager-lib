@@ -1,4 +1,3 @@
-import { isNode } from 'std-env';
 import type {
   Bee,
   BeeRequestOptions,
@@ -6,8 +5,11 @@ import type {
   FileUploadOptions,
   RedundantUploadOptions,
 } from '@ethersphere/bee-js';
-import type { DriveInfo, FileInfoOptions } from '../utils';
-import type { ReferenceWithHistory } from '../utils/types';
+import { isNode } from 'std-env';
+
+import type { DriveInfo, FileInfoOptions } from '../types';
+import type { ReferenceWithHistory } from '../types/utils';
+
 import { processUploadBrowser } from './upload.browser';
 
 export async function processUpload(

@@ -4,7 +4,7 @@ node_modules
 dist/**/*.map
 *.local
 
-test/
+tests/
 __tests__/
 *.spec.ts
 *.test.ts
