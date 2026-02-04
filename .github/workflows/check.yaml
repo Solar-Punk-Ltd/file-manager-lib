@@ -33,9 +33,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Commit linting
-        uses: wagoid/commitlint-github-action@v5
-        with:
-          configFile: ./commitlint.config.cjs
+        run: npx commitlint --config commitlint.config.cjs --from=HEAD~1 --to=HEAD --verbose
 
       - name: Code linting
         run: pnpm run lint
