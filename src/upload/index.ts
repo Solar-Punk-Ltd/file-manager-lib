@@ -10,8 +10,6 @@ import { isNode } from 'std-env';
 import type { DriveInfo, FileInfoOptions } from '../types';
 import type { ReferenceWithHistory } from '../types/utils';
 
-import { processUploadBrowser } from './upload.browser';
-
 export async function processUpload(
   bee: Bee,
   driveInfo: DriveInfo,
@@ -24,5 +22,6 @@ export async function processUpload(
     return processUploadNode(bee, driveInfo, fileOptions, uploadOptions, requestOptions);
   }
 
+  const { processUploadBrowser } = await import('./upload.browser');
   return processUploadBrowser(bee, driveInfo, fileOptions, uploadOptions, requestOptions);
 }
