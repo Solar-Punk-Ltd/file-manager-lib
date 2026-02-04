@@ -1583,7 +1583,6 @@ describe('FileManager End-to-End User Workflow', () => {
   });
 });
 
-/* eslint-disable no-undef */
 describe('FileManager AbortController', () => {
   let bee: BeeDev;
   let fileManager: FileManagerBase;
@@ -1624,9 +1623,14 @@ describe('FileManager AbortController', () => {
     controller.abort(); // Pre-abort
 
     await expect(
-      fileManager.upload(drive, { name: 'test-abort-file.txt', path: path.join(tempDir, 'large-file.bin') }, undefined, {
-        signal: controller.signal,
-      }),
+      fileManager.upload(
+        drive,
+        { name: 'test-abort-file.txt', path: path.join(tempDir, 'large-file.bin') },
+        undefined,
+        {
+          signal: controller.signal,
+        },
+      ),
     ).rejects.toThrow('Request aborted');
   });
 
