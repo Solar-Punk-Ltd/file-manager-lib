@@ -24,9 +24,6 @@ importers:
       '@eslint/js':
         specifier: ^9.39.2
         version: 9.39.2
-      '@jest/globals':
-        specifier: ^30.2.0
-        version: 30.2.0
       '@types/event-emitter':
         specifier: ^0.3.5
         version: 0.3.5
@@ -85,9 +82,6 @@ importers:
         specifier: ^9.1.7
         version: 9.1.7
       jest:
-        specifier: ^30.2.0
-        version: 30.2.0(@types/node@25.1.0)(ts-node@10.9.2(@types/node@25.1.0)(typescript@5.9.3))
-      jest-cli:
         specifier: ^30.2.0
         version: 30.2.0(@types/node@25.1.0)(ts-node@10.9.2(@types/node@25.1.0)(typescript@5.9.3))
       prettier:

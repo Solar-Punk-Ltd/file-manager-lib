@@ -8,7 +8,6 @@
     "@babel/*",
     "eslint*",
     "@eslint/*",
-    "@jest/globals",
     "ts-jest",
     "husky"
   ]

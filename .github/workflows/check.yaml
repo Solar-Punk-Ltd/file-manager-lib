@@ -45,3 +45,6 @@ jobs:
 
       - name: Build
         run: pnpm run build
+
+      - name: Check typings
+        run: pnpm run check:types
