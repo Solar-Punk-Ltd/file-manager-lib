@@ -234,6 +234,7 @@ export interface FileInfo {
   redundancyLevel?: RedundancyLevel;
   customMetadata?: Record<string, string>;
   status?: FileStatus;
+  resetGrantees?: boolean;
 }
 
 export interface StateTopicInfo {
@@ -288,6 +289,21 @@ export interface ReferenceWithHistory {
 export interface WrappedFileInfoFeed {
   topic: string | Topic;
   eGranteeRef?: string | Reference;
+  granteeList?: ReferenceWithHistory;
+  addressBookRef?: string | Reference;
+}
+
+export interface GranteeListUpdatedPayload {
+  fileInfo: { driveId: string; topic: string };
+  granteeListPointer: ReferenceWithHistory;
+  grantees: string[];
+  operation: 'create' | 'update';
+}
+
+export interface GranteeListRetrievedPayload {
+  fileInfo: FileInfo;
+  grantees: string[];
+  granteeListRef?: string | Reference;
 }
 
 export interface FileData {
