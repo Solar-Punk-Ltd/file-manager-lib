@@ -79,6 +79,7 @@ export default [
         Buffer: 'readonly',
         setTimeout: 'readonly',
         TextEncoder: 'readonly',
+        AbortController: 'readonly',
       },
     },
   },

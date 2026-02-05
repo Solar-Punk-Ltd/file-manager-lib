@@ -20,6 +20,7 @@ export async function downloadReadableFetch(
 
   const response = await fetch(`${apiUrl}/${endpoint}/${resource.toString()}`, {
     method: 'GET',
+    signal: requestOptions?.signal,
     headers: {
       ...requestOptions?.headers,
       ...prepareRequestHeaders(options),

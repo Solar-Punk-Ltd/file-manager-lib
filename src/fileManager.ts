@@ -414,6 +414,7 @@ export class FileManagerBase implements FileManager {
     fileInfo: FileInfo,
     paths?: string[],
     options?: DownloadOptions,
+    requestOptions?: BeeRequestOptions,
   ): Promise<ReadableStream<Uint8Array>[] | Bytes[]> {
     const wrappedData = await getWrappedData(
       this.bee,
@@ -427,7 +428,7 @@ export class FileManagerBase implements FileManager {
 
     const resources = getForksMap(unmarshalled, paths);
 
-    return await processDownload(this.bee, Object.values(resources));
+    return await processDownload(this.bee, Object.values(resources), options, requestOptions);
   }
 
   async upload(

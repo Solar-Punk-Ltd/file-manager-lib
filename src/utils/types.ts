@@ -81,6 +81,7 @@ export interface FileManager {
     fileInfo: FileInfo,
     paths?: string[],
     options?: DownloadOptions,
+    requestOptions?: BeeRequestOptions,
   ): Promise<ReadableStream<Uint8Array>[] | Bytes[]>;
 
   /**
