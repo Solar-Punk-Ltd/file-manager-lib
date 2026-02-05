@@ -1,7 +1,8 @@
 import { BatchId, EthAddress, FeedIndex, Identifier, PublicKey, Reference, Topic } from '@ethersphere/bee-js';
 import { Types } from 'cafe-utility';
 
-import { DriveInfo, FileInfo, ShareItem, StateTopicInfo, WrappedFileInfoFeed, WrappedUploadResult } from './types';
+import { DriveInfo, FileInfo, ReferenceWithHistory, ShareItem, StateTopicInfo, WrappedFileInfoFeed, WrappedUploadResult } from './types';
+
 
 export function isRecord(value: unknown): value is Record<string, string> {
   return Types.isStrictlyObject(value) && Object.values(value).every((v) => typeof v === 'string');
@@ -81,7 +82,34 @@ export function assertWrappedFileInfoFeed(value: unknown): asserts value is Wrap
   if (wmf.eGranteeRef !== undefined) {
     new Reference(wmf.eGranteeRef);
   }
+
+  if (wmf.granteeList !== undefined) {
+    assertReferenceWithHistory(wmf.granteeList);
+  }
+
+  if (wmf.addressBookRef !== undefined) {
+    new Reference(wmf.addressBookRef);
+  }
 }
+
+export function assertReferenceWithHistory(value: unknown): asserts value is ReferenceWithHistory {
+  if (!Types.isStrictlyObject(value)) {
+    throw new TypeError('ReferenceWithHistory has to be object!');
+  }
+
+  const glp = value as unknown as ReferenceWithHistory;
+
+  if (glp.reference === undefined) {
+    throw new TypeError('ReferenceWithHistory.reference is required!');
+  }
+  new Reference(glp.reference);
+
+  if (glp.historyRef === undefined) {
+    throw new TypeError('ReferenceWithHistory.historyRef is required!');
+  }
+  new Reference(glp.historyRef);
+}
+
 
 export function assertWrappedUploadResult(value: unknown): asserts value is WrappedUploadResult {
   if (!Types.isStrictlyObject(value)) {

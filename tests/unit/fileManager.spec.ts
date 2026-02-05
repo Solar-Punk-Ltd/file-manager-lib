@@ -5,6 +5,7 @@ import {
   DownloadOptions,
   FeedIndex,
   MantarayNode,
+  PublicKey,
   RedundancyLevel,
   Reference,
   Topic,
@@ -14,7 +15,7 @@ import { EventEmitterBase } from '../../src/eventEmitter';
 import { FileManagerBase } from '../../src/fileManager';
 import { fetchStamp, generateRandomBytes, getFeedData } from '../../src/utils/common';
 import { ADMIN_STAMP_LABEL, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
-import { DriveError, SignerError } from '../../src/utils/errors';
+import { DriveError, FileInfoError, SignerError } from '../../src/utils/errors';
 import { FileManagerEvents } from '../../src/utils/events';
 import { DriveInfo, FeedResultWithIndex, FileInfo, FileStatus, WrappedUploadResult } from '../../src/utils/types';
 import {
@@ -985,6 +986,105 @@ describe('FileManager', () => {
       await createInitializedFileManager(bee, MOCK_BATCH_ID, emitter);
 
       expect(eventHandler).toHaveBeenCalledWith(true);
+    });
+  });
+
+  describe('handleGrantees', () => {
+    it('should create new grantee list when none exists', async () => {
+      createUploadFilesFromDirectorySpy('f');
+      const fm = await createInitializedFileManager();
+
+      const fileInfo = await createMockFileInfo(
+        DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
+        DEFAULT_MOCK_SIGNER.publicKey().toCompressedHex(),
+      );
+      const drive = fm.driveList[0];
+      fileInfo.driveId = drive.id.toString();
+      fileInfo.topic = '1';
+      drive.infoFeedList = [{ topic: '1' }];
+
+      const createGranteesSpy = jest.spyOn(Bee.prototype, 'createGrantees').mockResolvedValue({
+        ref: new Reference('a'.repeat(64)),
+        historyref: new Reference('b'.repeat(64)),
+        status: 201,
+        statusText: 'Created',
+      });
+      createUploadDataSpy('c');
+
+      const result = await fm.handleGrantees(fileInfo, { add: ['key1', 'key2'] });
+
+      expect(createGranteesSpy).toHaveBeenCalledWith(drive.batchId, ['key1', 'key2'], undefined);
+      expect(result.reference).toBe('a'.repeat(64));
+      expect(result.historyRef).toBe('b'.repeat(64));
+      expect(drive.infoFeedList[0].granteeList).toEqual(result);
+    });
+
+    it('should patch existing grantee list when constraints met', async () => {
+      createUploadFilesFromDirectorySpy('f');
+      const fm = await createInitializedFileManager();
+
+      const fileInfo = await createMockFileInfo(
+        DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
+        DEFAULT_MOCK_SIGNER.publicKey().toCompressedHex(),
+      );
+      const drive = fm.driveList[0];
+      fileInfo.driveId = drive.id.toString();
+      fileInfo.topic = '1';
+
+      drive.infoFeedList = [
+        {
+          topic: '1',
+          granteeList: { reference: 'oldRef', historyRef: 'oldHist' },
+        },
+      ];
+
+      const key1 = '01'.repeat(64);
+      const key2 = '02'.repeat(64);
+
+      jest.spyOn(Bee.prototype, 'getGrantees').mockResolvedValue({
+        grantees: [new PublicKey(key1)],
+        status: 200,
+        statusText: 'OK',
+      });
+
+      const patchGranteesSpy = jest.spyOn(Bee.prototype, 'patchGrantees').mockResolvedValue({
+        ref: new Reference('c'.repeat(64)),
+        historyref: new Reference('d'.repeat(64)),
+        status: 200,
+        statusText: 'OK',
+      });
+      createUploadDataSpy('c');
+
+      const newGranteesDelta = { add: [key2] };
+      await fm.handleGrantees(fileInfo, newGranteesDelta);
+
+      expect(patchGranteesSpy).toHaveBeenCalledWith(drive.batchId, 'oldRef', 'oldHist', newGranteesDelta, undefined);
+    });
+
+    it('should throw DriveError if drive not found', async () => {
+      const fm = await createInitializedFileManager();
+      const fileInfo = await createMockFileInfo(
+        DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
+        DEFAULT_MOCK_SIGNER.publicKey().toCompressedHex(),
+      );
+      fileInfo.driveId = 'non-existent';
+
+      await expect(fm.handleGrantees(fileInfo, {})).rejects.toThrow(DriveError);
+    });
+
+    it('should throw FileInfoError if topic not found in drive', async () => {
+      createUploadFilesFromDirectorySpy('f');
+      const fm = await createInitializedFileManager();
+      const fileInfo = await createMockFileInfo(
+        DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
+        DEFAULT_MOCK_SIGNER.publicKey().toCompressedHex(),
+      );
+      const drive = fm.driveList[0];
+      fileInfo.driveId = drive.id.toString();
+      fileInfo.topic = 'non-existent-topic';
+      drive.infoFeedList = [];
+
+      await expect(fm.handleGrantees(fileInfo, {})).rejects.toThrow(FileInfoError);
     });
   });
 });

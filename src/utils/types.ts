@@ -142,7 +142,11 @@ export interface FileManager {
    * @emits FileManagerEvents.SHARE_MESSAGE_SENT
    * @returns A promise that resolves when the file is shared.
    */
-  share(fileInfo: FileInfo, targetOverlays: string[], recipients: string[], message?: string): Promise<void>;
+  share(
+    fileInfoList: FileInfo[],
+    grantees: AddressBook,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void>;
 
   /**
    * Subscribes to the shared inbox with the given topic and callback.
@@ -156,6 +160,19 @@ export interface FileManager {
    * Unsubscribes from the shared inbox.
    */
   unsubscribeFromSharedInbox(): void;
+
+  /**
+   * Create or update the grantee list for a file.
+   * @param fileInfo - Information about the file.
+   * @param grantees - List of grantee public keys.
+   * @param requestOptions - Additional Bee request options.
+   * @returns A promise that resolves to the new reference and history reference.
+   */
+  handleGrantees(
+    fileInfo: FileInfo,
+    grantees: GranteeDelta,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<ReferenceWithHistory>;
 
   /**
    * Retrieves the grantees of a file.
@@ -234,6 +251,14 @@ export interface FileInfo {
   redundancyLevel?: RedundancyLevel;
   customMetadata?: Record<string, string>;
   status?: FileStatus;
+  resetGrantees?: boolean;
+}
+
+export type AddressBook = Map<string, string>;
+
+export interface GranteeDelta {
+  add?: string[];
+  revoke?: string[];
 }
 
 export interface StateTopicInfo {
@@ -288,6 +313,21 @@ export interface ReferenceWithHistory {
 export interface WrappedFileInfoFeed {
   topic: string | Topic;
   eGranteeRef?: string | Reference;
+  granteeList?: ReferenceWithHistory;
+  addressBookRef?: string | Reference;
+}
+
+export interface GranteeListUpdatedPayload {
+  fileInfo: { driveId: string; topic: string };
+  granteeListPointer: ReferenceWithHistory;
+  grantees: string[];
+  operation: 'create' | 'update';
+}
+
+export interface GranteeListRetrievedPayload {
+  fileInfo: FileInfo;
+  grantees: string[];
+  granteeListRef?: string | Reference;
 }
 
 export interface FileData {
