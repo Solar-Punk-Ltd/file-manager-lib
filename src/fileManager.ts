@@ -312,42 +312,49 @@ export class FileManagerBase implements FileManager {
       return;
     }
 
-    const feedDataPromises: Promise<FeedResultWithIndex>[] = [];
-    this.driveList.forEach((d) => {
+    const fileInfoPromises: Promise<FileInfo | null>[] = [];
+
+    for (const d of this.driveList) {
       if (d.infoFeedList && d.infoFeedList.length > 0) {
         for (const feed of d.infoFeedList) {
-          feedDataPromises.push(
-            getFeedData(this.bee, new Topic(feed.topic), this.signer.publicKey().address().toString()),
-          );
+          const fileInfoPromise = async (): Promise<FileInfo | null> => {
+            try {
+              const feedData = await getFeedData(
+                this.bee,
+                new Topic(feed.topic),
+                this.signer.publicKey().address().toString(),
+              );
+
+              const fileInfoFeedData = feedData.payload.toJSON() as ReferenceWithHistory;
+              const rawData = await this.bee.downloadData(fileInfoFeedData.reference.toString(), {
+                actHistoryAddress: fileInfoFeedData.historyRef,
+                actPublisher: tmpPublisher,
+              });
+
+              const unwrappedFileInfoData = rawData.toJSON() as FileInfo;
+              assertFileInfo(unwrappedFileInfoData);
+
+              return unwrappedFileInfoData;
+
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } catch (error: any) {
+              console.error(`Invalid FileInfo item, skipping it: ${error.message || error}`);
+              return null;
+            }
+          };
+
+          fileInfoPromises.push(fileInfoPromise());
         }
       }
-    });
+    }
 
-    const rawDataPromises: Promise<Bytes>[] = [];
-    await settlePromises<FeedResultWithIndex>(feedDataPromises, (value) => {
-      const fileInfoFeedData = value.payload.toJSON() as ReferenceWithHistory;
-
-      rawDataPromises.push(
-        this.bee.downloadData(fileInfoFeedData.reference.toString(), {
-          actHistoryAddress: fileInfoFeedData.historyRef,
-          actPublisher: tmpPublisher,
-        }),
-      );
-    });
-
-    await settlePromises<Bytes>(rawDataPromises, (value) => {
-      const unwrappedFileInfoData = value.toJSON() as FileInfo;
-
-      try {
-        assertFileInfo(unwrappedFileInfoData);
-        this.fileInfoList.push(unwrappedFileInfoData);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } catch (error: any) {
-        console.error(`Invalid FileInfo item, skipping it: ${error.message || error}`);
+    await settlePromises(fileInfoPromises, (fileInfo) => {
+      if (fileInfo !== null) {
+        this.fileInfoList.push(fileInfo);
       }
     });
 
-    console.debug('File info lists fetched successfully.');
+    console.debug('FileInfo lists fetched successfully.');
   }
 
   async createDrive(
@@ -838,6 +845,7 @@ export class FileManagerBase implements FileManager {
     this.emitter.emit(FileManagerEvents.DRIVE_FORGOTTEN, { driveInfo });
   }
 
+  // eslint-disable-next-line require-await
   async getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult> {
     const driveIx = this.driveList.findIndex((d) => d.id.toString() === fileInfo.driveId);
     if (driveIx === -1) {
@@ -852,6 +860,7 @@ export class FileManagerBase implements FileManager {
     return this.bee.getGrantees(info.eGranteeRef);
   }
 
+  // eslint-disable-next-line require-await
   async subscribeToSharedInbox(_topic: string, _callback?: (_data: ShareItem) => void): Promise<void> {
     /** no-op */
     return;
@@ -862,6 +871,7 @@ export class FileManagerBase implements FileManager {
     return;
   }
 
+  // eslint-disable-next-line require-await
   async share(_fileInfo: FileInfo, _targetOverlays: string[], _recipients: string[], _message?: string): Promise<void> {
     /** no-op */
     return;

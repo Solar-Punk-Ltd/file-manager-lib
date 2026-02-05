@@ -20,7 +20,7 @@ provide:
 ## Installation
 
 ```bash
-npm install @solarpunkltd/file-manager-lib
+pnpm install @solarpunkltd/file-manager-lib
 ```
 
 Peer dependency: `@ethersphere/bee-js`

@@ -102,6 +102,7 @@ export default [
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/explicit-function-return-type': 'error',
       '@typescript-eslint/no-non-null-assertion': 'error',
+      'require-await': 'error',
       '@typescript-eslint/no-unused-vars': [
         'warn',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
@@ -130,6 +131,7 @@ export default [
       globals: pluginJest.environments.globals.globals,
     },
     rules: {
+      'require-await': 'off',
       'jest/no-disabled-tests': 'warn',
       'jest/no-focused-tests': 'error',
       'jest/no-identical-title': 'error',
