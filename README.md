@@ -20,7 +20,7 @@ provide:
 ## Installation
 
 ```bash
-npm install @solarpunkltd/file-manager-lib
+pnpm install @solarpunkltd/file-manager-lib
 ```
 
 Peer dependency: `@ethersphere/bee-js`
@@ -58,7 +58,7 @@ You need an active postage stamp to upload data.
 ### Install CLI
 
 ```bash
-npm install -g @ethersphere/swarm-cli
+pnpm install -g @ethersphere/swarm-cli
 ```
 
 ### List existing stamps
@@ -122,10 +122,11 @@ const data = await fm.download(fi, ['README.md'], {
 
 From `package.json`:
 
-- `npm run build` → compile Node + browser + types.
-- `npm test` → run Jest integration tests (see [TESTS.md](TESTS.md)).
-- `npm run lint` / `npm run lint:fix` → linting.
-- `npm run build:browser` → bundle with Vite.
+- `pnpm run build` → compile Node + browser + types.
+- `pnpm run test` → run Jest integration tests (see [TESTS.md](TESTS.md)).
+- `pnpm run lint` / `pnpm run lint:fix` → linting.
+- `pnpm husky install` → husky init
+- `pnpm run depcheck` → check dependencies
 
 ---
 
@@ -141,4 +142,4 @@ From `package.json`:
 
 ## License
 
-TBD
+[Apache-2.0](./LICENSE)

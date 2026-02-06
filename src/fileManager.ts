@@ -5,41 +5,41 @@ import {
   Bytes,
   CollectionUploadOptions,
   DownloadOptions,
+  EthAddress,
   FeedIndex,
   FileUploadOptions,
   GetGranteesResult,
+  Identifier,
   PostageBatch,
   PrivateKey,
+  PublicKey,
+  RedundancyLevel,
   RedundantUploadOptions,
   Reference,
   Topic,
-  RedundancyLevel,
-  Identifier,
-  PublicKey,
-  EthAddress,
 } from '@ethersphere/bee-js';
 
+import { FeedResultWithIndex, ReferenceWithHistory, StateTopicInfo } from './types/utils';
 import { assertDriveInfo, assertFileInfo, assertStateTopicInfo } from './utils/asserts';
-import { fetchStamp, generateRandomBytes, getFeedData, getWrappedData, settlePromises } from './utils/common';
-
-import { FEED_INDEX_ZERO, ADMIN_STAMP_LABEL, FILEMANAGER_STATE_TOPIC } from './utils/constants';
-import { BeeVersionError, DriveError, FileInfoError, GranteeError, SignerError, StampError } from './utils/errors';
-import { EventEmitter, EventEmitterBase } from './eventEmitter';
-import { FileManagerEvents } from './utils/events';
-import {
-  FeedResultWithIndex,
-  FileInfo,
-  FileManager,
-  FileInfoOptions,
-  FileStatus,
-  ReferenceWithHistory,
-  ShareItem,
-  DriveInfo,
-  StateTopicInfo,
-} from './utils/types';
+import { fetchStamp, getFeedData, getWrappedData, settlePromises } from './utils/common';
+import { FEED_INDEX_ZERO } from './utils/constants';
+import { generateRandomBytes } from './utils/crypto';
 import { getForksMap, loadMantaray } from './utils/mantaray';
-import { processUpload } from './upload';
 import { processDownload } from './download';
+import { EventEmitter, EventEmitterBase } from './eventEmitter';
+import { DriveInfo, FileInfo, FileInfoOptions, FileManager, FileStatus, ShareItem } from './types';
+import { processUpload } from './upload';
+import {
+  ADMIN_STAMP_LABEL,
+  BeeVersionError,
+  DriveError,
+  FileInfoError,
+  FILEMANAGER_STATE_TOPIC,
+  FileManagerEvents,
+  GranteeError,
+  SignerError,
+  StampError,
+} from './utils';
 
 export class FileManagerBase implements FileManager {
   private bee: Bee;
@@ -99,6 +99,7 @@ export class FileManagerBase implements FileManager {
 
       this.isInitialized = true;
       this.emitter.emit(FileManagerEvents.INITIALIZED, true);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       console.error(`Failed to initialize FileManager: ${error.message || error}`);
       this.isInitialized = false;
@@ -146,6 +147,7 @@ export class FileManagerBase implements FileManager {
     try {
       stateTopicInfo = payload.toJSON() as StateTopicInfo;
       assertStateTopicInfo(stateTopicInfo);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       console.error(`Failed to fetch admin state: ${error.message || error}`);
       this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
@@ -161,6 +163,7 @@ export class FileManagerBase implements FileManager {
         actHistoryAddress: topicHistoryRef,
         actPublisher: this.publisher,
       });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       console.error(`Failed to decrypt admin state: ${error.message || error}`);
       this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
@@ -194,7 +197,8 @@ export class FileManagerBase implements FileManager {
     const adminStamp = await this.fetchAndSetAdminStamp(batchId);
     const verifiedAdminStamp = this.verifyStampUsability(adminStamp, batchId.toString());
 
-    const newStateFeedTopic = new Topic(generateRandomBytes(Topic.LENGTH));
+    const randomTopic = await generateRandomBytes(Topic.LENGTH);
+    const newStateFeedTopic = new Topic(randomTopic);
     const topicUploadRes = await this.bee.uploadData(verifiedAdminStamp.batchID, newStateFeedTopic.toUint8Array(), {
       act: true,
     });
@@ -248,6 +252,7 @@ export class FileManagerBase implements FileManager {
     for (const item of driveListData) {
       try {
         assertDriveInfo(item);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       } catch (error: any) {
         console.error(`Invalid DriveInfo item: ${JSON.stringify(item)}, skipping it\n${error.message || error}`);
         continue;
@@ -307,41 +312,49 @@ export class FileManagerBase implements FileManager {
       return;
     }
 
-    const feedDataPromises: Promise<FeedResultWithIndex>[] = [];
-    this.driveList.forEach((d) => {
+    const fileInfoPromises: Promise<FileInfo | null>[] = [];
+
+    for (const d of this.driveList) {
       if (d.infoFeedList && d.infoFeedList.length > 0) {
         for (const feed of d.infoFeedList) {
-          feedDataPromises.push(
-            getFeedData(this.bee, new Topic(feed.topic), this.signer.publicKey().address().toString()),
-          );
+          const fileInfoPromise = async (): Promise<FileInfo | null> => {
+            try {
+              const feedData = await getFeedData(
+                this.bee,
+                new Topic(feed.topic),
+                this.signer.publicKey().address().toString(),
+              );
+
+              const fileInfoFeedData = feedData.payload.toJSON() as ReferenceWithHistory;
+              const rawData = await this.bee.downloadData(fileInfoFeedData.reference.toString(), {
+                actHistoryAddress: fileInfoFeedData.historyRef,
+                actPublisher: tmpPublisher,
+              });
+
+              const unwrappedFileInfoData = rawData.toJSON() as FileInfo;
+              assertFileInfo(unwrappedFileInfoData);
+
+              return unwrappedFileInfoData;
+
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } catch (error: any) {
+              console.error(`Invalid FileInfo item, skipping it: ${error.message || error}`);
+              return null;
+            }
+          };
+
+          fileInfoPromises.push(fileInfoPromise());
         }
       }
-    });
+    }
 
-    const rawDataPromises: Promise<Bytes>[] = [];
-    await settlePromises<FeedResultWithIndex>(feedDataPromises, (value) => {
-      const fileInfoFeedData = value.payload.toJSON() as ReferenceWithHistory;
-
-      rawDataPromises.push(
-        this.bee.downloadData(fileInfoFeedData.reference.toString(), {
-          actHistoryAddress: fileInfoFeedData.historyRef,
-          actPublisher: tmpPublisher,
-        }),
-      );
-    });
-
-    await settlePromises<Bytes>(rawDataPromises, (value) => {
-      const unwrappedFileInfoData = value.toJSON() as FileInfo;
-
-      try {
-        assertFileInfo(unwrappedFileInfoData);
-        this.fileInfoList.push(unwrappedFileInfoData);
-      } catch (error: any) {
-        console.error(`Invalid FileInfo item, skipping it: ${error.message || error}`);
+    await settlePromises(fileInfoPromises, (fileInfo) => {
+      if (fileInfo !== null) {
+        this.fileInfoList.push(fileInfo);
       }
     });
 
-    console.debug('File info lists fetched successfully.');
+    console.debug('FileInfo lists fetched successfully.');
   }
 
   async createDrive(
@@ -380,8 +393,9 @@ export class FileManagerBase implements FileManager {
       this.verifyStampUsability(stamp, batchId.toString());
     }
 
+    const randomId = await generateRandomBytes(Identifier.LENGTH);
     const driveInfo: DriveInfo = {
-      id: new Identifier(generateRandomBytes(Identifier.LENGTH)).toString(),
+      id: new Identifier(randomId).toString(),
       name: driveName,
       batchId: batchId.toString(),
       owner: this.signer.publicKey().address().toString(),
@@ -395,7 +409,7 @@ export class FileManagerBase implements FileManager {
 
     this.emitter.emit(FileManagerEvents.DRIVE_CREATED, { driveInfo });
   }
-  // TODO: use listFiles in download?
+
   async listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<Record<string, string>> {
     const wrappedData = await getWrappedData(
       this.bee,
@@ -528,8 +542,9 @@ export class FileManagerBase implements FileManager {
     let topic: string;
 
     if (!currentTopic) {
+      const randomTopic = await generateRandomBytes(Topic.LENGTH);
       version = FEED_INDEX_ZERO.toString();
-      topic = new Topic(generateRandomBytes(Topic.LENGTH)).toString();
+      topic = new Topic(randomTopic).toString();
     } else {
       version = currentVersion;
       topic = currentTopic.toString();
@@ -540,7 +555,7 @@ export class FileManagerBase implements FileManager {
       version = feedIndexNext.toString();
     }
 
-    return { topic, version };
+    return { topic, version: version ? version : FEED_INDEX_ZERO.toString() };
   }
 
   async getVersion(fi: FileInfo, version?: string | FeedIndex): Promise<FileInfo> {
@@ -622,6 +637,7 @@ export class FileManagerBase implements FileManager {
         reference: uploadInfoRes.reference.toString(),
         historyRef: uploadInfoRes.historyAddress.getOrThrow().toString(),
       };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       throw new FileInfoError(`Failed to save fileinfo: ${error.message || error}`);
     }
@@ -641,6 +657,7 @@ export class FileManagerBase implements FileManager {
       await fw.uploadPayload(fi.batchId, fileInfoState, {
         index: fi.version !== undefined ? new FeedIndex(fi.version) : undefined,
       });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       throw new FileInfoError(`Failed to save wrapped fileInfo feed: ${error.message || error}`);
     }
@@ -695,6 +712,7 @@ export class FileManagerBase implements FileManager {
       });
 
       this.driveListNextIndex += 1n;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       throw new DriveError(`Failed to save drive list: ${error.message || error}`);
     }
@@ -827,6 +845,7 @@ export class FileManagerBase implements FileManager {
     this.emitter.emit(FileManagerEvents.DRIVE_FORGOTTEN, { driveInfo });
   }
 
+  // eslint-disable-next-line require-await
   async getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult> {
     const driveIx = this.driveList.findIndex((d) => d.id.toString() === fileInfo.driveId);
     if (driveIx === -1) {
@@ -841,6 +860,7 @@ export class FileManagerBase implements FileManager {
     return this.bee.getGrantees(info.eGranteeRef);
   }
 
+  // eslint-disable-next-line require-await
   async subscribeToSharedInbox(_topic: string, _callback?: (_data: ShareItem) => void): Promise<void> {
     /** no-op */
     return;
@@ -851,6 +871,7 @@ export class FileManagerBase implements FileManager {
     return;
   }
 
+  // eslint-disable-next-line require-await
   async share(_fileInfo: FileInfo, _targetOverlays: string[], _recipients: string[], _message?: string): Promise<void> {
     /** no-op */
     return;

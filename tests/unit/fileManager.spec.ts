@@ -10,13 +10,6 @@ import {
   Topic,
 } from '@ethersphere/bee-js';
 
-import { EventEmitterBase } from '../../src/eventEmitter';
-import { FileManagerBase } from '../../src/fileManager';
-import { fetchStamp, generateRandomBytes, getFeedData } from '../../src/utils/common';
-import { ADMIN_STAMP_LABEL, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
-import { DriveError, SignerError } from '../../src/utils/errors';
-import { FileManagerEvents } from '../../src/utils/events';
-import { DriveInfo, FeedResultWithIndex, FileInfo, FileStatus, WrappedUploadResult } from '../../src/utils/types';
 import {
   createInitializedFileManager,
   createInitMocks,
@@ -32,14 +25,25 @@ import {
 } from '../mockHelpers';
 import { BEE_URL, DEFAULT_MOCK_SIGNER } from '../utils';
 
-jest.mock('../../src/utils/common', () => ({
-  ...jest.requireActual('../../src/utils/common'),
+import { EventEmitterBase } from '@/eventEmitter';
+import { FileManagerBase } from '@/fileManager';
+import { DriveInfo, FileInfo, FileStatus } from '@/types';
+import { FeedResultWithIndex, WrappedUploadResult } from '@/types/utils';
+import { DriveError, FileManagerEvents, SignerError } from '@/utils';
+import { fetchStamp, getFeedData } from '@/utils/common';
+import { ADMIN_STAMP_LABEL, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
+import { generateRandomBytes } from '@/utils/crypto';
+
+jest.mock('@/utils/common', () => ({
+  ...jest.requireActual('@/utils/common'),
   getFeedData: jest.fn(),
   fetchStamp: jest.fn(),
   getWrappedData: jest.fn(),
+}));
+jest.mock('@/utils/crypto', () => ({
   generateRandomBytes: jest.fn(),
 }));
-jest.mock('../../src/utils/mantaray');
+jest.mock('@/utils/mantaray');
 
 describe('FileManager', () => {
   let mockSelfAddr: Reference;
@@ -68,7 +72,7 @@ describe('FileManager', () => {
     (fetchStamp as jest.Mock).mockResolvedValue({ ...mockPostageBatch });
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-    const { getWrappedData } = require('../../src/utils/common');
+    const { getWrappedData } = require('@/utils/common');
     getWrappedData.mockResolvedValue({
       uploadFilesRes: mockSelfAddr.toString(),
     } as WrappedUploadResult);
@@ -76,7 +80,7 @@ describe('FileManager', () => {
     (generateRandomBytes as jest.Mock).mockImplementation(() => new Topic('1'.repeat(64)));
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-    const { loadMantaray } = require('../../src/utils/mantaray');
+    const { loadMantaray } = require('@/utils/mantaray');
     loadMantaray.mockResolvedValue(mokcMN);
   });
 
@@ -350,9 +354,9 @@ describe('FileManager', () => {
     const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
 
     beforeEach(() => {
-      const { getForksMap } = jest.requireActual('../../src/utils/mantaray');
+      const { getForksMap } = jest.requireActual('@/utils/mantaray');
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      jest.spyOn(require('../../src/utils/mantaray'), 'getForksMap').mockImplementation(getForksMap);
+      jest.spyOn(require('@/utils/mantaray'), 'getForksMap').mockImplementation(getForksMap);
     });
 
     afterEach(() => {
@@ -392,9 +396,9 @@ describe('FileManager', () => {
 
       const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
 
-      const { settlePromises } = jest.requireActual('../../src/utils/common');
+      const { settlePromises } = jest.requireActual('@/utils/common');
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      jest.spyOn(require('../../src/utils/common'), 'settlePromises').mockImplementation(settlePromises);
+      jest.spyOn(require('@/utils/common'), 'settlePromises').mockImplementation(settlePromises);
 
       const fileStrings = await fm.download(mockFi);
 
@@ -413,9 +417,9 @@ describe('FileManager', () => {
     const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
 
     beforeEach(() => {
-      const { getForksMap } = jest.requireActual('../../src/utils/mantaray');
+      const { getForksMap } = jest.requireActual('@/utils/mantaray');
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      jest.spyOn(require('../../src/utils/mantaray'), 'getForksMap').mockImplementation(getForksMap);
+      jest.spyOn(require('@/utils/mantaray'), 'getForksMap').mockImplementation(getForksMap);
     });
 
     it('should return correct reference and path', async () => {
@@ -570,7 +574,7 @@ describe('FileManager', () => {
         payload: new Bytes(new Reference('f'.repeat(64)).toUint8Array()),
       };
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      jest.spyOn(require('../../src/utils/common'), 'getFeedData').mockResolvedValue(rawMock);
+      jest.spyOn(require('@/utils/common'), 'getFeedData').mockResolvedValue(rawMock);
 
       const spyFetch = jest.spyOn(FileManagerBase.prototype as any, 'fetchFileInfo').mockResolvedValue(fakeFi);
       let got = await fm.getVersion(dummyFi, FeedIndex.fromBigInt(1n));
@@ -614,7 +618,7 @@ describe('FileManager', () => {
       dummyFi.version = head.toString();
 
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      jest.spyOn(require('../../src/utils/common'), 'getFeedData').mockResolvedValue({
+      jest.spyOn(require('@/utils/common'), 'getFeedData').mockResolvedValue({
         feedIndex: head,
         feedIndexNext: FeedIndex.fromBigInt(6n),
         payload: SWARM_ZERO_ADDRESS,
@@ -635,7 +639,7 @@ describe('FileManager', () => {
         payload: SWARM_ZERO_ADDRESS,
       };
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      jest.spyOn(require('../../src/utils/common'), 'getFeedData').mockResolvedValueOnce(fakeFeedData);
+      jest.spyOn(require('@/utils/common'), 'getFeedData').mockResolvedValueOnce(fakeFeedData);
 
       const spyEmit = jest.spyOn(fm.emitter, 'emit');
 

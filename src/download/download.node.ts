@@ -1,4 +1,5 @@
 import { Bee, Bytes, DownloadOptions, Reference } from '@ethersphere/bee-js';
+
 import { settlePromises } from '../utils/common';
 
 export async function downloadNode(
