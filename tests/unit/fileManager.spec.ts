@@ -12,7 +12,8 @@ import {
 
 import { EventEmitterBase } from '../../src/eventEmitter';
 import { FileManagerBase } from '../../src/fileManager';
-import { fetchStamp, generateRandomBytes, getFeedData } from '../../src/utils/common';
+import { fetchStamp, getFeedData } from '../../src/utils/bee';
+import { generateRandomBytes } from '../../src/utils/common';
 import { ADMIN_STAMP_LABEL, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '../../src/utils/constants';
 import { DriveError, SignerError } from '../../src/utils/errors';
 import { FileManagerEvents } from '../../src/utils/events';
@@ -32,11 +33,14 @@ import {
 } from '../mockHelpers';
 import { BEE_URL, DEFAULT_MOCK_SIGNER } from '../utils';
 
-jest.mock('../../src/utils/common', () => ({
-  ...jest.requireActual('../../src/utils/common'),
+jest.mock('../../src/utils/bee', () => ({
+  ...jest.requireActual('../../src/utils/bee'),
   getFeedData: jest.fn(),
   fetchStamp: jest.fn(),
   getWrappedData: jest.fn(),
+}));
+jest.mock('../../src/utils/common', () => ({
+  ...jest.requireActual('../../src/utils/common'),
   generateRandomBytes: jest.fn(),
 }));
 jest.mock('../../src/utils/mantaray');
@@ -68,7 +72,7 @@ describe('FileManager', () => {
     (fetchStamp as jest.Mock).mockResolvedValue({ ...mockPostageBatch });
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-    const { getWrappedData } = require('../../src/utils/common');
+    const { getWrappedData } = require('../../src/utils/bee');
     getWrappedData.mockResolvedValue({
       uploadFilesRes: mockSelfAddr.toString(),
     } as WrappedUploadResult);
@@ -381,7 +385,7 @@ describe('FileManager', () => {
 
       await fm.download(mockFi, ['/root/2.txt']);
 
-      expect(downloadDataSpy).toHaveBeenCalledWith('2'.repeat(64), undefined);
+      expect(downloadDataSpy).toHaveBeenCalledWith('2'.repeat(64), undefined, undefined);
     });
 
     it('should call download for all of forks', async () => {
@@ -398,9 +402,9 @@ describe('FileManager', () => {
 
       const fileStrings = await fm.download(mockFi);
 
-      expect(downloadDataSpy).toHaveBeenCalledWith('1'.repeat(64), undefined);
-      expect(downloadDataSpy).toHaveBeenCalledWith('2'.repeat(64), undefined);
-      expect(downloadDataSpy).toHaveBeenCalledWith('3'.repeat(64), undefined);
+      expect(downloadDataSpy).toHaveBeenCalledWith('1'.repeat(64), undefined, undefined);
+      expect(downloadDataSpy).toHaveBeenCalledWith('2'.repeat(64), undefined, undefined);
+      expect(downloadDataSpy).toHaveBeenCalledWith('3'.repeat(64), undefined, undefined);
 
       expect(fileStrings[0]).toEqual(mockForkRef);
       expect(fileStrings[1]).toEqual(mockForkRef);
@@ -570,16 +574,16 @@ describe('FileManager', () => {
         payload: new Bytes(new Reference('f'.repeat(64)).toUint8Array()),
       };
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      jest.spyOn(require('../../src/utils/common'), 'getFeedData').mockResolvedValue(rawMock);
+      jest.spyOn(require('../../src/utils/bee'), 'getFeedData').mockResolvedValue(rawMock);
 
       const spyFetch = jest.spyOn(FileManagerBase.prototype as any, 'fetchFileInfo').mockResolvedValue(fakeFi);
       let got = await fm.getVersion(dummyFi, FeedIndex.fromBigInt(1n));
 
-      expect(spyFetch).toHaveBeenCalledWith(dummyFi, rawMock);
+      expect(spyFetch).toHaveBeenCalledWith(dummyFi, rawMock, undefined);
       expect(got).toBe(fakeFi);
 
       got = await fm.getVersion(dummyFi);
-      expect(spyFetch).toHaveBeenCalledWith(dummyFi, rawMock);
+      expect(spyFetch).toHaveBeenCalledWith(dummyFi, rawMock, undefined);
       expect(got).toBe(fakeFi);
     });
 
@@ -614,7 +618,7 @@ describe('FileManager', () => {
       dummyFi.version = head.toString();
 
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      jest.spyOn(require('../../src/utils/common'), 'getFeedData').mockResolvedValue({
+      jest.spyOn(require('../../src/utils/bee'), 'getFeedData').mockResolvedValue({
         feedIndex: head,
         feedIndexNext: FeedIndex.fromBigInt(6n),
         payload: SWARM_ZERO_ADDRESS,
@@ -635,7 +639,7 @@ describe('FileManager', () => {
         payload: SWARM_ZERO_ADDRESS,
       };
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      jest.spyOn(require('../../src/utils/common'), 'getFeedData').mockResolvedValueOnce(fakeFeedData);
+      jest.spyOn(require('../../src/utils/bee'), 'getFeedData').mockResolvedValueOnce(fakeFeedData);
 
       const spyEmit = jest.spyOn(fm.emitter, 'emit');
 
@@ -707,7 +711,7 @@ describe('FileManager', () => {
 
       const ttlDays = mockPostageBatch.duration.toDays();
       const halvings = Math.floor(Math.log2(ttlDays));
-      expect(diluteSpy).toHaveBeenCalledWith(di.batchId, mockPostageBatch.depth + halvings);
+      expect(diluteSpy).toHaveBeenCalledWith(di.batchId, mockPostageBatch.depth + halvings, undefined);
     });
 
     it('destroyDrive should throw error if trying to destroy Admin drive / stamp', async () => {
@@ -846,8 +850,8 @@ describe('FileManager', () => {
       expect(mockFi.status).toBe(FileStatus.Trashed);
       expect(mockFi.timestamp!).toBeGreaterThan(0);
 
-      expect(uploadSpy).toHaveBeenCalledWith(mockFi);
-      expect(saveSpy).toHaveBeenCalledWith(mockFi);
+      expect(uploadSpy).toHaveBeenCalledWith(mockFi, undefined);
+      expect(saveSpy).toHaveBeenCalledWith(mockFi, undefined, undefined);
 
       expect(handler).toHaveBeenCalledWith({ fileInfo: mockFi });
     });
@@ -870,8 +874,8 @@ describe('FileManager', () => {
       expect(mockFi.status).toBe(FileStatus.Active);
       expect(mockFi.timestamp!).toBeGreaterThan(beforeTs);
 
-      expect(uploadSpy).toHaveBeenCalledWith(mockFi);
-      expect(saveSpy).toHaveBeenCalledWith(mockFi);
+      expect(uploadSpy).toHaveBeenCalledWith(mockFi, undefined);
+      expect(saveSpy).toHaveBeenCalledWith(mockFi, undefined, undefined);
 
       expect(handler).toHaveBeenCalledWith({ fileInfo: mockFi });
 

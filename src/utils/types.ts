@@ -28,10 +28,11 @@ export interface FileManager {
   /**
    * Initializes the file manager.
    * @emits FileManagerEvents.INITIALIZED
+   * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.STATE_INVALID
    * @returns A promise that resolves when the initialization is complete.
    */
-  initialize(): Promise<void>;
+  initialize(requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
    * Creates a new drive with the specified options.
@@ -74,6 +75,7 @@ export interface FileManager {
    * @param eRef - The encrypted reference to the file(s) to be downloaded.
    * @param paths - Optional array of fork paths to download.
    * @param options - Optional download options for ACT and redundancy.
+   * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FILE_DOWNLOADED
    * @returns A promise that resolves to an array of strings representing the downloaded file(s).
    */
@@ -81,57 +83,68 @@ export interface FileManager {
     fileInfo: FileInfo,
     paths?: string[],
     options?: DownloadOptions,
+    requestOptions?: BeeRequestOptions,
   ): Promise<ReadableStream<Uint8Array>[] | Bytes[]>;
 
   /**
    * Lists files based on the provided file information and options.
    * @param fileInfo - Information about the file(s) containing the encrypted reference and history.
    * @param options - Optional download options for ACT.
+   * @param requestOptions - Additional Bee request options.
    * @returns A promise that resolves to an array of references with paths.
    */
-  listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<Record<string, string>>;
+  listFiles(
+    fileInfo: FileInfo,
+    options?: DownloadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<Record<string, string>>;
 
   /**
    * Soft-delete: move a file to “trash” (it stays in Swarm but is hidden from your live list).
    * @param fileInfo - The file info describing the file to trash.
+   * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FILE_TRASHED
    * @returns A promise that resolves when the file has been trashed.
    */
-  trashFile(fileInfo: FileInfo): Promise<void>;
+  trashFile(fileInfo: FileInfo, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
    * Recover a previously trashed file back into your live list.
    * @param fileInfo - The file info describing the file to recover.
+   * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FILE_RECOVERED
    * @returns A promise that resolves when the file has been recovered.
    */
-  recoverFile(fileInfo: FileInfo): Promise<void>;
+  recoverFile(fileInfo: FileInfo, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
    * Hard‐delete: remove from your owner‐feed and in-memory lists.
    * @param fileInfo - The file info describing the file to forget.
+   * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FILE_FORGOTTEN
    * @returns A promise that resolves when the file has been forgotten.
    */
-  forgetFile(fileInfo: FileInfo): Promise<void>;
+  forgetFile(fileInfo: FileInfo, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
    * Destroys a drive identified by the given batch ID.
    * Dilutes the stamp and shortens its duration (min. 24, max 47 hours) depending on the original TTL.
    * @param driveInfo - The drive to destroy.
+   * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.DRIVE_DESTROYED
    * @returns A promise that resolves when the drive is destroyed.
    */
-  destroyDrive(driveInfo: DriveInfo, stamp: PostageBatch): Promise<void>;
+  destroyDrive(driveInfo: DriveInfo, stamp: PostageBatch, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
    * Removes the drive and all of its file metadata from local state and persists the updated drive list.
    * Does NOT touch the underlying Swarm batch (no dilution).
    * @param driveInfo - The drive to forget.
+   * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.DRIVE_FORGOTTEN
    * @returns A promise that resolves when the drive is forgotten.
    */
-  forgetDrive(driveInfo: DriveInfo): Promise<void>;
+  forgetDrive(driveInfo: DriveInfo, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
    * Shares a file information with the specified recipients.
@@ -160,24 +173,26 @@ export interface FileManager {
   /**
    * Retrieves the grantees of a file.
    * @param fileInfo - Information about the file.
+   * @param requestOptions - Additional Bee request options.
    * @returns A promise that resolves to list of grantee public keys.
    */
-  getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult>;
+  getGrantees(fileInfo: FileInfo, requestOptions?: BeeRequestOptions): Promise<GetGranteesResult>;
 
   /**
    * Returns a specific version of a file.
    *
    * @param fileInfo - The base FileInfo containing topic and owner fields.
+   * @param requestOptions - Additional Bee request options.
    * @param version - Optional desired version slot as a FeedIndex or hex/string. If omitted, fetches latest.
    * @returns The FileInfo corresponding to the requested version, either cached or fetched.
    */
-  getVersion(fileInfo: FileInfo, version?: FeedIndex): Promise<FileInfo>;
+  getVersion(fileInfo: FileInfo, version?: FeedIndex, requestOptions?: BeeRequestOptions): Promise<FileInfo>;
 
   /**
    * Restore a previous version of a file as the new “head” in your feed.
    *
    * @param versionToRestore - The FileInfo instance representing the version to restore.
-   * @param requestOptions - Optional BeeRequestOptions for upload operations.
+   * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FILE_VERSION_RESTORED
    * @throws FileInfoError if no versions are found.
    */
