@@ -1,12 +1,13 @@
-import { Bee, DownloadOptions, MantarayNode, Reference } from '@ethersphere/bee-js';
+import { Bee, BeeRequestOptions, DownloadOptions, MantarayNode, Reference } from '@ethersphere/bee-js';
 
 export async function loadMantaray(
   bee: Bee,
   mantarayRef: string | Reference,
   options?: DownloadOptions,
+  requestOptions?: BeeRequestOptions,
 ): Promise<MantarayNode> {
-  const mantaray = await MantarayNode.unmarshal(bee, mantarayRef, options);
-  await mantaray.loadRecursively(bee);
+  const mantaray = await MantarayNode.unmarshal(bee, mantarayRef, options, requestOptions);
+  await mantaray.loadRecursively(bee, options, requestOptions);
   return mantaray;
 }
 

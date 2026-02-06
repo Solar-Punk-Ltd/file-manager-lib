@@ -11,8 +11,8 @@ export async function downloadReadableFetch(
   resource: string | Reference,
   apiUrl: string,
   endpoint: string,
-  requestOptions?: BeeRequestOptions,
   options?: DownloadOptions,
+  requestOptions?: BeeRequestOptions,
 ): Promise<ReadableStream<Uint8Array>> {
   if (options) {
     options = prepareDownloadOptions(options);

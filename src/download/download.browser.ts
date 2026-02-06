@@ -12,7 +12,7 @@ export async function downloadBrowser(
   const dataStreams: ReadableStream<Uint8Array>[] = [];
 
   for (const resource of resources) {
-    const stream = await downloadReadableFetch(resource, apiUrl, endpoint, requestOptions, options);
+    const stream = await downloadReadableFetch(resource, apiUrl, endpoint, options, requestOptions);
     dataStreams.push(stream);
   }
 

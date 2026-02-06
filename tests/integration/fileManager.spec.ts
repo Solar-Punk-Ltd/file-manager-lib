@@ -18,7 +18,7 @@ import { setTimeout } from 'timers';
 
 import { FileManagerBase } from '../../src/fileManager';
 import { assertStateTopicInfo } from '../../src/utils/asserts';
-import { buyStamp, getFeedData } from '../../src/utils/common';
+import { buyStamp, getFeedData } from '../../src/utils/bee';
 import {
   ADMIN_STAMP_LABEL,
   FEED_INDEX_ZERO,
@@ -28,7 +28,7 @@ import {
 import { DriveError, FileError, FileInfoError, GranteeError, StampError } from '../../src/utils/errors';
 import { FileManagerEvents } from '../../src/utils/events';
 import { DriveInfo, FileInfo, FileStatus, StateTopicInfo } from '../../src/utils/types';
-import { createInitializedFileManager, MOCK_BATCH_ID } from '../mockHelpers';
+import { createInitializedFileManager, getGeneratedDirPath, MOCK_BATCH_ID } from '../mockHelpers';
 import {
   createWrappedData,
   DEFAULT_BATCH_AMOUNT,
@@ -424,7 +424,7 @@ describe('FileManager drive handling', () => {
 
     fileManager = await createInitializedFileManager(bee, ownerStamp);
 
-    tempDir = path.join(__dirname, 'tmpDriveFolder');
+    tempDir = getGeneratedDirPath('tmpDriveFolder');
     fs.mkdirSync(tempDir, { recursive: true });
     fs.writeFileSync(path.join(tempDir, 'a.txt'), 'Content A');
   });
@@ -578,7 +578,7 @@ describe('FileManager listFiles', () => {
     const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
     bee = beeDev;
 
-    tempDir = path.join(__dirname, 'tmpIntegrationListFiles');
+    tempDir = getGeneratedDirPath('tmpIntegrationListFiles');
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'listFilesIntegrationStamp');
 
     fileManager = await createInitializedFileManager(bee, ownerStamp);
@@ -623,7 +623,7 @@ describe('FileManager listFiles', () => {
   });
 
   it('should throw and return an empty file list when uploading an empty folder', async () => {
-    const emptyDir = path.join(__dirname, 'emptyFolder');
+    const emptyDir = getGeneratedDirPath('emptyFolder');
     fs.mkdirSync(emptyDir, { recursive: true });
 
     let fileInfo: FileInfo | undefined;
@@ -652,7 +652,7 @@ describe('FileManager listFiles', () => {
   });
 
   it('should correctly return nested file paths in a deeply nested folder structure', async () => {
-    const deepDir = path.join(__dirname, 'deepNestedFolder');
+    const deepDir = getGeneratedDirPath('deepNestedFolder');
     const level1 = path.join(deepDir, 'level1');
     const level2 = path.join(level1, 'level2');
     const level3 = path.join(level2, 'level3');
@@ -683,7 +683,7 @@ describe('FileManager listFiles', () => {
   });
 
   it('should ignore entries with empty paths', async () => {
-    const folderWithEmpty = path.join(__dirname, 'folderWithEmpty');
+    const folderWithEmpty = getGeneratedDirPath('folderWithEmpty');
     fs.mkdirSync(folderWithEmpty, { recursive: true });
     fs.writeFileSync(path.join(folderWithEmpty, 'valid.txt'), 'Valid Content');
     fs.writeFileSync(path.join(folderWithEmpty, 'empty.txt'), 'Should be ignored');
@@ -730,7 +730,7 @@ describe('FileManager upload', () => {
     const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
     bee = beeDev;
 
-    tempUploadDir = path.join(__dirname, 'tmpUploadIntegration');
+    tempUploadDir = getGeneratedDirPath('tmpUploadIntegration');
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'uploadIntegrationStamp');
     fileManager = await createInitializedFileManager(bee, ownerStamp);
 
@@ -831,7 +831,7 @@ describe('FileManager upload', () => {
   });
 
   it('should upload with previewPath if provided', async () => {
-    const previewDir = path.join(__dirname, 'tmpUploadPreview');
+    const previewDir = getGeneratedDirPath('tmpUploadPreview');
     fs.mkdirSync(previewDir, { recursive: true });
     fs.writeFileSync(path.join(previewDir, 'preview.txt'), 'Preview Content');
 
@@ -865,7 +865,7 @@ describe('FileManager upload', () => {
   });
 
   it('should upload a single file and update the file info list', async () => {
-    const tempFile = path.join(__dirname, 'tempFile.txt');
+    const tempFile = getGeneratedDirPath('tempFile.txt');
     fs.writeFileSync(tempFile, 'Single File Content');
     await fileManager.upload(drive, {
       name: path.basename(tempFile),
@@ -917,7 +917,7 @@ describe('FileManager download', () => {
   beforeAll(async () => {
     const { bee: beeDev, ownerStamp, signer: newSigner } = await ensureUniqueSignerWithStamp();
     bee = beeDev;
-    tempDownloadDir = path.join(__dirname, 'tmpDownloadIntegration');
+    tempDownloadDir = getGeneratedDirPath('tmpDownloadIntegration');
     signer = newSigner;
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'downloadFilesIntegrationStamp');
     fileManager = await createInitializedFileManager(bee, ownerStamp);
@@ -1139,7 +1139,7 @@ describe('FileManager version control', () => {
   const ensureBase = async (name = `versioned-file-${Date.now()}`, di: DriveInfo = drive): Promise<FileInfo> => {
     const existing = fileManager.fileInfoList.find((f) => f.name === name);
     if (existing) return existing;
-    const tmp = path.join(__dirname, 'seed.txt');
+    const tmp = getGeneratedDirPath('seed.txt');
     fs.writeFileSync(tmp, 'seed');
     await fileManager.upload(di, { name, path: tmp });
     fs.unlinkSync(tmp);
@@ -1167,7 +1167,7 @@ describe('FileManager version control', () => {
   });
 
   it('handles sequential uploads with proper slot indices', async () => {
-    const tmpDir = fs.mkdtempSync(path.join(__dirname, 'par-'));
+    const tmpDir = fs.mkdtempSync(getGeneratedDirPath('par-'));
     try {
       const name = `parallel-${Date.now()}`;
       const p0 = path.join(tmpDir, 'f0.txt');
@@ -1208,7 +1208,7 @@ describe('FileManager version control', () => {
   });
 
   it('getVersion + download returns the correct bytes subset', async () => {
-    const dir = path.join(__dirname, 'coll');
+    const dir = getGeneratedDirPath('coll');
     try {
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, 'a.txt'), 'A');
@@ -1228,7 +1228,7 @@ describe('FileManager version control', () => {
 
   it('returns the cached FileInfo for the current head without refetching', async () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-    const spyGetFeedData = jest.spyOn(require('../../src/utils/common'), 'getFeedData');
+    const spyGetFeedData = jest.spyOn(require('../../src/utils/bee'), 'getFeedData');
 
     const base = await ensureBase('cache-test');
 
@@ -1246,7 +1246,7 @@ describe('FileManager version control', () => {
   });
 
   it('uploads multiple versions, counts them, fetches an old version and downloads it', async () => {
-    const tmpDir = path.join(__dirname, 'versioningTmp');
+    const tmpDir = getGeneratedDirPath('versioningTmp');
     try {
       fs.mkdirSync(tmpDir, { recursive: true });
       const filePath = path.join(tmpDir, 'file.txt');
@@ -1298,7 +1298,7 @@ describe('FileManager version control', () => {
   });
 
   it('can restore a prior version and make it the new head', async () => {
-    const tmp = path.join(__dirname, 'restore.txt');
+    const tmp = getGeneratedDirPath('restore.txt');
     try {
       fs.writeFileSync(tmp, 'first');
 
@@ -1335,7 +1335,7 @@ describe('FileManager version control', () => {
   });
 
   it('restoring the current head does nothing', async () => {
-    const tmp = path.join(__dirname, 'noop-restore.txt');
+    const tmp = getGeneratedDirPath('noop-restore.txt');
     try {
       fs.writeFileSync(tmp, 'A');
       const base = await ensureBase('noop-restore');
@@ -1418,7 +1418,7 @@ describe('FileManager End-to-End User Workflow', () => {
   beforeAll(async () => {
     const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
     bee = beeDev;
-    tempBaseDir = path.join(__dirname, 'e2eTestSession');
+    tempBaseDir = getGeneratedDirPath('e2eTestSession');
     fileManager = await createInitializedFileManager(bee, ownerStamp);
     fs.mkdirSync(tempBaseDir, { recursive: true });
     actPublisher = (await bee.getNodeAddresses()).publicKey;

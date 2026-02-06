@@ -1,6 +1,7 @@
 import { BatchId, BeeDev, PrivateKey } from '@ethersphere/bee-js';
 
-import { buyStamp, generateRandomBytes } from '../../src/utils/common';
+import { buyStamp } from '../../src/utils/bee';
+import { generateRandomBytes } from '../../src/utils/common';
 import { ADMIN_STAMP_LABEL } from '../../src/utils/constants';
 import { BEE_URL, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, DEFAULT_MOCK_SIGNER } from '../utils';
 
