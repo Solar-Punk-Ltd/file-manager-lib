@@ -29,7 +29,6 @@ export async function getFeedData(
     let data: FeedPayloadResult;
     const feedReader = bee.makeFeedReader(topic.toUint8Array(), address, requestOptions);
 
-    // TODO: act options
     if (index !== undefined) {
       data = await feedReader.downloadPayload({ index: FeedIndex.fromBigInt(index) });
     } else {
@@ -101,7 +100,6 @@ export async function fetchStamp(
 ): Promise<PostageBatch | undefined> {
   try {
     return (await bee.getPostageBatches(requestOptions)).find((s) => s.batchID.toString() === batchId.toString());
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     console.error(`Failed to fetch stamp: ${error.message || error}`);
     return;

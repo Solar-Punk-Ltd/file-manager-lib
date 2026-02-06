@@ -207,8 +207,9 @@ export class FileManagerBase implements FileManager {
       console.warn('Resetting existing admin state.');
     }
 
-    await this.fetchAndSetAdminStamp(batchId, requestOptions);
-    const verifiedAdminStamp = verifyStampUsability(this.adminStamp, batchId.toString());
+    const batchStr = batchId.toString();
+    await this.fetchAndSetAdminStamp(batchStr, requestOptions);
+    const verifiedAdminStamp = verifyStampUsability(this.adminStamp, batchStr);
 
     const newStateFeedTopic = new Topic(generateRandomBytes(Topic.LENGTH));
     const topicUploadRes = await this.bee.uploadData(
@@ -226,7 +227,6 @@ export class FileManagerBase implements FileManager {
       index: feedIndexNext.toString(),
     };
     const fw = this.bee.makeFeedWriter(FILEMANAGER_STATE_TOPIC.toUint8Array(), this.signer, requestOptions);
-    // TODO: ACT options
     await fw.uploadPayload(verifiedAdminStamp.batchID, JSON.stringify(topicState), { index: feedIndexNext });
 
     this.stateFeedTopic = newStateFeedTopic;
@@ -449,7 +449,6 @@ export class FileManagerBase implements FileManager {
       requestOptions,
     );
 
-    // TODO: omit ACT options, if data is wrapped, pass otherwise
     const mantaray = await loadMantaray(this.bee, wrappedData.uploadFilesRes.toString(), undefined, requestOptions);
 
     return getForksMap(mantaray);
@@ -470,12 +469,10 @@ export class FileManagerBase implements FileManager {
       requestOptions,
     );
 
-    // TODO: omit ACT options, if data is wrapped, pass otherwise
     const unmarshalled = await loadMantaray(this.bee, wrappedData.uploadFilesRes.toString(), undefined, requestOptions);
 
     const resources = getForksMap(unmarshalled, paths);
 
-    // TODO: omit ACT options, if data is wrapped, pass otherwise
     return await processDownload(this.bee, Object.values(resources), undefined, requestOptions);
   }
 
@@ -532,7 +529,6 @@ export class FileManagerBase implements FileManager {
       status: FileStatus.Active,
     };
 
-    // TODO: ACT, uploadOptions
     await this.saveFileInfoFeed(fileInfo, undefined, requestOptions);
 
     // no need to save the drive list again if the file info feed is already saved in state
@@ -618,8 +614,7 @@ export class FileManagerBase implements FileManager {
       undefined,
       requestOptions,
     );
-    // nencessary string compare due to some conversion issues with FeedIndex equals
-    if (feedIndex.toString() === FeedIndex.MINUS_ONE.toString()) {
+    if (feedIndex.equals(FeedIndex.MINUS_ONE.toString())) {
       throw new FileInfoError('FileInfo feed not found');
     }
 
@@ -627,8 +622,8 @@ export class FileManagerBase implements FileManager {
       throw new Error('Restore version has to be defined');
     }
 
-    const versionToRestoreIndex = new FeedIndex(versionToRestore.version).toString();
-    if (feedIndex.toString() === versionToRestoreIndex) {
+    const versionToRestoreIndex = new FeedIndex(versionToRestore.version);
+    if (feedIndex.equals(versionToRestoreIndex)) {
       console.debug(`Head Slot cannot be restored. Please select a version lesser than: ${versionToRestore.version}`);
       return;
     }
@@ -643,7 +638,6 @@ export class FileManagerBase implements FileManager {
       timestamp: Date.now(),
     };
 
-    // TODO: ACT, options
     await this.saveFileInfoFeed(restored, undefined, requestOptions);
 
     this.emitter.emit(FileManagerEvents.FILE_VERSION_RESTORED, {
@@ -694,7 +688,6 @@ export class FileManagerBase implements FileManager {
 
       const fw = this.bee.makeFeedWriter(new Topic(fi.topic).toUint8Array(), this.signer, requestOptions);
 
-      // TODO: act options
       await fw.uploadPayload(fi.batchId, fileInfoState, {
         ...options,
         index: fi.version !== undefined ? new FeedIndex(fi.version) : undefined,
@@ -785,7 +778,6 @@ export class FileManagerBase implements FileManager {
     fi.timestamp = new Date().getTime();
     fi.customMetadata = { ...(fi.customMetadata ?? {}), ...(fileInfo.customMetadata ?? {}) };
 
-    // TODO: ACT, options
     await this.saveFileInfoFeed(fi, undefined, requestOptions);
 
     this.emitter.emit(FileManagerEvents.FILE_TRASHED, { fileInfo: fi });
@@ -810,7 +802,6 @@ export class FileManagerBase implements FileManager {
     fi.timestamp = new Date().getTime();
     fi.customMetadata = { ...(fi.customMetadata ?? {}), ...(fileInfo.customMetadata ?? {}) };
 
-    // TODO: ACT, options
     await this.saveFileInfoFeed(fi, undefined, requestOptions);
     this.emitter.emit(FileManagerEvents.FILE_RECOVERED, { fileInfo: fi });
   }
@@ -841,7 +832,7 @@ export class FileManagerBase implements FileManager {
     this.emitter.emit(FileManagerEvents.FILE_FORGOTTEN, { fileInfo });
   }
 
-  private async fetchAndSetAdminStamp(batchId: string | BatchId, requestOptions?: BeeRequestOptions): Promise<void> {
+  private async fetchAndSetAdminStamp(batchId: string, requestOptions?: BeeRequestOptions): Promise<void> {
     const adminStamp = await fetchStamp(this.bee, batchId, requestOptions);
 
     if (!adminStamp) {
