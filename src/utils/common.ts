@@ -1,9 +1,10 @@
-import { Bytes, PostageBatch } from '@ethersphere/bee-js';
+import { BeeRequestOptions, Bytes, PostageBatch } from '@ethersphere/bee-js';
 
 import { StampError } from './errors';
 import { getRandomBytesNode } from './node';
 import { getRandomBytesBrowser } from './browser';
 import { isNode } from 'std-env';
+import { Objects } from 'cafe-utility';
 
 export function generateRandomBytes(len: number): Bytes {
   if (isNode) {
@@ -38,4 +39,20 @@ export const verifyStampUsability = (s: PostageBatch | undefined, batchId?: stri
   }
 
   return s;
+};
+
+export const getNoCacheOptions = (requestOptions?: BeeRequestOptions): BeeRequestOptions => {
+  const noCacheOptions: BeeRequestOptions = {
+    headers: {
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      Pragma: 'no-cache',
+      Expires: '0',
+    },
+  };
+
+  if (!requestOptions) {
+    return noCacheOptions;
+  }
+
+  return Objects.deepMerge2(requestOptions, noCacheOptions);
 };

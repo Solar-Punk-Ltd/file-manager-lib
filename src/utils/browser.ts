@@ -7,6 +7,7 @@ export function getRandomBytesBrowser(len: number): Bytes {
   return new Bytes(arr);
 }
 
+// TODO: use bee-js.downloadReadable: why axios vs fetch here ? (responseType: 'stream'?)
 export async function downloadReadableFetch(
   resource: string | Reference,
   apiUrl: string,

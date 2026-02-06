@@ -22,14 +22,9 @@ import {
 
 import { assertDriveInfo, assertFileInfo, assertStateTopicInfo } from './utils/asserts';
 import { fetchStamp, getFeedData, getWrappedData } from './utils/bee';
-import { generateRandomBytes, settlePromises, verifyStampUsability } from './utils/common';
+import { generateRandomBytes, getNoCacheOptions, settlePromises, verifyStampUsability } from './utils/common';
 
-import {
-  FEED_INDEX_ZERO,
-  ADMIN_STAMP_LABEL,
-  FILEMANAGER_STATE_TOPIC,
-  NO_CACHE_BEE_REQUES_OPTIONS,
-} from './utils/constants';
+import { FEED_INDEX_ZERO, ADMIN_STAMP_LABEL, FILEMANAGER_STATE_TOPIC } from './utils/constants';
 import { BeeVersionError, DriveError, FileInfoError, GranteeError, SignerError, StampError } from './utils/errors';
 import { EventEmitter, EventEmitterBase } from './eventEmitter';
 import { FileManagerEvents } from './utils/events';
@@ -93,7 +88,7 @@ export class FileManagerBase implements FileManager {
     this.isInitializing = true;
 
     try {
-      const noCacheOptions = { ...requestOptions, ...NO_CACHE_BEE_REQUES_OPTIONS };
+      const noCacheOptions = getNoCacheOptions(requestOptions);
 
       await this.verifySupportedVersions(noCacheOptions);
       await this.initPublisher(noCacheOptions);
@@ -212,8 +207,8 @@ export class FileManagerBase implements FileManager {
       console.warn('Resetting existing admin state.');
     }
 
-    const adminStamp = await this.fetchAndSetAdminStamp(batchId, requestOptions);
-    const verifiedAdminStamp = verifyStampUsability(adminStamp, batchId.toString());
+    await this.fetchAndSetAdminStamp(batchId, requestOptions);
+    const verifiedAdminStamp = verifyStampUsability(this.adminStamp, batchId.toString());
 
     const newStateFeedTopic = new Topic(generateRandomBytes(Topic.LENGTH));
     const topicUploadRes = await this.bee.uploadData(
@@ -236,7 +231,6 @@ export class FileManagerBase implements FileManager {
 
     this.stateFeedTopic = newStateFeedTopic;
     console.debug('Drive list feed topic successfully set');
-    this.emitter.emit(FileManagerEvents.STATE_INVALID, false);
   }
 
   // fetches the latest list of fileinfo from the drive list topic
@@ -287,10 +281,10 @@ export class FileManagerBase implements FileManager {
       }
 
       if (item.isAdmin) {
-        const adminStamp = await this.fetchAndSetAdminStamp(item.batchId.toString(), requestOptions);
+        const batchIdStr = item.batchId.toString();
+        await this.fetchAndSetAdminStamp(batchIdStr, requestOptions);
 
-        if (!adminStamp) {
-          const batchIdStr = item.batchId.toString();
+        if (!this.adminStamp) {
           console.error(
             `Admin stamp with batchId: ${batchIdStr.slice(
               0,
@@ -397,6 +391,10 @@ export class FileManagerBase implements FileManager {
 
     let driveName = name;
     if (resetState) {
+      if (!isAdmin) {
+        throw new DriveError(`Cannot reset non-admin drive: "${driveName}"`);
+      }
+
       this.driveList.length = 0;
     } else {
       this.driveList.forEach((d) => {
@@ -410,7 +408,7 @@ export class FileManagerBase implements FileManager {
       });
     }
 
-    const noCacheOptions = { ...requestOptions, ...NO_CACHE_BEE_REQUES_OPTIONS };
+    const noCacheOptions = getNoCacheOptions(requestOptions);
 
     if (isAdmin) {
       console.debug('Creating admin drive with name: ', ADMIN_STAMP_LABEL);
@@ -586,7 +584,7 @@ export class FileManagerBase implements FileManager {
     }
 
     if (!version) {
-      const noCacheOptions = { ...requestOptions, ...NO_CACHE_BEE_REQUES_OPTIONS };
+      const noCacheOptions = getNoCacheOptions(requestOptions);
       const { feedIndexNext } = await getFeedData(this.bee, new Topic(topic), address, undefined, noCacheOptions);
       version = feedIndexNext.toString();
     }
@@ -843,14 +841,13 @@ export class FileManagerBase implements FileManager {
     this.emitter.emit(FileManagerEvents.FILE_FORGOTTEN, { fileInfo });
   }
 
-  private async fetchAndSetAdminStamp(
-    batchId: string | BatchId,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<PostageBatch | undefined> {
+  private async fetchAndSetAdminStamp(batchId: string | BatchId, requestOptions?: BeeRequestOptions): Promise<void> {
     const adminStamp = await fetchStamp(this.bee, batchId, requestOptions);
 
     if (!adminStamp) {
-      return undefined;
+      this._adminStamp = undefined;
+
+      return;
     }
 
     const logText = `Admin stamp with batchId: ${batchId.toString().slice(0, 6)}...`;
@@ -862,8 +859,6 @@ export class FileManagerBase implements FileManager {
     }
 
     this._adminStamp = adminStamp;
-
-    return this.adminStamp;
   }
 
   async destroyDrive(driveInfo: DriveInfo, stamp: PostageBatch, requestOptions?: BeeRequestOptions): Promise<void> {
