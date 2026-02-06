@@ -142,4 +142,4 @@ From `package.json`:
 
 ## License
 
-TBD
+[Apache-2.0](./LICENSE)

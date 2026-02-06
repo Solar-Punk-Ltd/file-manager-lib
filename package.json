@@ -38,9 +38,13 @@
     "mantaray",
     "file-manager",
     "bee-js",
-    "typescript",
-    "browser",
-    "node"
+    "decentralised-storage",
+    "web3",
+    "web3-storage",
+    "access-control",
+    "ethswarm",
+    "ethereum-swarm",
+    "p2p"
   ],
   "author": "SolarPunkLtd",
   "homepage": "https://github.com/Solar-Punk-Ltd/file-manager-lib",
