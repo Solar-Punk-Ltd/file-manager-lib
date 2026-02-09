@@ -22,7 +22,7 @@ import {
 
 import { assertDriveInfo, assertFileInfo, assertStateTopicInfo } from './utils/asserts';
 import { fetchStamp, getFeedData, getWrappedData } from './utils/bee';
-import { generateRandomBytes, getNoCacheOptions, settlePromises, verifyStampUsability } from './utils/common';
+import { generateRandomBytes, settlePromises, verifyStampUsability } from './utils/common';
 
 import { FEED_INDEX_ZERO, ADMIN_STAMP_LABEL, FILEMANAGER_STATE_TOPIC } from './utils/constants';
 import { BeeVersionError, DriveError, FileInfoError, GranteeError, SignerError, StampError } from './utils/errors';
@@ -88,17 +88,15 @@ export class FileManagerBase implements FileManager {
     this.isInitializing = true;
 
     try {
-      const noCacheOptions = getNoCacheOptions(requestOptions);
-
-      await this.verifySupportedVersions(noCacheOptions);
-      await this.initPublisher(noCacheOptions);
+      await this.verifySupportedVersions(requestOptions);
+      await this.initPublisher(requestOptions);
 
       console.debug('Trying to load state from Swarm.');
 
-      const success = await this.tryToFetchAdminState(noCacheOptions);
+      const success = await this.tryToFetchAdminState(requestOptions);
       if (success) {
-        await this.initDriveList(noCacheOptions);
-        await this.initFileInfoList(noCacheOptions);
+        await this.initDriveList(requestOptions);
+        await this.initFileInfoList(requestOptions);
       }
 
       this.isInitialized = true;
@@ -408,14 +406,12 @@ export class FileManagerBase implements FileManager {
       });
     }
 
-    const noCacheOptions = getNoCacheOptions(requestOptions);
-
     if (isAdmin) {
       console.debug('Creating admin drive with name: ', ADMIN_STAMP_LABEL);
       driveName = ADMIN_STAMP_LABEL;
-      await this.createNewDriveListTopic(batchId.toString(), resetState, noCacheOptions);
+      await this.createNewDriveListTopic(batchId.toString(), resetState, requestOptions);
     } else {
-      const stamp = await fetchStamp(this.bee, batchId, noCacheOptions);
+      const stamp = await fetchStamp(this.bee, batchId, requestOptions);
       verifyStampUsability(stamp, batchId.toString());
     }
 
@@ -580,8 +576,7 @@ export class FileManagerBase implements FileManager {
     }
 
     if (!version) {
-      const noCacheOptions = getNoCacheOptions(requestOptions);
-      const { feedIndexNext } = await getFeedData(this.bee, new Topic(topic), address, undefined, noCacheOptions);
+      const { feedIndexNext } = await getFeedData(this.bee, new Topic(topic), address, undefined, requestOptions);
       version = feedIndexNext.toString();
     }
 
