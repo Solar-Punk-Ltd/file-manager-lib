@@ -21,6 +21,7 @@ import {
   UploadResult,
 } from '@ethersphere/bee-js';
 import { Optional } from 'cafe-utility';
+import path from 'path';
 
 import { EventEmitter } from '../src/eventEmitter/eventEmitter';
 import { FileManagerBase } from '../src/fileManager';
@@ -247,3 +248,7 @@ export function loadStampListMock(): PostageBatch[] {
     },
   ];
 }
+
+export const getGeneratedDirPath = (driPath: string): string => {
+  return path.join(__dirname, 'generated/' + driPath);
+};

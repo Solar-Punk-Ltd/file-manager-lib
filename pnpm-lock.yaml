@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@ethersphere/bee-js':
-        specifier: ^10.2.0
-        version: 10.2.0
+        specifier: ^10.4.0
+        version: 10.4.0
       cafe-utility:
         specifier: ^33.3.2
         version: 33.3.2
@@ -940,8 +940,8 @@ packages:
     resolution: {integrity: sha512-Z5kJ+wU3oA7MMIqVR9tyZRtjYPr4OC004Q4Rw7pgOKUOKkJfZ3O24nz3WYfGRpMDNmcOi3TwQOmgm7B7Tpii0w==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
-  '@ethersphere/bee-js@10.2.0':
-    resolution: {integrity: sha512-xt67mMBHX816OWDnAp3n8jkUHYfUbVv4vr2KFBGZ7uGFNOzUwbZ8A44bFpFsz304ZaMHrYtIuPRbSdB0qxrVRg==}
+  '@ethersphere/bee-js@10.4.0':
+    resolution: {integrity: sha512-dtnyvKA3prBj22k2mfZWPq+uiK1hLMKr/jrGX4vaS41JsHX9uJ1GMGr4vCc41ANstGUGbp1dwCUWsXkqqjWuvg==}
     engines: {bee: 2.4.0-390a402e, beeApiVersion: 7.2.0}
 
   '@humanfs/core@0.19.1':
@@ -1146,56 +1146,67 @@ packages:
     resolution: {integrity: sha512-WEWAGFNFFpvSWAIT3MYvxTkYHv/cJl9yWKpjhheg7ONfB0hetZt/uwBnM3GZqSHrk5bXCDYTFXg3jQyk/j7eXQ==}
     cpu: [arm]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-arm-musleabihf@4.51.0':
     resolution: {integrity: sha512-9bxtxj8QoAp++LOq5PGDGkEEOpCDk9rOEHUcXadnijedDH8IXrBt6PnBa4Y6NblvGWdoxvXZYghZLaliTCmAng==}
     cpu: [arm]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-arm64-gnu@4.51.0':
     resolution: {integrity: sha512-DdqA+fARqIsfqDYkKo2nrWMp0kvu/wPJ2G8lZ4DjYhn+8QhrjVuzmsh7tTkhULwjvHTN59nWVzAixmOi6rqjNA==}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-arm64-musl@4.51.0':
     resolution: {integrity: sha512-2XVRNzcUJE1UJua8P4a1GXS5jafFWE+pQ6zhUbZzptOu/70p1F6+0FTi6aGPd6jNtnJqGMjtBCXancC2dhYlWw==}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-loong64-gnu@4.51.0':
     resolution: {integrity: sha512-R8QhY0kLIPCAVXWi2yftDSpn7Jtejey/WhMoBESSfwGec5SKdFVupjxFlKoQ7clVRuaDpiQf7wNx3EBZf4Ey6g==}
     cpu: [loong64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-ppc64-gnu@4.51.0':
     resolution: {integrity: sha512-I498RPfxx9cMv1KTHQ9tg2Ku1utuQm+T5B+Xro+WNu3FzAFSKp4awKfgMoZwjoPgNbaFGINaOM25cQW6WuBhiQ==}
     cpu: [ppc64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-riscv64-gnu@4.51.0':
     resolution: {integrity: sha512-o8COudsb8lvtdm9ixg9aKjfX5aeoc2x9KGE7WjtrmQFquoCRZ9jtzGlonujE4WhvXFepTraWzT4RcwyDDeHXjA==}
     cpu: [riscv64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-riscv64-musl@4.51.0':
     resolution: {integrity: sha512-0shJPgSXMdYzOQzpM5BJN2euXY1f8uV8mS6AnrbMcH2KrkNsbpMxWB1wp8UEdiJ1NtyBkCk3U/HfX5mEONBq6w==}
     cpu: [riscv64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-s390x-gnu@4.51.0':
     resolution: {integrity: sha512-L7pV+ny7865jamSCQwyozBYjFRUKaTsPqDz7ClOtJCDu4paf2uAa0mrcHwSt4XxZP2ogFZS9uuitH3NXdeBEJA==}
     cpu: [s390x]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-x64-gnu@4.51.0':
     resolution: {integrity: sha512-4YHhP+Rv3T3+H3TPbUvWOw5tuSwhrVhkHHZhk4hC9VXeAOKR26/IsUAT4FsB4mT+kfIdxxb1BezQDEg/voPO8A==}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-x64-musl@4.51.0':
     resolution: {integrity: sha512-P7U7U03+E5w7WgJtvSseNLOX1UhknVPmEaqgUENFWfNxNBa1OhExT6qYGmyF8gepcxWSaSfJsAV5UwhWrYefdQ==}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-openharmony-arm64@4.51.0':
     resolution: {integrity: sha512-FuD8g3u9W6RPwdO1R45hZFORwa1g9YXEMesAKP/sOi7mDqxjbni8S3zAXJiDcRfGfGBqpRYVuH54Gu3FTuSoEw==}
@@ -1440,41 +1451,49 @@ packages:
     resolution: {integrity: sha512-34gw7PjDGB9JgePJEmhEqBhWvCiiWCuXsL9hYphDF7crW7UgI05gyBAi6MF58uGcMOiOqSJ2ybEeCvHcq0BCmQ==}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   '@unrs/resolver-binding-linux-arm64-musl@1.11.1':
     resolution: {integrity: sha512-RyMIx6Uf53hhOtJDIamSbTskA99sPHS96wxVE/bJtePJJtpdKGXO1wY90oRdXuYOGOTuqjT8ACccMc4K6QmT3w==}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   '@unrs/resolver-binding-linux-ppc64-gnu@1.11.1':
     resolution: {integrity: sha512-D8Vae74A4/a+mZH0FbOkFJL9DSK2R6TFPC9M+jCWYia/q2einCubX10pecpDiTmkJVUH+y8K3BZClycD8nCShA==}
     cpu: [ppc64]
     os: [linux]
+    libc: [glibc]
 
   '@unrs/resolver-binding-linux-riscv64-gnu@1.11.1':
     resolution: {integrity: sha512-frxL4OrzOWVVsOc96+V3aqTIQl1O2TjgExV4EKgRY09AJ9leZpEg8Ak9phadbuX0BA4k8U5qtvMSQQGGmaJqcQ==}
     cpu: [riscv64]
     os: [linux]
+    libc: [glibc]
 
   '@unrs/resolver-binding-linux-riscv64-musl@1.11.1':
     resolution: {integrity: sha512-mJ5vuDaIZ+l/acv01sHoXfpnyrNKOk/3aDoEdLO/Xtn9HuZlDD6jKxHlkN8ZhWyLJsRBxfv9GYM2utQ1SChKew==}
     cpu: [riscv64]
     os: [linux]
+    libc: [musl]
 
   '@unrs/resolver-binding-linux-s390x-gnu@1.11.1':
     resolution: {integrity: sha512-kELo8ebBVtb9sA7rMe1Cph4QHreByhaZ2QEADd9NzIQsYNQpt9UkM9iqr2lhGr5afh885d/cB5QeTXSbZHTYPg==}
     cpu: [s390x]
     os: [linux]
+    libc: [glibc]
 
   '@unrs/resolver-binding-linux-x64-gnu@1.11.1':
     resolution: {integrity: sha512-C3ZAHugKgovV5YvAMsxhq0gtXuwESUKc5MhEtjBpLoHPLYM+iuwSj3lflFwK3DPm68660rZ7G8BMcwSro7hD5w==}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@unrs/resolver-binding-linux-x64-musl@1.11.1':
     resolution: {integrity: sha512-rV0YSoyhK2nZ4vEswT/QwqzqQXw5I6CjoaYMOX0TqBlWhojUf8P94mvI7nuJTeaCkkds3QE4+zS8Ko+GdXuZtA==}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   '@unrs/resolver-binding-wasm32-wasi@1.11.1':
     resolution: {integrity: sha512-5u4RkfxJm+Ng7IWgkzi3qrFOvLvQYnPBmjmZQ8+szTK/b31fQCnleNl1GgEt7nIsZRIf5PLhPwT0WM+q45x/UQ==}
@@ -1814,11 +1833,11 @@ packages:
   buffer-from@1.1.2:
     resolution: {integrity: sha512-E+XQCRwSbaaiChtv6k6Dwgc+bx+Bs6vuKJHHl5kox/BaKbhiXzqQOwK4cO22yElGp2OCmjwVhT3HmxgyPGnJfQ==}
 
-  cafe-utility@32.2.0:
-    resolution: {integrity: sha512-Pz1XZ9HCG0oVEfM/iAmefkaKoSJxPfJh1d7a7sFM/WqXf2Yg4bqoRioFdy+awEtFCJjC7XJzKtG0w0y57x2K0Q==}
-
   cafe-utility@33.3.2:
     resolution: {integrity: sha512-7hn8OrmKsJ4pASe0Y9/k+DIABZcK1jkviLyQq6VM+uJQF4jMT0E+vCVkTsMyIrYDFJ21ne1HGZVP9NwDASr7jA==}
+
+  cafe-utility@33.5.0:
+    resolution: {integrity: sha512-mAhihAguhzQpTR/5FCX6rUCBgjZusTOhBdfF0Qf4a48KZ8lb6CPiPnPWmlHkz+1+AZVU8TfM8+Z6/NI10+d9yA==}
 
   call-bind-apply-helpers@1.0.2:
     resolution: {integrity: sha512-Sp1ablJ0ivDkSzjcaJdxEunN5/XvksFJ2sMBFfq6x0ryhQV/2b/KwFe21cMpmHtPOSij8K99/wSfoEuTObmuMQ==}
@@ -4897,10 +4916,10 @@ snapshots:
       '@eslint/core': 0.15.2
       levn: 0.4.1
 
-  '@ethersphere/bee-js@10.2.0':
+  '@ethersphere/bee-js@10.4.0':
     dependencies:
       axios: 0.30.1(debug@4.4.3)
-      cafe-utility: 32.2.0
+      cafe-utility: 33.5.0
       debug: 4.4.3
       isomorphic-ws: 4.0.1(ws@8.18.3)
       semver: 7.7.2
@@ -5991,9 +6010,9 @@ snapshots:
 
   buffer-from@1.1.2: {}
 
-  cafe-utility@32.2.0: {}
-
   cafe-utility@33.3.2: {}
+
+  cafe-utility@33.5.0: {}
 
   call-bind-apply-helpers@1.0.2:
     dependencies:
