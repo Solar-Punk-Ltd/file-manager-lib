@@ -1,14 +1,6 @@
-import {
-  BatchId,
-  Bee,
-  BeeRequestOptions,
-  CollectionUploadOptions,
-  FileUploadOptions,
-  RedundantUploadOptions,
-  UploadResult,
-} from '@ethersphere/bee-js';
+import { BatchId, Bee, BeeRequestOptions, RedundantUploadOptions, UploadResult } from '@ethersphere/bee-js';
 
-import { BrowserUploadOptions, DriveInfo, FileInfoOptions } from '../types';
+import { BrowserUploadOptions, DriveInfo } from '../types';
 import { ReferenceWithHistory, WrappedUploadResult } from '../types/utils';
 
 export async function uploadBrowser(
@@ -49,34 +41,15 @@ export async function uploadBrowser(
 export async function processUploadBrowser(
   bee: Bee,
   driveInfo: DriveInfo,
-  fileOptions: FileInfoOptions,
-  uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
+  browserOptions: BrowserUploadOptions,
+  uploadOptions?: RedundantUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<ReferenceWithHistory> {
-  uploadOptions = { ...uploadOptions, redundancyLevel: driveInfo.redundancyLevel };
-
-  if (fileOptions.file) {
-    return {
-      reference: fileOptions.file.reference.toString(),
-      historyRef: fileOptions.file.historyRef.toString(),
-    } as ReferenceWithHistory;
-  }
-
-  const batchId = driveInfo.batchId;
-
-  const browserOptions: BrowserUploadOptions = fileOptions as BrowserUploadOptions;
-
   if (!browserOptions.files) {
     throw new Error('Files are required.');
   }
 
-  const uploadResult = await uploadBrowser(
-    bee,
-    batchId,
-    browserOptions,
-    uploadOptions as RedundantUploadOptions,
-    requestOptions,
-  );
+  const uploadResult = await uploadBrowser(bee, driveInfo.batchId, browserOptions, uploadOptions, requestOptions);
 
   return {
     reference: uploadResult.reference.toString(),

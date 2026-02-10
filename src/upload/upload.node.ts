@@ -4,11 +4,10 @@ import {
   BeeRequestOptions,
   CollectionUploadOptions,
   FileUploadOptions,
-  RedundantUploadOptions,
   UploadResult,
 } from '@ethersphere/bee-js';
 
-import { DriveInfo, FileInfoOptions, NodeUploadOptions } from '../types';
+import { DriveInfo, NodeUploadOptions } from '../types';
 import { ReferenceWithHistory, WrappedUploadResult } from '../types/utils';
 import { FileError } from '../utils/errors';
 
@@ -109,28 +108,15 @@ async function uploadDirectory(
 export async function processUploadNode(
   bee: Bee,
   driveInfo: DriveInfo,
-  fileOptions: FileInfoOptions,
-  uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
+  nodeOptions: NodeUploadOptions,
+  uploadOptions?: FileUploadOptions | CollectionUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<ReferenceWithHistory> {
-  uploadOptions = { ...uploadOptions, redundancyLevel: driveInfo.redundancyLevel };
-
-  if (fileOptions.file) {
-    return {
-      reference: fileOptions.file.reference.toString(),
-      historyRef: fileOptions.file.historyRef.toString(),
-    } as ReferenceWithHistory;
-  }
-
-  const batchId = driveInfo.batchId;
-
-  const nodeOptions: NodeUploadOptions = fileOptions as NodeUploadOptions;
-
   if (!nodeOptions.path) {
     throw new Error('File path is required.');
   }
 
-  const uploadResult = await uploadNode(bee, batchId, nodeOptions, uploadOptions, requestOptions);
+  const uploadResult = await uploadNode(bee, driveInfo.batchId, nodeOptions, uploadOptions, requestOptions);
 
   return {
     reference: uploadResult.reference.toString(),
