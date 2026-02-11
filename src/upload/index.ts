@@ -13,7 +13,7 @@ import type { BrowserUploadOptions, NodeUploadOptions, ReferenceWithHistory } fr
 interface ProcessedOptions {
   options: BrowserUploadOptions | NodeUploadOptions;
   uploadOptions: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions;
-  file?: ReferenceWithHistory | undefined;
+  file?: ReferenceWithHistory;
 }
 
 const processOptions = (
@@ -33,13 +33,7 @@ const processOptions = (
     };
   }
 
-  let options: BrowserUploadOptions | NodeUploadOptions;
-
-  if (isNode) {
-    options = fileOptions as NodeUploadOptions;
-  } else {
-    options = fileOptions as BrowserUploadOptions;
-  }
+  const options = isNode ? (fileOptions as NodeUploadOptions) : (fileOptions as BrowserUploadOptions);
 
   return { options, uploadOptions: processedOptions, file };
 };
