@@ -7,11 +7,11 @@ import {
   UploadResult,
 } from '@ethersphere/bee-js';
 
+import { DriveInfo, NodeUploadOptions } from '../types';
+import { ReferenceWithHistory, WrappedUploadResult } from '../types/utils';
 import { FileError } from '../utils/errors';
-import { isDir, readFile } from '../utils/node';
-import { NodeUploadOptions, WrappedUploadResult } from '../utils/types';
 
-export async function uploadNode(
+async function uploadNode(
   bee: Bee,
   batchId: string | BatchId,
   nodeOptions: NodeUploadOptions,
@@ -53,11 +53,14 @@ async function uploadFileOrDirectory(
   uploadOptions?: CollectionUploadOptions | FileUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<UploadResult> {
-  if (isDir(resolvedPath)) {
+  const { isDir } = await import('../utils/fs/fs.node');
+  const isPathDir = await isDir(resolvedPath);
+
+  if (isPathDir) {
     return uploadDirectory(bee, batchId, resolvedPath, uploadOptions as CollectionUploadOptions, requestOptions);
-  } else {
-    return uploadFile(bee, batchId, resolvedPath, uploadOptions as FileUploadOptions, requestOptions);
   }
+
+  return uploadFile(bee, batchId, resolvedPath, uploadOptions as FileUploadOptions, requestOptions);
 }
 
 async function uploadFile(
@@ -68,7 +71,8 @@ async function uploadFile(
   requestOptions?: BeeRequestOptions,
 ): Promise<UploadResult> {
   try {
-    const { data, name, contentType } = readFile(resolvedPath);
+    const { readFile } = await import('../utils/fs/fs.node');
+    const { data, name, contentType } = await readFile(resolvedPath);
 
     return await bee.uploadFile(
       batchId,
@@ -80,6 +84,7 @@ async function uploadFile(
       },
       requestOptions,
     );
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     throw new FileError(`Failed to upload file ${resolvedPath}: ${error}`);
   }
@@ -94,7 +99,27 @@ async function uploadDirectory(
 ): Promise<UploadResult> {
   try {
     return await bee.uploadFilesFromDirectory(batchId, resolvedPath, uploadOptions, requestOptions);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     throw new FileError(`Failed to upload directory ${resolvedPath}: ${error}`);
   }
+}
+
+export async function processUploadNode(
+  bee: Bee,
+  driveInfo: DriveInfo,
+  nodeOptions: NodeUploadOptions,
+  uploadOptions?: FileUploadOptions | CollectionUploadOptions,
+  requestOptions?: BeeRequestOptions,
+): Promise<ReferenceWithHistory> {
+  if (!nodeOptions.path) {
+    throw new Error('File path is required.');
+  }
+
+  const uploadResult = await uploadNode(bee, driveInfo.batchId, nodeOptions, uploadOptions, requestOptions);
+
+  return {
+    reference: uploadResult.reference.toString(),
+    historyRef: uploadResult.historyAddress.getOrThrow().toString(),
+  } as ReferenceWithHistory;
 }

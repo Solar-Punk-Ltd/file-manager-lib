@@ -1,0 +1,14 @@
+{
+  "ignores": [
+    "@commitlint/*",
+    "cross-env",
+    "rimraf",
+    "ts-node",
+    "@types/*",
+    "@babel/*",
+    "eslint*",
+    "@eslint/*",
+    "ts-jest",
+    "husky"
+  ]
+}

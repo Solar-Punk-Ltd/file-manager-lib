@@ -1,5 +1,7 @@
 import { BatchId, Bee, BeeRequestOptions, RedundantUploadOptions, UploadResult } from '@ethersphere/bee-js';
-import { BrowserUploadOptions, WrappedUploadResult } from '../utils/types';
+
+import { BrowserUploadOptions, DriveInfo } from '../types';
+import { ReferenceWithHistory, WrappedUploadResult } from '../types/utils';
 
 export async function uploadBrowser(
   bee: Bee,
@@ -34,4 +36,23 @@ export async function uploadBrowser(
   };
 
   return await bee.uploadData(batchId, JSON.stringify(wrappedData), { ...uploadOptions, act: true }, requestOptions);
+}
+
+export async function processUploadBrowser(
+  bee: Bee,
+  driveInfo: DriveInfo,
+  browserOptions: BrowserUploadOptions,
+  uploadOptions?: RedundantUploadOptions,
+  requestOptions?: BeeRequestOptions,
+): Promise<ReferenceWithHistory> {
+  if (!browserOptions.files) {
+    throw new Error('Files are required.');
+  }
+
+  const uploadResult = await uploadBrowser(bee, driveInfo.batchId, browserOptions, uploadOptions, requestOptions);
+
+  return {
+    reference: uploadResult.reference.toString(),
+    historyRef: uploadResult.historyAddress.getOrThrow().toString(),
+  } as ReferenceWithHistory;
 }
