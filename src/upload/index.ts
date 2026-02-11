@@ -1,17 +1,48 @@
-import {
+import type {
   Bee,
   BeeRequestOptions,
   CollectionUploadOptions,
   FileUploadOptions,
   RedundantUploadOptions,
-  UploadResult,
 } from '@ethersphere/bee-js';
-import { DriveInfo, FileInfoOptions, BrowserUploadOptions, NodeUploadOptions } from '../utils';
-import { ReferenceWithHistory } from '../utils/types';
 import { isNode } from 'std-env';
-import { uploadNode } from './upload.node';
-import { uploadBrowser } from './upload.browser';
-import { FileInfoError } from '../utils/errors';
+
+import type { DriveInfo, FileInfoOptions } from '../types';
+import type { BrowserUploadOptions, NodeUploadOptions, ReferenceWithHistory } from '../types/utils';
+
+interface ProcessedOptions {
+  options: BrowserUploadOptions | NodeUploadOptions;
+  uploadOptions: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions;
+  file?: ReferenceWithHistory | undefined;
+}
+
+const processOptions = (
+  isNode: boolean,
+  driveInfo: DriveInfo,
+  fileOptions: FileInfoOptions,
+  uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
+): ProcessedOptions => {
+  const processedOptions = { ...uploadOptions, redundancyLevel: driveInfo.redundancyLevel };
+
+  let file: ReferenceWithHistory | undefined;
+
+  if (fileOptions.file) {
+    file = {
+      reference: fileOptions.file.reference.toString(),
+      historyRef: fileOptions.file.historyRef.toString(),
+    };
+  }
+
+  let options: BrowserUploadOptions | NodeUploadOptions;
+
+  if (isNode) {
+    options = fileOptions as NodeUploadOptions;
+  } else {
+    options = fileOptions as BrowserUploadOptions;
+  }
+
+  return { options, uploadOptions: processedOptions, file };
+};
 
 export async function processUpload(
   bee: Bee,
@@ -20,44 +51,19 @@ export async function processUpload(
   uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<ReferenceWithHistory> {
-  uploadOptions = { ...uploadOptions, redundancyLevel: driveInfo.redundancyLevel };
+  const processedOptions = processOptions(isNode, driveInfo, fileOptions, uploadOptions);
 
-  if (fileOptions.file) {
-    return {
-      reference: fileOptions.file.reference.toString(),
-      historyRef: fileOptions.file.historyRef.toString(),
-    } as ReferenceWithHistory;
+  if (processedOptions.file) {
+    return processedOptions.file;
   }
-
-  const batchId = driveInfo.batchId;
-  let uploadResult: UploadResult;
 
   if (isNode) {
-    const nodeOptions: NodeUploadOptions = fileOptions as NodeUploadOptions;
-
-    if (!nodeOptions.path) {
-      throw new FileInfoError('File path is required.');
-    }
-
-    uploadResult = await uploadNode(bee, batchId, nodeOptions, uploadOptions, requestOptions);
-  } else {
-    const browserOptions: BrowserUploadOptions = fileOptions as BrowserUploadOptions;
-
-    if (!browserOptions.files) {
-      throw new FileInfoError('Files are required.');
-    }
-
-    uploadResult = await uploadBrowser(
-      bee,
-      batchId,
-      browserOptions,
-      uploadOptions as RedundantUploadOptions,
-      requestOptions,
-    );
+    const { processUploadNode } = await import('./upload.node');
+    const nodeOptions = processedOptions.options as NodeUploadOptions;
+    return processUploadNode(bee, driveInfo, nodeOptions, uploadOptions, requestOptions);
   }
 
-  return {
-    reference: uploadResult.reference.toString(),
-    historyRef: uploadResult.historyAddress.getOrThrow().toString(),
-  } as ReferenceWithHistory;
+  const { processUploadBrowser } = await import('./upload.browser');
+  const browserOptions = processedOptions.options as BrowserUploadOptions;
+  return processUploadBrowser(bee, driveInfo, browserOptions, uploadOptions, requestOptions);
 }

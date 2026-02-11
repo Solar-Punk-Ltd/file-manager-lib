@@ -22,13 +22,13 @@ import {
 } from '@ethersphere/bee-js';
 import { Optional } from 'cafe-utility';
 
-import { EventEmitter } from '../src/eventEmitter/eventEmitter';
-import { FileManagerBase } from '../src/fileManager';
-import { ADMIN_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '../src/utils/constants';
-import { FileManagerEvents } from '../src/utils/events';
-import { DriveInfo, FileInfo } from '../src/utils/types';
-
 import { BEE_URL, DEFAULT_MOCK_SIGNER } from './utils';
+
+import { EventEmitter } from '@/eventEmitter/eventEmitter';
+import { FileManagerBase } from '@/fileManager';
+import { DriveInfo, FileInfo } from '@/types';
+import { FileManagerEvents } from '@/utils';
+import { ADMIN_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
 export const MOCK_BATCH_ID = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
 
