@@ -16,18 +16,6 @@ import * as fs from 'fs';
 import path from 'path';
 import { setTimeout } from 'timers';
 
-import { FileManagerBase } from '../../src/fileManager';
-import { assertStateTopicInfo } from '../../src/utils/asserts';
-import { buyStamp, getFeedData } from '../../src/utils/common';
-import {
-  ADMIN_STAMP_LABEL,
-  FEED_INDEX_ZERO,
-  FILEMANAGER_STATE_TOPIC,
-  SWARM_ZERO_ADDRESS,
-} from '../../src/utils/constants';
-import { DriveError, FileError, FileInfoError, GranteeError, StampError } from '../../src/utils/errors';
-import { FileManagerEvents } from '../../src/utils/events';
-import { DriveInfo, FileInfo, FileStatus, StateTopicInfo } from '../../src/utils/types';
 import { createInitializedFileManager, MOCK_BATCH_ID } from '../mockHelpers';
 import {
   createWrappedData,
@@ -41,6 +29,23 @@ import {
 } from '../utils';
 
 import { ensureUniqueSignerWithStamp } from './testSetupHelpers';
+
+import { FileManagerBase } from '@/fileManager';
+import { DriveInfo, FileInfo, FileStatus } from '@/types';
+import { StateTopicInfo } from '@/types/utils';
+import {
+  ADMIN_STAMP_LABEL,
+  DriveError,
+  FileError,
+  FileInfoError,
+  FILEMANAGER_STATE_TOPIC,
+  FileManagerEvents,
+  GranteeError,
+  StampError,
+} from '@/utils';
+import { assertStateTopicInfo } from '@/utils/asserts';
+import { buyStamp, getFeedData } from '@/utils/common';
+import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
 // TODO: emitter test for all events
 // TODO: separate IT cases into different files
@@ -108,7 +113,7 @@ describe('FileManager initialization', () => {
     });
     expect(topicHex).toEqual(reinitTopicHex);
   });
-  // TODO: review this case
+
   it('should throw an error if someone else than the admin tries to read the admin feed', async () => {
     const otherBee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
 
@@ -476,7 +481,7 @@ describe('FileManager drive handling', () => {
         },
         ownerBatch,
       ),
-    ).rejects.toThrow(new DriveError(`Stamp does not match drive stamp`));
+    ).rejects.toThrow(new StampError(`Stamp does not match drive stamp`));
 
     await expect(
       fileManager.destroyDrive(
@@ -1228,7 +1233,7 @@ describe('FileManager version control', () => {
 
   it('returns the cached FileInfo for the current head without refetching', async () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-    const spyGetFeedData = jest.spyOn(require('../../src/utils/common'), 'getFeedData');
+    const spyGetFeedData = jest.spyOn(require('@/utils/common'), 'getFeedData');
 
     const base = await ensureBase('cache-test');
 

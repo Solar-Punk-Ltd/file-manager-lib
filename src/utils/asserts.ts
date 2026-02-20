@@ -1,7 +1,8 @@
 import { BatchId, EthAddress, FeedIndex, Identifier, PublicKey, Reference, Topic } from '@ethersphere/bee-js';
 import { Types } from 'cafe-utility';
 
-import { DriveInfo, FileInfo, ShareItem, StateTopicInfo, WrappedFileInfoFeed, WrappedUploadResult } from './types';
+import { DriveInfo, FileInfo, ShareItem } from '../types';
+import { StateTopicInfo, WrappedFileInfoFeed, WrappedUploadResult } from '../types/utils';
 
 export function isRecord(value: unknown): value is Record<string, string> {
   return Types.isStrictlyObject(value) && Object.values(value).every((v) => typeof v === 'string');

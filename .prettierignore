@@ -1,5 +1,7 @@
 node_modules
 yarn.lock
 package-lock.json
-dist
+dist/
 pnpm-lock.yaml
+tests/coverage/
+tests/fixtures/

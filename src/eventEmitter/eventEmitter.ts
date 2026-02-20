@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 type Listener<T = any> = (data: T) => void;
 
 interface Events {

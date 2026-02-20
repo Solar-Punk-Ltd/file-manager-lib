@@ -1,33 +1,51 @@
+# Dependencies
 node_modules
 
-.vite/
-dist/**/*.map
-*.local
+# Tests
+tests/
+**.spec.ts
+**.test.ts
+coverage/
 
-test/
-__tests__/
-*.spec.ts
-*.test.ts
+# Source and build configs
+tsconfig.json
+tsconfig.cjs.json
+tsconfig.esm.json
+jest.config.ts
 
+# Linting and formatting
+eslint-compat.cjs
+eslint.config.mjs
+.eslintignore
+commitlint.config.cjs
+.prettierrc
+.prettierignore
+.depcheckrc.json
+
+# Git and CI
+.github/
+.husky/
+.gitignore
+
+# Lock files
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+
+# Environment and logs
 *.log
 *.env
 *.env.*
-*.config.*
+temp/
+
+# IDE
 .vscode/
 .idea/
-*.tsconfig.json
-*.eslintrc.js
-*.eslintrc.cjs
-.eslintignore
-.prettierrc
-.prettierignore
-*.eslintignore
-*.npmignore
-.yarn.lock
-pnpm-lock.yaml
-package-lock.json
-
-coverage/
-temp/
 .DS_Store
 Thumbs.db
+
+# Node version
+.nvmrc
+
+# docs
+REFERENCE.md

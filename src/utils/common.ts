@@ -2,7 +2,6 @@ import {
   BatchId,
   Bee,
   BeeRequestOptions,
-  Bytes,
   DownloadOptions,
   EthAddress,
   FeedIndex,
@@ -11,14 +10,12 @@ import {
   Reference,
   Topic,
 } from '@ethersphere/bee-js';
-import { isNode } from 'std-env';
 
-import { getRandomBytesBrowser } from './browser';
-import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from './constants';
-import { getRandomBytesNode } from './node';
-import { FeedResultWithIndex, FeedPayloadResult, WrappedUploadResult } from './types';
-import { FileInfoError } from './errors';
+import { FeedPayloadResult, FeedResultWithIndex, WrappedUploadResult } from '../types/utils';
+
 import { assertWrappedUploadResult } from './asserts';
+import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from './constants';
+import { FileInfoError } from './errors';
 
 export async function getFeedData(
   bee: Bee,
@@ -57,13 +54,7 @@ export async function getFeedData(
   }
 }
 
-export function generateRandomBytes(len: number): Bytes {
-  if (isNode) {
-    return getRandomBytesNode(len);
-  }
-  return getRandomBytesBrowser(len);
-}
-
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function isNotFoundError(error: any): boolean {
   return error.stack?.includes('404') || error.message?.includes('Not Found') || error.message?.includes('404');
 }
@@ -112,8 +103,13 @@ export async function settlePromises<T>(promises: Promise<T>[], cb: (value: T) =
 export async function fetchStamp(bee: Bee, batchId: string | BatchId): Promise<PostageBatch | undefined> {
   try {
     return (await bee.getPostageBatches()).find((s) => s.batchID.toString() === batchId.toString());
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     console.error(`Failed to fetch stamp: ${error.message || error}`);
     return;
   }
 }
+
+export const getEncodedSize = (input: string): number => {
+  return new TextEncoder().encode(input).length;
+};
