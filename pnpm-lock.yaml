@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@ethersphere/bee-js':
-        specifier: ^10.4.0
-        version: 10.4.0
+        specifier: ^11.1.1
+        version: 11.1.1
       std-env:
         specifier: ^3.10.0
         version: 3.10.0
@@ -43,8 +43,8 @@ importers:
         specifier: ^8.54.0
         version: 8.54.0(eslint@9.39.2(jiti@2.6.1))(typescript@5.9.3)
       cafe-utility:
-        specifier: ^33.3.5
-        version: 33.3.5
+        specifier: ^33.7.0
+        version: 33.7.0
       cross-env:
         specifier: ^10.1.0
         version: 10.1.0
@@ -390,8 +390,8 @@ packages:
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
-  '@ethersphere/bee-js@10.4.0':
-    resolution: {integrity: sha512-dtnyvKA3prBj22k2mfZWPq+uiK1hLMKr/jrGX4vaS41JsHX9uJ1GMGr4vCc41ANstGUGbp1dwCUWsXkqqjWuvg==}
+  '@ethersphere/bee-js@11.1.1':
+    resolution: {integrity: sha512-s2IpuVpy74cJyhj5yugO3+c9eR/r9TZsVJABk2iHWtTVkoA1qZdvgUjzV0w962o1gXrmYdxX4NOmlyIEpY11iQ==}
     engines: {bee: 2.4.0-390a402e, beeApiVersion: 7.2.0}
 
   '@humanfs/core@0.19.1':
@@ -979,8 +979,8 @@ packages:
   buffer-from@1.1.2:
     resolution: {integrity: sha512-E+XQCRwSbaaiChtv6k6Dwgc+bx+Bs6vuKJHHl5kox/BaKbhiXzqQOwK4cO22yElGp2OCmjwVhT3HmxgyPGnJfQ==}
 
-  cafe-utility@33.3.5:
-    resolution: {integrity: sha512-kL4SHbVzG9/Sp9h+09QYlHawQXbvY6FoG/khwqhcuMGYV9pSxuNa3SogkVn/OWkcjDBC7+4By3hjr1T4K21tHA==}
+  cafe-utility@33.7.0:
+    resolution: {integrity: sha512-3ioj2iGpIRv6PXARWUnQeDZDt5TSufPr9MZDe2aCeDT8VSHG/AGrMKAuJl+mXbvGhOX03q0VORaPnqBevLdVeQ==}
 
   call-bind-apply-helpers@1.0.2:
     resolution: {integrity: sha512-Sp1ablJ0ivDkSzjcaJdxEunN5/XvksFJ2sMBFfq6x0ryhQV/2b/KwFe21cMpmHtPOSij8K99/wSfoEuTObmuMQ==}
@@ -3205,10 +3205,10 @@ snapshots:
       '@eslint/core': 0.17.0
       levn: 0.4.1
 
-  '@ethersphere/bee-js@10.4.0':
+  '@ethersphere/bee-js@11.1.1':
     dependencies:
       axios: 0.30.2(debug@4.4.3)
-      cafe-utility: 33.3.5
+      cafe-utility: 33.7.0
       debug: 4.4.3
       isomorphic-ws: 4.0.1(ws@8.19.0)
       semver: 7.7.3
@@ -3967,7 +3967,7 @@ snapshots:
 
   buffer-from@1.1.2: {}
 
-  cafe-utility@33.3.5: {}
+  cafe-utility@33.7.0: {}
 
   call-bind-apply-helpers@1.0.2:
     dependencies:

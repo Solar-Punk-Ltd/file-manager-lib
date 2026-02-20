@@ -125,7 +125,7 @@ From `package.json`:
 - `pnpm run build` → compile Node + browser + types.
 - `pnpm run test` → run Jest integration tests (see [TESTS.md](TESTS.md)).
 - `pnpm run lint` / `pnpm run lint:fix` → linting.
-- `pnpm husky install` → husky init
+- `pnpm init:husky` → husky init
 - `pnpm run depcheck` → check dependencies
 
 ---
