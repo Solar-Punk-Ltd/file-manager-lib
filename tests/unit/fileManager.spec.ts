@@ -991,4 +991,86 @@ describe('FileManager', () => {
       expect(eventHandler).toHaveBeenCalledWith(true);
     });
   });
+
+  describe('AbortController', () => {
+    const otherMockBatchId = new BatchId('4'.repeat(64));
+
+    it('should pass requestOptions with signal to uploadFilesFromDirectory', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
+      const di = fm.driveList[0];
+
+      const uploadFileOrDirectorySpy = createUploadFilesFromDirectorySpy('1');
+      createUploadFileSpy('2');
+      createUploadDataSpy('3');
+      createUploadDataSpy('4');
+      createMockFeedWriter('5');
+
+      const controller = new AbortController();
+      await fm.upload(di, { name: 'tests', path: './tests' }, undefined, { signal: controller.signal });
+
+      expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
+      const callArgs = uploadFileOrDirectorySpy.mock.calls[0];
+      expect(callArgs[3]).toHaveProperty('signal', controller.signal);
+    });
+
+    it('should pass requestOptions with signal to uploadFile', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
+      const di = fm.driveList[0];
+
+      createUploadFilesFromDirectorySpy('1');
+      const uploadFileSpy = createUploadFileSpy('2');
+      createUploadDataSpy('3');
+      createUploadDataSpy('4');
+      createMockFeedWriter('5');
+
+      const controller = new AbortController();
+      await fm.upload(di, { name: 'test.txt', path: './tests/fixtures/test.txt' }, undefined, {
+        signal: controller.signal,
+      });
+
+      expect(uploadFileSpy).toHaveBeenCalled();
+      const callArgs = uploadFileSpy.mock.calls[0];
+      expect(callArgs[4]).toHaveProperty('signal', controller.signal);
+    });
+
+    it('should not pass signal if requestOptions is undefined', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
+      const di = fm.driveList[0];
+
+      const uploadFileOrDirectorySpy = createUploadFilesFromDirectorySpy('1');
+      createUploadFileSpy('2');
+      createUploadDataSpy('3');
+      createUploadDataSpy('4');
+      createMockFeedWriter('5');
+
+      await fm.upload(di, { name: 'tests', path: './tests' });
+
+      expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
+      const callArgs = uploadFileOrDirectorySpy.mock.calls[0];
+      // When requestOptions is not provided, the options object should not have signal
+      expect(callArgs[3]?.signal).toBeUndefined();
+    });
+
+    it('should allow upload to proceed when signal is not aborted', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
+      const di = fm.driveList[0];
+
+      createUploadFilesFromDirectorySpy('1');
+      createUploadFileSpy('2');
+      createUploadDataSpy('3');
+      createUploadDataSpy('4');
+      createMockFeedWriter('5');
+
+      const controller = new AbortController();
+
+      // Should not throw when signal is not aborted
+      await expect(
+        fm.upload(di, { name: 'tests', path: './tests' }, undefined, { signal: controller.signal }),
+      ).resolves.not.toThrow();
+    });
+  });
 });

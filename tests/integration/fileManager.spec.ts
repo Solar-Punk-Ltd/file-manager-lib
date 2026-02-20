@@ -1587,3 +1587,121 @@ describe('FileManager End-to-End User Workflow', () => {
     expect(fullPaths).toContain('level1/level2/level2.txt');
   });
 });
+
+describe('FileManager AbortController', () => {
+  let bee: BeeDev;
+  let fileManager: FileManagerBase;
+  let batchId: BatchId;
+  let tempDir: string;
+  let drive: DriveInfo;
+  let largeFilePath: string;
+
+  beforeAll(async () => {
+    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
+    bee = beeDev;
+
+    fileManager = await createInitializedFileManager(bee, ownerStamp);
+
+    // Create a test drive
+    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'abortControllerStamp');
+    await fileManager.createDrive(batchId, 'abort-test', false);
+    const tmpDrive = fileManager.driveList.find((d) => d.name === 'abort-test');
+    expect(tmpDrive).toBeDefined();
+    drive = tmpDrive!;
+
+    // Create temp directory with test files
+    tempDir = path.join(__dirname, 'tmpAbortControllerTest');
+    fs.mkdirSync(tempDir, { recursive: true });
+
+    // Create a larger file for abort testing (1MB to ensure upload takes time)
+    largeFilePath = path.join(tempDir, 'large-file.bin');
+    const largeData = Buffer.alloc(1 * 1024 * 1024, 'x'); // 1MB
+    fs.writeFileSync(largeFilePath, largeData);
+  });
+
+  afterAll(() => {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('should throw error with Request aborted message when upload is aborted with pre-aborted signal', async () => {
+    const controller = new AbortController();
+    controller.abort(); // Pre-abort
+
+    await expect(
+      fileManager.upload(
+        drive,
+        { name: 'test-abort-file.txt', path: path.join(tempDir, 'large-file.bin') },
+        undefined,
+        {
+          signal: controller.signal,
+        },
+      ),
+    ).rejects.toThrow('Request aborted');
+  });
+
+  it('should throw BeeResponseError when upload is cancelled mid-flight', async () => {
+    const controller = new AbortController();
+
+    // Start upload and abort after a short delay
+    const uploadPromise = fileManager.upload(drive, { name: 'test-mid-abort.bin', path: largeFilePath }, undefined, {
+      signal: controller.signal,
+    });
+
+    // Abort after 50ms to allow upload to start
+    setTimeout(() => {
+      controller.abort();
+    }, 50);
+
+    await expect(uploadPromise).rejects.toThrow();
+
+    // Verify the error is related to abort
+    try {
+      await uploadPromise;
+    } catch (error: any) {
+      expect(error.statusText === 'ERR_CANCELED' || error.message.includes('aborted')).toBe(true);
+    }
+  });
+
+  it('should complete upload successfully when signal is not aborted', async () => {
+    const controller = new AbortController();
+    const testContent = 'This file should upload successfully';
+    const testFilePath = path.join(tempDir, 'success-file.txt');
+    fs.writeFileSync(testFilePath, testContent);
+
+    // Upload with signal that is NOT aborted
+    await fileManager.upload(drive, { name: 'success-file.txt', path: testFilePath }, undefined, {
+      signal: controller.signal,
+    });
+
+    // Verify file was uploaded
+    const uploadedFile = fileManager.fileInfoList.find((fi) => fi.name === 'success-file.txt');
+    expect(uploadedFile).toBeDefined();
+    expect(uploadedFile?.driveId).toBe(drive.id.toString());
+  });
+
+  it('should handle multiple uploads with different abort controllers', async () => {
+    const controller1 = new AbortController();
+    const controller2 = new AbortController();
+    controller1.abort(); // Pre-abort first one
+
+    const file1Path = path.join(tempDir, 'file1.txt');
+    const file2Path = path.join(tempDir, 'file2.txt');
+    fs.writeFileSync(file1Path, 'Content 1');
+    fs.writeFileSync(file2Path, 'Content 2');
+
+    // First upload should fail (aborted)
+    await expect(
+      fileManager.upload(drive, { name: 'file1-abort.txt', path: file1Path }, undefined, {
+        signal: controller1.signal,
+      }),
+    ).rejects.toThrow('Request aborted');
+
+    // Second upload should succeed (not aborted)
+    await fileManager.upload(drive, { name: 'file2-success.txt', path: file2Path }, undefined, {
+      signal: controller2.signal,
+    });
+
+    const uploadedFile = fileManager.fileInfoList.find((fi) => fi.name === 'file2-success.txt');
+    expect(uploadedFile).toBeDefined();
+  });
+});

@@ -72,6 +72,7 @@ export default [
       parser: tsParser,
       globals: {
         window: 'readonly',
+        Buffer: 'readonly',
         document: 'readonly',
         navigator: 'readonly',
         console: 'readonly',
@@ -84,6 +85,7 @@ export default [
         File: 'readonly',
         FileList: 'readonly',
         ReadableStream: 'readonly',
+        AbortController: 'readonly',
       },
     },
   },
