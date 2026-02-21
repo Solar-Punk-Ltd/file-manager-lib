@@ -442,7 +442,8 @@ export class FileManagerBase implements FileManager {
 
     const resources = getForksMap(unmarshalled, paths);
 
-    return await processDownload(this.bee, Object.values(resources), options, requestOptions);
+    // TODO: options is undefined due to the getWrappedData usage -> cannot use act again if the ref is already decrypted
+    return await processDownload(this.bee, Object.values(resources), undefined, requestOptions);
   }
 
   async upload(

@@ -385,7 +385,7 @@ describe('FileManager', () => {
 
       await fm.download(mockFi, ['/root/2.txt']);
 
-      expect(downloadDataSpy).toHaveBeenCalledWith('2'.repeat(64), undefined);
+      expect(downloadDataSpy).toHaveBeenCalledWith('2'.repeat(64), undefined, undefined);
     });
 
     it('should call download for all of forks', async () => {
@@ -402,9 +402,9 @@ describe('FileManager', () => {
 
       const fileStrings = await fm.download(mockFi);
 
-      expect(downloadDataSpy).toHaveBeenCalledWith('1'.repeat(64), undefined);
-      expect(downloadDataSpy).toHaveBeenCalledWith('2'.repeat(64), undefined);
-      expect(downloadDataSpy).toHaveBeenCalledWith('3'.repeat(64), undefined);
+      expect(downloadDataSpy).toHaveBeenCalledWith('1'.repeat(64), undefined, undefined);
+      expect(downloadDataSpy).toHaveBeenCalledWith('2'.repeat(64), undefined, undefined);
+      expect(downloadDataSpy).toHaveBeenCalledWith('3'.repeat(64), undefined, undefined);
 
       expect(fileStrings[0]).toEqual(mockForkRef);
       expect(fileStrings[1]).toEqual(mockForkRef);
