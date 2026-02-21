@@ -70,6 +70,7 @@ export interface FileManager {
    * @param eRef - The encrypted reference to the file(s) to be downloaded.
    * @param paths - Optional array of fork paths to download.
    * @param options - Optional download options for ACT and redundancy.
+   * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FILE_DOWNLOADED
    * @returns A promise that resolves to an array of strings representing the downloaded file(s).
    */
@@ -77,15 +78,23 @@ export interface FileManager {
     fileInfo: FileInfo,
     paths?: string[],
     options?: DownloadOptions,
+    requestOptions?: BeeRequestOptions,
   ): Promise<ReadableStream<Uint8Array>[] | Bytes[]>;
 
   /**
    * Lists files based on the provided file information and options.
    * @param fileInfo - Information about the file(s) containing the encrypted reference and history.
+   * @param paths - Optional array of fork paths to list.
+   * @param requestOptions - Additional Bee request options.
    * @param options - Optional download options for ACT.
    * @returns A promise that resolves to an array of references with paths.
    */
-  listFiles(fileInfo: FileInfo, options?: DownloadOptions): Promise<Record<string, string>>;
+  listFiles(
+    fileInfo: FileInfo,
+    paths?: string[],
+    options?: DownloadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<Record<string, string>>;
 
   /**
    * Soft-delete: move a file to “trash” (it stays in Swarm but is hidden from your live list).

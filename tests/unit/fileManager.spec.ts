@@ -30,12 +30,12 @@ import { FileManagerBase } from '@/fileManager';
 import { DriveInfo, FileInfo, FileStatus } from '@/types';
 import { FeedResultWithIndex, WrappedUploadResult } from '@/types/utils';
 import { DriveError, FileManagerEvents, SignerError } from '@/utils';
-import { fetchStamp, getFeedData } from '@/utils/common';
+import { fetchStamp, getFeedData } from '@/utils/bee';
 import { ADMIN_STAMP_LABEL, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 import { generateRandomBytes } from '@/utils/crypto';
 
-jest.mock('@/utils/common', () => ({
-  ...jest.requireActual('@/utils/common'),
+jest.mock('@/utils/bee', () => ({
+  ...jest.requireActual('@/utils/bee'),
   getFeedData: jest.fn(),
   fetchStamp: jest.fn(),
   getWrappedData: jest.fn(),
@@ -72,7 +72,7 @@ describe('FileManager', () => {
     (fetchStamp as jest.Mock).mockResolvedValue({ ...mockPostageBatch });
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-    const { getWrappedData } = require('@/utils/common');
+    const { getWrappedData } = require('@/utils/bee');
     getWrappedData.mockResolvedValue({
       uploadFilesRes: mockSelfAddr.toString(),
     } as WrappedUploadResult);
@@ -385,7 +385,11 @@ describe('FileManager', () => {
 
       await fm.download(mockFi, ['/root/2.txt']);
 
-      expect(downloadDataSpy).toHaveBeenCalledWith('2'.repeat(64), undefined);
+      expect(downloadDataSpy).toHaveBeenCalledWith(
+        '2'.repeat(64),
+        { actHistoryAddress: undefined, actPublisher: undefined },
+        undefined,
+      );
     });
 
     it('should call download for all of forks', async () => {
@@ -402,9 +406,21 @@ describe('FileManager', () => {
 
       const fileStrings = await fm.download(mockFi);
 
-      expect(downloadDataSpy).toHaveBeenCalledWith('1'.repeat(64), undefined);
-      expect(downloadDataSpy).toHaveBeenCalledWith('2'.repeat(64), undefined);
-      expect(downloadDataSpy).toHaveBeenCalledWith('3'.repeat(64), undefined);
+      expect(downloadDataSpy).toHaveBeenCalledWith(
+        '1'.repeat(64),
+        { actHistoryAddress: undefined, actPublisher: undefined },
+        undefined,
+      );
+      expect(downloadDataSpy).toHaveBeenCalledWith(
+        '2'.repeat(64),
+        { actHistoryAddress: undefined, actPublisher: undefined },
+        undefined,
+      );
+      expect(downloadDataSpy).toHaveBeenCalledWith(
+        '3'.repeat(64),
+        { actHistoryAddress: undefined, actPublisher: undefined },
+        undefined,
+      );
 
       expect(fileStrings[0]).toEqual(mockForkRef);
       expect(fileStrings[1]).toEqual(mockForkRef);
@@ -574,7 +590,7 @@ describe('FileManager', () => {
         payload: new Bytes(new Reference('f'.repeat(64)).toUint8Array()),
       };
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      jest.spyOn(require('@/utils/common'), 'getFeedData').mockResolvedValue(rawMock);
+      jest.spyOn(require('@/utils/bee'), 'getFeedData').mockResolvedValue(rawMock);
 
       const spyFetch = jest.spyOn(FileManagerBase.prototype as any, 'fetchFileInfo').mockResolvedValue(fakeFi);
       let got = await fm.getVersion(dummyFi, FeedIndex.fromBigInt(1n));
@@ -618,7 +634,7 @@ describe('FileManager', () => {
       dummyFi.version = head.toString();
 
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      jest.spyOn(require('@/utils/common'), 'getFeedData').mockResolvedValue({
+      jest.spyOn(require('@/utils/bee'), 'getFeedData').mockResolvedValue({
         feedIndex: head,
         feedIndexNext: FeedIndex.fromBigInt(6n),
         payload: SWARM_ZERO_ADDRESS,
@@ -639,7 +655,7 @@ describe('FileManager', () => {
         payload: SWARM_ZERO_ADDRESS,
       };
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      jest.spyOn(require('@/utils/common'), 'getFeedData').mockResolvedValueOnce(fakeFeedData);
+      jest.spyOn(require('@/utils/bee'), 'getFeedData').mockResolvedValueOnce(fakeFeedData);
 
       const spyEmit = jest.spyOn(fm.emitter, 'emit');
 
@@ -850,7 +866,7 @@ describe('FileManager', () => {
       expect(mockFi.status).toBe(FileStatus.Trashed);
       expect(mockFi.timestamp!).toBeGreaterThan(0);
 
-      expect(uploadSpy).toHaveBeenCalledWith(mockFi);
+      expect(uploadSpy).toHaveBeenCalledWith(mockFi, undefined);
       expect(saveSpy).toHaveBeenCalledWith(mockFi);
 
       expect(handler).toHaveBeenCalledWith({ fileInfo: mockFi });
@@ -874,7 +890,7 @@ describe('FileManager', () => {
       expect(mockFi.status).toBe(FileStatus.Active);
       expect(mockFi.timestamp!).toBeGreaterThan(beforeTs);
 
-      expect(uploadSpy).toHaveBeenCalledWith(mockFi);
+      expect(uploadSpy).toHaveBeenCalledWith(mockFi, undefined);
       expect(saveSpy).toHaveBeenCalledWith(mockFi);
 
       expect(handler).toHaveBeenCalledWith({ fileInfo: mockFi });
@@ -989,6 +1005,204 @@ describe('FileManager', () => {
       await createInitializedFileManager(bee, MOCK_BATCH_ID, emitter);
 
       expect(eventHandler).toHaveBeenCalledWith(true);
+    });
+  });
+
+  describe('AbortController', () => {
+    const otherMockBatchId = new BatchId('4'.repeat(64));
+
+    beforeEach(() => {
+      const { getForksMap } = jest.requireActual('@/utils/mantaray');
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      jest.spyOn(require('@/utils/mantaray'), 'getForksMap').mockImplementation(getForksMap);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
+    it('should pass requestOptions with signal to uploadFilesFromDirectory', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
+      const di = fm.driveList[0];
+
+      const uploadFileOrDirectorySpy = createUploadFilesFromDirectorySpy('1');
+      createUploadFileSpy('2');
+      createUploadDataSpy('3');
+      createUploadDataSpy('4');
+      createMockFeedWriter('5');
+
+      const controller = new AbortController();
+      await fm.upload(di, { name: 'tests', path: './tests' }, undefined, { signal: controller.signal });
+
+      expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
+      const callArgs = uploadFileOrDirectorySpy.mock.calls[0];
+      expect(callArgs[3]).toHaveProperty('signal', controller.signal);
+    });
+
+    it('should pass requestOptions with signal to uploadFile', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
+      const di = fm.driveList[0];
+
+      createUploadFilesFromDirectorySpy('1');
+      const uploadFileSpy = createUploadFileSpy('2');
+      createUploadDataSpy('3');
+      createUploadDataSpy('4');
+      createMockFeedWriter('5');
+
+      const controller = new AbortController();
+      await fm.upload(di, { name: 'test.txt', path: './tests/fixtures/test.txt' }, undefined, {
+        signal: controller.signal,
+      });
+
+      expect(uploadFileSpy).toHaveBeenCalled();
+      const callArgs = uploadFileSpy.mock.calls[0];
+      expect(callArgs[4]).toHaveProperty('signal', controller.signal);
+    });
+
+    it('should not pass signal if requestOptions is undefined', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
+      const di = fm.driveList[0];
+
+      const uploadFileOrDirectorySpy = createUploadFilesFromDirectorySpy('1');
+      createUploadFileSpy('2');
+      createUploadDataSpy('3');
+      createUploadDataSpy('4');
+      createMockFeedWriter('5');
+
+      await fm.upload(di, { name: 'tests', path: './tests' });
+
+      expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
+      const callArgs = uploadFileOrDirectorySpy.mock.calls[0];
+      // When requestOptions is not provided, the options object should not have signal
+      expect(callArgs[3]?.signal).toBeUndefined();
+    });
+
+    it('should allow upload to proceed when signal is not aborted', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
+      const di = fm.driveList[0];
+
+      createUploadFilesFromDirectorySpy('1');
+      createUploadFileSpy('2');
+      createUploadDataSpy('3');
+      createUploadDataSpy('4');
+      createMockFeedWriter('5');
+
+      const controller = new AbortController();
+
+      // Should not throw when signal is not aborted
+      await expect(
+        fm.upload(di, { name: 'tests', path: './tests' }, undefined, { signal: controller.signal }),
+      ).resolves.not.toThrow();
+    });
+
+    it('should pass requestOptions with signal to getWrappedData in listFiles', async () => {
+      const fm = await createInitializedFileManager();
+      const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
+      const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
+      const mockFi = await createMockFileInfo(owner, actPublisher, mockSelfAddr.toString());
+
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      const { getWrappedData } = require('@/utils/bee');
+
+      const controller = new AbortController();
+      await fm.listFiles(mockFi, undefined, undefined, { signal: controller.signal });
+
+      expect(getWrappedData).toHaveBeenCalled();
+      const callArgs = getWrappedData.mock.calls[0];
+      expect(callArgs[5]).toHaveProperty('signal', controller.signal);
+    });
+
+    it('should pass requestOptions with signal to loadMantaray in listFiles', async () => {
+      const fm = await createInitializedFileManager();
+      const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
+      const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
+      const mockFi = await createMockFileInfo(owner, actPublisher, mockSelfAddr.toString());
+
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      const { loadMantaray } = require('@/utils/mantaray');
+
+      const controller = new AbortController();
+      await fm.listFiles(mockFi, undefined, undefined, { signal: controller.signal });
+
+      expect(loadMantaray).toHaveBeenCalled();
+      const callArgs = loadMantaray.mock.calls[0];
+      expect(callArgs[3]).toHaveProperty('signal', controller.signal);
+    });
+
+    it('should not pass signal in listFiles if requestOptions is undefined', async () => {
+      const fm = await createInitializedFileManager();
+      const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
+      const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
+      const mockFi = await createMockFileInfo(owner, actPublisher, mockSelfAddr.toString());
+
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      const { getWrappedData } = require('@/utils/bee');
+
+      await fm.listFiles(mockFi);
+
+      expect(getWrappedData).toHaveBeenCalled();
+      const callArgs = getWrappedData.mock.calls[0];
+      expect(callArgs[5]).toBeUndefined();
+    });
+
+    it('should allow listFiles to proceed when signal is not aborted', async () => {
+      const fm = await createInitializedFileManager();
+      const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
+      const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
+      const mockFi = await createMockFileInfo(owner, actPublisher, mockSelfAddr.toString());
+
+      const controller = new AbortController();
+
+      await expect(fm.listFiles(mockFi, undefined, undefined, { signal: controller.signal })).resolves.not.toThrow();
+    });
+
+    it('should pass requestOptions with signal through download to listFiles', async () => {
+      const fm = await createInitializedFileManager();
+      const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
+      const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
+      const mockFi = await createMockFileInfo(owner, actPublisher, mockSelfAddr.toString());
+
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      const { getWrappedData } = require('@/utils/bee');
+
+      const controller = new AbortController();
+      await fm.download(mockFi, undefined, undefined, { signal: controller.signal });
+
+      // download calls listFiles internally, so getWrappedData should be called with signal
+      expect(getWrappedData).toHaveBeenCalled();
+      const callArgs = getWrappedData.mock.calls[0];
+      expect(callArgs[5]).toHaveProperty('signal', controller.signal);
+    });
+
+    it('should not pass signal in download if requestOptions is undefined', async () => {
+      const fm = await createInitializedFileManager();
+      const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
+      const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
+      const mockFi = await createMockFileInfo(owner, actPublisher, mockSelfAddr.toString());
+
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      const { getWrappedData } = require('@/utils/bee');
+
+      await fm.download(mockFi);
+
+      expect(getWrappedData).toHaveBeenCalled();
+      const callArgs = getWrappedData.mock.calls[0];
+      expect(callArgs[5]).toBeUndefined();
+    });
+
+    it('should allow download to proceed when signal is not aborted', async () => {
+      const fm = await createInitializedFileManager();
+      const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
+      const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
+      const mockFi = await createMockFileInfo(owner, actPublisher, mockSelfAddr.toString());
+
+      const controller = new AbortController();
+
+      await expect(fm.download(mockFi, undefined, undefined, { signal: controller.signal })).resolves.not.toThrow();
     });
   });
 });
