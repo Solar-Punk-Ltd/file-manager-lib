@@ -1011,6 +1011,16 @@ describe('FileManager', () => {
   describe('AbortController', () => {
     const otherMockBatchId = new BatchId('4'.repeat(64));
 
+    beforeEach(() => {
+      const { getForksMap } = jest.requireActual('@/utils/mantaray');
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      jest.spyOn(require('@/utils/mantaray'), 'getForksMap').mockImplementation(getForksMap);
+    });
+
+    afterEach(() => {
+      jest.restoreAllMocks();
+    });
+
     it('should pass requestOptions with signal to uploadFilesFromDirectory', async () => {
       const fm = await createInitializedFileManager();
       await fm.createDrive(otherMockBatchId, 'Test Drive', false);
@@ -1087,6 +1097,112 @@ describe('FileManager', () => {
       await expect(
         fm.upload(di, { name: 'tests', path: './tests' }, undefined, { signal: controller.signal }),
       ).resolves.not.toThrow();
+    });
+
+    it('should pass requestOptions with signal to getWrappedData in listFiles', async () => {
+      const fm = await createInitializedFileManager();
+      const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
+      const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
+      const mockFi = await createMockFileInfo(owner, actPublisher, mockSelfAddr.toString());
+
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      const { getWrappedData } = require('@/utils/bee');
+
+      const controller = new AbortController();
+      await fm.listFiles(mockFi, undefined, undefined, { signal: controller.signal });
+
+      expect(getWrappedData).toHaveBeenCalled();
+      const callArgs = getWrappedData.mock.calls[0];
+      expect(callArgs[5]).toHaveProperty('signal', controller.signal);
+    });
+
+    it('should pass requestOptions with signal to loadMantaray in listFiles', async () => {
+      const fm = await createInitializedFileManager();
+      const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
+      const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
+      const mockFi = await createMockFileInfo(owner, actPublisher, mockSelfAddr.toString());
+
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      const { loadMantaray } = require('@/utils/mantaray');
+
+      const controller = new AbortController();
+      await fm.listFiles(mockFi, undefined, undefined, { signal: controller.signal });
+
+      expect(loadMantaray).toHaveBeenCalled();
+      const callArgs = loadMantaray.mock.calls[0];
+      expect(callArgs[3]).toHaveProperty('signal', controller.signal);
+    });
+
+    it('should not pass signal in listFiles if requestOptions is undefined', async () => {
+      const fm = await createInitializedFileManager();
+      const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
+      const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
+      const mockFi = await createMockFileInfo(owner, actPublisher, mockSelfAddr.toString());
+
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      const { getWrappedData } = require('@/utils/bee');
+
+      await fm.listFiles(mockFi);
+
+      expect(getWrappedData).toHaveBeenCalled();
+      const callArgs = getWrappedData.mock.calls[0];
+      expect(callArgs[5]).toBeUndefined();
+    });
+
+    it('should allow listFiles to proceed when signal is not aborted', async () => {
+      const fm = await createInitializedFileManager();
+      const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
+      const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
+      const mockFi = await createMockFileInfo(owner, actPublisher, mockSelfAddr.toString());
+
+      const controller = new AbortController();
+
+      await expect(fm.listFiles(mockFi, undefined, undefined, { signal: controller.signal })).resolves.not.toThrow();
+    });
+
+    it('should pass requestOptions with signal through download to listFiles', async () => {
+      const fm = await createInitializedFileManager();
+      const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
+      const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
+      const mockFi = await createMockFileInfo(owner, actPublisher, mockSelfAddr.toString());
+
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      const { getWrappedData } = require('@/utils/bee');
+
+      const controller = new AbortController();
+      await fm.download(mockFi, undefined, undefined, { signal: controller.signal });
+
+      // download calls listFiles internally, so getWrappedData should be called with signal
+      expect(getWrappedData).toHaveBeenCalled();
+      const callArgs = getWrappedData.mock.calls[0];
+      expect(callArgs[5]).toHaveProperty('signal', controller.signal);
+    });
+
+    it('should not pass signal in download if requestOptions is undefined', async () => {
+      const fm = await createInitializedFileManager();
+      const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
+      const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
+      const mockFi = await createMockFileInfo(owner, actPublisher, mockSelfAddr.toString());
+
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      const { getWrappedData } = require('@/utils/bee');
+
+      await fm.download(mockFi);
+
+      expect(getWrappedData).toHaveBeenCalled();
+      const callArgs = getWrappedData.mock.calls[0];
+      expect(callArgs[5]).toBeUndefined();
+    });
+
+    it('should allow download to proceed when signal is not aborted', async () => {
+      const fm = await createInitializedFileManager();
+      const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
+      const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
+      const mockFi = await createMockFileInfo(owner, actPublisher, mockSelfAddr.toString());
+
+      const controller = new AbortController();
+
+      await expect(fm.download(mockFi, undefined, undefined, { signal: controller.signal })).resolves.not.toThrow();
     });
   });
 });
