@@ -44,7 +44,7 @@ import {
   StampError,
 } from '@/utils';
 import { assertStateTopicInfo } from '@/utils/asserts';
-import { buyStamp, getFeedData } from '@/utils/common';
+import { buyStamp, getFeedData } from '@/utils/bee';
 import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
 // TODO: emitter test for all events
@@ -172,7 +172,7 @@ describe('FileManager initialization', () => {
       expect(fileInfoList).toHaveLength(expFileDataArr.length);
       await dowloadAndCompareFiles(fileManager, actPublisher.toCompressedHex(), fileInfoList, expFileDataArr);
 
-      const fileList = await fileManager.listFiles(fileInfoList[0], {
+      const fileList = await fileManager.listFiles(fileInfoList[0], undefined, {
         actHistoryAddress: fileInfoList[0].file.historyRef,
         actPublisher,
       });
@@ -615,7 +615,7 @@ describe('FileManager listFiles', () => {
     const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(tempDir));
     expect(fileInfo).toBeDefined();
 
-    const fileList = await fileManager.listFiles(fileInfo!, {
+    const fileList = await fileManager.listFiles(fileInfo!, undefined, {
       actHistoryAddress: fileInfo!.file.historyRef,
       actPublisher,
     });
@@ -647,7 +647,7 @@ describe('FileManager listFiles', () => {
     }
 
     expect(fileInfo).toBeDefined();
-    const fileList = await fileManager.listFiles(fileInfo!, {
+    const fileList = await fileManager.listFiles(fileInfo!, undefined, {
       actHistoryAddress: fileInfo!.file.historyRef,
       actPublisher,
     });
@@ -672,7 +672,7 @@ describe('FileManager listFiles', () => {
     const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(deepDir));
     expect(fileInfo).toBeDefined();
 
-    const fileList = await fileManager.listFiles(fileInfo!, {
+    const fileList = await fileManager.listFiles(fileInfo!, undefined, {
       actHistoryAddress: fileInfo!.file.historyRef,
       actPublisher,
     });
@@ -701,7 +701,7 @@ describe('FileManager listFiles', () => {
     const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(folderWithEmpty));
     expect(fileInfo).toBeDefined();
 
-    let fileList = await fileManager.listFiles(fileInfo!, {
+    let fileList = await fileManager.listFiles(fileInfo!, undefined, {
       actHistoryAddress: fileInfo!.file.historyRef,
       actPublisher,
     });
@@ -1233,7 +1233,7 @@ describe('FileManager version control', () => {
 
   it('returns the cached FileInfo for the current head without refetching', async () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-    const spyGetFeedData = jest.spyOn(require('@/utils/common'), 'getFeedData');
+    const spyGetFeedData = jest.spyOn(require('@/utils/bee'), 'getFeedData');
 
     const base = await ensureBase('cache-test');
 
@@ -1474,7 +1474,7 @@ describe('FileManager End-to-End User Workflow', () => {
     await new Promise((r) => setTimeout(r, 1000));
     await fileManager.upload(drive, { name: path.basename(projectFolder), path: projectFolder });
 
-    const listedFiles = await fileManager.listFiles(projectInfo, {
+    const listedFiles = await fileManager.listFiles(projectInfo, undefined, {
       actHistoryAddress: new Reference(projectInfo.file.historyRef),
       actPublisher,
     });
@@ -1536,7 +1536,7 @@ describe('FileManager End-to-End User Workflow', () => {
       expect(fi.redundancyLevel).toBe(drive.redundancyLevel);
     });
 
-    const listedFiles_newVersion = await fileManager.listFiles(newVersionInfo!, {
+    const listedFiles_newVersion = await fileManager.listFiles(newVersionInfo!, undefined, {
       actHistoryAddress: new Reference(newVersionInfo!.file.historyRef),
       actPublisher,
     });
@@ -1577,7 +1577,7 @@ describe('FileManager End-to-End User Workflow', () => {
     const complexInfo = fileInfos.find((fi) => fi.name === path.basename(complexFolder));
     expect(complexInfo).toBeDefined();
 
-    const listedFiles = await fileManager.listFiles(complexInfo!, {
+    const listedFiles = await fileManager.listFiles(complexInfo!, undefined, {
       actHistoryAddress: new Reference(complexInfo!.file.historyRef),
       actPublisher,
     });

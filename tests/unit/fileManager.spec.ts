@@ -30,12 +30,12 @@ import { FileManagerBase } from '@/fileManager';
 import { DriveInfo, FileInfo, FileStatus } from '@/types';
 import { FeedResultWithIndex, WrappedUploadResult } from '@/types/utils';
 import { DriveError, FileManagerEvents, SignerError } from '@/utils';
-import { fetchStamp, getFeedData } from '@/utils/common';
+import { fetchStamp, getFeedData } from '@/utils/bee';
 import { ADMIN_STAMP_LABEL, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 import { generateRandomBytes } from '@/utils/crypto';
 
-jest.mock('@/utils/common', () => ({
-  ...jest.requireActual('@/utils/common'),
+jest.mock('@/utils/bee', () => ({
+  ...jest.requireActual('@/utils/bee'),
   getFeedData: jest.fn(),
   fetchStamp: jest.fn(),
   getWrappedData: jest.fn(),
@@ -72,7 +72,7 @@ describe('FileManager', () => {
     (fetchStamp as jest.Mock).mockResolvedValue({ ...mockPostageBatch });
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-    const { getWrappedData } = require('@/utils/common');
+    const { getWrappedData } = require('@/utils/bee');
     getWrappedData.mockResolvedValue({
       uploadFilesRes: mockSelfAddr.toString(),
     } as WrappedUploadResult);
@@ -385,7 +385,11 @@ describe('FileManager', () => {
 
       await fm.download(mockFi, ['/root/2.txt']);
 
-      expect(downloadDataSpy).toHaveBeenCalledWith('2'.repeat(64), undefined, undefined);
+      expect(downloadDataSpy).toHaveBeenCalledWith(
+        '2'.repeat(64),
+        { actHistoryAddress: undefined, actPublisher: undefined },
+        undefined,
+      );
     });
 
     it('should call download for all of forks', async () => {
@@ -402,9 +406,21 @@ describe('FileManager', () => {
 
       const fileStrings = await fm.download(mockFi);
 
-      expect(downloadDataSpy).toHaveBeenCalledWith('1'.repeat(64), undefined, undefined);
-      expect(downloadDataSpy).toHaveBeenCalledWith('2'.repeat(64), undefined, undefined);
-      expect(downloadDataSpy).toHaveBeenCalledWith('3'.repeat(64), undefined, undefined);
+      expect(downloadDataSpy).toHaveBeenCalledWith(
+        '1'.repeat(64),
+        { actHistoryAddress: undefined, actPublisher: undefined },
+        undefined,
+      );
+      expect(downloadDataSpy).toHaveBeenCalledWith(
+        '2'.repeat(64),
+        { actHistoryAddress: undefined, actPublisher: undefined },
+        undefined,
+      );
+      expect(downloadDataSpy).toHaveBeenCalledWith(
+        '3'.repeat(64),
+        { actHistoryAddress: undefined, actPublisher: undefined },
+        undefined,
+      );
 
       expect(fileStrings[0]).toEqual(mockForkRef);
       expect(fileStrings[1]).toEqual(mockForkRef);
@@ -574,7 +590,7 @@ describe('FileManager', () => {
         payload: new Bytes(new Reference('f'.repeat(64)).toUint8Array()),
       };
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      jest.spyOn(require('@/utils/common'), 'getFeedData').mockResolvedValue(rawMock);
+      jest.spyOn(require('@/utils/bee'), 'getFeedData').mockResolvedValue(rawMock);
 
       const spyFetch = jest.spyOn(FileManagerBase.prototype as any, 'fetchFileInfo').mockResolvedValue(fakeFi);
       let got = await fm.getVersion(dummyFi, FeedIndex.fromBigInt(1n));
@@ -618,7 +634,7 @@ describe('FileManager', () => {
       dummyFi.version = head.toString();
 
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      jest.spyOn(require('@/utils/common'), 'getFeedData').mockResolvedValue({
+      jest.spyOn(require('@/utils/bee'), 'getFeedData').mockResolvedValue({
         feedIndex: head,
         feedIndexNext: FeedIndex.fromBigInt(6n),
         payload: SWARM_ZERO_ADDRESS,
@@ -639,7 +655,7 @@ describe('FileManager', () => {
         payload: SWARM_ZERO_ADDRESS,
       };
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
-      jest.spyOn(require('@/utils/common'), 'getFeedData').mockResolvedValueOnce(fakeFeedData);
+      jest.spyOn(require('@/utils/bee'), 'getFeedData').mockResolvedValueOnce(fakeFeedData);
 
       const spyEmit = jest.spyOn(fm.emitter, 'emit');
 
@@ -850,7 +866,7 @@ describe('FileManager', () => {
       expect(mockFi.status).toBe(FileStatus.Trashed);
       expect(mockFi.timestamp!).toBeGreaterThan(0);
 
-      expect(uploadSpy).toHaveBeenCalledWith(mockFi);
+      expect(uploadSpy).toHaveBeenCalledWith(mockFi, undefined);
       expect(saveSpy).toHaveBeenCalledWith(mockFi);
 
       expect(handler).toHaveBeenCalledWith({ fileInfo: mockFi });
@@ -874,7 +890,7 @@ describe('FileManager', () => {
       expect(mockFi.status).toBe(FileStatus.Active);
       expect(mockFi.timestamp!).toBeGreaterThan(beforeTs);
 
-      expect(uploadSpy).toHaveBeenCalledWith(mockFi);
+      expect(uploadSpy).toHaveBeenCalledWith(mockFi, undefined);
       expect(saveSpy).toHaveBeenCalledWith(mockFi);
 
       expect(handler).toHaveBeenCalledWith({ fileInfo: mockFi });

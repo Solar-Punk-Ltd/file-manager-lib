@@ -5,8 +5,8 @@ async function downloadReadableFetch(
   resource: string | Reference,
   apiUrl: string,
   endpoint: string,
-  requestOptions?: BeeRequestOptions,
   options?: DownloadOptions,
+  requestOptions?: BeeRequestOptions,
 ): Promise<ReadableStream<Uint8Array>> {
   if (options) {
     options = prepareDownloadOptions(options);
@@ -83,7 +83,7 @@ export async function downloadBrowser(
   const dataStreams: ReadableStream<Uint8Array>[] = [];
 
   for (const resource of resources) {
-    const stream = await downloadReadableFetch(resource, apiUrl, endpoint, requestOptions, options);
+    const stream = await downloadReadableFetch(resource, apiUrl, endpoint, options, requestOptions);
     dataStreams.push(stream);
   }
 
