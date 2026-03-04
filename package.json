@@ -52,6 +52,7 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@ethersphere/bee-js": "^11.1.1",
+    "cafe-utility": "^33.7.0",
     "std-env": "^3.10.0"
   },
   "devDependencies": {
@@ -64,7 +65,6 @@
     "@types/node": "^25.1.0",
     "@typescript-eslint/eslint-plugin": "^8.54.0",
     "@typescript-eslint/parser": "^8.54.0",
-    "cafe-utility": "^33.7.0",
     "cross-env": "^10.1.0",
     "depcheck": "^1.4.7",
     "eslint": "^9.39.2",

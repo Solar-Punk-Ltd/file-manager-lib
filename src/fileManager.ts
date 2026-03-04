@@ -193,7 +193,7 @@ export class FileManagerBase implements FileManager {
     await this.fetchAndSetAdminStamp(batchStr);
     const verifiedAdminStamp = verifyStampUsability(this.adminStamp, batchStr);
 
-    const randomTopic = await generateRandomBytes(Topic.LENGTH);
+    const randomTopic = generateRandomBytes(Topic.LENGTH);
     const newStateFeedTopic = new Topic(randomTopic);
     const topicUploadRes = await this.bee.uploadData(verifiedAdminStamp.batchID, newStateFeedTopic.toUint8Array(), {
       act: true,
@@ -385,7 +385,7 @@ export class FileManagerBase implements FileManager {
       verifyStampUsability(stamp, batchId.toString());
     }
 
-    const randomId = await generateRandomBytes(Identifier.LENGTH);
+    const randomId = generateRandomBytes(Identifier.LENGTH);
     const driveInfo: DriveInfo = {
       id: new Identifier(randomId).toString(),
       name: driveName,
@@ -534,7 +534,7 @@ export class FileManagerBase implements FileManager {
     let topic: string;
 
     if (!currentTopic) {
-      const randomTopic = await generateRandomBytes(Topic.LENGTH);
+      const randomTopic = generateRandomBytes(Topic.LENGTH);
       version = FEED_INDEX_ZERO.toString();
       topic = new Topic(randomTopic).toString();
     } else {

@@ -15,7 +15,7 @@ interface BeeWithStampAndSigner {
 let globalAdminStamp: BatchId | null = null;
 
 export async function ensureUniqueSignerWithStamp(isNewSigner: boolean = true): Promise<BeeWithStampAndSigner> {
-  const signerBytes = await generateRandomBytes(PrivateKey.LENGTH);
+  const signerBytes = generateRandomBytes(PrivateKey.LENGTH);
   const signer = isNewSigner ? new PrivateKey(signerBytes) : DEFAULT_MOCK_SIGNER;
 
   const bee = new BeeDev(BEE_URL, { signer });
