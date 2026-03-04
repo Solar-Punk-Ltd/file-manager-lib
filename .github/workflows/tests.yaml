@@ -70,9 +70,9 @@ jobs:
       - name: Get Bee branch commit SHA
         id: bee-commit
         run: |
-          BEE_COMMIT=$(git ls-remote https://github.com/Solar-Punk-Ltd/bee.git refs/heads/tmp/dev-test | cut -f1)
+          BEE_COMMIT=$(git ls-remote https://github.com/Solar-Punk-Ltd/bee.git refs/heads/temp/dev-test | cut -f1)
           echo "sha=$BEE_COMMIT" >> $GITHUB_OUTPUT
-          echo "Bee tmp/dev-test branch commit: $BEE_COMMIT"
+          echo "Bee temp/dev-test branch commit: $BEE_COMMIT"
 
       - name: Cache Bee binary
         uses: actions/cache@v4
