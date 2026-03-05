@@ -18,6 +18,7 @@ async function downloadReadableFetch(
       ...requestOptions?.headers,
       ...prepareRequestHeaders(options),
     },
+    signal: requestOptions?.signal,
   });
 
   if (!response.ok) {
