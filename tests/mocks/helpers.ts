@@ -22,7 +22,7 @@ import {
 } from '@ethersphere/bee-js';
 import { Optional } from 'cafe-utility';
 
-import { BEE_URL, DEFAULT_MOCK_SIGNER } from './utils';
+import { BEE_URL, DEFAULT_MOCK_SIGNER } from '../utils';
 
 import { EventEmitter } from '@/eventEmitter/eventEmitter';
 import { FileManagerBase } from '@/fileManager';

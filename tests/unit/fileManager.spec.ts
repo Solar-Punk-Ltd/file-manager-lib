@@ -22,7 +22,7 @@ import {
   createUploadFileSpy,
   MOCK_BATCH_ID,
   mockPostageBatch,
-} from '../mockHelpers';
+} from '../mocks/helpers';
 import { BEE_URL, DEFAULT_MOCK_SIGNER } from '../utils';
 
 import { EventEmitterBase } from '@/eventEmitter';

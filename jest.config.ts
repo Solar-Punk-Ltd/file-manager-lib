@@ -24,7 +24,7 @@ module.exports = {
   moduleDirectories: ['node_modules'],
   projects: [
     {
-      displayName: 'unit',
+      displayName: 'unit-node',
       preset: 'ts-jest',
       testEnvironment: 'node',
       transform: {
@@ -37,7 +37,7 @@ module.exports = {
       testMatch: ['<rootDir>/tests/unit/**/*.spec.ts'],
     },
     {
-      displayName: 'integration',
+      displayName: 'integration-node',
       preset: 'ts-jest',
       testEnvironment: 'node',
       transform: {
@@ -46,6 +46,37 @@ module.exports = {
       transformIgnorePatterns: ['node_modules/(?!(std-env|cafe-utility|bee-js)/)'],
       moduleNameMapper: {
         '^@/(.*)$': '<rootDir>/src/$1',
+      },
+      testMatch: ['<rootDir>/tests/integration/**/*.spec.ts'],
+      globalSetup: '<rootDir>/tests/integration/test-node-setup/jestSetup.ts',
+      globalTeardown: '<rootDir>/tests/integration/test-node-setup/jestTeardown.ts',
+    },
+    {
+      displayName: 'unit-browser',
+      preset: 'ts-jest',
+      testEnvironment: 'node',
+      transform: {
+        '^.+\\.tsx?$': 'ts-jest',
+      },
+      transformIgnorePatterns: ['node_modules/(?!(std-env|cafe-utility|bee-js)/)'],
+      moduleNameMapper: {
+        '^@/(.*)$': '<rootDir>/src/$1',
+        'std-env': '<rootDir>/tests/mocks/std-env.ts',
+      },
+      testMatch: ['<rootDir>/tests/unit/**/*.spec.ts'],
+    },
+    {
+      displayName: 'integration-browser',
+      preset: 'ts-jest',
+      testEnvironment: 'node',
+      transform: {
+        '^.+\\.tsx?$': 'ts-jest',
+      },
+      transformIgnorePatterns: ['node_modules/(?!(std-env|cafe-utility|bee-js)/)'],
+      setupFilesAfterFramework: ['<rootDir>/tests/mocks/bee-stream-polyfills.ts'],
+      moduleNameMapper: {
+        '^@/(.*)$': '<rootDir>/src/$1',
+        'std-env': '<rootDir>/tests/mocks/std-env.ts',
       },
       testMatch: ['<rootDir>/tests/integration/**/*.spec.ts'],
       globalSetup: '<rootDir>/tests/integration/test-node-setup/jestSetup.ts',

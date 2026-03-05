@@ -16,18 +16,18 @@ import * as fs from 'fs';
 import path from 'path';
 import { setTimeout } from 'timers';
 
-import { createInitializedFileManager, MOCK_BATCH_ID } from '../mockHelpers';
+import { createInitializedFileManager, MOCK_BATCH_ID } from '../mocks/helpers';
 import {
   createWrappedData,
   DEFAULT_BATCH_AMOUNT,
   DEFAULT_BATCH_DEPTH,
-  dowloadAndCompareFiles,
   getTestFile,
   OTHER_BEE_URL,
   OTHER_MOCK_SIGNER,
   readFilesOrDirectory,
 } from '../utils';
 
+import { downloadAndCompare, downloadAndNormalize, uploadWithAdapter } from './itAdapters';
 import { ensureUniqueSignerWithStamp } from './testSetupHelpers';
 
 import { FileManagerBase } from '@/fileManager';
@@ -161,16 +161,16 @@ describe('FileManager initialization', () => {
     drive = tmpDrive!;
 
     {
-      await fileManager.upload(drive, { name: 'nested', path: path.join(__dirname, '../fixtures/nested') });
+      await uploadWithAdapter(fileManager, drive, { name: 'nested', path: path.join(__dirname, '../fixtures/nested') });
 
-      await fileManager.upload(drive, {
+      await uploadWithAdapter(fileManager, drive, {
         name: 'test.txt',
         path: path.join(__dirname, '../fixtures/test.txt'),
       });
 
       const fileInfoList = fileManager.fileInfoList;
       expect(fileInfoList).toHaveLength(expFileDataArr.length);
-      await dowloadAndCompareFiles(fileManager, actPublisher.toCompressedHex(), fileInfoList, expFileDataArr);
+      await downloadAndCompare(fileManager, actPublisher.toCompressedHex(), fileInfoList, expFileDataArr);
 
       const fileList = await fileManager.listFiles(fileInfoList[0], undefined, {
         actHistoryAddress: fileInfoList[0].file.historyRef,
@@ -185,7 +185,7 @@ describe('FileManager initialization', () => {
     const fm2 = new FileManagerBase(bee);
     await fm2.initialize();
     const fileInfoList = fm2.fileInfoList;
-    await dowloadAndCompareFiles(fm2, actPublisher.toCompressedHex(), fileInfoList, expFileDataArr);
+    await downloadAndCompare(fm2, actPublisher.toCompressedHex(), fileInfoList, expFileDataArr);
   });
 
   it('should verify Bee versions and supported API', async () => {
@@ -609,7 +609,7 @@ describe('FileManager listFiles', () => {
   });
 
   it('should return a list of files for the uploaded folder', async () => {
-    await fileManager.upload(drive, { name: path.basename(tempDir), path: tempDir });
+    await uploadWithAdapter(fileManager, drive, { name: path.basename(tempDir), path: tempDir });
 
     const allFileInfos = fileManager.fileInfoList;
     const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(tempDir));
@@ -633,7 +633,7 @@ describe('FileManager listFiles', () => {
 
     let fileInfo: FileInfo | undefined;
     try {
-      await fileManager.upload(drive, {
+      await uploadWithAdapter(fileManager, drive, {
         name: path.basename(emptyDir),
         path: emptyDir,
       });
@@ -664,7 +664,7 @@ describe('FileManager listFiles', () => {
     fs.mkdirSync(level3, { recursive: true });
     fs.writeFileSync(path.join(level3, 'd.txt'), 'Content D');
 
-    await fileManager.upload(drive, {
+    await uploadWithAdapter(fileManager, drive, {
       name: path.basename(deepDir),
       path: deepDir,
     });
@@ -693,7 +693,7 @@ describe('FileManager listFiles', () => {
     fs.writeFileSync(path.join(folderWithEmpty, 'valid.txt'), 'Valid Content');
     fs.writeFileSync(path.join(folderWithEmpty, 'empty.txt'), 'Should be ignored');
 
-    await fileManager.upload(drive, {
+    await uploadWithAdapter(fileManager, drive, {
       name: path.basename(folderWithEmpty),
       path: folderWithEmpty,
     });
@@ -757,11 +757,12 @@ describe('FileManager upload', () => {
   });
 
   it('should upload a directory and update the file info list with different versions', async () => {
-    await fileManager.upload(drive, { name: path.basename(tempUploadDir), path: tempUploadDir });
+    await uploadWithAdapter(fileManager, drive, { name: path.basename(tempUploadDir), path: tempUploadDir });
     const firstInfo = fileManager.fileInfoList.find((fi) => fi.name === path.basename(tempUploadDir));
     expect(firstInfo).toBeDefined();
 
-    await fileManager.upload(
+    await uploadWithAdapter(
+      fileManager,
       drive,
       {
         name: path.basename(tempUploadDir),
@@ -779,7 +780,8 @@ describe('FileManager upload', () => {
     expect(secondInfo?.version).toEqual(secondVersion.toString());
 
     const thirdVersion = secondVersion.next().toString();
-    await fileManager.upload(
+    await uploadWithAdapter(
+      fileManager,
       drive,
       {
         name: path.basename(tempUploadDir),
@@ -798,11 +800,12 @@ describe('FileManager upload', () => {
   });
 
   it('should NOT re-upload the same file but update the metadata', async () => {
-    await fileManager.upload(drive, { name: path.basename(tempUploadDir), path: tempUploadDir });
+    await uploadWithAdapter(fileManager, drive, { name: path.basename(tempUploadDir), path: tempUploadDir });
     const firstInfo = fileManager.fileInfoList.find((fi) => fi.name === path.basename(tempUploadDir));
     expect(firstInfo).toBeDefined();
 
-    await fileManager.upload(
+    await uploadWithAdapter(
+      fileManager,
       drive,
       {
         name: path.basename(tempUploadDir),
@@ -818,7 +821,8 @@ describe('FileManager upload', () => {
     expect(secondInfo).toBeDefined();
     expect(secondInfo?.file).toEqual(firstInfo?.file);
 
-    await fileManager.upload(
+    await uploadWithAdapter(
+      fileManager,
       drive,
       {
         name: path.basename(tempUploadDir),
@@ -840,7 +844,7 @@ describe('FileManager upload', () => {
     fs.mkdirSync(previewDir, { recursive: true });
     fs.writeFileSync(path.join(previewDir, 'preview.txt'), 'Preview Content');
 
-    await fileManager.upload(drive, {
+    await uploadWithAdapter(fileManager, drive, {
       name: path.basename(tempUploadDir),
       path: tempUploadDir,
       previewPath: previewDir,
@@ -861,7 +865,7 @@ describe('FileManager upload', () => {
 
   it('should throw an error if topic and historyRef are not provided together', async () => {
     await expect(
-      fileManager.upload(drive, {
+      uploadWithAdapter(fileManager, drive, {
         name: path.basename(tempUploadDir),
         topic: 'someInfoTopic',
         path: tempUploadDir,
@@ -872,7 +876,7 @@ describe('FileManager upload', () => {
   it('should upload a single file and update the file info list', async () => {
     const tempFile = path.join(__dirname, 'tempFile.txt');
     fs.writeFileSync(tempFile, 'Single File Content');
-    await fileManager.upload(drive, {
+    await uploadWithAdapter(fileManager, drive, {
       name: path.basename(tempFile),
       path: tempFile,
     });
@@ -885,11 +889,12 @@ describe('FileManager upload', () => {
   it('does not create a second fileInfo when bumping to a new version', async () => {
     const dirName = path.basename(tempUploadDir);
 
-    await fileManager.upload(drive, { name: dirName, path: tempUploadDir });
+    await uploadWithAdapter(fileManager, drive, { name: dirName, path: tempUploadDir });
     const original = fileManager.fileInfoList.find((fi) => fi.name === dirName)!;
     expect(original).toBeDefined();
 
-    await fileManager.upload(
+    await uploadWithAdapter(
+      fileManager,
       drive,
       {
         name: dirName,
@@ -948,7 +953,7 @@ describe('FileManager download', () => {
     fs.writeFileSync(file3Path, 'Download Content Gamma');
     expectedContents['gamma.txt'] = 'Download Content Gamma';
 
-    await fileManager.upload(drive, {
+    await uploadWithAdapter(fileManager, drive, {
       name: path.basename(tempDownloadDir),
       path: tempDownloadDir,
     });
@@ -963,10 +968,10 @@ describe('FileManager download', () => {
     const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(tempDownloadDir));
     expect(fileInfo).toBeDefined();
 
-    const fileContents = (await fileManager.download(fileInfo!, undefined, {
+    const fileContents = await downloadAndNormalize(fileManager, fileInfo!, undefined, {
       actHistoryAddress: fileInfo!.file.historyRef,
       actPublisher,
-    })) as Bytes[];
+    });
     const expectedArray = Object.values(expectedContents);
     const fileContentsAsStrings = fileContents.map((item) => (item as Bytes).toUtf8());
     expect(fileContentsAsStrings.sort()).toEqual(expectedArray.sort());
@@ -977,17 +982,17 @@ describe('FileManager download', () => {
     const fileInfo = allFileInfos.find((fi) => fi.name === path.basename(tempDownloadDir));
     expect(fileInfo).toBeDefined();
 
-    let fileContents = (await fileManager.download(fileInfo!, ['alpha.txt'], {
+    let fileContents = await downloadAndNormalize(fileManager, fileInfo!, ['alpha.txt'], {
       actHistoryAddress: fileInfo!.file.historyRef,
       actPublisher,
-    })) as Bytes[];
+    });
     let fileContentsAsStrings = fileContents.map((item) => item.toUtf8());
     expect(fileContentsAsStrings).toEqual([expectedContents['alpha.txt']]);
 
-    fileContents = (await fileManager.download(fileInfo!, ['alpha.txt', 'beta.txt'], {
+    fileContents = await downloadAndNormalize(fileManager, fileInfo!, ['alpha.txt', 'beta.txt'], {
       actHistoryAddress: fileInfo!.file.historyRef,
       actPublisher,
-    })) as Bytes[];
+    });
     const fileContentsArr: string[][] = [];
     fileContents.forEach((item) => fileContentsArr.push([item.toUtf8()]));
     expect(fileContentsArr).toEqual([[expectedContents['alpha.txt']], [expectedContents['beta.txt']]]);
@@ -996,7 +1001,8 @@ describe('FileManager download', () => {
   it('should return an empty array when the manifest is empty', async () => {
     const wrappedDataObject = await createWrappedData(bee, batchId, new MantarayNode());
 
-    const files = await fileManager.download(
+    const files = await downloadAndNormalize(
+      fileManager,
       {
         batchId,
         name: 'name',
@@ -1036,7 +1042,7 @@ describe('FileManager file operations', () => {
 
     testFilePath = path.join(__dirname, '../fixtures', TEST_NAME);
     fs.writeFileSync(testFilePath, 'file ops content');
-    await fileManager.upload(drive, { name: TEST_NAME, path: testFilePath });
+    await uploadWithAdapter(fileManager, drive, { name: TEST_NAME, path: testFilePath });
 
     testFi = fileManager.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
     expect(testFi).toBeDefined();
@@ -1093,7 +1099,7 @@ describe('FileManager file operations', () => {
 
   it('should never duplicate FileInfo entries when trashing/recovering', async () => {
     const fp = path.join(__dirname, '../fixtures', TEST_NAME);
-    await fileManager.upload(drive, { name: TEST_NAME, path: fp });
+    await uploadWithAdapter(fileManager, drive, { name: TEST_NAME, path: fp });
 
     const freshFi = fileManager.fileInfoList.find((fi) => fi.name === TEST_NAME)!;
     const topic = freshFi.topic.toString();
@@ -1146,7 +1152,7 @@ describe('FileManager version control', () => {
     if (existing) return existing;
     const tmp = path.join(__dirname, 'seed.txt');
     fs.writeFileSync(tmp, 'seed');
-    await fileManager.upload(di, { name, path: tmp });
+    await uploadWithAdapter(fileManager, di, { name, path: tmp });
     fs.unlinkSync(tmp);
     return fileManager.fileInfoList.at(-1)!;
   };
@@ -1177,7 +1183,7 @@ describe('FileManager version control', () => {
       const name = `parallel-${Date.now()}`;
       const p0 = path.join(tmpDir, 'f0.txt');
       fs.writeFileSync(p0, 'v0');
-      await fileManager.upload(drive, { name, path: p0 });
+      await uploadWithAdapter(fileManager, drive, { name, path: p0 });
       const base = fileManager.fileInfoList.at(-1)!;
 
       let latestVersion = BigInt(base.version!);
@@ -1186,7 +1192,8 @@ describe('FileManager version control', () => {
       for (const i of [1, 2, 3]) {
         const fn = path.join(tmpDir, `f${i}.txt`);
         fs.writeFileSync(fn, `v${i}`);
-        await fileManager.upload(
+        await uploadWithAdapter(
+          fileManager,
           drive,
           { name, topic: base.topic.toString(), path: fn },
           {
@@ -1220,11 +1227,11 @@ describe('FileManager version control', () => {
       fs.writeFileSync(path.join(dir, 'b.txt'), 'B');
 
       const name = `coll-${Date.now()}`;
-      await fileManager.upload(drive, { name, path: dir });
+      await uploadWithAdapter(fileManager, drive, { name, path: dir });
       const base = fileManager.fileInfoList.at(-1)!;
 
       const versionedFi = await fileManager.getVersion(base, FEED_INDEX_ZERO.toString());
-      const dl = await fileManager.download(versionedFi, ['a.txt']);
+      const dl = await downloadAndNormalize(fileManager, versionedFi, ['a.txt']);
       expect((dl as Bytes[])[0].toUtf8()).toBe('A');
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
@@ -1259,13 +1266,14 @@ describe('FileManager version control', () => {
 
       const content = 'Version 0 content';
       fs.writeFileSync(filePath, content);
-      await fileManager.upload(drive, { name: NAME, path: filePath });
+      await uploadWithAdapter(fileManager, drive, { name: NAME, path: filePath });
       const v0Fi = fileManager.fileInfoList.at(-1)!;
       const topic = v0Fi.topic.toString();
       const hist0 = v0Fi.file.historyRef;
 
       fs.writeFileSync(filePath, 'Version 1 content');
-      await fileManager.upload(
+      await uploadWithAdapter(
+        fileManager,
         drive,
         { name: NAME, topic: topic, path: filePath },
         {
@@ -1276,7 +1284,8 @@ describe('FileManager version control', () => {
       const countAfterV1 = await getFeedData(bee, new Topic(v0Fi.topic), signer.publicKey().address().toString());
       const latestFi = await fileManager.getVersion(v0Fi, countAfterV1.feedIndex);
       fs.writeFileSync(filePath, 'Version 2 content');
-      await fileManager.upload(
+      await uploadWithAdapter(
+        fileManager,
         drive,
         { name: NAME, topic: topic, path: filePath },
         {
@@ -1292,10 +1301,10 @@ describe('FileManager version control', () => {
       expect(v0.version).toBe(FEED_INDEX_ZERO.toString());
 
       const actPublisher = (await bee.getNodeAddresses()).publicKey.toCompressedHex();
-      const dl0 = (await fileManager.download(v0, undefined, {
+      const dl0 = await downloadAndNormalize(fileManager, v0, undefined, {
         actHistoryAddress: v0.file.historyRef,
         actPublisher,
-      })) as Bytes[];
+      });
       expect(dl0[0].toUtf8()).toBe(content);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
@@ -1312,7 +1321,8 @@ describe('FileManager version control', () => {
       const firstRef = base.file.reference;
 
       fs.writeFileSync(tmp, 'second');
-      await fileManager.upload(
+      await uploadWithAdapter(
+        fileManager,
         drive,
         { name: base.name, topic: base.topic.toString(), path: tmp },
         {
@@ -1345,7 +1355,8 @@ describe('FileManager version control', () => {
       fs.writeFileSync(tmp, 'A');
       const base = await ensureBase('noop-restore');
       fs.writeFileSync(tmp, 'B');
-      await fileManager.upload(
+      await uploadWithAdapter(
+        fileManager,
         drive,
         { name: base.name, topic: base.topic.toString(), path: tmp },
         {
@@ -1442,7 +1453,7 @@ describe('FileManager End-to-End User Workflow', () => {
   it('should simulate a complete workflow - in-place folder update simulation', async () => {
     const singleFilePath = path.join(tempBaseDir, 'initial.txt');
     fs.writeFileSync(singleFilePath, 'Hello, this is the initial file.');
-    await fileManager.upload(drive, { name: path.basename(singleFilePath), path: singleFilePath });
+    await uploadWithAdapter(fileManager, drive, { name: path.basename(singleFilePath), path: singleFilePath });
     let fileInfos = fileManager.fileInfoList.filter((fi) => fi.driveId === drive.id.toString());
     expect(fileInfos.find((fi) => fi.name === path.basename(singleFilePath))).toBeDefined();
 
@@ -1459,7 +1470,7 @@ describe('FileManager End-to-End User Workflow', () => {
     const assetsFolder = path.join(projectFolder, 'assets');
     fs.mkdirSync(assetsFolder, { recursive: true });
     fs.writeFileSync(path.join(assetsFolder, 'image.png'), 'Fake image content');
-    await fileManager.upload(drive, { name: path.basename(projectFolder), path: projectFolder });
+    await uploadWithAdapter(fileManager, drive, { name: path.basename(projectFolder), path: projectFolder });
     fileInfos = fileManager.fileInfoList.filter((fi) => fi.driveId === drive.id.toString());
     const projectInfo = fileInfos.find((fi) => fi.name === path.basename(projectFolder))!;
     expect(projectInfo).toBeDefined();
@@ -1472,7 +1483,7 @@ describe('FileManager End-to-End User Workflow', () => {
 
     fs.writeFileSync(path.join(projectFolder, 'readme.txt'), 'This is the project readme.');
     await new Promise((r) => setTimeout(r, 1000));
-    await fileManager.upload(drive, { name: path.basename(projectFolder), path: projectFolder });
+    await uploadWithAdapter(fileManager, drive, { name: path.basename(projectFolder), path: projectFolder });
 
     const listedFiles = await fileManager.listFiles(projectInfo, undefined, {
       actHistoryAddress: new Reference(projectInfo.file.historyRef),
@@ -1490,7 +1501,7 @@ describe('FileManager End-to-End User Workflow', () => {
   it('should simulate a complete workflow - new version folder upload', async () => {
     const singleFilePath = path.join(tempBaseDir, 'initial.txt');
     fs.writeFileSync(singleFilePath, 'Hello, this is the initial file.');
-    await fileManager.upload(drive, { name: path.basename(singleFilePath), path: singleFilePath });
+    await uploadWithAdapter(fileManager, drive, { name: path.basename(singleFilePath), path: singleFilePath });
     let fileInfos = fileManager.fileInfoList.filter((fi) => fi.driveId === drive.id.toString());
     expect(fileInfos.find((fi) => fi.name === path.basename(singleFilePath))).toBeDefined();
 
@@ -1501,7 +1512,7 @@ describe('FileManager End-to-End User Workflow', () => {
     const assetsFolder = path.join(projectFolder, 'assets');
     fs.mkdirSync(assetsFolder, { recursive: true });
     fs.writeFileSync(path.join(assetsFolder, 'image.png'), 'Fake image content');
-    await fileManager.upload(drive, { name: path.basename(projectFolder), path: projectFolder });
+    await uploadWithAdapter(fileManager, drive, { name: path.basename(projectFolder), path: projectFolder });
     fileInfos = fileManager.fileInfoList.filter((fi) => fi.driveId === drive.id.toString());
     const projectInfo = fileInfos.find((fi) => fi.name === path.basename(projectFolder));
     expect(projectInfo).toBeDefined();
@@ -1525,7 +1536,7 @@ describe('FileManager End-to-End User Workflow', () => {
     fs.mkdirSync(nestedFolder, { recursive: true });
     fs.writeFileSync(path.join(nestedFolder, 'subdoc.txt'), 'Nested document content');
     await new Promise((resolve) => setTimeout(resolve, 1000));
-    await fileManager.upload(drive, { name: path.basename(projectFolderNew), path: projectFolderNew });
+    await uploadWithAdapter(fileManager, drive, { name: path.basename(projectFolderNew), path: projectFolderNew });
     fileInfos = fileManager.fileInfoList.filter((fi) => fi.driveId === drive.id.toString());
     const newVersionInfo = fileInfos.find((fi) => fi.name === path.basename(projectFolderNew));
     expect(newVersionInfo).toBeDefined();
@@ -1550,10 +1561,10 @@ describe('FileManager End-to-End User Workflow', () => {
     expect(fullPaths_newVersion).toContain('nested/subdoc.txt');
     expect(Object.keys(listedFiles_newVersion)).toHaveLength(5);
 
-    const downloadedContents = (await fileManager.download(newVersionInfo!, undefined, {
+    const downloadedContents = await downloadAndNormalize(fileManager, newVersionInfo!, undefined, {
       actHistoryAddress: new Reference(newVersionInfo!.file.historyRef),
       actPublisher,
-    })) as Bytes[];
+    });
     expect(downloadedContents[1].toUtf8()).toContain('Project document 1');
     expect(downloadedContents[2].toUtf8()).toContain('Project document 2');
     expect(downloadedContents[0].toUtf8()).toContain('Fake image content');
@@ -1572,7 +1583,7 @@ describe('FileManager End-to-End User Workflow', () => {
     fs.mkdirSync(level2, { recursive: true });
     fs.writeFileSync(path.join(level2, 'level2.txt'), 'Level2 file content');
 
-    await fileManager.upload(drive, { name: path.basename(complexFolder), path: complexFolder });
+    await uploadWithAdapter(fileManager, drive, { name: path.basename(complexFolder), path: complexFolder });
     const fileInfos = fileManager.fileInfoList;
     const complexInfo = fileInfos.find((fi) => fi.name === path.basename(complexFolder));
     expect(complexInfo).toBeDefined();
@@ -1629,7 +1640,8 @@ describe('FileManager AbortController', () => {
       controller.abort(); // Pre-abort
 
       await expect(
-        fileManager.upload(
+        uploadWithAdapter(
+          fileManager,
           drive,
           { name: 'test-abort-file.txt', path: path.join(tempDir, 'large-file.bin') },
           undefined,
@@ -1644,9 +1656,15 @@ describe('FileManager AbortController', () => {
       const controller = new AbortController();
 
       // Start upload and abort after a short delay
-      const uploadPromise = fileManager.upload(drive, { name: 'test-mid-abort.bin', path: largeFilePath }, undefined, {
-        signal: controller.signal,
-      });
+      const uploadPromise = uploadWithAdapter(
+        fileManager,
+        drive,
+        { name: 'test-mid-abort.bin', path: largeFilePath },
+        undefined,
+        {
+          signal: controller.signal,
+        },
+      );
 
       setTimeout(() => {
         controller.abort();
@@ -1669,7 +1687,7 @@ describe('FileManager AbortController', () => {
       fs.writeFileSync(testFilePath, testContent);
 
       // Upload with signal that is NOT aborted
-      await fileManager.upload(drive, { name: 'success-file.txt', path: testFilePath }, undefined, {
+      await uploadWithAdapter(fileManager, drive, { name: 'success-file.txt', path: testFilePath }, undefined, {
         signal: controller.signal,
       });
 
@@ -1691,13 +1709,13 @@ describe('FileManager AbortController', () => {
 
       // First upload should fail (aborted)
       await expect(
-        fileManager.upload(drive, { name: 'file1-abort.txt', path: file1Path }, undefined, {
+        uploadWithAdapter(fileManager, drive, { name: 'file1-abort.txt', path: file1Path }, undefined, {
           signal: controller1.signal,
         }),
       ).rejects.toThrow('Request aborted');
 
       // Second upload should succeed (not aborted)
-      await fileManager.upload(drive, { name: 'file2-success.txt', path: file2Path }, undefined, {
+      await uploadWithAdapter(fileManager, drive, { name: 'file2-success.txt', path: file2Path }, undefined, {
         signal: controller2.signal,
       });
 
@@ -1712,7 +1730,7 @@ describe('FileManager AbortController', () => {
 
     beforeAll(async () => {
       // Upload the large file to download later (1MB file for reliable abort timing)
-      await fileManager.upload(drive, { name: 'large-download-test.bin', path: largeFilePath });
+      await uploadWithAdapter(fileManager, drive, { name: 'large-download-test.bin', path: largeFilePath });
       const fileInfo = fileManager.fileInfoList.find((fi) => fi.name === 'large-download-test.bin');
       expect(fileInfo).toBeDefined();
       uploadedFileInfo = fileInfo!;
@@ -1761,7 +1779,8 @@ describe('FileManager AbortController', () => {
     it('should complete download successfully when signal is not aborted', async () => {
       const controller = new AbortController();
 
-      const result = await fileManager.download(
+      const result = await downloadAndNormalize(
+        fileManager,
         uploadedFileInfo,
         undefined,
         {
@@ -1794,7 +1813,8 @@ describe('FileManager AbortController', () => {
       ).rejects.toThrow();
 
       // Second download should succeed (not aborted)
-      const result = await fileManager.download(
+      const result = await downloadAndNormalize(
+        fileManager,
         uploadedFileInfo,
         undefined,
         {
@@ -1821,7 +1841,7 @@ describe('FileManager AbortController', () => {
       fs.writeFileSync(path.join(folderPath, 'file2.txt'), 'File 2');
       fs.writeFileSync(path.join(folderPath, 'file3.txt'), 'File 3');
 
-      await fileManager.upload(drive, { name: 'list-test-folder', path: folderPath });
+      await uploadWithAdapter(fileManager, drive, { name: 'list-test-folder', path: folderPath });
       const fileInfo = fileManager.fileInfoList.find((fi) => fi.name === 'list-test-folder');
       expect(fileInfo).toBeDefined();
       uploadedFolderInfo = fileInfo!;
