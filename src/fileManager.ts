@@ -208,6 +208,7 @@ export class FileManagerBase implements FileManager {
     await fw.uploadPayload(verifiedAdminStamp.batchID, JSON.stringify(topicState), { index: feedIndexNext });
 
     this.stateFeedTopic = newStateFeedTopic;
+    this.driveListNextIndex = 0n;
     console.debug('Drive list feed topic successfully set');
     this.emitter.emit(FileManagerEvents.STATE_INVALID, false);
   }
