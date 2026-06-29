@@ -5,6 +5,7 @@ export enum FileManagerEvents {
   FILE_RECOVERED = 'file-recovered',
   FILE_FORGOTTEN = 'file-forgotten',
   FILE_VERSION_RESTORED = 'file-version-restored',
+  FILE_MOVED = 'file-moved',
   SHARE_MESSAGE_SENT = 'file-shared',
   INITIALIZED = 'initialized',
   DRIVE_CREATED = 'drive-created',

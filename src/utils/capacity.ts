@@ -1,7 +1,7 @@
 import { BatchId, FeedIndex, PrivateKey, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 
 import { DriveInfo, FileInfo } from '../types';
-import { ReferenceWithHistory, WrappedFileInfoFeed } from '../types/utils';
+import { ReferenceWithHistory } from '../types/utils';
 
 import { getEncodedSize } from './common';
 import { SWARM_ZERO_ADDRESS } from './constants';
@@ -12,12 +12,7 @@ const REFERENCE_WRAPPER_SIZE = getEncodedSize(
     historyRef: SWARM_ZERO_ADDRESS.toString(),
   } as ReferenceWithHistory),
 );
-const INFOFEED_WRAPPER_SIZE = getEncodedSize(
-  JSON.stringify({
-    topic: SWARM_ZERO_ADDRESS.toString(),
-    eGranteeRef: SWARM_ZERO_ADDRESS.toString(),
-  } as WrappedFileInfoFeed),
-);
+
 const FEED_OVERHEAD_SIZE = FeedIndex.MINUS_ONE.toString().length + Topic.LENGTH;
 const DUMMY_SIGNER = new PrivateKey('634fb5a872396d9693e5c9f9d7233cfa93f395c093371017ff44aa9ae6564cdd');
 const DUMMY_STAMP = new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51');
@@ -31,7 +26,7 @@ const dummyDriveInfo: DriveInfo = {
   batchId: DUMMY_STAMP.toString(),
   owner: DUMMY_SIGNER.publicKey().address().toString(),
   redundancyLevel: RedundancyLevel.OFF,
-  infoFeedList: [],
+  driveFeedTopic: 'aa'.repeat(32),
   isAdmin: true,
 };
 const dummyDriveInfoSize = getEncodedSize(JSON.stringify(dummyDriveInfo));
@@ -58,9 +53,7 @@ export function estimateDriveListMetadataSize(drives: DriveInfo[]): number {
     return 0;
   }
 
-  const totalInfoFeedItems = drives.reduce((acc, d) => acc + (d.infoFeedList?.length ?? 0), 0);
-  const estimatedDriveListSize =
-    drives.length * dummyDriveInfoSize + totalInfoFeedItems * INFOFEED_WRAPPER_SIZE + drives.length + 1;
+  const estimatedDriveListSize = drives.length * dummyDriveInfoSize + drives.length + 1;
   return estimatedDriveListSize + ACT_OVERHEAD_SIZE + REFERENCE_WRAPPER_SIZE + FEED_OVERHEAD_SIZE;
 }
 

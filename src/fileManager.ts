@@ -10,6 +10,7 @@ import {
   FileUploadOptions,
   GetGranteesResult,
   Identifier,
+  MantarayNode,
   PostageBatch,
   PrivateKey,
   PublicKey,
@@ -22,13 +23,21 @@ import {
 import { FeedResultWithIndex, ReferenceWithHistory, StateTopicInfo } from './types/utils';
 import { assertDriveInfo, assertFileInfo, assertStateTopicInfo } from './utils/asserts';
 import { fetchStamp, getFeedData, getWrappedData } from './utils/bee';
-import { settlePromises, verifyStampUsability } from './utils/common';
-import { FEED_INDEX_ZERO } from './utils/constants';
+import { verifyStampUsability } from './utils/common';
+import {
+  FEED_INDEX_ZERO,
+  MANIFEST_METADATA_CONTENT_REF,
+  MANIFEST_METADATA_CONTENT_VERSION,
+  MANIFEST_METADATA_FILE_TOPIC,
+  MANIFEST_METADATA_PATH,
+  MANIFEST_METADATA_RECORD_VERSION,
+  MANIFEST_METADATA_ROOT_FEED_TOPIC,
+} from './utils/constants';
 import { generateRandomBytes } from './utils/crypto';
-import { getForksMap, loadMantaray } from './utils/mantaray';
+import { getFolderEntries, getForksMap, loadMantaray } from './utils/mantaray';
 import { processDownload } from './download';
 import { EventEmitter, EventEmitterBase } from './eventEmitter';
-import { DriveInfo, FileInfo, FileInfoOptions, FileManager, FileStatus, ShareItem } from './types';
+import { DriveInfo, FileInfo, FileInfoOptions, FileManager, FileStatus, FolderFileEntry, ShareItem } from './types';
 import { processUpload } from './upload';
 import {
   ADMIN_STAMP_LABEL,
@@ -294,7 +303,6 @@ export class FileManagerBase implements FileManager {
 
   // fetches the file info list from the admin feed and unwraps the data encrypted with ACT
   private async initFileInfoList(): Promise<void> {
-    // need a temporary variable to avoid async issues
     const tmpPublisher = this.publisher;
     if (!tmpPublisher) {
       throw new SignerError('Publisher not found');
@@ -305,45 +313,55 @@ export class FileManagerBase implements FileManager {
       return;
     }
 
-    const fileInfoPromises: Promise<FileInfo | null>[] = [];
+    for (const drive of this.driveList) {
+      try {
+        const { payload: manifestPayload } = await getFeedData(
+          this.bee,
+          new Topic(drive.driveFeedTopic),
+          this.signerAddress,
+        );
+        const manifestRef: ReferenceWithHistory = manifestPayload.toJSON() as ReferenceWithHistory;
 
-    for (const d of this.driveList) {
-      if (d.infoFeedList && d.infoFeedList.length > 0) {
-        for (const feed of d.infoFeedList) {
-          const fileInfoPromise = async (): Promise<FileInfo | null> => {
+        const driveManifestRaw = await this.bee.downloadData(manifestRef.reference, {
+          actHistoryAddress: manifestRef.historyRef,
+          actPublisher: tmpPublisher,
+        });
+        const mantaray = await loadMantaray(
+          this.bee,
+          new Reference(driveManifestRaw.toUint8Array()).toString(),
+          undefined,
+          undefined,
+        );
+
+        const entries = getFolderEntries(mantaray);
+
+        const fileInfoPromises = entries
+          .filter((entry) => !!entry.fileTopic)
+          .map(async (entry) => {
             try {
-              const feedData = await getFeedData(this.bee, new Topic(feed.topic), this.signerAddress);
+              const seedFileInfo = {
+                topic: entry.fileTopic,
+                actPublisher: tmpPublisher.toCompressedHex(),
+              } as unknown as FileInfo;
 
-              const fileInfoFeedData = feedData.payload.toJSON() as ReferenceWithHistory;
-              const rawData = await this.bee.downloadData(fileInfoFeedData.reference.toString(), {
-                actHistoryAddress: fileInfoFeedData.historyRef,
-                actPublisher: tmpPublisher,
-              });
-
-              const unwrappedFileInfoData = rawData.toJSON() as FileInfo;
-              assertFileInfo(unwrappedFileInfoData);
-
-              return unwrappedFileInfoData;
-
+              const feedData = await getFeedData(this.bee, new Topic(entry.fileTopic as string), this.signerAddress);
+              return await this.fetchFileInfo(seedFileInfo, feedData);
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
             } catch (error: any) {
-              console.error(`Invalid FileInfo item, skipping it: ${error.message || error}`);
+              console.error(`Failed to load FileInfo for topic ${entry.fileTopic}: ${error.message || error}`);
               return null;
             }
-          };
+          });
 
-          fileInfoPromises.push(fileInfoPromise());
+        const fileInfoResults = await Promise.all(fileInfoPromises);
+        for (const fi of fileInfoResults) {
+          if (fi !== null) this.fileInfoList.push(fi);
         }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } catch (error: any) {
+        console.error(`Failed to load drive manifest for drive ${drive.id}: ${error.message || error}`);
       }
     }
-
-    await settlePromises(fileInfoPromises, (fileInfo) => {
-      if (fileInfo !== null) {
-        this.fileInfoList.push(fileInfo);
-      }
-    });
-
-    console.debug('FileInfo lists fetched successfully.');
   }
 
   async createDrive(
@@ -393,10 +411,26 @@ export class FileManagerBase implements FileManager {
       batchId: batchId.toString(),
       owner: this.signerAddress,
       redundancyLevel: redundancyLevel ?? RedundancyLevel.OFF,
-      infoFeedList: [],
+      driveFeedTopic: new Topic(generateRandomBytes(Topic.LENGTH)).toString(),
       isAdmin,
     };
     this.driveList.push(driveInfo);
+
+    // Phase C: initialise empty drive mantaray and publish as feed slot 0
+    const emptyMantaray = new MantarayNode();
+    const saveResult = await emptyMantaray.saveRecursively(this.bee, driveInfo.batchId, { act: false }, requestOptions);
+    const manifestUpload = await this.bee.uploadData(
+      driveInfo.batchId,
+      saveResult.reference.toUint8Array(),
+      { act: true, redundancyLevel: driveInfo.redundancyLevel },
+      requestOptions,
+    );
+    driveInfo.manifestRef = {
+      reference: manifestUpload.reference.toString(),
+      historyRef: manifestUpload.historyAddress.getOrThrow().toString(),
+    };
+    const fw = this.bee.makeFeedWriter(new Topic(driveInfo.driveFeedTopic).toUint8Array(), this.signer);
+    await fw.uploadPayload(driveInfo.batchId, JSON.stringify(driveInfo.manifestRef), { index: FEED_INDEX_ZERO });
 
     await this.saveDriveList(requestOptions);
 
@@ -497,33 +531,54 @@ export class FileManagerBase implements FileManager {
 
     // no need to save the drive list again if the file info feed is already saved in state
     if (!fileOptions.topic) {
-      this.updateDriveList(driveIndex, topic.toString());
+      // Phase D: add fork to drive mantaray and publish updated manifest to driveFeedTopic feed
 
+      // 1. Resolve the current drive manifest reference from the driveFeedTopic feed
+      const { payload: manifestPayload } = await getFeedData(
+        this.bee,
+        new Topic(driveInfo.driveFeedTopic),
+        this.signerAddress,
+      );
+      const manifestRef: ReferenceWithHistory = manifestPayload.toJSON() as ReferenceWithHistory;
+
+      // 2. Decrypt and load the mantaray root
+      const wrappedManifest = await getWrappedData(
+        this.bee,
+        manifestRef.reference,
+        this.publisher,
+        manifestRef.historyRef,
+        undefined,
+        requestOptions,
+      );
+      const mantaray = await loadMantaray(
+        this.bee,
+        wrappedManifest.uploadFilesRes.toString(),
+        undefined,
+        requestOptions,
+      );
+
+      // 3. Add fork — target is the file's stable feed topic encoded as a Reference
+      const fileTopicRef = new Reference(topic);
+      mantaray.addFork(fileOptions.name, fileTopicRef, {
+        [MANIFEST_METADATA_FILE_TOPIC]: topic,
+        [MANIFEST_METADATA_CONTENT_REF]: fileInfo.file.reference.toString(),
+        [MANIFEST_METADATA_CONTENT_VERSION]: '0',
+        [MANIFEST_METADATA_RECORD_VERSION]: '0',
+        [MANIFEST_METADATA_PATH]: fileOptions.name,
+        [MANIFEST_METADATA_ROOT_FEED_TOPIC]: driveInfo.driveFeedTopic,
+        Filename: fileOptions.name,
+      });
+
+      // 4. Save updated mantaray, ACT-encrypt root, publish to driveFeedTopic feed
+      const newManifestRef = await this.saveDriveManifest(mantaray, driveInfo, requestOptions);
+
+      // 5. Update cached manifestRef on driveInfo and persist drive list
+      const driveIndex = this.driveList.findIndex((d) => d.id.toString() === driveInfo.id.toString());
+      if (driveIndex !== -1) this.driveList[driveIndex].manifestRef = newManifestRef;
       await this.saveDriveList(requestOptions);
     }
 
     this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
-  }
-
-  private updateDriveList(driveIndex: number, topic: string): void {
-    if (!this.driveList[driveIndex].infoFeedList) {
-      this.driveList[driveIndex].infoFeedList = [];
-    }
-
-    const infoIx = this.driveList[driveIndex].infoFeedList.findIndex((wf) => wf.topic === topic);
-    if (infoIx === -1) {
-      this.driveList[driveIndex].infoFeedList.push({
-        topic,
-      });
-
-      return;
-    }
-
-    // overwrite the existing grantee reference if it exists, as they do not have access to the new version
-    this.driveList[driveIndex].infoFeedList[infoIx] = {
-      topic,
-      eGranteeRef: undefined,
-    };
   }
 
   private async getTopicAndVersion(
@@ -633,6 +688,28 @@ export class FileManagerBase implements FileManager {
     } catch (error: any) {
       throw new FileInfoError(`Failed to save fileinfo: ${error.message || error}`);
     }
+  }
+
+  private async saveDriveManifest(
+    mantaray: MantarayNode,
+    driveInfo: DriveInfo,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<ReferenceWithHistory> {
+    const saveResult = await mantaray.saveRecursively(this.bee, driveInfo.batchId, { act: false }, requestOptions);
+    const manifestUpload = await this.bee.uploadData(
+      driveInfo.batchId,
+      saveResult.reference.toUint8Array(),
+      { act: true, redundancyLevel: driveInfo.redundancyLevel },
+      requestOptions,
+    );
+    const newManifestRef: ReferenceWithHistory = {
+      reference: manifestUpload.reference.toString(),
+      historyRef: manifestUpload.historyAddress.getOrThrow().toString(),
+    };
+    const { feedIndexNext } = await getFeedData(this.bee, new Topic(driveInfo.driveFeedTopic), this.signerAddress);
+    const fw = this.bee.makeFeedWriter(new Topic(driveInfo.driveFeedTopic).toUint8Array(), this.signer);
+    await fw.uploadPayload(driveInfo.batchId, JSON.stringify(newManifestRef), { index: feedIndexNext });
+    return newManifestRef;
   }
 
   private async saveFileInfoFeed(fi: FileInfo, requestOptions?: BeeRequestOptions): Promise<void> {
@@ -765,22 +842,43 @@ export class FileManagerBase implements FileManager {
       throw new FileInfoError(`File info not found for name: ${fileInfo.name}`);
     }
 
-    const driveIndex = this.driveList.findIndex((d) => d.id.toString() === fileInfo.driveId.toString());
-    if (driveIndex === -1 || this.driveList[driveIndex].infoFeedList === undefined) {
-      throw new FileInfoError(`Drive or file feed not found for name: ${fileInfo.name}`);
+    const fi = this.fileInfoList[fiIndex];
+
+    const driveIndex = this.driveList.findIndex((d) => d.id.toString() === fi.driveId.toString());
+    if (driveIndex === -1) {
+      throw new FileInfoError(`Drive not found for name: ${fi.name}`);
     }
 
-    const infoIx = this.driveList[driveIndex].infoFeedList.findIndex((wf) => wf.topic.toString() === topicStr);
-    if (infoIx === -1) {
-      throw new FileInfoError(`File not found for name: ${fileInfo.name} and topic: ${topicStr}`);
-    }
+    const driveInfo = this.driveList[driveIndex];
 
     this.fileInfoList.splice(fiIndex, 1);
-    this.driveList[driveIndex].infoFeedList.splice(infoIx, 1);
+
+    // Phase F: remove fork from drive mantaray and republish manifest
+    const { payload: manifestPayload } = await getFeedData(
+      this.bee,
+      new Topic(driveInfo.driveFeedTopic),
+      this.signerAddress,
+    );
+    const manifestRef: ReferenceWithHistory = manifestPayload.toJSON() as ReferenceWithHistory;
+
+    const driveManifestRaw = await this.bee.downloadData(manifestRef.reference, {
+      actHistoryAddress: manifestRef.historyRef,
+      actPublisher: this.publisher,
+    });
+    const mantaray = await loadMantaray(
+      this.bee,
+      new Reference(driveManifestRaw.toUint8Array()).toString(),
+      undefined,
+      undefined,
+    );
+
+    mantaray.removeFork(fi.name);
+
+    this.driveList[driveIndex].manifestRef = await this.saveDriveManifest(mantaray, driveInfo);
 
     await this.saveDriveList();
 
-    this.emitter.emit(FileManagerEvents.FILE_FORGOTTEN, { fileInfo });
+    this.emitter.emit(FileManagerEvents.FILE_FORGOTTEN, { fileInfo: fi });
   }
 
   private async fetchAndSetAdminStamp(batchId: string): Promise<void> {
@@ -844,12 +942,7 @@ export class FileManagerBase implements FileManager {
       throw new GranteeError(`Drive not found for file: ${fileInfo.name}`);
     }
 
-    const info = this.driveList[driveIx].infoFeedList?.find((wf) => wf.topic === fileInfo.topic);
-    if (!info || !info.eGranteeRef) {
-      throw new GranteeError(`Grantee list or file not found for file: ${fileInfo.name}`);
-    }
-
-    return this.bee.getGrantees(info.eGranteeRef);
+    throw new Error('getGrantees: not yet migrated to mantaray model');
   }
 
   // eslint-disable-next-line require-await
@@ -867,5 +960,176 @@ export class FileManagerBase implements FileManager {
   async share(_fileInfo: FileInfo, _targetOverlays: string[], _recipients: string[], _message?: string): Promise<void> {
     /** no-op */
     return;
+  }
+
+  async move(
+    fromPath: string,
+    toPath: string,
+    sourceDriveInfo: DriveInfo,
+    targetDriveInfo?: DriveInfo,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void> {
+    if (!this.isInitialized) throw new Error('FileManager is not initialized');
+    if (!this.publisher) throw new SignerError('Publisher not found');
+    if (!fromPath || fromPath === '/') throw new Error('Cannot move root folder');
+    if (!toPath || toPath === '/') throw new Error('Invalid destination path');
+    if (!targetDriveInfo && fromPath === toPath) throw new Error('Source and destination paths are identical');
+    const publisher = this.publisher;
+
+    const isCrossDrive = !!targetDriveInfo && targetDriveInfo.id.toString() !== sourceDriveInfo.id.toString();
+    const effectiveTarget = targetDriveInfo ?? sourceDriveInfo;
+
+    // 1. Load source drive mantaray
+    const { payload: srcPayload } = await getFeedData(
+      this.bee,
+      new Topic(sourceDriveInfo.driveFeedTopic),
+      this.signerAddress,
+    );
+    const srcManifestRef: ReferenceWithHistory = srcPayload.toJSON() as ReferenceWithHistory;
+    const srcManifestRaw = await this.bee.downloadData(srcManifestRef.reference, {
+      actHistoryAddress: srcManifestRef.historyRef,
+      actPublisher: publisher,
+    });
+    const sourceMantaray = await loadMantaray(
+      this.bee,
+      new Reference(srcManifestRaw.toUint8Array()).toString(),
+      undefined,
+      undefined,
+    );
+
+    // 2. Find the fork at fromPath
+    const sourceFork = sourceMantaray.find(fromPath);
+    if (!sourceFork) throw new Error(`Path not found in drive: ${fromPath}`);
+
+    const forkMetadata = sourceFork.metadata ?? {};
+    const isFile = !!forkMetadata[MANIFEST_METADATA_FILE_TOPIC];
+
+    // 3. If it's a file, update the per-file inner mantaray path
+    if (isFile) {
+      const fi = this.fileInfoList.find((f) => f.topic.toString() === forkMetadata[MANIFEST_METADATA_FILE_TOPIC]);
+      if (!fi) throw new Error(`FileInfo not found for topic: ${forkMetadata[MANIFEST_METADATA_FILE_TOPIC]}`);
+
+      const wrappedData = await getWrappedData(
+        this.bee,
+        fi.file.reference,
+        publisher,
+        fi.file.historyRef,
+        undefined,
+        requestOptions,
+      );
+      const innerMantaray = await loadMantaray(
+        this.bee,
+        wrappedData.uploadFilesRes.toString(),
+        undefined,
+        requestOptions,
+      );
+
+      const innerFork = innerMantaray.find(fromPath);
+      if (innerFork) {
+        const innerMetadata = {
+          ...(innerFork.metadata ?? {}),
+          [MANIFEST_METADATA_PATH]: toPath,
+          [MANIFEST_METADATA_RECORD_VERSION]: (
+            parseInt(forkMetadata[MANIFEST_METADATA_RECORD_VERSION] ?? '0') + 1
+          ).toString(),
+        };
+        innerMantaray.removeFork(fromPath);
+        innerMantaray.addFork(toPath, innerFork.targetAddress, innerMetadata);
+
+        const innerSaveResult = await innerMantaray.saveRecursively(
+          this.bee,
+          fi.batchId,
+          { act: false },
+          requestOptions,
+        );
+        const innerUpload = await this.bee.uploadData(
+          fi.batchId,
+          innerSaveResult.reference.toUint8Array(),
+          { act: true, redundancyLevel: fi.redundancyLevel },
+          requestOptions,
+        );
+        fi.file = {
+          reference: innerUpload.reference.toString(),
+          historyRef: innerUpload.historyAddress.getOrThrow().toString(),
+        };
+      }
+
+      if (isCrossDrive) fi.driveId = effectiveTarget.id.toString();
+      fi.version = FeedIndex.fromBigInt(BigInt(fi.version ?? '0') + 1n).toString();
+      await this.saveFileInfoFeed(fi, requestOptions);
+    }
+
+    // 4. Update drive manifest fork(s)
+    const updatedMetadata = {
+      ...forkMetadata,
+      [MANIFEST_METADATA_PATH]: toPath,
+      [MANIFEST_METADATA_ROOT_FEED_TOPIC]: effectiveTarget.driveFeedTopic,
+      [MANIFEST_METADATA_RECORD_VERSION]: (
+        parseInt(forkMetadata[MANIFEST_METADATA_RECORD_VERSION] ?? '0') + 1
+      ).toString(),
+    };
+
+    sourceMantaray.removeFork(fromPath);
+
+    if (!isCrossDrive) {
+      sourceMantaray.addFork(toPath, sourceFork.targetAddress, updatedMetadata);
+      const newManifestRef = await this.saveDriveManifest(sourceMantaray, sourceDriveInfo, requestOptions);
+      const srcDriveIndex = this.driveList.findIndex((d) => d.id.toString() === sourceDriveInfo.id.toString());
+      if (srcDriveIndex !== -1) this.driveList[srcDriveIndex].manifestRef = newManifestRef;
+    } else {
+      const srcNewManifestRef = await this.saveDriveManifest(sourceMantaray, sourceDriveInfo, requestOptions);
+      const srcDriveIndex = this.driveList.findIndex((d) => d.id.toString() === sourceDriveInfo.id.toString());
+      if (srcDriveIndex !== -1) this.driveList[srcDriveIndex].manifestRef = srcNewManifestRef;
+
+      const { payload: tgtPayload } = await getFeedData(
+        this.bee,
+        new Topic(effectiveTarget.driveFeedTopic),
+        this.signerAddress,
+      );
+      const tgtManifestRef: ReferenceWithHistory = tgtPayload.toJSON() as ReferenceWithHistory;
+      const tgtManifestRaw = await this.bee.downloadData(tgtManifestRef.reference, {
+        actHistoryAddress: tgtManifestRef.historyRef,
+        actPublisher: publisher,
+      });
+      const targetMantaray = await loadMantaray(
+        this.bee,
+        new Reference(tgtManifestRaw.toUint8Array()).toString(),
+        undefined,
+        undefined,
+      );
+
+      targetMantaray.addFork(toPath, sourceFork.targetAddress, updatedMetadata);
+      const tgtNewManifestRef = await this.saveDriveManifest(targetMantaray, effectiveTarget, requestOptions);
+      const tgtDriveIndex = this.driveList.findIndex((d) => d.id.toString() === effectiveTarget.id.toString());
+      if (tgtDriveIndex !== -1) this.driveList[tgtDriveIndex].manifestRef = tgtNewManifestRef;
+    }
+
+    await this.saveDriveList(requestOptions);
+    this.emitter.emit(FileManagerEvents.FILE_MOVED, { fromPath, toPath });
+  }
+
+  async getFolderEntries(
+    folderFileInfo: FileInfo,
+    options?: DownloadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<FolderFileEntry[]> {
+    const wrappedData = await getWrappedData(
+      this.bee,
+      folderFileInfo.file.reference,
+      folderFileInfo.actPublisher,
+      folderFileInfo.file.historyRef,
+      options,
+      requestOptions,
+    );
+
+    // Mantaray nodes are not ACT-encrypted individually
+    const mantaray = await loadMantaray(
+      this.bee,
+      wrappedData.uploadFilesRes.toString(),
+      { ...options, actPublisher: undefined, actHistoryAddress: undefined },
+      requestOptions,
+    );
+
+    return getFolderEntries(mantaray);
   }
 }

@@ -2,7 +2,7 @@ import { BatchId, EthAddress, FeedIndex, Identifier, PublicKey, Reference, Topic
 import { Types } from 'cafe-utility';
 
 import { DriveInfo, FileInfo, ShareItem } from '../types';
-import { StateTopicInfo, WrappedFileInfoFeed, WrappedUploadResult } from '../types/utils';
+import { StateTopicInfo, WrappedUploadResult } from '../types/utils';
 
 export function isRecord(value: unknown): value is Record<string, string> {
   return Types.isStrictlyObject(value) && Object.values(value).every((v) => typeof v === 'string');
@@ -70,20 +70,6 @@ export function assertShareItem(value: unknown): asserts value is ShareItem {
   }
 }
 
-export function assertWrappedFileInfoFeed(value: unknown): asserts value is WrappedFileInfoFeed {
-  if (!Types.isStrictlyObject(value)) {
-    throw new TypeError('WrappedFileInfoFeed has to be object!');
-  }
-
-  const wmf = value as unknown as WrappedFileInfoFeed;
-
-  new Topic(wmf.topic);
-
-  if (wmf.eGranteeRef !== undefined) {
-    new Reference(wmf.eGranteeRef);
-  }
-}
-
 export function assertWrappedUploadResult(value: unknown): asserts value is WrappedUploadResult {
   if (!Types.isStrictlyObject(value)) {
     throw new TypeError('WrappedUploadResult has to be object!');
@@ -109,14 +95,8 @@ export function assertDriveInfo(value: unknown): asserts value is DriveInfo {
   new EthAddress(di.owner);
   new Identifier(di.id);
 
-  if (di.infoFeedList !== undefined) {
-    if (!Array.isArray(di.infoFeedList)) {
-      throw new TypeError('infoFeedList property of DriveInfo has to be array!');
-    }
-
-    for (const item of di.infoFeedList) {
-      assertWrappedFileInfoFeed(item);
-    }
+  if (di.driveFeedTopic === undefined || typeof di.driveFeedTopic !== 'string' || di.driveFeedTopic.length === 0) {
+    throw new TypeError('driveFeedTopic property of DriveInfo has to be non-empty string!');
   }
 
   if (di.name === undefined || typeof di.name !== 'string' || di.name.length === 0) {

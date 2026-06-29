@@ -12,6 +12,15 @@ export interface BrowserUploadOptions {
   files: File[] | FileList;
   preview?: File;
   onUploadProgress?: (progress: UploadProgress) => void;
+  /**
+   * Per-file extra metadata to inject into each file's mantaray fork.
+   * Key is the file path within the manifest (e.g. "/folder/file.txt").
+   * Values are merged with the default Content-Type/Filename metadata.
+   *
+   * NOTE: Requires bee-js streamFiles to support a fileOptionsProvider callback.
+   * This field is accepted here to allow callers to prepare metadata ahead of that change.
+   */
+  fileMetadata?: Map<string, Record<string, string>>;
 }
 
 export interface PartialFileInfo extends Omit<
@@ -32,11 +41,6 @@ export interface NodeUploadOptions {
 export interface ReferenceWithHistory {
   reference: string | Reference;
   historyRef: string | Reference;
-}
-
-export interface WrappedFileInfoFeed {
-  topic: string | Topic;
-  eGranteeRef?: string | Reference;
 }
 
 interface FeedUpdateHeaders {

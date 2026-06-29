@@ -14,7 +14,7 @@ import {
 
 import { EventEmitter } from '../eventEmitter';
 
-import { DriveInfo, FileInfo, ShareItem } from './info';
+import { DriveInfo, FileInfo, FolderFileEntry, ShareItem } from './info';
 import { FileInfoOptions } from './utils';
 
 /**
@@ -187,6 +187,42 @@ export interface FileManager {
    * @throws FileInfoError if no versions are found.
    */
   restoreVersion(versionToRestore: FileInfo, requestOptions?: BeeRequestOptions): Promise<void>;
+
+  /**
+   * Moves a file within a folder manifest from one path to another.
+   * Updates the file's path and record-version metadata, re-saves the mantaray,
+   * and bumps the folder FileInfo's feed version.
+   *
+   * @param folderFileInfo - The FileInfo of the parent folder manifest.
+   * @param fromPath - Absolute path of the file within the manifest, e.g. “/folder/old.txt”.
+   * @param toPath - Destination path within the manifest, e.g. “/folder/sub/new.txt”.
+   * @param requestOptions - Optional BeeRequestOptions for upload operations.
+   * @emits FileManagerEvents.FILE_MOVED
+   * @throws FileInfoError if the source path is not found or the FileInfo is missing.
+   */
+  move(
+    fromPath: string,
+    toPath: string,
+    sourceDriveInfo: DriveInfo,
+    targetDriveInfo?: DriveInfo,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void>;
+
+  /**
+   * Returns per-file metadata entries for all files within a folder manifest.
+   * Decrypts the ACT wrapper, loads the mantaray tree, and extracts each fork's metadata
+   * including content-ref, content-version, record-version, path, topics, and grantee refs.
+   *
+   * @param folderFileInfo - The FileInfo of the folder whose entries to list.
+   * @param options - Optional download options for ACT.
+   * @param requestOptions - Additional Bee request options.
+   * @returns Array of FolderFileEntry objects, one per file in the manifest.
+   */
+  getFolderEntries(
+    folderFileInfo: FileInfo,
+    options?: DownloadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<FolderFileEntry[]>;
 
   /**
    * Admin postage batch used for drive management operations.
