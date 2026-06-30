@@ -1,14 +1,12 @@
 import { Bee, BeeRequestOptions, DownloadOptions, MantarayNode, Reference } from '@ethersphere/bee-js';
 
-import { FolderFileEntry } from '../types/info';
+import { NodeType } from '../types/utils';
 
 import {
-  MANIFEST_METADATA_CONTENT_REF,
-  MANIFEST_METADATA_CONTENT_VERSION,
   MANIFEST_METADATA_FILE_TOPIC,
+  MANIFEST_METADATA_NODE_TOPIC,
+  MANIFEST_METADATA_NODE_TYPE,
   MANIFEST_METADATA_PATH,
-  MANIFEST_METADATA_RECORD_VERSION,
-  MANIFEST_METADATA_ROOT_FEED_TOPIC,
 } from './constants';
 
 export async function loadMantaray(
@@ -22,44 +20,27 @@ export async function loadMantaray(
   return mantaray;
 }
 
-export function getForksMap(root: MantarayNode, paths?: string[]): Record<string, string> {
-  const nodesMap: Record<string, string> = root.collectAndMap();
-
-  if (paths && paths.length > 0) {
-    const filteredMap: Record<string, string> = {};
-    for (const path of paths) {
-      if (path in nodesMap) {
-        filteredMap[path] = nodesMap[path];
-      }
-    }
-
-    return filteredMap;
-  }
-
-  return nodesMap;
+export interface DirectoryEntry {
+  path: string;
+  type: NodeType;
+  topic: string;
+  fileTopic?: string;
 }
 
-/**
- * Extracts per-file metadata from all leaf nodes of a loaded mantaray tree.
- * Must be called after loadRecursively so that targetAddresses and metadata are populated.
- */
-export function getFolderEntries(root: MantarayNode): FolderFileEntry[] {
+export function getAllNodeEntries(root: MantarayNode): DirectoryEntry[] {
   const nodes = root.collect();
-
-  return nodes.map((node) => {
-    const meta = node.metadata ?? {};
-    const contentRef = meta[MANIFEST_METADATA_CONTENT_REF] ?? new Reference(node.targetAddress).toHex();
-
-    return {
-      path: meta[MANIFEST_METADATA_PATH] ?? node.fullPathString,
-      contentRef,
-      contentVersion: meta[MANIFEST_METADATA_CONTENT_VERSION] ?? '0',
-      recordVersion: meta[MANIFEST_METADATA_RECORD_VERSION] ?? '0',
-      fileTopic: meta[MANIFEST_METADATA_FILE_TOPIC],
-      rootFeedTopic: meta[MANIFEST_METADATA_ROOT_FEED_TOPIC],
-      granteeListRef: meta['granteelistref'],
-      actHistoryAddress: meta['swarm-act-history-address'],
-      rawMetadata: Object.keys(meta).length > 0 ? { ...meta } : undefined,
-    };
-  });
+  return nodes
+    .map((node) => {
+      const meta = node.metadata ?? {};
+      const nodeType = meta[MANIFEST_METADATA_NODE_TYPE] as NodeType | undefined;
+      const nodeTopic = meta[MANIFEST_METADATA_NODE_TOPIC];
+      if (!nodeTopic || !nodeType) return null;
+      return {
+        path: meta[MANIFEST_METADATA_PATH] ?? node.fullPathString,
+        type: nodeType,
+        topic: nodeTopic,
+        fileTopic: nodeType === NodeType.File ? meta[MANIFEST_METADATA_FILE_TOPIC] : undefined,
+      } as DirectoryEntry;
+    })
+    .filter((e): e is DirectoryEntry => e !== null);
 }

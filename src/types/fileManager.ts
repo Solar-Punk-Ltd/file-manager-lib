@@ -13,8 +13,9 @@ import {
 } from '@ethersphere/bee-js';
 
 import { EventEmitter } from '../eventEmitter';
+import { DirectoryEntry } from '../utils/mantaray';
 
-import { DriveInfo, FileInfo, FolderFileEntry, ShareItem } from './info';
+import { DriveInfo, FileRecord, ShareItem } from './info';
 import { FileInfoOptions } from './utils';
 
 /**
@@ -66,59 +67,60 @@ export interface FileManager {
   ): Promise<void>;
 
   /**
-   * Downloads a file using the given reference and options.
-   * @param eRef - The encrypted reference to the file(s) to be downloaded.
-   * @param paths - Optional array of fork paths to download.
-   * @param options - Optional download options for ACT and redundancy.
+   * Downloads files for all matching paths in a drive.
+   * @param driveInfo - The drive to download from.
+   * @param paths - Optional array of paths to filter by.
+   * @param options - Optional download options.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FILE_DOWNLOADED
-   * @returns A promise that resolves to an array of strings representing the downloaded file(s).
+   * @returns A promise that resolves to an array of Bytes, one per matched file.
    */
   download(
-    fileInfo: FileInfo,
+    driveInfo: DriveInfo,
     paths?: string[],
     options?: DownloadOptions,
     requestOptions?: BeeRequestOptions,
-  ): Promise<ReadableStream<Uint8Array>[] | Bytes[]>;
+  ): Promise<Bytes[]>;
 
   /**
-   * Lists files based on the provided file information and options.
-   * @param fileInfo - Information about the file(s) containing the encrypted reference and history.
-   * @param paths - Optional array of fork paths to list.
+   * Lists the direct children of a folder (or drive root) in the drive manifest.
+   * Also populates the fileInfoList cache for any file entries encountered.
+   * @param driveInfo - The drive containing the folder.
+   * @param folderPath - Absolute path of the folder, or '' / '/' for the drive root.
+   * @param depth - How many levels deep to recurse into sub-folders. Defaults to 1.
    * @param requestOptions - Additional Bee request options.
-   * @param options - Optional download options for ACT.
-   * @returns A promise that resolves to an array of references with paths.
+   * @returns Array of DirectoryEntry objects for every node found at or below the given path.
    */
-  listFiles(
-    fileInfo: FileInfo,
-    paths?: string[],
-    options?: DownloadOptions,
+  listFolder(
+    driveInfo: DriveInfo,
+    folderPath: string,
+    depth?: number,
     requestOptions?: BeeRequestOptions,
-  ): Promise<Record<string, string>>;
+  ): Promise<DirectoryEntry[]>;
 
   /**
-   * Soft-delete: move a file to “trash” (it stays in Swarm but is hidden from your live list).
-   * @param fileInfo - The file info describing the file to trash.
+   * Soft-delete: move a file to "trash" (it stays in Swarm but is hidden from your live list).
+   * @param fileInfo - The file record describing the file to trash.
    * @emits FileManagerEvents.FILE_TRASHED
    * @returns A promise that resolves when the file has been trashed.
    */
-  trashFile(fileInfo: FileInfo): Promise<void>;
+  trashFile(fileInfo: FileRecord): Promise<void>;
 
   /**
    * Recover a previously trashed file back into your live list.
-   * @param fileInfo - The file info describing the file to recover.
+   * @param fileInfo - The file record describing the file to recover.
    * @emits FileManagerEvents.FILE_RECOVERED
    * @returns A promise that resolves when the file has been recovered.
    */
-  recoverFile(fileInfo: FileInfo): Promise<void>;
+  recoverFile(fileInfo: FileRecord): Promise<void>;
 
   /**
    * Hard‐delete: remove from your owner‐feed and in-memory lists.
-   * @param fileInfo - The file info describing the file to forget.
+   * @param fileInfo - The file record describing the file to forget.
    * @emits FileManagerEvents.FILE_FORGOTTEN
    * @returns A promise that resolves when the file has been forgotten.
    */
-  forgetFile(fileInfo: FileInfo): Promise<void>;
+  forgetFile(fileInfo: FileRecord): Promise<void>;
 
   /**
    * Destroys a drive identified by the given batch ID.
@@ -139,15 +141,15 @@ export interface FileManager {
   forgetDrive(driveInfo: DriveInfo): Promise<void>;
 
   /**
-   * Shares a file information with the specified recipients.
-   * @param fileInfo - Information about the file(s) to share.
+   * Shares a file with the specified recipients.
+   * @param fileInfo - The file record to share.
    * @param targetOverlays - An array of target overlays.
    * @param recipients - An array of recipient overlay addresses.
    * @param message - Optional message to include with the share.
    * @emits FileManagerEvents.SHARE_MESSAGE_SENT
    * @returns A promise that resolves when the file is shared.
    */
-  share(fileInfo: FileInfo, targetOverlays: string[], recipients: string[], message?: string): Promise<void>;
+  share(fileInfo: FileRecord, targetOverlays: string[], recipients: string[], message?: string): Promise<void>;
 
   /**
    * Subscribes to the shared inbox with the given topic and callback.
@@ -164,41 +166,39 @@ export interface FileManager {
 
   /**
    * Retrieves the grantees of a file.
-   * @param fileInfo - Information about the file.
+   * @param fileInfo - The file record to query.
    * @returns A promise that resolves to list of grantee public keys.
    */
-  getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult>;
+  getGrantees(fileInfo: FileRecord): Promise<GetGranteesResult>;
 
   /**
    * Returns a specific version of a file.
    *
-   * @param fileInfo - The base FileInfo containing topic and owner fields.
+   * @param fileInfo - The base FileRecord containing topic and owner fields.
    * @param version - Optional desired version slot as a FeedIndex or hex/string. If omitted, fetches latest.
-   * @returns The FileInfo corresponding to the requested version, either cached or fetched.
+   * @returns The FileRecord corresponding to the requested version, either cached or fetched.
    */
-  getVersion(fileInfo: FileInfo, version?: FeedIndex): Promise<FileInfo>;
+  getVersion(fileInfo: FileRecord, version?: FeedIndex): Promise<FileRecord>;
 
   /**
-   * Restore a previous version of a file as the new “head” in your feed.
+   * Restore a previous version of a file as the new "head" in your feed.
    *
-   * @param versionToRestore - The FileInfo instance representing the version to restore.
+   * @param versionToRestore - The FileRecord instance representing the version to restore.
    * @param requestOptions - Optional BeeRequestOptions for upload operations.
    * @emits FileManagerEvents.FILE_VERSION_RESTORED
    * @throws FileInfoError if no versions are found.
    */
-  restoreVersion(versionToRestore: FileInfo, requestOptions?: BeeRequestOptions): Promise<void>;
+  restoreVersion(versionToRestore: FileRecord, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
-   * Moves a file within a folder manifest from one path to another.
-   * Updates the file's path and record-version metadata, re-saves the mantaray,
-   * and bumps the folder FileInfo's feed version.
+   * Moves a file or folder within a drive from one path to another.
    *
-   * @param folderFileInfo - The FileInfo of the parent folder manifest.
-   * @param fromPath - Absolute path of the file within the manifest, e.g. “/folder/old.txt”.
-   * @param toPath - Destination path within the manifest, e.g. “/folder/sub/new.txt”.
+   * @param fromPath - Absolute path of the entry within the drive manifest.
+   * @param toPath - Destination path within the drive manifest.
+   * @param sourceDriveInfo - The drive containing the source path.
+   * @param targetDriveInfo - Optional target drive for cross-drive moves; defaults to sourceDriveInfo.
    * @param requestOptions - Optional BeeRequestOptions for upload operations.
    * @emits FileManagerEvents.FILE_MOVED
-   * @throws FileInfoError if the source path is not found or the FileInfo is missing.
    */
   move(
     fromPath: string,
@@ -207,22 +207,6 @@ export interface FileManager {
     targetDriveInfo?: DriveInfo,
     requestOptions?: BeeRequestOptions,
   ): Promise<void>;
-
-  /**
-   * Returns per-file metadata entries for all files within a folder manifest.
-   * Decrypts the ACT wrapper, loads the mantaray tree, and extracts each fork's metadata
-   * including content-ref, content-version, record-version, path, topics, and grantee refs.
-   *
-   * @param folderFileInfo - The FileInfo of the folder whose entries to list.
-   * @param options - Optional download options for ACT.
-   * @param requestOptions - Additional Bee request options.
-   * @returns Array of FolderFileEntry objects, one per file in the manifest.
-   */
-  getFolderEntries(
-    folderFileInfo: FileInfo,
-    options?: DownloadOptions,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<FolderFileEntry[]>;
 
   /**
    * Admin postage batch used for drive management operations.
@@ -237,10 +221,10 @@ export interface FileManager {
   driveList: DriveInfo[];
 
   /**
-   * Retrieves a list of file information.
-   * @returns An array of file information objects.
+   * Retrieves a list of file records.
+   * @returns An array of FileRecord objects.
    */
-  fileInfoList: FileInfo[];
+  fileInfoList: FileRecord[];
 
   /**
    * Retrieves a list of items shared with the user.

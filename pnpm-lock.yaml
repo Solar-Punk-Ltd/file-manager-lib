@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@ethersphere/bee-js':
-        specifier: file:~/repos/ethersphere/bee-js
-        version: file:../../ethersphere/bee-js
+        specifier: file:~/repos/solarpunk/bee-js
+        version: file:../bee-js
       cafe-utility:
         specifier: ^33.7.0
         version: 33.7.0
@@ -390,8 +390,8 @@ packages:
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
-  '@ethersphere/bee-js@file:../../ethersphere/bee-js':
-    resolution: {directory: ../../ethersphere/bee-js, type: directory}
+  '@ethersphere/bee-js@file:../bee-js':
+    resolution: {directory: ../bee-js, type: directory}
     engines: {bee: 2.4.0-390a402e, beeApiVersion: 7.2.0}
 
   '@humanfs/core@0.19.1':
@@ -3173,7 +3173,7 @@ snapshots:
       '@eslint/core': 0.17.0
       levn: 0.4.1
 
-  '@ethersphere/bee-js@file:../../ethersphere/bee-js':
+  '@ethersphere/bee-js@file:../bee-js':
     dependencies:
       cafe-utility: 34.0.0
       debug: 4.4.3

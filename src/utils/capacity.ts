@@ -1,6 +1,6 @@
 import { BatchId, FeedIndex, PrivateKey, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 
-import { DriveInfo, FileInfo } from '../types';
+import { DriveInfo, FileRecord } from '../types';
 import { ReferenceWithHistory } from '../types/utils';
 
 import { getEncodedSize } from './common';
@@ -16,6 +16,7 @@ const REFERENCE_WRAPPER_SIZE = getEncodedSize(
 const FEED_OVERHEAD_SIZE = FeedIndex.MINUS_ONE.toString().length + Topic.LENGTH;
 const DUMMY_SIGNER = new PrivateKey('634fb5a872396d9693e5c9f9d7233cfa93f395c093371017ff44aa9ae6564cdd');
 const DUMMY_STAMP = new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51');
+const DUMMY_TOPIC = new Topic('aa'.repeat(32));
 // Estimate overhead for ACT: circa 250 bytes per history entry (storageRefSize, historyRefSize, eGranteeRef, keypairs etc.)
 const ACT_OVERHEAD_SIZE = 250;
 // shall be about 304 bytes with an upper limit of 40 on the name length
@@ -26,20 +27,22 @@ const dummyDriveInfo: DriveInfo = {
   batchId: DUMMY_STAMP.toString(),
   owner: DUMMY_SIGNER.publicKey().address().toString(),
   redundancyLevel: RedundancyLevel.OFF,
-  driveFeedTopic: 'aa'.repeat(32),
+  driveFeedTopic: DUMMY_TOPIC.toString(),
   isAdmin: true,
 };
 const dummyDriveInfoSize = getEncodedSize(JSON.stringify(dummyDriveInfo));
-const dummyFileInfo: FileInfo = {
+const dummyFileRecord: FileRecord = {
   batchId: DUMMY_STAMP.toString(),
   file: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
-  name: 'a'.repeat(40),
+  path: 'a'.repeat(40),
   owner: DUMMY_SIGNER.publicKey().address().toString(),
   actPublisher: DUMMY_SIGNER.publicKey().toString(),
   topic: SWARM_ZERO_ADDRESS.toString(),
   driveId: dummyId.toString(),
+  contentVersion: '0',
+  recordVersion: '0',
 };
-const dummyFileInfoSize = getEncodedSize(JSON.stringify(dummyFileInfo));
+const dummyFileInfoSize = getEncodedSize(JSON.stringify(dummyFileRecord));
 
 // TODO: extend these if ACT trie expands
 /**

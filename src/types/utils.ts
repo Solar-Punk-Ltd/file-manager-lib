@@ -1,6 +1,6 @@
 import { Bytes, FeedIndex, Reference, Topic } from '@ethersphere/bee-js';
 
-import { FileInfo } from './info';
+import { FileRecord } from './info';
 
 export interface StateTopicInfo {
   topicReference: string;
@@ -23,8 +23,13 @@ export interface BrowserUploadOptions {
   fileMetadata?: Map<string, Record<string, string>>;
 }
 
+export enum NodeType {
+  File = 'file',
+  Folder = 'folder',
+}
+
 export interface PartialFileInfo extends Omit<
-  FileInfo,
+  FileRecord,
   'owner' | 'actPublisher' | 'file' | 'topic' | 'driveId' | 'batchId' | 'redundancyLevel' | 'status'
 > {
   file?: ReferenceWithHistory;

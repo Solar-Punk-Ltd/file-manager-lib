@@ -1,19 +1,19 @@
 import { BatchId, EthAddress, FeedIndex, Identifier, PublicKey, Reference, Topic } from '@ethersphere/bee-js';
 import { Types } from 'cafe-utility';
 
-import { DriveInfo, FileInfo, ShareItem } from '../types';
+import { DriveInfo, FileRecord, ShareItem } from '../types';
 import { StateTopicInfo, WrappedUploadResult } from '../types/utils';
 
 export function isRecord(value: unknown): value is Record<string, string> {
   return Types.isStrictlyObject(value) && Object.values(value).every((v) => typeof v === 'string');
 }
 
-export function assertFileInfo(value: unknown): asserts value is FileInfo {
+export function assertFileRecord(value: unknown): asserts value is FileRecord {
   if (!Types.isStrictlyObject(value)) {
-    throw new TypeError('FileInfo has to be object!');
+    throw new TypeError('FileRecord has to be object!');
   }
 
-  const fi = value as unknown as FileInfo;
+  const fi = value as unknown as FileRecord;
 
   new Reference(fi.file.reference);
   new Reference(fi.batchId);
@@ -22,16 +22,24 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
   new Topic(fi.topic);
   new PublicKey(fi.actPublisher);
 
+  if (typeof fi.path !== 'string' || fi.path.length === 0) {
+    throw new TypeError('path property of FileRecord has to be a non-empty string!');
+  }
+
+  if (typeof fi.contentVersion !== 'string') {
+    throw new TypeError('contentVersion property of FileRecord has to be a string!');
+  }
+
+  if (typeof fi.recordVersion !== 'string') {
+    throw new TypeError('recordVersion property of FileRecord has to be a string!');
+  }
+
   if (fi.customMetadata !== undefined && !isRecord(fi.customMetadata)) {
-    throw new TypeError('FileInfo customMetadata has to be object!');
+    throw new TypeError('FileRecord customMetadata has to be object!');
   }
 
   if (fi.timestamp !== undefined && typeof fi.timestamp !== 'number') {
-    throw new TypeError('timestamp property of FileInfo has to be number!');
-  }
-
-  if (fi.name !== undefined && typeof fi.name !== 'string') {
-    throw new TypeError('fileName property of FileInfo has to be string!');
+    throw new TypeError('timestamp property of FileRecord has to be number!');
   }
 
   if (fi.preview !== undefined) {
@@ -40,15 +48,15 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
   }
 
   if (fi.shared !== undefined && typeof fi.shared !== 'boolean') {
-    throw new TypeError('shared property of FileInfo has to be boolean!');
+    throw new TypeError('shared property of FileRecord has to be boolean!');
   }
 
   if (fi.redundancyLevel !== undefined && typeof fi.redundancyLevel !== 'number') {
-    throw new TypeError('redundancyLevel property of FileInfo has to be number!');
+    throw new TypeError('redundancyLevel property of FileRecord has to be number!');
   }
 
   if (fi.status !== undefined && typeof fi.status !== 'string') {
-    throw new TypeError('status property of FileInfo has to be string!');
+    throw new TypeError('status property of FileRecord has to be string!');
   }
 }
 
@@ -59,7 +67,7 @@ export function assertShareItem(value: unknown): asserts value is ShareItem {
 
   const item = value as unknown as ShareItem;
 
-  assertFileInfo(item.fileInfo);
+  assertFileRecord(item.fileInfo);
 
   if (item.timestamp !== undefined && typeof item.timestamp !== 'number') {
     throw new TypeError('timestamp property of ShareItem has to be number!');

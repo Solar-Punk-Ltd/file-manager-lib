@@ -1,6 +1,6 @@
 {
   "name": "@solarpunkltd/file-manager-lib",
-  "version": "1.0.8",
+  "version": "2.0.0",
   "description": "A file manager for storing and handling data on Swarm.",
   "main": "dist/cjs/index.js",
   "module": "dist/esm/index.js",
@@ -51,7 +51,7 @@
   "homepage": "https://github.com/Solar-Punk-Ltd/file-manager-lib",
   "license": "Apache-2.0",
   "dependencies": {
-    "@ethersphere/bee-js": "file:~/repos/ethersphere/bee-js",
+    "@ethersphere/bee-js": "file:~/repos/solarpunk/bee-js",
     "cafe-utility": "^33.7.0",
     "std-env": "^3.10.0"
   },
