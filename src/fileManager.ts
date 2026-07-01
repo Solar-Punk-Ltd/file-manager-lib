@@ -215,14 +215,16 @@ export class FileManagerBase implements FileManager {
     this.stateFeedTopic = new Topic(randomTopic);
 
     const topicUpload = await this.bee.uploadData(batchId, randomTopic.toUint8Array(), { act: true }, requestOptions);
-    const stateTopicInfo = {
+    const { feedIndexNext } = await getFeedData(this.bee, FILEMANAGER_STATE_TOPIC, this.signerAddress);
+    const writeIndex = resetState ? FEED_INDEX_ZERO : feedIndexNext;
+    const stateTopicInfo: StateTopicInfo = {
       topicReference: topicUpload.reference.toString(),
       historyAddress: topicUpload.historyAddress.getOrThrow().toString(),
+      index: writeIndex.toString(),
     };
-    const { feedIndexNext } = await getFeedData(this.bee, FILEMANAGER_STATE_TOPIC, this.signerAddress);
     const statefw = this.bee.makeFeedWriter(FILEMANAGER_STATE_TOPIC.toUint8Array(), this.signer);
     await statefw.uploadPayload(batchId, JSON.stringify(stateTopicInfo), {
-      index: resetState ? FEED_INDEX_ZERO : feedIndexNext,
+      index: writeIndex,
     });
 
     const emptyAdminMantaray = new MantarayNode();
@@ -1043,20 +1045,27 @@ export class FileManagerBase implements FileManager {
 
     this.fileInfoList.splice(fiIndex, 1);
 
-    // Phase F: remove fork from drive mantaray and republish manifest
-    const driveHost: ManifestHost = {
+    // Phase F: remove fork from the correct mantaray (parent folder or drive root) and republish
+    const lastSlash = fi.path.lastIndexOf('/');
+    const parentPath = lastSlash > 0 ? fi.path.substring(0, lastSlash) : '';
+    const filename = lastSlash >= 0 ? fi.path.substring(lastSlash + 1) : fi.path;
+
+    const parentFolder = await this.resolveFolder(driveInfo, parentPath);
+    const targetHost: ManifestHost = parentFolder ?? {
       topic: driveInfo.driveFeedTopic.toString(),
       manifestRef: driveInfo.manifestRef,
       batchId: driveInfo.batchId,
       redundancyLevel: driveInfo.redundancyLevel,
     };
-    const mantaray = await this.getNodeManifest(driveHost);
+    const mantaray = await this.getNodeManifest(targetHost);
 
-    mantaray.removeFork(fi.path);
+    mantaray.removeFork(filename);
 
-    this.driveList[driveIndex].manifestRef = await this.saveNodeManifest(mantaray, driveHost);
-
-    await this.saveAdminManifest();
+    const newManifestRef = await this.saveNodeManifest(mantaray, targetHost);
+    if (!parentFolder) {
+      this.driveList[driveIndex].manifestRef = newManifestRef;
+      await this.saveAdminManifest();
+    }
 
     this.emitter.emit(FileManagerEvents.FILE_FORGOTTEN, { fileInfo: fi });
   }
@@ -1256,7 +1265,7 @@ export class FileManagerBase implements FileManager {
 
     for (const segment of segments) {
       currentPath += '/' + segment;
-      const fork = currentMantaray.find(currentPath);
+      const fork = currentMantaray.find(segment);
       if (!fork) throw new Error(`Path not found: ${currentPath}`);
 
       const meta = fork.metadata ?? {};
@@ -1344,7 +1353,7 @@ export class FileManagerBase implements FileManager {
     };
     const parentMantaray = await this.getNodeManifest(parentHost, requestOptions);
 
-    parentMantaray.addFork(newFolderInfo.path, new Reference(newFolderTopic), {
+    parentMantaray.addFork(folderName, new Reference(newFolderTopic), {
       [MANIFEST_METADATA_PATH]: newFolderInfo.path,
       [MANIFEST_METADATA_NODE_TOPIC]: newFolderTopic,
       [MANIFEST_METADATA_NODE_TYPE]: NodeType.Folder,
