@@ -7,15 +7,22 @@ export function isNotFoundError(error: any): boolean {
   return error.stack?.includes('404') || error.message?.includes('Not Found') || error.message?.includes('404');
 }
 
-export async function settlePromises<T>(promises: Promise<T>[], cb: (value: T) => void): Promise<void> {
-  await Promise.allSettled(promises).then((results) => {
-    results.forEach((result) => {
-      if (result.status === 'fulfilled') {
-        cb(result.value);
+export async function settlePromises<T>(
+  promises: Promise<T>[],
+  cb: (value: T) => void,
+  onError?: (reason: unknown, index: number) => void,
+): Promise<void> {
+  const results = await Promise.allSettled(promises);
+  results.forEach((result, ix) => {
+    if (result.status === 'fulfilled') {
+      cb(result.value);
+    } else {
+      if (onError) {
+        onError(result.reason, ix);
       } else {
         console.error(`Failed to resolve promise: ${result.reason}`);
       }
-    });
+    }
   });
 }
 

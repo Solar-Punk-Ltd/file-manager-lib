@@ -25,6 +25,7 @@ export interface DirectoryEntry {
   type: NodeType;
   topic: string;
   fileTopic?: string;
+  rawMetadata: Record<string, string>;
 }
 
 export function getAllNodeEntries(root: MantarayNode): DirectoryEntry[] {
@@ -40,6 +41,7 @@ export function getAllNodeEntries(root: MantarayNode): DirectoryEntry[] {
         type: nodeType,
         topic: nodeTopic,
         fileTopic: nodeType === NodeType.File ? meta[MANIFEST_METADATA_FILE_TOPIC] : undefined,
+        rawMetadata: { ...meta },
       } as DirectoryEntry;
     })
     .filter((e): e is DirectoryEntry => e !== null);

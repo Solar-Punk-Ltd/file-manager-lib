@@ -26,6 +26,7 @@ export interface BrowserUploadOptions {
 export enum NodeType {
   File = 'file',
   Folder = 'folder',
+  Drive = 'drive',
 }
 
 export interface PartialFileInfo extends Omit<

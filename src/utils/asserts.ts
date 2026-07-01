@@ -1,8 +1,27 @@
-import { BatchId, EthAddress, FeedIndex, Identifier, PublicKey, Reference, Topic } from '@ethersphere/bee-js';
+import {
+  BatchId,
+  EthAddress,
+  FeedIndex,
+  Identifier,
+  PublicKey,
+  RedundancyLevel,
+  Reference,
+  Topic,
+} from '@ethersphere/bee-js';
 import { Types } from 'cafe-utility';
 
 import { DriveInfo, FileRecord, ShareItem } from '../types';
 import { StateTopicInfo, WrappedUploadResult } from '../types/utils';
+
+import {
+  MANIFEST_METADATA_DRIVE_BATCH_ID,
+  MANIFEST_METADATA_DRIVE_ID,
+  MANIFEST_METADATA_DRIVE_IS_ADMIN,
+  MANIFEST_METADATA_DRIVE_NAME,
+  MANIFEST_METADATA_DRIVE_OWNER,
+  MANIFEST_METADATA_NODE_TOPIC,
+  MANIFEST_METADATA_REDUNDANCY_LEVEL,
+} from './constants';
 
 export function isRecord(value: unknown): value is Record<string, string> {
   return Types.isStrictlyObject(value) && Object.values(value).every((v) => typeof v === 'string');
@@ -118,6 +137,32 @@ export function assertDriveInfo(value: unknown): asserts value is DriveInfo {
   if (di.isAdmin === undefined || typeof di.isAdmin !== 'boolean') {
     throw new TypeError('isAdmin property of DriveInfo has to be boolean!');
   }
+}
+
+export function driveInfoFromMetadata(meta: Record<string, string>): DriveInfo {
+  const id = meta[MANIFEST_METADATA_DRIVE_ID];
+  const name = meta[MANIFEST_METADATA_DRIVE_NAME];
+  const owner = meta[MANIFEST_METADATA_DRIVE_OWNER];
+  const batchId = meta[MANIFEST_METADATA_DRIVE_BATCH_ID];
+  const isAdmin = meta[MANIFEST_METADATA_DRIVE_IS_ADMIN] === 'true';
+  const redundancyLevel = parseInt(meta[MANIFEST_METADATA_REDUNDANCY_LEVEL] ?? '0') as RedundancyLevel;
+  const driveFeedTopic = meta[MANIFEST_METADATA_NODE_TOPIC];
+
+  if (!id || !name || !owner || !batchId || !driveFeedTopic) {
+    throw new Error(`Invalid drive fork metadata — missing required fields`);
+  }
+
+  const driveInfo: DriveInfo = {
+    id,
+    name,
+    owner,
+    batchId,
+    isAdmin,
+    redundancyLevel,
+    driveFeedTopic,
+  };
+  assertDriveInfo(driveInfo);
+  return driveInfo;
 }
 
 export function assertStateTopicInfo(value: unknown): asserts value is StateTopicInfo {
