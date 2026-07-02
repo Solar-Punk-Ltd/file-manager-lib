@@ -1,13 +1,4 @@
-import {
-  BatchId,
-  EthAddress,
-  FeedIndex,
-  Identifier,
-  PublicKey,
-  RedundancyLevel,
-  Reference,
-  Topic,
-} from '@ethersphere/bee-js';
+import { BatchId, EthAddress, Identifier, PublicKey, RedundancyLevel, Reference, Topic } from '@ethersphere/bee-js';
 import { Types } from 'cafe-utility';
 
 import { DriveInfo, FileRecord, ShareItem } from '../types';
@@ -174,5 +165,4 @@ export function assertStateTopicInfo(value: unknown): asserts value is StateTopi
 
   new Reference(sti.topicReference);
   new Reference(sti.historyAddress);
-  new FeedIndex(sti.index);
 }

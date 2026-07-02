@@ -9,13 +9,13 @@ export function isNotFoundError(error: any): boolean {
 
 export async function settlePromises<T>(
   promises: Promise<T>[],
-  cb: (value: T) => void,
+  cb: (value: T, index: number) => void,
   onError?: (reason: unknown, index: number) => void,
 ): Promise<void> {
   const results = await Promise.allSettled(promises);
   results.forEach((result, ix) => {
     if (result.status === 'fulfilled') {
-      cb(result.value);
+      cb(result.value, ix);
     } else {
       if (onError) {
         onError(result.reason, ix);

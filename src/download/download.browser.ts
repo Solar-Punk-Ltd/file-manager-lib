@@ -1,8 +1,10 @@
 import { BeeRequestOptions, DownloadOptions, PublicKey, Reference } from '@ethersphere/bee-js';
 import { Types } from 'cafe-utility';
 
+import { DownloadResource, DownloadResult } from '../types';
+
 async function downloadReadableFetch(
-  resource: string | Reference,
+  resource: string,
   apiUrl: string,
   endpoint: string,
   options?: DownloadOptions,
@@ -12,7 +14,7 @@ async function downloadReadableFetch(
     options = prepareDownloadOptions(options);
   }
 
-  const response = await fetch(`${apiUrl}/${endpoint}/${resource.toString()}`, {
+  const response = await fetch(`${apiUrl}/${endpoint}/${resource}`, {
     method: 'GET',
     headers: {
       ...requestOptions?.headers,
@@ -54,6 +56,20 @@ function prepareRequestHeaders(nullableOptions?: unknown): Record<string, string
     headers['swarm-chunk-retrieval-timeout'] = String(options.timeoutMs);
   }
 
+  if (options.actPublisher) {
+    headers['swarm-act-publisher'] = new PublicKey(options.actPublisher as string).toCompressedHex();
+    headers['swarm-act'] = 'true';
+  }
+
+  if (options.actHistoryAddress) {
+    headers['swarm-act-history-address'] = new Reference(options.actHistoryAddress as string).toHex();
+    headers['swarm-act'] = 'true';
+  }
+
+  if (options.actTimestamp) {
+    headers['swarm-act-timestamp'] = String(options.actTimestamp);
+  }
+
   return headers;
 }
 
@@ -75,18 +91,23 @@ function prepareDownloadOptions(value: unknown): DownloadOptions {
 }
 
 export async function downloadBrowser(
-  resources: string[] | Reference[],
+  resources: DownloadResource[],
   apiUrl: string,
   endpoint: string,
   options?: DownloadOptions,
   requestOptions?: BeeRequestOptions,
-): Promise<ReadableStream<Uint8Array>[]> {
-  const dataStreams: ReadableStream<Uint8Array>[] = [];
+): Promise<DownloadResult[]> {
+  const results: DownloadResult[] = [];
 
-  for (const resource of resources) {
-    const stream = await downloadReadableFetch(resource, apiUrl, endpoint, options, requestOptions);
-    dataStreams.push(stream);
+  for (const r of resources) {
+    const perResourceOptions: DownloadOptions = {
+      ...options,
+      actHistoryAddress: r.actHistoryAddress,
+      actPublisher: r.actPublisher as string,
+    };
+    const stream = await downloadReadableFetch(r.reference, apiUrl, endpoint, perResourceOptions, requestOptions);
+    results.push({ path: r.path, result: stream });
   }
 
-  return dataStreams;
+  return results;
 }

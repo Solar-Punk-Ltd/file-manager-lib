@@ -1,4 +1,13 @@
-import { BatchId, EthAddress, FeedIndex, Identifier, PublicKey, RedundancyLevel, Topic } from '@ethersphere/bee-js';
+import {
+  BatchId,
+  Bytes,
+  EthAddress,
+  FeedIndex,
+  Identifier,
+  PublicKey,
+  RedundancyLevel,
+  Topic,
+} from '@ethersphere/bee-js';
 
 import { ReferenceWithHistory } from './utils';
 
@@ -49,6 +58,18 @@ export interface ShareItem {
   fileInfo: FileRecord;
   timestamp?: number;
   message?: string;
+}
+
+export interface DownloadResource {
+  path: string;
+  reference: string;
+  actHistoryAddress: string;
+  actPublisher: string | PublicKey;
+}
+
+export interface DownloadResult {
+  path: string;
+  result: Bytes | ReadableStream<Uint8Array>;
 }
 
 export interface DriveInfo {

@@ -5,7 +5,6 @@ import { FileRecord } from './info';
 export interface StateTopicInfo {
   topicReference: string;
   historyAddress: string;
-  index: string;
 }
 
 export interface BrowserUploadOptions {

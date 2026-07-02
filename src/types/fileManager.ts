@@ -1,7 +1,6 @@
 import {
   BatchId,
   BeeRequestOptions,
-  Bytes,
   CollectionUploadOptions,
   DownloadOptions,
   FeedIndex,
@@ -15,7 +14,7 @@ import {
 import { EventEmitter } from '../eventEmitter';
 import { DirectoryEntry } from '../utils/mantaray';
 
-import { DriveInfo, FileRecord, ShareItem } from './info';
+import { DownloadResult, DriveInfo, FileRecord, FolderInfo, ShareItem } from './info';
 import { FileInfoOptions } from './utils';
 
 /**
@@ -73,14 +72,14 @@ export interface FileManager {
    * @param options - Optional download options.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FILE_DOWNLOADED
-   * @returns A promise that resolves to an array of Bytes, one per matched file.
+   * @returns A promise that resolves to an array of DownloadResult, one per matched file.
    */
   download(
     driveInfo: DriveInfo,
     paths?: string[],
     options?: DownloadOptions,
     requestOptions?: BeeRequestOptions,
-  ): Promise<Bytes[]>;
+  ): Promise<DownloadResult[]>;
 
   /**
    * Lists the direct children of a folder (or drive root) in the drive manifest.
@@ -115,12 +114,14 @@ export interface FileManager {
   recoverFile(fileInfo: FileRecord): Promise<void>;
 
   /**
-   * Hard‐delete: remove from your owner‐feed and in-memory lists.
-   * @param fileInfo - The file record describing the file to forget.
-   * @emits FileManagerEvents.FILE_FORGOTTEN
-   * @returns A promise that resolves when the file has been forgotten.
+   * Hard-delete a file or folder at the given path from the drive manifest and in-memory state.
+   * For folders, all descendant FileRecords are also purged from fileInfoList.
+   * @param driveInfo - The drive containing the path.
+   * @param path - Absolute path of the file or folder to remove.
+   * @param requestOptions - Additional Bee request options.
+   * @emits FileManagerEvents.FILE_FORGOTTEN (file) or FileManagerEvents.FOLDER_FORGOTTEN (folder)
    */
-  forgetFile(fileInfo: FileRecord): Promise<void>;
+  forget(driveInfo: DriveInfo, path: string, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
    * Destroys a drive identified by the given batch ID.
@@ -207,6 +208,23 @@ export interface FileManager {
     targetDriveInfo?: DriveInfo,
     requestOptions?: BeeRequestOptions,
   ): Promise<void>;
+
+  /**
+   * Creates a new empty folder within a drive.
+   * @param driveInfo - The drive to create the folder in.
+   * @param parentPath - Absolute path of the parent directory, or '' / '/' for the drive root.
+   * @param folderName - Name of the new folder (must not contain '/').
+   * @param redundancyLevel - Optional redundancy level; inherits from parent or drive if omitted.
+   * @param requestOptions - Additional Bee request options.
+   * @returns The FolderInfo for the newly created folder.
+   */
+  createFolder(
+    driveInfo: DriveInfo,
+    parentPath: string,
+    folderName: string,
+    redundancyLevel?: RedundancyLevel,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<FolderInfo>;
 
   /**
    * Admin postage batch used for drive management operations.
