@@ -1,8 +1,7 @@
-import { BatchId, Bee, Bytes, MantarayNode, PrivateKey } from '@ethersphere/bee-js';
+import { BatchId, Bee, MantarayNode, PrivateKey } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
-import { FileInfo, FileManager } from '@/types';
 import { ReferenceWithHistory, WrappedUploadResult } from '@/types/utils';
 import { SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
@@ -43,27 +42,6 @@ export async function readFilesOrDirectory(fullPath: string, name?: string): Pro
     return f.substring(f.indexOf(name));
   });
   return relativeFilePaths;
-}
-
-export async function dowloadAndCompareFiles(
-  fileManager: FileManager,
-  publicKey: string,
-  fiList: FileInfo[],
-  expArr: string[][],
-): Promise<void> {
-  if (fiList.length !== expArr.length) {
-    expect(fiList).toHaveLength(expArr.length);
-    return;
-  }
-
-  for (const [ix, fi] of fiList.entries()) {
-    const fetchedFiles = (await fileManager.download(fi, undefined, {
-      actHistoryAddress: fi.file.historyRef,
-      actPublisher: publicKey,
-    })) as Bytes[];
-    const fetchedFilesStrings = fetchedFiles.map((f) => f.toUtf8());
-    expect(expArr[ix]).toEqual(fetchedFilesStrings);
-  }
 }
 
 export async function createWrappedData(bee: Bee, batchId: BatchId, node: MantarayNode): Promise<ReferenceWithHistory> {

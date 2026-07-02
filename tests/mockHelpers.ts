@@ -26,7 +26,7 @@ import { BEE_URL, DEFAULT_MOCK_SIGNER } from './utils';
 
 import { EventEmitter } from '@/eventEmitter/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
-import { DriveInfo, FileInfo } from '@/types';
+import { DriveInfo, FileRecord } from '@/types';
 import { FileManagerEvents } from '@/utils';
 import { ADMIN_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
@@ -84,11 +84,12 @@ export async function createMockFileInfo(
   owner: string,
   actPublisher: string,
   ref: string = SWARM_ZERO_ADDRESS.toString(),
-): Promise<FileInfo> {
+  overrides?: Partial<FileRecord>,
+): Promise<FileRecord> {
   return {
     batchId: MOCK_BATCH_ID,
-    name: 'john doe',
-    topic: Topic.fromString('1'),
+    path: '/john doe',
+    topic: Topic.fromString('file-1').toString(),
     driveId: Identifier.fromString('123').toString(),
     owner: owner,
     actPublisher,
@@ -96,23 +97,24 @@ export async function createMockFileInfo(
       reference: ref,
       historyRef: SWARM_ZERO_ADDRESS.toString(),
     },
+    ...overrides,
   };
 }
 
-export function createMockDriveInfo(): DriveInfo {
+export function createMockDriveInfo(overrides?: Partial<DriveInfo>): DriveInfo {
   return {
     id: Identifier.fromString('123'),
     batchId: MOCK_BATCH_ID,
     owner: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
     name: 'Test Drive',
+    driveFeedTopic: Topic.fromString('drive-topic-1').toString(),
     redundancyLevel: RedundancyLevel.MEDIUM,
-    infoFeedList: [
-      {
-        topic: Topic.fromString('1'),
-        eGranteeRef: SWARM_ZERO_ADDRESS.toString(),
-      },
-    ],
+    manifestRef: {
+      reference: new Reference('1'.repeat(64)).toString(),
+      historyRef: new Reference('2'.repeat(64)).toString(),
+    },
     isAdmin: false,
+    ...overrides,
   };
 }
 

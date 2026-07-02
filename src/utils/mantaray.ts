@@ -30,12 +30,15 @@ export interface DirectoryEntry {
 
 export function getAllNodeEntries(root: MantarayNode): DirectoryEntry[] {
   const nodes = root.collect();
+
   return nodes
     .map((node) => {
       const meta = node.metadata ?? {};
       const nodeType = meta[MANIFEST_METADATA_NODE_TYPE] as NodeType | undefined;
       const nodeTopic = meta[MANIFEST_METADATA_NODE_TOPIC];
+
       if (!nodeTopic || !nodeType) return null;
+
       return {
         path: meta[MANIFEST_METADATA_PATH] ?? node.fullPathString,
         type: nodeType,
