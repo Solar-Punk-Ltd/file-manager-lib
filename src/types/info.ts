@@ -20,18 +20,12 @@ export interface FileRecord {
   topic: string | Topic;
   driveId: string;
   path: string;
-
   file: ReferenceWithHistory;
-  contentVersion: string;
-  recordVersion: string;
-
   batchId: string | BatchId;
   owner: string | EthAddress;
   actPublisher: string | PublicKey;
   redundancyLevel?: RedundancyLevel;
-
   version?: string | FeedIndex;
-
   timestamp?: number;
   shared?: boolean;
   preview?: ReferenceWithHistory;

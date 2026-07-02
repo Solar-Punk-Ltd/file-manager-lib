@@ -39,8 +39,6 @@ const dummyFileRecord: FileRecord = {
   actPublisher: DUMMY_SIGNER.publicKey().toString(),
   topic: SWARM_ZERO_ADDRESS.toString(),
   driveId: dummyId.toString(),
-  contentVersion: '0',
-  recordVersion: '0',
 };
 const dummyFileInfoSize = getEncodedSize(JSON.stringify(dummyFileRecord));
 

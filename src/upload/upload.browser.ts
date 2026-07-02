@@ -12,16 +12,10 @@ export async function uploadBrowser(
 ): Promise<UploadResult> {
   const streamFilesOpts = uploadOptions ? { ...uploadOptions, act: false, actHistoryAddress: undefined } : undefined;
 
-  const fileMetadata = browserOptions.fileMetadata;
-  const fileOptionsProvider: ((file: File) => Record<string, string>) | undefined = fileMetadata
-    ? (file: File): Record<string, string> => fileMetadata.get(file.webkitRelativePath || file.name) ?? {}
-    : undefined;
-
   const uploadFilesRes = await bee.streamFiles(
     batchId,
     browserOptions.files,
     browserOptions.onUploadProgress,
-    fileOptionsProvider,
     streamFilesOpts,
     requestOptions,
   );
@@ -31,7 +25,6 @@ export async function uploadBrowser(
       batchId,
       [browserOptions.preview],
       browserOptions.onUploadProgress,
-      fileOptionsProvider,
       streamFilesOpts,
       requestOptions,
     );

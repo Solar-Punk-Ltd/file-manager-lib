@@ -15,7 +15,6 @@ export async function getFeedData(
   try {
     const feedReader = bee.makeFeedReader(topic.toUint8Array(), address, requestOptions);
 
-    // TODO: act options
     const feedOptions = index !== undefined ? { index: FeedIndex.fromBigInt(index) } : undefined;
     const data = await feedReader.downloadPayload(feedOptions);
 

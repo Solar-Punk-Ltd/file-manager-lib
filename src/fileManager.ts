@@ -23,7 +23,7 @@ import {
 import { FeedResultWithIndex, ListDepth, NodeType, ReferenceWithHistory, StateTopicInfo } from './types/utils';
 import { assertFileRecord, assertStateTopicInfo, driveInfoFromMetadata } from './utils/asserts';
 import { fetchStamp, getFeedData } from './utils/bee';
-import { settlePromises, settlePromisesBounded, verifyStampUsability } from './utils/common';
+import { awaitAllPromisesBounded, settlePromises, verifyStampUsability } from './utils/common';
 import {
   DRIVE_FORK_PREFIX,
   FEED_INDEX_ZERO,
@@ -69,6 +69,7 @@ import {
   StampError,
 } from './utils';
 
+// TODO: reconsider the architecture of using mantarays: mantaray is a prefix try -> what is the point of storing topics as forks -> inefficient
 export class FileManagerBase implements FileManager {
   private bee: Bee;
   private signer: PrivateKey;
@@ -124,10 +125,10 @@ export class FileManagerBase implements FileManager {
 
       console.debug('Trying to load state from Swarm.');
 
+      // File records are loaded lazily via listFolder / download / move as the user navigates — no eager full-drive load at init.
       const success = await this.tryToFetchAdminState();
       if (success) {
         await this.initDriveList();
-        await this.initFileInfoList();
       }
 
       this.isInitialized = true;
@@ -359,7 +360,7 @@ export class FileManagerBase implements FileManager {
     this.adminManifestRef = newAdminManifestRef;
 
     this.driveList.splice(driveIx, 1);
-    this.nodeFeedIndexCache.delete(driveInfo.driveFeedTopic.toString()); // TODO: check if this line is correct
+    this.nodeFeedIndexCache.delete(driveInfo.driveFeedTopic.toString());
     this.nodeManifestCache.delete(driveInfo.driveFeedTopic.toString());
 
     for (let i = this.fileInfoList.length - 1; i >= 0; --i) {
@@ -367,64 +368,6 @@ export class FileManagerBase implements FileManager {
         this.fileInfoList.splice(i, 1);
       }
     }
-  }
-
-  // TODO: just like for listFolder -> it is costly to lead all the fileinfo at once, maybe just load until the 1st depth -> DRY
-  private async initFileInfoList(): Promise<void> {
-    const tmpPublisher = this.publisher;
-    if (!tmpPublisher) {
-      throw new SignerError('Publisher not found');
-    }
-
-    if (this.driveList.length === 0) {
-      console.debug('Drive list is empty, skipping file info list initialization');
-      return;
-    }
-
-    await Promise.all(
-      this.driveList.map(async (drive) => {
-        try {
-          const driveHost: ManifestHost = {
-            topic: drive.driveFeedTopic.toString(),
-            manifestRef: drive.manifestRef,
-            batchId: drive.batchId,
-            redundancyLevel: drive.redundancyLevel,
-          };
-          const mantaray = await this.getNodeManifest(driveHost);
-          const entries = getAllNodeEntries(mantaray).filter((e) => e.type === NodeType.File);
-
-          const fileInfoResults = await Promise.all(
-            entries.map(async (entry) => {
-              try {
-                const seedFileInfo = {
-                  topic: entry.topic,
-                  actPublisher: tmpPublisher.toCompressedHex(),
-                } as unknown as FileRecord;
-                const feedData = await getFeedData(this.bee, new Topic(entry.topic), this.signerAddress);
-                if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
-                  console.warn(`initFileInfoList: file feed not found for ${entry.path} — skipping`);
-                  return null;
-                }
-                this.nodeFeedIndexCache.set(entry.topic, feedData.feedIndexNext.toBigInt());
-                return await this.fetchFileInfo(seedFileInfo, feedData);
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              } catch (error: any) {
-                console.error(
-                  `initFileInfoList: failed to load FileRecord for ${entry.topic}: ${error.message || error}`,
-                );
-                return null;
-              }
-            }),
-          );
-          for (const fi of fileInfoResults) {
-            if (fi !== null) this.fileInfoList.push(fi);
-          }
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        } catch (error: any) {
-          console.error(`initFileInfoList: failed to load manifest for drive ${drive.name}: ${error.message || error}`);
-        }
-      }),
-    );
   }
 
   async createDrive(
@@ -552,14 +495,16 @@ export class FileManagerBase implements FileManager {
       redundancyLevel: driveInfo.redundancyLevel,
     };
 
+    // TODO: MAX_SAFE_INTEGER seems wrong here
     const results: DirectoryEntry[] = [];
     let frontier: ManifestHost[] = [startHost];
     let level = 0;
     const depthLimit = depth === ListDepth.Deep ? (maxDepth ?? Number.MAX_SAFE_INTEGER) : 1;
-    // TODO: review this, seems to complex
+    // Per BFS level: (1) expand current frontier manifests, (2) load file feeds found, (3) resolve folder feeds into next frontier. Each phase is concurrency-bounded.
     while (frontier.length > 0 && level < depthLimit) {
       const levelEntries: DirectoryEntry[] = [];
-      await settlePromisesBounded(
+
+      await awaitAllPromisesBounded(
         frontier.map(
           (host) => (): Promise<DirectoryEntry[]> => this.getNodeManifest(host, requestOptions).then(getAllNodeEntries),
         ),
@@ -574,18 +519,16 @@ export class FileManagerBase implements FileManager {
         const newFileEntries = levelEntries.filter(
           (e) => e.type === NodeType.File && !this.fileInfoList.some((f) => f.topic.toString() === e.topic),
         );
-        await settlePromisesBounded(
+
+        await awaitAllPromisesBounded(
           newFileEntries.map((e) => async (): Promise<FileRecord> => {
-            const seedFileInfo = {
-              topic: e.topic,
-              actPublisher: publisher.toCompressedHex(),
-            } as unknown as FileRecord;
             const feedData = await getFeedData(this.bee, new Topic(e.topic), this.signerAddress);
-            return this.fetchFileInfo(seedFileInfo, feedData);
+
+            return this.fetchFileInfo(e.topic, publisher.toCompressedHex(), feedData);
           }),
           MAX_CONCURRENT_FEED_FETCHES,
           (fi) => this.fileInfoList.push(fi),
-          (reason, ix) => console.error(`listFolder: failed to hydrate file ${newFileEntries[ix].topic}: ${reason}`),
+          (reason, ix) => console.error(`listFolder: failed to load file ${newFileEntries[ix].topic}: ${reason}`),
         );
       }
 
@@ -593,7 +536,8 @@ export class FileManagerBase implements FileManager {
 
       const folderEntries = levelEntries.filter((e) => e.type === NodeType.Folder);
       const nextFrontier: ManifestHost[] = [];
-      await settlePromisesBounded(
+
+      await awaitAllPromisesBounded(
         folderEntries.map((e) => async (): Promise<ManifestHost | null> => {
           const { payload, feedIndex, feedIndexNext } = await getFeedData(
             this.bee,
@@ -604,8 +548,10 @@ export class FileManagerBase implements FileManager {
             console.warn(`listFolder: folder feed not found for ${e.path} — skipping`);
             return null;
           }
+
           const manifestRef: ReferenceWithHistory = payload.toJSON() as ReferenceWithHistory;
           this.nodeFeedIndexCache.set(e.topic, feedIndexNext.toBigInt());
+
           return {
             topic: e.topic,
             manifestRef,
@@ -615,7 +561,9 @@ export class FileManagerBase implements FileManager {
         }),
         MAX_CONCURRENT_FEED_FETCHES,
         (host) => {
-          if (host) nextFrontier.push(host);
+          if (host) {
+            nextFrontier.push(host);
+          }
         },
         (reason, ix) => console.error(`listFolder: failed to resolve folder ${folderEntries[ix].path}: ${reason}`),
       );
@@ -627,16 +575,82 @@ export class FileManagerBase implements FileManager {
     return results;
   }
 
+  private async loadFolderFiles(
+    driveInfo: DriveInfo,
+    folderPath: string,
+    onlyPaths?: Set<string>,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void> {
+    const publisher = this.publisher;
+    if (!publisher) {
+      return;
+    }
+
+    const folder = await this.resolveFolder(driveInfo, folderPath, requestOptions);
+    const host: ManifestHost = folder ?? {
+      topic: driveInfo.driveFeedTopic.toString(),
+      manifestRef: driveInfo.manifestRef,
+      batchId: driveInfo.batchId,
+      redundancyLevel: driveInfo.redundancyLevel,
+    };
+
+    const mantaray = await this.getNodeManifest(host, requestOptions);
+    const fileEntries = getAllNodeEntries(mantaray).filter(
+      (e) =>
+        e.type === NodeType.File &&
+        (!onlyPaths || onlyPaths.has(e.path)) &&
+        !this.fileInfoList.some((f) => f.topic.toString() === e.topic),
+    );
+
+    await awaitAllPromisesBounded(
+      fileEntries.map((entry) => async (): Promise<FileRecord | null> => {
+        const feedData = await getFeedData(this.bee, new Topic(entry.topic), this.signerAddress);
+
+        if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
+          console.warn(`loadFolderFiles: file feed not found for ${entry.path} — skipping`);
+          return null;
+        }
+
+        this.nodeFeedIndexCache.set(entry.topic, feedData.feedIndexNext.toBigInt());
+
+        return await this.fetchFileInfo(entry.topic, publisher.toCompressedHex(), feedData);
+      }),
+      MAX_CONCURRENT_FEED_FETCHES,
+      (fi) => {
+        if (fi) this.fileInfoList.push(fi);
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (reason) => console.error(`loadFolderFiles: ${(reason as any)?.message || reason}`),
+    );
+  }
+
   async download(
     driveInfo: DriveInfo,
     paths?: string[],
     options?: DownloadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<DownloadResult[]> {
-    // TODO: optimization — hydrate only the parent folders of the requested paths instead of the full drive
-    // Hydrate this drive's records first — cheap on repeat calls: manifest loads hit
-    // nodeManifestCache, already-hydrated files skip their feed fetch in listFolder
-    await this.listFolder(driveInfo, '', ListDepth.Deep, undefined, requestOptions);
+    if (paths && paths.length > 0) {
+      const parents = new Map<string, Set<string>>();
+
+      for (const p of paths) {
+        const lastSlash = p.lastIndexOf('/');
+        const parent = lastSlash > 0 ? p.substring(0, lastSlash) : '';
+
+        if (!parents.has(parent)) parents.set(parent, new Set());
+
+        const pathSet = parents.get(parent) as Set<string>;
+        pathSet.add(p);
+      }
+
+      await Promise.all(
+        Array.from(parents.entries()).map(([parent, pathSet]) =>
+          this.loadFolderFiles(driveInfo, parent, pathSet, requestOptions),
+        ),
+      );
+    } else {
+      await this.listFolder(driveInfo, '', ListDepth.Deep, undefined, requestOptions);
+    }
 
     const driveFiles = this.fileInfoList.filter((f) => f.driveId === driveInfo.id.toString());
     const files = paths && paths.length > 0 ? driveFiles.filter((f) => paths.includes(f.path)) : driveFiles;
@@ -644,7 +658,7 @@ export class FileManagerBase implements FileManager {
       path: fi.path,
       reference: fi.file.reference.toString(),
       actHistoryAddress: fi.file.historyRef.toString(),
-      actPublisher: fi.actPublisher,
+      actPublisher: new PublicKey(fi.actPublisher).toCompressedHex(),
     }));
     return processDownload(this.bee, resources, options, requestOptions);
   }
@@ -670,6 +684,7 @@ export class FileManagerBase implements FileManager {
 
     if (fileOptionTopic) {
       const existing = this.fileInfoList.find((f) => f.topic.toString() === fileOptionTopic.toString());
+
       if (existing && existing.path !== fileOptions.path) {
         throw new FileInfoError(
           `Cannot change path during re-upload (existing: ${existing.path}, requested: ${fileOptions.path}). Use move() to relocate a file.`,
@@ -690,7 +705,6 @@ export class FileManagerBase implements FileManager {
     const { topic, version } = await this.getTopicAndVersion(owner, fileOptionTopic, fileOptions.version?.toString());
 
     const file = await processUpload(this.bee, driveInfo, fileOptions, uploadOptions, requestOptions);
-    // TODO: review contentVersion and recordVersion -> when to increment which ?
     const fileInfo: FileRecord = {
       batchId: driveInfo.batchId.toString(),
       owner,
@@ -703,8 +717,6 @@ export class FileManagerBase implements FileManager {
       shared: false,
       preview: undefined,
       version,
-      contentVersion: '0',
-      recordVersion: '0',
       customMetadata: fileOptions.customMetadata,
       redundancyLevel: driveInfo.redundancyLevel,
       status: FileStatus.Active,
@@ -800,10 +812,10 @@ export class FileManagerBase implements FileManager {
     const index = version !== undefined ? new FeedIndex(version).toBigInt() : undefined;
     const feedData = await getFeedData(this.bee, topic, fi.owner, index);
     if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
-      throw new FileInfoError(`File feed not found for topic: ${fi.topic}`);
+      throw new FileInfoError(`File feed not found for topic: ${fi.topic.toString()}`);
     }
 
-    return this.fetchFileInfo(fi, feedData);
+    return this.fetchFileInfo(topic.toString(), new PublicKey(fi.actPublisher).toCompressedHex(), feedData);
   }
 
   async restoreVersion(versionToRestore: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
@@ -934,7 +946,6 @@ export class FileManagerBase implements FileManager {
 
     const { feedIndexNext } = await getFeedData(this.bee, new Topic(topic), this.signerAddress);
     const next = feedIndexNext.toBigInt();
-    // TODO: check if this.nodeManifestCache shall be set here
     this.nodeFeedIndexCache.set(topic, next);
 
     return next;
@@ -960,20 +971,22 @@ export class FileManagerBase implements FileManager {
     }
   }
 
-  private async fetchFileInfo(fi: FileRecord, feeData: FeedResultWithIndex): Promise<FileRecord> {
+  private async fetchFileInfo(topic: string, actPublisher: string, feeData: FeedResultWithIndex): Promise<FileRecord> {
     if (feeData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
-      throw new FileInfoError(`File info not found for topic: ${fi.topic}`);
+      throw new FileInfoError(`File info not found for topic: ${topic}`);
     }
 
     const data = feeData.payload.toJSON() as ReferenceWithHistory;
 
     const fileBytes = await this.bee.downloadData(data.reference.toString(), {
       actHistoryAddress: data.historyRef.toString(),
-      actPublisher: fi.actPublisher,
+      actPublisher,
     });
 
     const fileInfo = fileBytes.toJSON() as FileRecord;
     assertFileRecord(fileInfo);
+    // make sure that version tracks the actual feed index
+    fileInfo.version = feeData.feedIndex.toString();
 
     return fileInfo;
   }
@@ -1224,19 +1237,39 @@ export class FileManagerBase implements FileManager {
     const targetMantaray = sameParent ? sourceMantaray : await this.getNodeManifest(tgtParentHost, requestOptions);
 
     if (isFile) {
-      const fi = this.fileInfoList.find((f) => f.topic.toString() === forkMetadata[MANIFEST_METADATA_FILE_TOPIC]);
+      const fileTopic = forkMetadata[MANIFEST_METADATA_FILE_TOPIC];
+      if (!fileTopic) {
+        throw new Error(`Fork at ${fromPath} has no file topic — cannot move`);
+      }
 
+      let fi = this.fileInfoList.find((f) => f.topic.toString() === fileTopic);
+      // Lazy init - fetch it on demand.
       if (!fi) {
-        throw new Error(`FileRecord not found for topic: ${forkMetadata[MANIFEST_METADATA_FILE_TOPIC]}`);
+        const publisher = this.publisher;
+        if (!publisher) {
+          throw new SignerError('Publisher not found');
+        }
+
+        const feedData = await getFeedData(this.bee, new Topic(fileTopic), this.signerAddress);
+
+        if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
+          throw new FileInfoError(`File feed not found for topic: ${fileTopic}`);
+        }
+
+        this.nodeFeedIndexCache.set(fileTopic, feedData.feedIndexNext.toBigInt());
+
+        fi = await this.fetchFileInfo(fileTopic, publisher.toCompressedHex(), feedData);
+
+        this.fileInfoList.push(fi);
       }
 
       fi.path = toPath;
       if (isCrossDrive) {
         fi.driveId = effectiveTarget.id.toString();
       }
-      // TODO: review if parseInt is correct here -> also instead of '0' feedindex_zero can be used
-      fi.recordVersion = (parseInt(fi.recordVersion ?? '0') + 1).toString();
-      fi.version = new FeedIndex(fi.version ?? '0').next().toString();
+
+      const newVersion = fi.version !== undefined ? new FeedIndex(fi.version) : FEED_INDEX_ZERO;
+      fi.version = newVersion.next().toString();
 
       await this.saveFileInfoFeed(fi, requestOptions);
     }

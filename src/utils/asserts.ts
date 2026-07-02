@@ -36,14 +36,6 @@ export function assertFileRecord(value: unknown): asserts value is FileRecord {
     throw new TypeError('path property of FileRecord has to be a non-empty string!');
   }
 
-  if (typeof fi.contentVersion !== 'string') {
-    throw new TypeError('contentVersion property of FileRecord has to be a string!');
-  }
-
-  if (typeof fi.recordVersion !== 'string') {
-    throw new TypeError('recordVersion property of FileRecord has to be a string!');
-  }
-
   if (fi.customMetadata !== undefined && !isRecord(fi.customMetadata)) {
     throw new TypeError('FileRecord customMetadata has to be object!');
   }

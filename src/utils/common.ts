@@ -25,8 +25,7 @@ export async function settlePromises<T>(
     }
   });
 }
-// TODO: rename to awaitAllPromisesBounded
-export async function settlePromisesBounded<T>(
+export async function awaitAllPromisesBounded<T>(
   tasks: (() => Promise<T>)[],
   limit: number,
   cb: (value: T, index: number) => void,
