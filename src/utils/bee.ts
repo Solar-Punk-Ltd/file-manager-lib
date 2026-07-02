@@ -1,22 +1,9 @@
-import {
-  BatchId,
-  Bee,
-  BeeRequestOptions,
-  DownloadOptions,
-  EthAddress,
-  FeedIndex,
-  PostageBatch,
-  PublicKey,
-  Reference,
-  Topic,
-} from '@ethersphere/bee-js';
+import { BatchId, Bee, BeeRequestOptions, EthAddress, FeedIndex, PostageBatch, Topic } from '@ethersphere/bee-js';
 
-import { FeedResultWithIndex, WrappedUploadResult } from '../types/utils';
+import { FeedResultWithIndex } from '../types/utils';
 
-import { assertWrappedUploadResult } from './asserts';
 import { isNotFoundError } from './common';
 import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from './constants';
-import { FileInfoError } from './errors';
 
 export async function getFeedData(
   bee: Bee,
@@ -66,28 +53,6 @@ export async function buyStamp(
     waitForUsable: true,
     label,
   });
-}
-
-export async function getWrappedData(
-  bee: Bee,
-  ref: string | Reference,
-  actPublisher: string | PublicKey,
-  actHistoryAddress: string | Reference,
-  options?: DownloadOptions,
-  requestOptions?: BeeRequestOptions,
-): Promise<WrappedUploadResult> {
-  try {
-    const rawData = await bee.downloadData(
-      ref.toString(),
-      { ...options, actPublisher, actHistoryAddress },
-      requestOptions,
-    );
-    const wrappedResult = rawData.toJSON() as WrappedUploadResult;
-    assertWrappedUploadResult(wrappedResult);
-    return wrappedResult;
-  } catch (error) {
-    throw new FileInfoError(`Failed to get wrapped data: ${error}`);
-  }
 }
 
 export async function fetchStamp(

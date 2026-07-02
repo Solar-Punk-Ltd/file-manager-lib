@@ -15,7 +15,7 @@ import { EventEmitter } from '../eventEmitter';
 import { DirectoryEntry } from '../utils/mantaray';
 
 import { DownloadResult, DriveInfo, FileRecord, FolderInfo, ShareItem } from './info';
-import { FileInfoOptions } from './utils';
+import { FileInfoOptions, ListDepth } from './utils';
 
 /**
  * Interface representing a file manager with various file operations.
@@ -82,18 +82,20 @@ export interface FileManager {
   ): Promise<DownloadResult[]>;
 
   /**
-   * Lists the direct children of a folder (or drive root) in the drive manifest.
+   * Lists entries in a folder (or drive root) in the drive manifest.
    * Also populates the fileInfoList cache for any file entries encountered.
    * @param driveInfo - The drive containing the folder.
    * @param folderPath - Absolute path of the folder, or '' / '/' for the drive root.
-   * @param depth - How many levels deep to recurse into sub-folders. Defaults to 1.
+   * @param depth - Shallow (one level) or Deep (full BFS). Defaults to Shallow.
+   * @param maxDepth - Maximum BFS levels when depth is Deep; unlimited if omitted.
    * @param requestOptions - Additional Bee request options.
    * @returns Array of DirectoryEntry objects for every node found at or below the given path.
    */
   listFolder(
     driveInfo: DriveInfo,
     folderPath: string,
-    depth?: number,
+    depth?: ListDepth,
+    maxDepth?: number,
     requestOptions?: BeeRequestOptions,
   ): Promise<DirectoryEntry[]>;
 

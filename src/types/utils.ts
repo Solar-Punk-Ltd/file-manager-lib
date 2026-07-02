@@ -28,6 +28,11 @@ export enum NodeType {
   Drive = 'drive',
 }
 
+export enum ListDepth {
+  Shallow = 'shallow',
+  Deep = 'deep',
+}
+
 export interface PartialFileInfo extends Omit<
   FileRecord,
   'owner' | 'actPublisher' | 'file' | 'topic' | 'driveId' | 'batchId' | 'redundancyLevel' | 'status'

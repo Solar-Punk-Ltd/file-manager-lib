@@ -25,14 +25,40 @@ export async function settlePromises<T>(
     }
   });
 }
+// TODO: rename to awaitAllPromisesBounded
+export async function settlePromisesBounded<T>(
+  tasks: (() => Promise<T>)[],
+  limit: number,
+  cb: (value: T, index: number) => void,
+  onError?: (reason: unknown, index: number) => void,
+): Promise<void> {
+  let cursor = 0;
+  const worker = async (): Promise<void> => {
+    while (cursor < tasks.length) {
+      const ix = cursor++;
+      try {
+        const value = await tasks[ix]();
+        cb(value, ix);
+      } catch (reason) {
+        if (onError) {
+          onError(reason, ix);
+        } else {
+          console.error(`Failed to resolve task ${ix}: ${reason}`);
+        }
+      }
+    }
+  };
+  const pool = Array.from({ length: Math.min(limit, tasks.length) }, () => worker());
+  await Promise.all(pool);
+}
 
 export const getEncodedSize = (input: string): number => {
   return new TextEncoder().encode(input).length;
 };
 
-export const verifyStampUsability = (s: PostageBatch | undefined, batchId?: string): PostageBatch => {
+export const verifyStampUsability = (s: PostageBatch | undefined): PostageBatch => {
   if (!s || !s.usable) {
-    throw new StampError(`Stamp with batchId: ${batchId?.slice(0, 6)}... not found OR not usable`);
+    throw new StampError(`Stamp with batchId: ${s?.batchID?.toString().slice(0, 6)}... not found OR not usable`);
   }
 
   return s;

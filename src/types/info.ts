@@ -11,7 +11,6 @@ import {
 
 import { ReferenceWithHistory } from './utils';
 
-// TODO: set statuses for trashed, recovered, forgotten
 export enum FileStatus {
   Active = 'active',
   Trashed = 'trashed',
@@ -31,8 +30,7 @@ export interface FileRecord {
   actPublisher: string | PublicKey;
   redundancyLevel?: RedundancyLevel;
 
-  version?: string | undefined;
-  index?: FeedIndex | undefined;
+  version?: string | FeedIndex;
 
   timestamp?: number;
   shared?: boolean;
