@@ -57,12 +57,18 @@ function prepareRequestHeaders(nullableOptions?: unknown): Record<string, string
   }
 
   if (options.actPublisher) {
-    headers['swarm-act-publisher'] = new PublicKey(options.actPublisher as string).toCompressedHex();
+    const publisher =
+      options.actPublisher instanceof PublicKey ? options.actPublisher : new PublicKey(options.actPublisher as string);
+    headers['swarm-act-publisher'] = publisher.toCompressedHex();
     headers['swarm-act'] = 'true';
   }
 
   if (options.actHistoryAddress) {
-    headers['swarm-act-history-address'] = new Reference(options.actHistoryAddress as string).toHex();
+    const history =
+      options.actHistoryAddress instanceof Reference
+        ? options.actHistoryAddress
+        : new Reference(options.actHistoryAddress as string);
+    headers['swarm-act-history-address'] = history.toHex();
     headers['swarm-act'] = 'true';
   }
 
@@ -103,7 +109,7 @@ export async function downloadBrowser(
     const perResourceOptions: DownloadOptions = {
       ...options,
       actHistoryAddress: r.actHistoryAddress,
-      actPublisher: r.actPublisher as string,
+      actPublisher: new PublicKey(r.actPublisher).toCompressedHex(),
     };
     const stream = await downloadReadableFetch(r.reference, apiUrl, endpoint, perResourceOptions, requestOptions);
     results.push({ path: r.path, result: stream });

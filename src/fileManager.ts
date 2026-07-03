@@ -65,8 +65,10 @@ import {
   FILEMANAGER_STATE_TOPIC,
   FileManagerEvents,
   GranteeError,
+  SendShareMessageError,
   SignerError,
   StampError,
+  SubscriptionError,
 } from './utils';
 
 // TODO: reconsider the architecture of using mantarays: mantaray is a prefix try -> what is the point of storing topics as forks -> inefficient
@@ -798,7 +800,7 @@ export class FileManagerBase implements FileManager {
   }
 
   async getVersion(fi: FileRecord, version?: string | FeedIndex): Promise<FileRecord> {
-    const localHead = this.fileInfoList.find((f) => f.topic === fi.topic);
+    const localHead = this.fileInfoList.find((f) => f.topic.toString() === fi.topic.toString());
 
     if (localHead && localHead.version && version) {
       const requested = new FeedIndex(version);
@@ -829,7 +831,7 @@ export class FileManagerBase implements FileManager {
     }
 
     if (!versionToRestore.version) {
-      throw new Error('Restore version has to be defined');
+      throw new FileInfoError('Restore version has to be defined');
     }
 
     const versionToRestoreIndex = new FeedIndex(versionToRestore.version);
@@ -1155,16 +1157,16 @@ export class FileManagerBase implements FileManager {
       throw new GranteeError(`Drive not found for file: ${fileInfo.path}`);
     }
 
-    throw new Error('getGrantees: not yet migrated to mantaray model');
+    throw new GranteeError('getGrantees: not yet migrated to mantaray model');
   }
 
   // eslint-disable-next-line require-await
   async subscribeToSharedInbox(_topic: string, _callback?: (_data: ShareItem) => void): Promise<void> {
-    throw new Error('subscribeToSharedInbox: not yet implemented in the node-based model');
+    throw new SubscriptionError('subscribeToSharedInbox: not yet implemented in the node-based model');
   }
 
   unsubscribeFromSharedInbox(): void {
-    throw new Error('unsubscribeFromSharedInbox: not yet implemented in the node-based model');
+    throw new SubscriptionError('unsubscribeFromSharedInbox: not yet implemented in the node-based model');
   }
 
   // eslint-disable-next-line require-await
@@ -1174,7 +1176,7 @@ export class FileManagerBase implements FileManager {
     _recipients: string[],
     _message?: string,
   ): Promise<void> {
-    throw new Error('share: not yet implemented in the node-based model');
+    throw new SendShareMessageError('share: not yet implemented in the node-based model');
   }
 
   async move(
@@ -1185,20 +1187,20 @@ export class FileManagerBase implements FileManager {
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
     if (!this.isInitialized) {
-      throw new Error('FileManager is not initialized');
+      throw new DriveError('FileManager is not initialized');
     }
     if (!fromPath || fromPath === ROOT_PATH) {
-      throw new Error('Cannot move root folder');
+      throw new DriveError('Cannot move root folder');
     }
     if (!toPath || toPath === ROOT_PATH) {
-      throw new Error('Invalid destination path');
+      throw new DriveError('Invalid destination path');
     }
 
     const isCrossDrive = !!targetDriveInfo && targetDriveInfo.id.toString() !== sourceDriveInfo.id.toString();
     const effectiveTarget = targetDriveInfo ?? sourceDriveInfo;
 
     if (!isCrossDrive && fromPath === toPath) {
-      throw new Error('Source and destination paths are identical');
+      throw new DriveError('Source and destination paths are identical');
     }
 
     const srcLastSlash = fromPath.lastIndexOf('/');
@@ -1220,7 +1222,7 @@ export class FileManagerBase implements FileManager {
 
     const sourceFork = sourceMantaray.find(srcName);
     if (!sourceFork) {
-      throw new Error(`Path not found: ${fromPath}`);
+      throw new DriveError(`Path not found: ${fromPath}`);
     }
 
     const forkMetadata = sourceFork.metadata ?? {};
@@ -1239,7 +1241,7 @@ export class FileManagerBase implements FileManager {
     if (isFile) {
       const fileTopic = forkMetadata[MANIFEST_METADATA_FILE_TOPIC];
       if (!fileTopic) {
-        throw new Error(`Fork at ${fromPath} has no file topic — cannot move`);
+        throw new FileInfoError(`Fork at ${fromPath} has no file topic — cannot move`);
       }
 
       let fi = this.fileInfoList.find((f) => f.topic.toString() === fileTopic);
@@ -1326,17 +1328,17 @@ export class FileManagerBase implements FileManager {
       currentPath += '/' + segment;
       const fork = currentMantaray.find(segment);
       if (!fork) {
-        throw new Error(`Path not found: ${currentPath}`);
+        throw new DriveError(`Path not found: ${currentPath}`);
       }
 
       const meta = fork.metadata ?? {};
       if (meta[MANIFEST_METADATA_NODE_TYPE] !== NodeType.Folder) {
-        throw new Error(`Path is not a folder: ${currentPath}`);
+        throw new DriveError(`Path is not a folder: ${currentPath}`);
       }
 
       const folderTopic = meta[MANIFEST_METADATA_NODE_TOPIC];
       if (!folderTopic) {
-        throw new Error(`Folder fork missing topic: ${currentPath}`);
+        throw new FileInfoError(`Folder fork missing topic: ${currentPath}`);
       }
 
       const {
@@ -1345,7 +1347,7 @@ export class FileManagerBase implements FileManager {
         feedIndexNext: folderFeedIndexNext,
       } = await getFeedData(this.bee, new Topic(folderTopic), this.signerAddress);
       if (folderFeedIndex.equals(FeedIndex.MINUS_ONE)) {
-        throw new Error(`Folder feed not found for path: ${currentPath}`);
+        throw new DriveError(`Folder feed not found for path: ${currentPath}`);
       }
       const folderManifestRef: ReferenceWithHistory = folderPayload.toJSON() as ReferenceWithHistory;
       this.nodeFeedIndexCache.set(folderTopic, folderFeedIndexNext.toBigInt());
@@ -1375,10 +1377,10 @@ export class FileManagerBase implements FileManager {
     requestOptions?: BeeRequestOptions,
   ): Promise<FolderInfo> {
     if (!this.isInitialized) {
-      throw new Error('FileManager is not initialized');
+      throw new DriveError('FileManager is not initialized');
     }
     if (!folderName || folderName.includes('/')) {
-      throw new Error('Invalid folder name');
+      throw new DriveError('Invalid folder name');
     }
 
     const parentFolder = await this.resolveFolder(driveInfo, parentPath, requestOptions);

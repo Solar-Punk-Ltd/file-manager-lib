@@ -9,7 +9,7 @@ export class StampError extends Error {
     super(message);
   }
 }
-
+// TODO: introduce new errors for folder, drive management
 export class DriveError extends Error {
   public constructor(message: string) {
     super(message);
