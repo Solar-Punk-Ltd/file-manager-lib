@@ -1,9 +1,6 @@
-import { BatchId, Bee, MantarayNode, PrivateKey } from '@ethersphere/bee-js';
+import { PrivateKey } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
-
-import { ReferenceWithHistory, WrappedUploadResult } from '@/types/utils';
-import { SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
 // bee-factory queen node
 export const BEE_URL = 'http://127.0.0.1:1633';
@@ -59,17 +56,4 @@ export async function retryOnPropagationDelay<T>(fn: () => Promise<T>, attempts 
     }
   }
   throw lastError;
-}
-
-export async function createWrappedData(bee: Bee, batchId: BatchId, node: MantarayNode): Promise<ReferenceWithHistory> {
-  const manatarayResult = await node.saveRecursively(bee, batchId);
-  const wrappedData: WrappedUploadResult = {
-    uploadFilesRes: manatarayResult.reference.toString(),
-    uploadPreviewRes: SWARM_ZERO_ADDRESS.toString(),
-  };
-  const wrappedRes = await bee.uploadData(batchId, JSON.stringify(wrappedData), { act: true });
-  return {
-    reference: wrappedRes.reference.toString(),
-    historyRef: wrappedRes.historyAddress.getOrThrow().toString(),
-  };
 }

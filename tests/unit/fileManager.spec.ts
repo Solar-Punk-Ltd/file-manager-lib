@@ -504,19 +504,6 @@ describe('FileManager', () => {
       expect(driveMantaray.find('tests')).toBeTruthy();
     });
 
-    it('uploads a single file via uploadFile and also uploads the preview when previewPath is provided', async () => {
-      const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
-      const di = fm.driveList[1];
-
-      const uploadFileSpy = createUploadFileSpy('2');
-      createUploadFileSpy('3');
-
-      await fm.upload(di, { path: 'package.json', previewPath: 'README.md' } as any);
-
-      expect(uploadFileSpy).toHaveBeenCalledTimes(2);
-    });
-
     it('throws when a topic is provided without a matching actHistoryAddress', async () => {
       const fm = await createInitializedFileManager();
       await fm.createDrive(otherMockBatchId, 'Test Drive', false);

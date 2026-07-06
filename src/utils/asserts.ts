@@ -2,7 +2,7 @@ import { BatchId, EthAddress, Identifier, PublicKey, RedundancyLevel, Reference,
 import { Types } from 'cafe-utility';
 
 import { DriveInfo, FileRecord, ShareItem } from '../types';
-import { StateTopicInfo, WrappedUploadResult } from '../types/utils';
+import { StateTopicInfo } from '../types/utils';
 
 import {
   MANIFEST_METADATA_DRIVE_BATCH_ID,
@@ -44,11 +44,6 @@ export function assertFileRecord(value: unknown): asserts value is FileRecord {
     throw new TypeError('timestamp property of FileRecord has to be number!');
   }
 
-  if (fi.preview !== undefined) {
-    new Reference(fi.preview.reference);
-    new Reference(fi.preview.historyRef);
-  }
-
   if (fi.shared !== undefined && typeof fi.shared !== 'boolean') {
     throw new TypeError('shared property of FileRecord has to be boolean!');
   }
@@ -77,20 +72,6 @@ export function assertShareItem(value: unknown): asserts value is ShareItem {
 
   if (item.message !== undefined && typeof item.message !== 'string') {
     throw new TypeError('message property of ShareItem has to be string!');
-  }
-}
-
-export function assertWrappedUploadResult(value: unknown): asserts value is WrappedUploadResult {
-  if (!Types.isStrictlyObject(value)) {
-    throw new TypeError('WrappedUploadResult has to be object!');
-  }
-
-  const wur = value as unknown as WrappedUploadResult;
-
-  new Reference(wur.uploadFilesRes);
-
-  if (wur.uploadPreviewRes !== undefined) {
-    new Reference(wur.uploadPreviewRes);
   }
 }
 

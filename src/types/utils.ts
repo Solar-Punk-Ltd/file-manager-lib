@@ -9,7 +9,6 @@ export interface StateTopicInfo {
 
 export interface BrowserUploadOptions {
   files: File[] | FileList;
-  preview?: File;
   onUploadProgress?: (progress: UploadProgress) => void;
 }
 
@@ -36,7 +35,6 @@ export type FileInfoOptions = PartialFileInfo & (BrowserUploadOptions | NodeUplo
 
 export interface NodeUploadOptions {
   path: string;
-  previewPath?: string;
 }
 
 export interface ReferenceWithHistory {
@@ -60,9 +58,4 @@ export interface FeedResultWithIndex extends FeedPayloadResult {
 export interface UploadProgress {
   total: number;
   processed: number;
-}
-
-export interface WrappedUploadResult {
-  uploadFilesRes: string | Reference;
-  uploadPreviewRes?: string | Reference;
 }

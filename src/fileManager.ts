@@ -734,7 +734,6 @@ export class FileManagerBase implements FileManager {
       driveId: driveInfo.id.toString(),
       timestamp: new Date().getTime(),
       shared: false,
-      preview: undefined,
       version,
       customMetadata: fileOptions.customMetadata,
       redundancyLevel: driveInfo.redundancyLevel,

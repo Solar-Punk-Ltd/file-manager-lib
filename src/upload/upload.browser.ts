@@ -1,8 +1,10 @@
 import { BatchId, Bee, BeeRequestOptions, RedundantUploadOptions, UploadResult } from '@ethersphere/bee-js';
 
 import { BrowserUploadOptions, DriveInfo } from '../types';
-import { ReferenceWithHistory, WrappedUploadResult } from '../types/utils';
+import { ReferenceWithHistory } from '../types/utils';
 
+// Do not call streamFiles with act: true because it would encrypt all the chunks recursively, that is unnecessary
+// Wrap the uplodResult instead and encrypt that reference at the root level
 export async function uploadBrowser(
   bee: Bee,
   batchId: string | BatchId,
@@ -12,30 +14,20 @@ export async function uploadBrowser(
 ): Promise<UploadResult> {
   const streamFilesOpts = uploadOptions ? { ...uploadOptions, act: false, actHistoryAddress: undefined } : undefined;
 
-  const uploadFilesRes = await bee.streamFiles(
+  const uploadResult = await bee.streamFiles(
     batchId,
     browserOptions.files,
     browserOptions.onUploadProgress,
     streamFilesOpts,
     requestOptions,
   );
-  let uploadPreviewRes: UploadResult | undefined;
-  if (browserOptions.preview) {
-    uploadPreviewRes = await bee.streamFiles(
-      batchId,
-      [browserOptions.preview],
-      browserOptions.onUploadProgress,
-      streamFilesOpts,
-      requestOptions,
-    );
-  }
 
-  const wrappedData: WrappedUploadResult = {
-    uploadFilesRes: uploadFilesRes.reference.toString(),
-    uploadPreviewRes: uploadPreviewRes?.reference.toString(),
-  };
-
-  return await bee.uploadData(batchId, JSON.stringify(wrappedData), { ...uploadOptions, act: true }, requestOptions);
+  return await bee.uploadData(
+    batchId,
+    uploadResult.reference.toUint8Array(),
+    { ...uploadOptions, act: true },
+    requestOptions,
+  );
 }
 
 export async function processUploadBrowser(

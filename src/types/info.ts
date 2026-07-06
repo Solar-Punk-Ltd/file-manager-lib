@@ -28,7 +28,6 @@ export interface FileRecord {
   version?: string | FeedIndex;
   timestamp?: number;
   shared?: boolean;
-  preview?: ReferenceWithHistory;
   status?: FileStatus;
   customMetadata?: Record<string, string>;
   granteeListRef?: string;

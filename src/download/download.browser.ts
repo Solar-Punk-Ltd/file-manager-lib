@@ -1,4 +1,4 @@
-import { BeeRequestOptions, DownloadOptions, PublicKey, Reference } from '@ethersphere/bee-js';
+import { Bee, BeeRequestOptions, DownloadOptions, PublicKey, Reference } from '@ethersphere/bee-js';
 import { Types } from 'cafe-utility';
 
 import { DownloadResource, DownloadResult } from '../types';
@@ -97,6 +97,7 @@ function prepareDownloadOptions(value: unknown): DownloadOptions {
 }
 
 export async function downloadBrowser(
+  bee: Bee,
   resources: DownloadResource[],
   apiUrl: string,
   endpoint: string,
@@ -105,14 +106,19 @@ export async function downloadBrowser(
 ): Promise<DownloadResult[]> {
   const results: DownloadResult[] = [];
 
+  // TODO: parallelize the unwrap and download calls + make downloadReadableFetch better (apiUrl + bee call)
   for (const r of resources) {
-    const perResourceOptions: DownloadOptions = {
-      ...options,
-      actHistoryAddress: r.actHistoryAddress,
-      actPublisher: new PublicKey(r.actPublisher).toCompressedHex(),
-    };
-    const stream = await downloadReadableFetch(r.reference, apiUrl, endpoint, perResourceOptions, requestOptions);
-    results.push({ path: r.path, result: stream });
+    // Hop 1: ACT-decrypt the wrapper to get the raw content reference (same call as downloadNode)
+    const rawRef = await bee.downloadData(
+      r.reference,
+      { ...options, actHistoryAddress: r.actHistoryAddress, actPublisher: r.actPublisher },
+      requestOptions,
+    );
+    const contentRef = new Reference(rawRef.toUint8Array());
+
+    // Hop 2: stream the real content — no ACT headers
+    const contentStream = await downloadReadableFetch(contentRef.toString(), apiUrl, endpoint, options, requestOptions);
+    results.push({ path: r.path, result: contentStream });
   }
 
   return results;

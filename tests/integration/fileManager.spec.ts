@@ -652,29 +652,6 @@ describe('FileManager upload', () => {
     expect(thirdInfo?.file).toEqual(firstInfo?.file);
   });
 
-  it('should upload with previewPath if provided', async () => {
-    const previewDir = path.join(__dirname, 'tmpUploadPreview');
-    fs.mkdirSync(previewDir, { recursive: true });
-    fs.writeFileSync(path.join(previewDir, 'preview.txt'), 'Preview Content');
-
-    await fileManager.upload(drive, {
-      path: tempUploadDir,
-      previewPath: previewDir,
-    });
-
-    const fileInfoList = fileManager.fileInfoList;
-    const uploadedInfo = fileInfoList.find((fi) => fi.path === tempUploadDir);
-    expect(uploadedInfo).toBeDefined();
-
-    if (uploadedInfo!.preview !== undefined) {
-      expect(uploadedInfo!.preview).toBeDefined();
-    } else {
-      console.warn('Preview property is not defined. Your implementation may not store preview info.');
-    }
-
-    fs.rmSync(previewDir, { recursive: true, force: true });
-  });
-
   it('should throw an error if topic and historyRef are not provided together', async () => {
     await expect(
       fileManager.upload(drive, {

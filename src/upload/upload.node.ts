@@ -8,7 +8,7 @@ import {
 } from '@ethersphere/bee-js';
 
 import { DriveInfo, NodeUploadOptions } from '../types';
-import { ReferenceWithHistory, WrappedUploadResult } from '../types/utils';
+import { ReferenceWithHistory } from '../types/utils';
 import { FileError } from '../utils/errors';
 
 async function uploadNode(
@@ -18,7 +18,7 @@ async function uploadNode(
   uploadOptions?: FileUploadOptions | CollectionUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<UploadResult> {
-  const uploadFilesRes = await uploadFileOrDirectory(
+  const uploadResult = await uploadFileOrDirectory(
     bee,
     new BatchId(batchId),
     nodeOptions.path,
@@ -26,24 +26,12 @@ async function uploadNode(
     requestOptions,
   );
 
-  let uploadPreviewRes: UploadResult | undefined;
-
-  if (nodeOptions.previewPath) {
-    uploadPreviewRes = await uploadFileOrDirectory(
-      bee,
-      new BatchId(batchId),
-      nodeOptions.previewPath,
-      { ...uploadOptions, act: false },
-      requestOptions,
-    );
-  }
-
-  const wrappedData: WrappedUploadResult = {
-    uploadFilesRes: uploadFilesRes.reference.toString(),
-    uploadPreviewRes: uploadPreviewRes?.reference.toString(),
-  };
-
-  return await bee.uploadData(batchId, JSON.stringify(wrappedData), { ...uploadOptions, act: true }, requestOptions);
+  return await bee.uploadData(
+    batchId,
+    uploadResult.reference.toUint8Array(),
+    { ...uploadOptions, act: true },
+    requestOptions,
+  );
 }
 
 async function uploadFileOrDirectory(
