@@ -2,6 +2,7 @@ import { Bee, BeeRequestOptions, DownloadOptions, PublicKey, Reference } from '@
 import { Types } from 'cafe-utility';
 
 import { DownloadResource, DownloadResult } from '../types';
+import { settlePromises } from '../utils/common';
 
 async function downloadReadableFetch(
   resource: string,
@@ -99,27 +100,29 @@ function prepareDownloadOptions(value: unknown): DownloadOptions {
 export async function downloadBrowser(
   bee: Bee,
   resources: DownloadResource[],
-  apiUrl: string,
   endpoint: string,
   options?: DownloadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<DownloadResult[]> {
   const results: DownloadResult[] = [];
 
-  // TODO: parallelize the unwrap and download calls + make downloadReadableFetch better (apiUrl + bee call)
-  for (const r of resources) {
-    // Hop 1: ACT-decrypt the wrapper to get the raw content reference (same call as downloadNode)
-    const rawRef = await bee.downloadData(
-      r.reference,
-      { ...options, actHistoryAddress: r.actHistoryAddress, actPublisher: r.actPublisher },
-      requestOptions,
-    );
-    const contentRef = new Reference(rawRef.toUint8Array());
+  await settlePromises(
+    resources.map(async (r) => {
+      const rawRef = await bee.downloadData(
+        r.reference,
+        { ...options, actHistoryAddress: r.actHistoryAddress, actPublisher: r.actPublisher },
+        requestOptions,
+      );
 
-    // Hop 2: stream the real content — no ACT headers
-    const contentStream = await downloadReadableFetch(contentRef.toString(), apiUrl, endpoint, options, requestOptions);
-    results.push({ path: r.path, result: contentStream });
-  }
+      const contentRef = new Reference(rawRef.toUint8Array());
+
+      return await downloadReadableFetch(contentRef.toString(), bee.url, endpoint, options, requestOptions);
+    }),
+    (value, ix) => results.push({ path: resources[ix].path, result: value }),
+    (reason, ix) =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      console.error(`downloadBrowser: failed to fetch ${resources[ix].path}: ${(reason as any)?.message || reason}`),
+  );
 
   return results;
 }

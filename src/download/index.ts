@@ -17,5 +17,5 @@ export async function processDownload(
   }
 
   const { downloadBrowser } = await import('./download.browser');
-  return downloadBrowser(bee, resources, bee.url, bytesEndpoint, options, requestOptions);
+  return downloadBrowser(bee, resources, bytesEndpoint, options, requestOptions);
 }
