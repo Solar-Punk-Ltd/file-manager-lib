@@ -55,9 +55,9 @@ export const getEncodedSize = (input: string): number => {
   return new TextEncoder().encode(input).length;
 };
 
-export const verifyStampUsability = (s: PostageBatch | undefined): PostageBatch => {
+export const verifyStampUsability = (s: PostageBatch | undefined, requestedBatchId?: string): PostageBatch => {
   if (!s || !s.usable) {
-    const batchIdStr = s ? s.batchID.toString().slice(0, 6) : 'unknown';
+    const batchIdStr = s ? s.batchID.toString().slice(0, 6) : (requestedBatchId?.slice(0, 6) ?? 'unknown');
     throw new StampError(`Stamp with batchId: ${batchIdStr}... not found OR not usable`);
   }
 

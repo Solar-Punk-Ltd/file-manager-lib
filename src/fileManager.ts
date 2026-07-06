@@ -209,10 +209,11 @@ export class FileManagerBase implements FileManager {
     return true;
   }
 
-  private async createAdminManifest(resetState?: boolean, requestOptions?: BeeRequestOptions): Promise<void> {
-    const verifiedAdminStamp = verifyStampUsability(this._adminStamp);
-    const batchId = verifiedAdminStamp.batchID;
-
+  private async createAdminManifest(
+    batchId: string,
+    resetState?: boolean,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void> {
     // Re-fetch feed data every time — the admin stamp may expire while state is cached.
     // Deliberately write to the fetched feedIndexNext so a stale cache can't clobber a slot;
     // ideally this is index 0 on a fresh account.
@@ -317,7 +318,13 @@ export class FileManagerBase implements FileManager {
 
         if (driveInfo.isAdmin) {
           await this.fetchAndSetAdminStamp(driveInfo.batchId, requestOptions);
-          verifyStampUsability(this._adminStamp);
+
+          try {
+            verifyStampUsability(this._adminStamp, driveInfo.batchId.toString());
+          } catch (error) {
+            this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
+            throw error;
+          }
           this.adminRedundancyLevel = driveInfo.redundancyLevel;
         }
 
@@ -385,6 +392,22 @@ export class FileManagerBase implements FileManager {
     }
 
     let driveName = name;
+    if (isAdmin) {
+      console.debug('Creating admin drive with name: ', ADMIN_STAMP_LABEL);
+      driveName = ADMIN_STAMP_LABEL;
+
+      await this.fetchAndSetAdminStamp(batchId.toString(), requestOptions);
+      verifyStampUsability(this._adminStamp, batchId.toString());
+      await this.createAdminManifest(batchId.toString(), resetState, requestOptions);
+    } else {
+      if (!this._adminStamp) {
+        throw new DriveError('Admin stamp not found');
+      }
+
+      const stamp = await fetchStamp(this.bee, batchId);
+      verifyStampUsability(stamp, batchId.toString());
+    }
+
     if (resetState) {
       if (!isAdmin) {
         throw new DriveError(`Cannot reset non-admin drive: "${driveName}"`);
@@ -403,16 +426,6 @@ export class FileManagerBase implements FileManager {
           throw new DriveError(`Drive with name "${driveName}" or batchId "${batchId}" already exists`);
         }
       });
-    }
-
-    if (isAdmin) {
-      console.debug('Creating admin drive with name: ', ADMIN_STAMP_LABEL);
-      driveName = ADMIN_STAMP_LABEL;
-      await this.fetchAndSetAdminStamp(batchId.toString(), requestOptions);
-      await this.createAdminManifest(resetState, requestOptions);
-    } else {
-      const stamp = await fetchStamp(this.bee, batchId);
-      verifyStampUsability(stamp);
     }
 
     const randomId = generateRandomBytes(Identifier.LENGTH);
@@ -448,19 +461,23 @@ export class FileManagerBase implements FileManager {
     if (!stateTopic) {
       throw new DriveError('Admin state not initialized');
     }
+
     if (!this._adminStamp) {
       throw new DriveError('Admin stamp not found');
     }
+
     const adminHost: ManifestHost = {
       topic: stateTopic.toString(),
       manifestRef: this.adminManifestRef,
       batchId: this._adminStamp.batchID,
       redundancyLevel: this.adminRedundancyLevel,
     };
+
     const adminMantaray = this.nodeManifestCache.get(stateTopic.toString());
     if (!adminMantaray) {
       throw new DriveError('Admin manifest not loaded — initialize first.');
     }
+
     adminMantaray.addFork(
       `${DRIVE_FORK_PREFIX}-${driveInfo.id.toString()}`,
       new Reference(driveInfo.driveFeedTopic.toString()),
@@ -1103,6 +1120,7 @@ export class FileManagerBase implements FileManager {
   private async fetchAndSetAdminStamp(batchId: string | BatchId, requestOptions?: BeeRequestOptions): Promise<void> {
     const adminStamp = await fetchStamp(this.bee, batchId, requestOptions);
     const logText = `Admin stamp with batchId: ${batchId.toString().slice(0, 6)}...`;
+
     if (!adminStamp) {
       this._adminStamp = undefined;
       console.warn(`${logText} not found.`);
@@ -1113,6 +1131,7 @@ export class FileManagerBase implements FileManager {
     } else {
       console.warn(`${logText} is unusable.`);
     }
+
     this._adminStamp = adminStamp;
   }
 

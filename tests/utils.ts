@@ -46,6 +46,21 @@ export async function readFilesOrDirectory(fullPath: string, name?: string): Pro
   return relativeFilePaths;
 }
 
+export async function retryOnPropagationDelay<T>(fn: () => Promise<T>, attempts = 5, delayMs = 500): Promise<T> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (i < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  throw lastError;
+}
+
 export async function createWrappedData(bee: Bee, batchId: BatchId, node: MantarayNode): Promise<ReferenceWithHistory> {
   const manatarayResult = await node.saveRecursively(bee, batchId);
   const wrappedData: WrappedUploadResult = {
