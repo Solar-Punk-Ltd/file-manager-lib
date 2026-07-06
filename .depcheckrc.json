@@ -1,7 +1,7 @@
 {
   "ignores": [
     "@commitlint/*",
-    "cross-env",
+    "@ethersphere/bee-factory*",
     "rimraf",
     "ts-node",
     "@types/*",

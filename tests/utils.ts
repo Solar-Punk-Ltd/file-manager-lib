@@ -5,8 +5,10 @@ import path from 'path';
 import { ReferenceWithHistory, WrappedUploadResult } from '@/types/utils';
 import { SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
+// bee-factory queen node
 export const BEE_URL = 'http://127.0.0.1:1633';
-export const OTHER_BEE_URL = 'http://127.0.0.1:1733';
+// bee-factory worker 1 — a non-admin peer
+export const OTHER_BEE_URL = 'http://127.0.0.1:1635';
 export const DEFAULT_BATCH_DEPTH = 21;
 export const DEFAULT_BATCH_AMOUNT = '500000000';
 export const DEFAULT_MOCK_SIGNER = new PrivateKey('634fb5a872396d9693e5c9f9d7233cfa93f395c093371017ff44aa9ae6564cdd');

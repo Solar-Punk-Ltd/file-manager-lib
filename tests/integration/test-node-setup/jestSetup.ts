@@ -1,16 +1,15 @@
 import { execSync } from 'child_process';
-import Path from 'path';
+
+const BEE_FACTORY_TAG = process.env.BEE_FACTORY_TAG ?? 'v2.8.0';
 
 export default async function globalSetup(): Promise<void> {
-  console.debug('Starting Bee Nodes...');
-  const scriptPath = Path.resolve(__dirname, 'runBeeNode.sh');
+  console.debug(`Starting bee-factory stack (tag: ${BEE_FACTORY_TAG})...`);
 
   try {
-    execSync(`chmod +x ${scriptPath}`);
-    execSync(scriptPath, { stdio: 'inherit' });
-    console.debug('Bee Nodes started successfully');
+    execSync(`npx bee-factory start --tag ${BEE_FACTORY_TAG}`, { stdio: 'inherit' });
+    console.debug('bee-factory stack started successfully');
   } catch (error) {
-    console.error('Error starting Bee Nodes:', error);
+    console.error('Error starting bee-factory stack:', error);
     process.exit(1);
   }
 }

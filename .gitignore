@@ -27,5 +27,6 @@ yalc.lock
 *.sw?
 coverage/
 *.pid
-tests/**/bee-dev/
 **.tgz
+
+CLAUDE.md
