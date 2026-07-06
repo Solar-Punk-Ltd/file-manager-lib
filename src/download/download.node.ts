@@ -9,6 +9,8 @@ export async function downloadNode(
   options?: DownloadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<DownloadResult[]> {
+  requestOptions?.signal?.throwIfAborted();
+
   const results: DownloadResult[] = [];
 
   await settlePromises(
@@ -24,10 +26,14 @@ export async function downloadNode(
       return await bee.downloadData(contentRef, options, requestOptions);
     }),
     (value, ix) => results.push({ path: resources[ix].path, result: value }),
-    (reason, ix) =>
+    (reason, ix) => {
+      if (requestOptions?.signal?.aborted) return;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      console.error(`downloadNode: failed to fetch ${resources[ix].path}: ${(reason as any)?.message || reason}`),
+      console.error(`downloadNode: failed to fetch ${resources[ix].path}: ${(reason as any)?.message || reason}`);
+    },
   );
+
+  requestOptions?.signal?.throwIfAborted();
 
   return results;
 }

@@ -27,8 +27,8 @@ import {
 import { ensureUniqueSignerWithStamp } from './testSetupHelpers';
 
 import { FileManagerBase } from '@/fileManager';
-import { DriveInfo, FileRecord, FileStatus } from '@/types';
-import { StateTopicInfo } from '@/types/utils';
+import { DriveInfo, FileRecord, FileStatus, FolderInfo } from '@/types';
+import { ListDepth, StateTopicInfo } from '@/types/utils';
 import {
   ADMIN_STAMP_LABEL,
   DriveError,
@@ -1149,15 +1149,21 @@ describe('FileManager AbortController', () => {
       }
     });
 
-    it('should throw error with Request aborted message when upload is aborted with pre-aborted signal', async () => {
+    it('should throw an AbortError when upload is aborted with pre-aborted signal', async () => {
       const controller = new AbortController();
       controller.abort(); // Pre-abort
 
-      await expect(
-        fileManager.upload(drive, { path: preAbortFile }, undefined, {
-          signal: controller.signal,
-        }),
-      ).rejects.toThrow('Request aborted');
+      const uploadPromise = fileManager.upload(drive, { path: preAbortFile }, undefined, {
+        signal: controller.signal,
+      });
+
+      await expect(uploadPromise).rejects.toThrow();
+
+      try {
+        await uploadPromise;
+      } catch (error: any) {
+        expect(error.name === 'AbortError' || error.message.toLowerCase().includes('abort')).toBe(true);
+      }
     });
 
     it('should throw BeeResponseError when upload is cancelled mid-flight', async () => {
@@ -1202,11 +1208,17 @@ describe('FileManager AbortController', () => {
       controller1.abort(); // Pre-abort first one
 
       // First upload should fail (aborted)
-      await expect(
-        fileManager.upload(drive, { path: multi1File }, undefined, {
-          signal: controller1.signal,
-        }),
-      ).rejects.toThrow('Request aborted');
+      const firstUploadPromise = fileManager.upload(drive, { path: multi1File }, undefined, {
+        signal: controller1.signal,
+      });
+
+      await expect(firstUploadPromise).rejects.toThrow();
+
+      try {
+        await firstUploadPromise;
+      } catch (error: any) {
+        expect(error.name === 'AbortError' || error.message.toLowerCase().includes('abort')).toBe(true);
+      }
 
       // Second upload should succeed (not aborted)
       await fileManager.upload(drive, { path: multi2File }, undefined, {
@@ -1238,16 +1250,43 @@ describe('FileManager AbortController', () => {
       fs.rmSync(downloadTestFile, { force: true });
     });
 
-    // TODO: downloadNode() (src/download/download.node.ts) fetches each resource through
-    // settlePromises(), which catches every per-item rejection — including an AbortError from a
-    // pre-aborted or mid-flight-aborted signal — logs it, and simply omits that item from the
-    // result array. So an aborted download resolves successfully with an empty/partial array
-    // instead of rejecting, defeating the AbortController contract. Re-enable once downloadNode
-    // distinguishes "this file genuinely failed" from "the whole request was aborted" and
-    // rethrows for the latter.
-    it.skip('should throw error when download is aborted with pre-aborted signal', async () => {});
+    it('should throw error when download is aborted with pre-aborted signal', async () => {
+      const controller = new AbortController();
+      controller.abort(); // Pre-abort
 
-    it.skip('should throw error when download is cancelled mid-flight', async () => {});
+      await expect(
+        fileManager.download(
+          drive,
+          [uploadedFileInfo.path],
+          {
+            actHistoryAddress: uploadedFileInfo.file.historyRef,
+            actPublisher,
+          },
+          { signal: controller.signal },
+        ),
+      ).rejects.toThrow();
+    });
+
+    it('should throw error when download is cancelled mid-flight', async () => {
+      const controller = new AbortController();
+
+      // Start download and abort after a short delay
+      const downloadPromise = fileManager.download(
+        drive,
+        [uploadedFileInfo.path],
+        {
+          actHistoryAddress: uploadedFileInfo.file.historyRef,
+          actPublisher,
+        },
+        { signal: controller.signal },
+      );
+
+      setTimeout(() => {
+        controller.abort();
+      }, 1);
+
+      await expect(downloadPromise).rejects.toThrow();
+    });
 
     it('should complete download successfully when signal is not aborted', async () => {
       const controller = new AbortController();
@@ -1266,20 +1305,108 @@ describe('FileManager AbortController', () => {
       expect(Array.isArray(result)).toBe(true);
     });
 
-    // TODO: see the abort-swallowing TODO above — the pre-aborted first download here resolves
-    // instead of rejecting.
-    it.skip('should handle multiple downloads with different abort controllers', async () => {});
+    it('should handle multiple downloads with different abort controllers', async () => {
+      const controller1 = new AbortController();
+      const controller2 = new AbortController();
+      controller1.abort(); // Pre-abort first one
+
+      // First download should fail (aborted)
+      await expect(
+        fileManager.download(
+          drive,
+          [uploadedFileInfo.path],
+          {
+            actHistoryAddress: uploadedFileInfo.file.historyRef,
+            actPublisher,
+          },
+          { signal: controller1.signal },
+        ),
+      ).rejects.toThrow();
+
+      // Second download should succeed (not aborted)
+      const result = await fileManager.download(
+        drive,
+        [uploadedFileInfo.path],
+        {
+          actHistoryAddress: uploadedFileInfo.file.historyRef,
+          actPublisher,
+        },
+        { signal: controller2.signal },
+      );
+
+      expect(result).toBeDefined();
+      expect(Array.isArray(result)).toBe(true);
+    });
   });
 
   describe('listFolder', () => {
-    // TODO: these tests assumed a plain upload() of a directory produces a browsable
-    // NodeType.Folder entry that listFolder(driveInfo, folderPath) can walk into. Under the
-    // drive-as-mantaray model, upload() of a directory registers a single opaque NodeType.File
-    // fork (the collection reference) — only createFolder() produces a walkable folder fork.
-    // Re-implement using createFolder() + per-file uploads once nested browsing is needed here.
-    it.skip('should throw error when listFolder is aborted with pre-aborted signal', async () => {});
-    it.skip('should throw error when listFolder is cancelled mid-flight', async () => {});
-    it.skip('should complete listFolder successfully when signal is not aborted', async () => {});
-    it.skip('should handle multiple listFolder calls with different abort controllers', async () => {});
+    const folderName = 'it-abort-listfolder-folder';
+    const fileInFolder = `${folderName}/it-abort-listfolder-file.txt`;
+    let folderInfo: FolderInfo;
+
+    beforeAll(async () => {
+      folderInfo = await fileManager.createFolder(drive, ROOT_PATH, folderName);
+
+      fs.mkdirSync(folderName, { recursive: true });
+      fs.writeFileSync(fileInFolder, 'listFolder abort test content');
+      await fileManager.upload(drive, { path: fileInFolder });
+    });
+
+    afterAll(() => {
+      fs.rmSync(folderName, { recursive: true, force: true });
+    });
+
+    it('should throw error when listFolder is aborted with pre-aborted signal', async () => {
+      const controller = new AbortController();
+      controller.abort(); // Pre-abort
+
+      await expect(
+        fileManager.listFolder(drive, folderInfo.path, ListDepth.Shallow, undefined, { signal: controller.signal }),
+      ).rejects.toThrow();
+    });
+
+    it('should throw error when listFolder is cancelled mid-flight', async () => {
+      const controller = new AbortController();
+
+      const listPromise = fileManager.listFolder(drive, folderInfo.path, ListDepth.Shallow, undefined, {
+        signal: controller.signal,
+      });
+
+      setTimeout(() => {
+        controller.abort();
+      }, 1);
+
+      await expect(listPromise).rejects.toThrow();
+    });
+
+    it('should complete listFolder successfully when signal is not aborted', async () => {
+      const controller = new AbortController();
+
+      const result = await fileManager.listFolder(drive, folderInfo.path, ListDepth.Shallow, undefined, {
+        signal: controller.signal,
+      });
+
+      expect(result).toBeDefined();
+      expect(Array.isArray(result)).toBe(true);
+    });
+
+    it('should handle multiple listFolder calls with different abort controllers', async () => {
+      const controller1 = new AbortController();
+      const controller2 = new AbortController();
+      controller1.abort(); // Pre-abort first one
+
+      // First call should fail (aborted)
+      await expect(
+        fileManager.listFolder(drive, folderInfo.path, ListDepth.Shallow, undefined, { signal: controller1.signal }),
+      ).rejects.toThrow();
+
+      // Second call should succeed (not aborted)
+      const result = await fileManager.listFolder(drive, folderInfo.path, ListDepth.Shallow, undefined, {
+        signal: controller2.signal,
+      });
+
+      expect(result).toBeDefined();
+      expect(Array.isArray(result)).toBe(true);
+    });
   });
 });

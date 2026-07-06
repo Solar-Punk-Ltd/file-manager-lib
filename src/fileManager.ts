@@ -387,6 +387,8 @@ export class FileManagerBase implements FileManager {
     resetState?: boolean,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
+    requestOptions?.signal?.throwIfAborted();
+
     if (!this.isInitialized) {
       throw new DriveError('FileManager is not initialized.');
     }
@@ -506,6 +508,8 @@ export class FileManagerBase implements FileManager {
     maxDepth?: number,
     requestOptions?: BeeRequestOptions,
   ): Promise<DirectoryEntry[]> {
+    requestOptions?.signal?.throwIfAborted();
+
     const startFolder = await this.resolveFolder(driveInfo, folderPath, requestOptions);
     const startHost: ManifestHost = startFolder ?? {
       topic: driveInfo.driveFeedTopic.toString(),
@@ -521,6 +525,8 @@ export class FileManagerBase implements FileManager {
     const depthLimit = depth === ListDepth.Deep ? (maxDepth ?? Number.MAX_SAFE_INTEGER) : 1;
     // Per BFS level: (1) expand current frontier manifests, (2) load file feeds found, (3) resolve folder feeds into next frontier. Each phase is concurrency-bounded.
     while (frontier.length > 0 && level < depthLimit) {
+      requestOptions?.signal?.throwIfAborted();
+
       const levelEntries: DirectoryEntry[] = [];
 
       await awaitAllPromisesBounded(
@@ -529,7 +535,10 @@ export class FileManagerBase implements FileManager {
         ),
         MAX_CONCURRENT_FEED_FETCHES,
         (entries) => levelEntries.push(...entries),
-        (reason) => console.error(`listFolder: failed to expand manifest: ${reason}`),
+        (reason) => {
+          if (requestOptions?.signal?.aborted) return;
+          console.error(`listFolder: failed to expand manifest: ${reason}`);
+        },
       );
       results.push(...levelEntries);
 
@@ -541,13 +550,22 @@ export class FileManagerBase implements FileManager {
 
         await awaitAllPromisesBounded(
           newFileEntries.map((e) => async (): Promise<FileRecord> => {
-            const feedData = await getFeedData(this.bee, new Topic(e.topic), this.signerAddress);
+            const feedData = await getFeedData(
+              this.bee,
+              new Topic(e.topic),
+              this.signerAddress,
+              undefined,
+              requestOptions,
+            );
 
-            return this.fetchFileInfo(e.topic, publisher.toCompressedHex(), feedData);
+            return this.fetchFileInfo(e.topic, publisher.toCompressedHex(), feedData, requestOptions);
           }),
           MAX_CONCURRENT_FEED_FETCHES,
           (fi) => this.fileInfoList.push(fi),
-          (reason, ix) => console.error(`listFolder: failed to load file ${newFileEntries[ix].topic}: ${reason}`),
+          (reason, ix) => {
+            if (requestOptions?.signal?.aborted) return;
+            console.error(`listFolder: failed to load file ${newFileEntries[ix].topic}: ${reason}`);
+          },
         );
       }
 
@@ -562,6 +580,8 @@ export class FileManagerBase implements FileManager {
             this.bee,
             new Topic(e.topic),
             this.signerAddress,
+            undefined,
+            requestOptions,
           );
           if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
             console.warn(`listFolder: folder feed not found for ${e.path} — skipping`);
@@ -584,12 +604,17 @@ export class FileManagerBase implements FileManager {
             nextFrontier.push(host);
           }
         },
-        (reason, ix) => console.error(`listFolder: failed to resolve folder ${folderEntries[ix].path}: ${reason}`),
+        (reason, ix) => {
+          if (requestOptions?.signal?.aborted) return;
+          console.error(`listFolder: failed to resolve folder ${folderEntries[ix].path}: ${reason}`);
+        },
       );
 
       frontier = nextFrontier;
       level++;
     }
+
+    requestOptions?.signal?.throwIfAborted();
 
     return results;
   }
@@ -600,6 +625,8 @@ export class FileManagerBase implements FileManager {
     onlyPaths?: Set<string>,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
+    requestOptions?.signal?.throwIfAborted();
+
     const publisher = this.publisher;
     if (!publisher) {
       return;
@@ -623,7 +650,13 @@ export class FileManagerBase implements FileManager {
 
     await awaitAllPromisesBounded(
       fileEntries.map((entry) => async (): Promise<FileRecord | null> => {
-        const feedData = await getFeedData(this.bee, new Topic(entry.topic), this.signerAddress);
+        const feedData = await getFeedData(
+          this.bee,
+          new Topic(entry.topic),
+          this.signerAddress,
+          undefined,
+          requestOptions,
+        );
 
         if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
           console.warn(`loadFolderFiles: file feed not found for ${entry.path} — skipping`);
@@ -632,15 +665,20 @@ export class FileManagerBase implements FileManager {
 
         this.nodeFeedIndexCache.set(entry.topic, feedData.feedIndexNext.toBigInt());
 
-        return await this.fetchFileInfo(entry.topic, publisher.toCompressedHex(), feedData);
+        return await this.fetchFileInfo(entry.topic, publisher.toCompressedHex(), feedData, requestOptions);
       }),
       MAX_CONCURRENT_FEED_FETCHES,
       (fi) => {
         if (fi) this.fileInfoList.push(fi);
       },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (reason) => console.error(`loadFolderFiles: ${(reason as any)?.message || reason}`),
+      (reason) => {
+        if (requestOptions?.signal?.aborted) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        console.error(`loadFolderFiles: ${(reason as any)?.message || reason}`);
+      },
     );
+
+    requestOptions?.signal?.throwIfAborted();
   }
 
   async download(
@@ -679,6 +717,7 @@ export class FileManagerBase implements FileManager {
       actHistoryAddress: fi.file.historyRef.toString(),
       actPublisher: new PublicKey(fi.actPublisher).toCompressedHex(),
     }));
+
     return processDownload(this.bee, resources, options, requestOptions);
   }
 
@@ -688,6 +727,8 @@ export class FileManagerBase implements FileManager {
     uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
+    requestOptions?.signal?.throwIfAborted();
+
     if (!this.stateFeedTopic || !this.isInitialized) {
       throw new DriveError('FileManager is not initialized.');
     }
@@ -989,17 +1030,26 @@ export class FileManagerBase implements FileManager {
     }
   }
 
-  private async fetchFileInfo(topic: string, actPublisher: string, feeData: FeedResultWithIndex): Promise<FileRecord> {
+  private async fetchFileInfo(
+    topic: string,
+    actPublisher: string,
+    feeData: FeedResultWithIndex,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<FileRecord> {
     if (feeData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
       throw new FileInfoError(`File info not found for topic: ${topic}`);
     }
 
     const data = feeData.payload.toJSON() as ReferenceWithHistory;
 
-    const fileBytes = await this.bee.downloadData(data.reference.toString(), {
-      actHistoryAddress: data.historyRef.toString(),
-      actPublisher,
-    });
+    const fileBytes = await this.bee.downloadData(
+      data.reference.toString(),
+      {
+        actHistoryAddress: data.historyRef.toString(),
+        actPublisher,
+      },
+      requestOptions,
+    );
 
     const fileInfo = fileBytes.toJSON() as FileRecord;
     assertFileRecord(fileInfo);
@@ -1059,6 +1109,8 @@ export class FileManagerBase implements FileManager {
   }
 
   async forget(driveInfo: DriveInfo, path: string, requestOptions?: BeeRequestOptions): Promise<void> {
+    requestOptions?.signal?.throwIfAborted();
+
     if (!this.isInitialized) {
       throw new DriveError('FileManager is not initialized.');
     }
@@ -1204,6 +1256,8 @@ export class FileManagerBase implements FileManager {
     targetDriveInfo?: DriveInfo,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
+    requestOptions?.signal?.throwIfAborted();
+
     if (!this.isInitialized) {
       throw new DriveError('FileManager is not initialized');
     }
@@ -1363,7 +1417,7 @@ export class FileManagerBase implements FileManager {
         payload: folderPayload,
         feedIndex: folderFeedIndex,
         feedIndexNext: folderFeedIndexNext,
-      } = await getFeedData(this.bee, new Topic(folderTopic), this.signerAddress);
+      } = await getFeedData(this.bee, new Topic(folderTopic), this.signerAddress, undefined, requestOptions);
       if (folderFeedIndex.equals(FeedIndex.MINUS_ONE)) {
         throw new DriveError(`Folder feed not found for path: ${currentPath}`);
       }
@@ -1394,6 +1448,8 @@ export class FileManagerBase implements FileManager {
     redundancyLevel?: RedundancyLevel,
     requestOptions?: BeeRequestOptions,
   ): Promise<FolderInfo> {
+    requestOptions?.signal?.throwIfAborted();
+
     if (!this.isInitialized) {
       throw new DriveError('FileManager is not initialized');
     }

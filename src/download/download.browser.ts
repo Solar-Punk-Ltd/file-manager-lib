@@ -104,6 +104,8 @@ export async function downloadBrowser(
   options?: DownloadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<DownloadResult[]> {
+  requestOptions?.signal?.throwIfAborted();
+
   const results: DownloadResult[] = [];
 
   await settlePromises(
@@ -119,10 +121,14 @@ export async function downloadBrowser(
       return await downloadReadableFetch(contentRef.toString(), bee.url, endpoint, options, requestOptions);
     }),
     (value, ix) => results.push({ path: resources[ix].path, result: value }),
-    (reason, ix) =>
+    (reason, ix) => {
+      if (requestOptions?.signal?.aborted) return;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      console.error(`downloadBrowser: failed to fetch ${resources[ix].path}: ${(reason as any)?.message || reason}`),
+      console.error(`downloadBrowser: failed to fetch ${resources[ix].path}: ${(reason as any)?.message || reason}`);
+    },
   );
+
+  requestOptions?.signal?.throwIfAborted();
 
   return results;
 }
