@@ -9,11 +9,11 @@ importers:
   .:
     dependencies:
       '@ethersphere/bee-js':
-        specifier: ^12.2.2
+        specifier: 12.2.2
         version: 12.2.2
       cafe-utility:
-        specifier: ^33.7.0
-        version: 33.7.0
+        specifier: ^36.2.0
+        version: 36.2.0
       std-env:
         specifier: ^3.10.0
         version: 3.10.0
@@ -401,6 +401,10 @@ packages:
   '@ethersphere/bee-js@12.2.2':
     resolution: {integrity: sha512-o5J+mVqoREu8bqSC5UTc/+0gKVHMSTrP2SUw7H4cfRcq8Ehjoki2h0hAQNon7VY6sYBh0apIPlB/sGtTfXRl+Q==}
     engines: {bee: 2.4.0-390a402e, beeApiVersion: 7.2.0}
+
+  '@ethersphere/bee-js@12.3.1':
+    resolution: {integrity: sha512-NkTNCF0qejfpHtUM5vt6OeEbCpf72zlllgvdNMvcmWQO9r6gmhS9SuRAeUABQ+BaTJx5uff5RjQmAzNHUJMPtw==}
+    engines: {bee: 2.8.1-7cf53193, beeApiVersion: 8.1.0}
 
   '@grpc/grpc-js@1.14.4':
     resolution: {integrity: sha512-k9Dj3DV/itK9D06Y8f190Qgop7/Ui+D0njFV3LHMPwPT75DpXLQohE9Wmz0QElrJnzsjB7KPWiKJbOl7IPDArQ==}
@@ -1068,8 +1072,11 @@ packages:
   cafe-utility@33.11.0:
     resolution: {integrity: sha512-u9rAbHL+v39iSzKYU7g50XGRUyjGe7SIMwdphzl50H4XQXuB0j0L50VOi72LSxva3Ubq/K87nFwVDV/GPoUJ6w==}
 
-  cafe-utility@33.7.0:
-    resolution: {integrity: sha512-3ioj2iGpIRv6PXARWUnQeDZDt5TSufPr9MZDe2aCeDT8VSHG/AGrMKAuJl+mXbvGhOX03q0VORaPnqBevLdVeQ==}
+  cafe-utility@34.0.0:
+    resolution: {integrity: sha512-4gxiVyngFbRa1G10+DIDUjk/Qu8OMxgK5bnNXMj4y80Tc+RLdZlk+pE7scgediQS2cxn8L+3XauS8tE62EfsTg==}
+
+  cafe-utility@36.2.0:
+    resolution: {integrity: sha512-m7NH5dGX37lkFAfWjDHLY3/kVaCh5aq8X3CgRbMu/H21XRlw4vRu3ozi/MohttOEXfBjf3PM17ZaqXd2OsNYjA==}
 
   call-bind-apply-helpers@1.0.2:
     resolution: {integrity: sha512-Sp1ablJ0ivDkSzjcaJdxEunN5/XvksFJ2sMBFfq6x0ryhQV/2b/KwFe21cMpmHtPOSij8K99/wSfoEuTObmuMQ==}
@@ -3079,6 +3086,9 @@ packages:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
 
+  zod@4.4.3:
+    resolution: {integrity: sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ==}
+
 snapshots:
 
   '@adraffy/ens-normalize@1.11.1': {}
@@ -3451,7 +3461,7 @@ snapshots:
 
   '@ethersphere/bee-factory@1.1.1':
     dependencies:
-      '@ethersphere/bee-js': 12.2.2
+      '@ethersphere/bee-js': 12.3.1
       chalk: 5.6.2
       dockerode: 4.0.12
       ethers: 6.17.0
@@ -3470,6 +3480,19 @@ snapshots:
       isomorphic-ws: 4.0.1(ws@8.21.0)
       semver: 7.7.3
       ws: 8.21.0
+    transitivePeerDependencies:
+      - bufferutil
+      - supports-color
+      - utf-8-validate
+
+  '@ethersphere/bee-js@12.3.1':
+    dependencies:
+      cafe-utility: 34.0.0
+      debug: 4.4.3
+      isomorphic-ws: 4.0.1(ws@8.21.0)
+      semver: 7.7.3
+      ws: 8.21.0
+      zod: 4.4.3
     transitivePeerDependencies:
       - bufferutil
       - supports-color
@@ -4305,7 +4328,9 @@ snapshots:
 
   cafe-utility@33.11.0: {}
 
-  cafe-utility@33.7.0: {}
+  cafe-utility@34.0.0: {}
+
+  cafe-utility@36.2.0: {}
 
   call-bind-apply-helpers@1.0.2:
     dependencies:
@@ -6628,3 +6653,5 @@ snapshots:
   yn@3.1.1: {}
 
   yocto-queue@0.1.0: {}
+
+  zod@4.4.3: {}

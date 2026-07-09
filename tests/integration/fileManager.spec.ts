@@ -1,4 +1,3 @@
-/* eslint-disable jest/no-disabled-tests */
 import {
   BatchId,
   Bee,
@@ -44,6 +43,7 @@ import { buyStamp, getFeedData } from '@/utils/bee';
 import { FEED_INDEX_ZERO, ROOT_PATH, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 import { generateRandomBytes } from '@/utils/crypto';
 
+// TODO: tesdt cross-instance persistence and redundancyLevel/batchId/driveId invariant checks.
 // TODO: emitter test for all events
 // TODO: separate IT cases into different files
 describe('FileManager initialization', () => {
@@ -144,12 +144,53 @@ describe('FileManager initialization', () => {
     }
   });
 
-  // TODO: listFolder/download no longer enumerate files nested inside a single folder-collection
-  // upload under the drive-as-mantaray model (upload() registers one opaque fork per top-level
-  // upload call; there is no FileManager API to recurse into that collection's own contents).
-  // Re-implement this test once per-file forks are produced for folder uploads, or once a
-  // dedicated "read inside collection" API exists.
-  it.skip('should upload to and fetch from swarm a nested folder with files', async () => {});
+  it('uploads a nested folder with files and fetches them back', async () => {
+    const rootFile = 'it-init-nested-root.txt';
+    const nestedDir = 'it-init-nested-docs';
+    const nestedFile = path.join(nestedDir, 'note.txt');
+
+    fs.writeFileSync(rootFile, 'Init nested root content');
+    fs.mkdirSync(nestedDir, { recursive: true });
+    fs.writeFileSync(nestedFile, 'Init nested docs content');
+
+    try {
+      const driveBatchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'initNestedFolderStamp');
+      await fileManager.createDrive(driveBatchId, 'init-nested-drive', false);
+      const drive = fileManager.driveList.find((d) => d.name === 'init-nested-drive')!;
+      expect(drive).toBeDefined();
+
+      const result = await fileManager.uploadMany(
+        drive,
+        [
+          { relativePath: 'root.txt', source: rootFile },
+          { relativePath: 'docs/note.txt', source: nestedFile },
+        ],
+        '',
+      );
+      expect(result.failed).toHaveLength(0);
+
+      const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(drive, '', ListDepth.Shallow));
+      expect(rootEntries.some((e) => e.type === NodeType.File && e.path === 'root.txt')).toBe(true);
+      expect(rootEntries.some((e) => e.type === NodeType.Folder && e.path.endsWith('docs'))).toBe(true);
+
+      const downloadResults = await retryOnPropagationDelay(() =>
+        fileManager.download(drive, ['root.txt', 'docs/note.txt']),
+      );
+      const downloadedRoot = downloadResults.find((d) => d.path === 'root.txt');
+      const downloadedNested = downloadResults.find((d) => d.path === 'docs/note.txt');
+      expect(downloadedRoot).toBeDefined();
+      expect(downloadedNested).toBeDefined();
+      expect(Buffer.from((downloadedRoot!.result as Bytes).toUint8Array()).toString('utf-8')).toBe(
+        'Init nested root content',
+      );
+      expect(Buffer.from((downloadedNested!.result as Bytes).toUint8Array()).toString('utf-8')).toBe(
+        'Init nested docs content',
+      );
+    } finally {
+      fs.rmSync(rootFile, { force: true });
+      fs.rmSync(nestedDir, { recursive: true, force: true });
+    }
+  });
 
   it('should verify Bee versions and supported API', async () => {
     const versions = await bee.getVersions();
@@ -533,15 +574,98 @@ describe('FileManager drive handling', () => {
 });
 
 describe('FileManager listFolder', () => {
-  // TODO: these tests assumed listFolder(fileInfo, ...) could enumerate files nested inside a
-  // single folder-collection upload. Under the drive-as-mantaray model, listFolder walks the
-  // drive's own manifest tree (populated via upload()/createFolder()), not the internal contents
-  // of an uploaded collection blob — there is no FileManager API for that anymore. Re-implement
-  // using per-file uploads under a created folder once that access pattern is needed again.
-  it.skip('should return a list of files for the uploaded folder', async () => {});
-  it.skip('should throw and return an empty file list when uploading an empty folder', async () => {});
-  it.skip('should correctly return nested file paths in a deeply nested folder structure', async () => {});
-  it.skip('should ignore entries with empty paths', async () => {});
+  let bee: Bee;
+  let fileManager: FileManagerBase;
+  let batchId: BatchId;
+  let drive: DriveInfo;
+  const cleanupPaths: string[] = [];
+
+  function writeTempFile(name: string, content: string): string {
+    fs.writeFileSync(name, content);
+    cleanupPaths.push(name);
+    return name;
+  }
+
+  beforeAll(async () => {
+    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
+    bee = beeDev;
+    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'listFolderIntegration');
+    fileManager = await createInitializedFileManager(bee, ownerStamp);
+
+    await fileManager.createDrive(batchId, 'listfolder', false);
+    const tmpDrive = fileManager.driveList.find((d) => d.name === 'listfolder');
+    expect(tmpDrive).toBeDefined();
+    drive = tmpDrive!;
+  });
+
+  afterAll(() => {
+    for (const p of cleanupPaths) {
+      fs.rmSync(p, { recursive: true, force: true });
+    }
+  });
+
+  it('returns entries for every file uploaded into a folder', async () => {
+    const fileA = writeTempFile('it-listfolder-a.txt', 'A content');
+    const fileB = writeTempFile('it-listfolder-b.txt', 'B content');
+
+    const result = await fileManager.uploadMany(
+      drive,
+      [
+        { relativePath: 'gallery/a.txt', source: fileA },
+        { relativePath: 'gallery/b.txt', source: fileB },
+      ],
+      '',
+    );
+    expect(result.failed).toHaveLength(0);
+
+    const entries = await retryOnPropagationDelay(() => fileManager.listFolder(drive, 'gallery', ListDepth.Shallow));
+    const fileEntries = entries.filter((e) => e.type === NodeType.File);
+    expect(fileEntries.map((e) => e.path).sort()).toEqual(['gallery/a.txt', 'gallery/b.txt']);
+  });
+
+  it('returns an empty array for an empty folder', async () => {
+    await fileManager.createFolder(drive, ROOT_PATH, 'empty-folder');
+
+    const entries = await retryOnPropagationDelay(() =>
+      fileManager.listFolder(drive, 'empty-folder', ListDepth.Shallow),
+    );
+    expect(entries).toEqual([]);
+  });
+
+  it('correctly composes nested paths in a deep listing', async () => {
+    const fileA = writeTempFile('it-listfolder-deep-a.txt', 'Deep A content');
+    const fileB = writeTempFile('it-listfolder-deep-b.txt', 'Deep B content');
+
+    const result = await fileManager.uploadMany(
+      drive,
+      [
+        { relativePath: 'level1/level2/a.txt', source: fileA },
+        { relativePath: 'level1/level2/level3/b.txt', source: fileB },
+      ],
+      '',
+    );
+    expect(result.failed).toHaveLength(0);
+
+    const entries = await retryOnPropagationDelay(() => fileManager.listFolder(drive, 'level1', ListDepth.Deep));
+    const fileEntries = entries.filter((e) => e.type === NodeType.File);
+    expect(fileEntries.map((e) => e.path).sort()).toEqual(['level1/level2/a.txt', 'level1/level2/level3/b.txt']);
+  });
+
+  it('rejects an entry with an empty relativePath and leaves the folder listing unaffected', async () => {
+    const fileGood = writeTempFile('it-listfolder-guard-good.txt', 'Good content');
+    const fileBad = writeTempFile('it-listfolder-guard-bad.txt', 'Should not upload');
+
+    const seed = await fileManager.uploadMany(drive, [{ relativePath: 'guarded/good.txt', source: fileGood }], '');
+    expect(seed.failed).toHaveLength(0);
+
+    await expect(fileManager.uploadMany(drive, [{ relativePath: '', source: fileBad }], 'guarded')).rejects.toThrow(
+      /Invalid relativePath/,
+    );
+
+    const entries = await retryOnPropagationDelay(() => fileManager.listFolder(drive, 'guarded', ListDepth.Shallow));
+    const fileEntries = entries.filter((e) => e.type === NodeType.File);
+    expect(fileEntries.map((e) => e.path)).toEqual(['guarded/good.txt']);
+  });
 });
 
 describe('FileManager upload', () => {
@@ -1076,14 +1200,88 @@ describe('FileManager move', () => {
 });
 
 describe('FileManager download', () => {
-  // TODO: these tests assumed download(fileInfo, paths, ...) could fetch individual nested forks
-  // inside a single folder-collection upload. Under the drive-as-mantaray model, download()
-  // operates on a DriveInfo and filters fileInfoList by drive-relative path — there is no
-  // FileManager API to reach inside an uploaded collection's own contents anymore. Re-implement
-  // using per-file uploads under a created folder once that access pattern is needed again.
-  it.skip('should download all file contents from the uploaded manifest', async () => {});
-  it.skip('should download only the specified fork(s)', async () => {});
-  it.skip('should return an empty array when the manifest is empty', async () => {});
+  let bee: Bee;
+  let fileManager: FileManagerBase;
+  let batchId: BatchId;
+  let drive: DriveInfo;
+  const cleanupPaths: string[] = [];
+
+  function writeTempFile(name: string, content: string): string {
+    fs.writeFileSync(name, content);
+    cleanupPaths.push(name);
+    return name;
+  }
+
+  beforeAll(async () => {
+    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
+    bee = beeDev;
+    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'downloadIntegration');
+    fileManager = await createInitializedFileManager(bee, ownerStamp);
+
+    await fileManager.createDrive(batchId, 'downloaddrive', false);
+    const tmpDrive = fileManager.driveList.find((d) => d.name === 'downloaddrive');
+    expect(tmpDrive).toBeDefined();
+    drive = tmpDrive!;
+  });
+
+  afterAll(() => {
+    for (const p of cleanupPaths) {
+      fs.rmSync(p, { force: true });
+    }
+  });
+
+  it('downloads all file contents from the drive when no paths are given', async () => {
+    const fileA = writeTempFile('it-download-all-a.txt', 'Download All A');
+    const fileB = writeTempFile('it-download-all-b.txt', 'Download All B');
+
+    const result = await fileManager.uploadMany(
+      drive,
+      [
+        { relativePath: 'all-a.txt', source: fileA },
+        { relativePath: 'all-b.txt', source: fileB },
+      ],
+      '',
+    );
+    expect(result.failed).toHaveLength(0);
+
+    const downloadResults = await retryOnPropagationDelay(() => fileManager.download(drive));
+    expect(downloadResults.map((d) => d.path).sort()).toEqual(['all-a.txt', 'all-b.txt']);
+
+    const downloadedA = downloadResults.find((d) => d.path === 'all-a.txt');
+    const downloadedB = downloadResults.find((d) => d.path === 'all-b.txt');
+    expect(Buffer.from((downloadedA!.result as Bytes).toUint8Array()).toString('utf-8')).toBe('Download All A');
+    expect(Buffer.from((downloadedB!.result as Bytes).toUint8Array()).toString('utf-8')).toBe('Download All B');
+  });
+
+  it('downloads only the specified paths', async () => {
+    const fileC = writeTempFile('it-download-only-c.txt', 'Download Only C');
+    const fileD = writeTempFile('it-download-only-d.txt', 'Download Only D');
+
+    const result = await fileManager.uploadMany(
+      drive,
+      [
+        { relativePath: 'only-c.txt', source: fileC },
+        { relativePath: 'only-d.txt', source: fileD },
+      ],
+      '',
+    );
+    expect(result.failed).toHaveLength(0);
+
+    const downloadResults = await retryOnPropagationDelay(() => fileManager.download(drive, ['only-c.txt']));
+    expect(downloadResults).toHaveLength(1);
+    expect(downloadResults[0].path).toBe('only-c.txt');
+    expect(Buffer.from((downloadResults[0].result as Bytes).toUint8Array()).toString('utf-8')).toBe('Download Only C');
+  });
+
+  it('returns an empty array when the drive has no files', async () => {
+    const emptyBatchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'downloadEmptyIntegration');
+    await fileManager.createDrive(emptyBatchId, 'download-empty-drive', false);
+    const emptyDrive = fileManager.driveList.find((d) => d.name === 'download-empty-drive')!;
+    expect(emptyDrive).toBeDefined();
+
+    const downloadResults = await fileManager.download(emptyDrive);
+    expect(downloadResults).toEqual([]);
+  });
 });
 
 describe('FileManager file operations', () => {
@@ -1290,11 +1488,48 @@ describe('FileManager version control', () => {
     }
   });
 
-  // TODO: this assumed download(fileInfo, paths, ...) could fetch an individual nested fork
-  // ('a.txt') from inside a single folder-collection upload. There is no FileManager API to
-  // reach inside an uploaded collection's own contents anymore — re-implement once per-file
-  // uploads under a created folder support this access pattern.
-  it.skip('getVersion + download returns the correct bytes subset', async () => {});
+  it('getVersion returns independently downloadable, version-correct bytes', async () => {
+    const NAME = `version-bytes-${Date.now()}`;
+    try {
+      fs.writeFileSync(NAME, 'Version bytes v0');
+      await fileManager.upload(drive, { path: NAME });
+      const v0Fi = fileManager.fileInfoList.at(-1)!;
+
+      fs.writeFileSync(NAME, 'Version bytes v1');
+      await fileManager.upload(
+        drive,
+        { topic: v0Fi.topic.toString(), path: NAME },
+        { actHistoryAddress: new Reference(v0Fi.file.historyRef) },
+      );
+
+      const v0 = await fileManager.getVersion(v0Fi, FEED_INDEX_ZERO);
+      const head = await fileManager.getVersion(v0Fi);
+
+      expect(v0.file.reference).not.toBe(head.file.reference);
+
+      const v0Bytes = await retryOnPropagationDelay(async () => {
+        const rawRef = await bee.downloadData(v0.file.reference.toString(), {
+          actHistoryAddress: new Reference(v0.file.historyRef),
+          actPublisher: new PublicKey(v0.actPublisher).toCompressedHex(),
+        });
+        const contentRef = new Reference(rawRef.toUint8Array());
+        return bee.downloadFile(contentRef);
+      });
+      expect(Buffer.from(v0Bytes.data.toUint8Array()).toString('utf-8')).toBe('Version bytes v0');
+
+      const headBytes = await retryOnPropagationDelay(async () => {
+        const rawRef = await bee.downloadData(head.file.reference.toString(), {
+          actHistoryAddress: new Reference(head.file.historyRef),
+          actPublisher: new PublicKey(head.actPublisher).toCompressedHex(),
+        });
+        const contentRef = new Reference(rawRef.toUint8Array());
+        return bee.downloadFile(contentRef);
+      });
+      expect(Buffer.from(headBytes.data.toUint8Array()).toString('utf-8')).toBe('Version bytes v1');
+    } finally {
+      fs.rmSync(NAME, { force: true });
+    }
+  });
 
   it('returns the cached FileRecord for the current head without refetching', async () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
@@ -1351,13 +1586,6 @@ describe('FileManager version control', () => {
       const v0 = await fileManager.getVersion(v0Fi, FEED_INDEX_ZERO);
       expect(v0.version).toBeDefined();
       expect(v0.version).toBe(FEED_INDEX_ZERO.toString());
-
-      // TODO: v0.file.reference resolves to the raw WrappedUploadResult envelope
-      // (`{"uploadFilesRes":"<ref>"}`), not the actual file bytes — processUploadNode always
-      // wraps every upload so a previewPath ref can be attached, but nothing downstream
-      // (fileManager.download() or a manual bee.downloadData() call) unwraps it. previewPath was
-      // a bad design decision (metadata should carry preview info instead) and should be removed;
-      // once it is, uploads no longer need this wrapper and content becomes directly downloadable.
     } finally {
       fs.rmSync(NAME, { force: true });
     }
@@ -1530,14 +1758,153 @@ describe('FileManager getGranteesOfFile', () => {
 });
 
 describe('FileManager End-to-End User Workflow', () => {
-  // TODO: these workflows assumed listFolder/download could enumerate and fetch files nested
-  // inside a single folder-collection upload. Under the drive-as-mantaray model, both operate on
-  // the drive's own manifest tree (populated via upload()/createFolder()), not the internal
-  // contents of an uploaded collection blob — there is no FileManager API for that anymore.
-  // Re-implement using per-file uploads under created folders once that access pattern is needed.
-  it.skip('should simulate a complete workflow - in-place folder update simulation', async () => {});
-  it.skip('should simulate a complete workflow - new version folder upload', async () => {});
-  it.skip('should list files with correct relative paths reflecting folder structure', async () => {});
+  let bee: Bee;
+  let fileManager: FileManagerBase;
+  let batchId: BatchId;
+  let drive: DriveInfo;
+  const cleanupPaths: string[] = [];
+
+  function writeTempFile(name: string, content: string): string {
+    fs.writeFileSync(name, content);
+    cleanupPaths.push(name);
+    return name;
+  }
+
+  beforeAll(async () => {
+    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
+    bee = beeDev;
+    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'e2eWorkflowIntegration');
+    fileManager = await createInitializedFileManager(bee, ownerStamp);
+
+    await fileManager.createDrive(batchId, 'e2e-workflow', false);
+    const tmpDrive = fileManager.driveList.find((d) => d.name === 'e2e-workflow');
+    expect(tmpDrive).toBeDefined();
+    drive = tmpDrive!;
+  });
+
+  afterAll(() => {
+    for (const p of cleanupPaths) {
+      fs.rmSync(p, { recursive: true, force: true });
+    }
+  });
+
+  it('simulates an in-place folder update: one file changes, siblings are untouched', async () => {
+    const reportFileFlat = writeTempFile('it-e2e-inplace-report-src.txt', 'Report V1');
+    const noteFileFlat = writeTempFile('it-e2e-inplace-note-src.txt', 'Note V1');
+
+    const initial = await fileManager.uploadMany(
+      drive,
+      [
+        { relativePath: 'it-e2e-project/report.txt', source: reportFileFlat },
+        { relativePath: 'it-e2e-project/note.txt', source: noteFileFlat },
+      ],
+      '',
+    );
+    expect(initial.failed).toHaveLength(0);
+    const reportFi = initial.succeeded.find((fi) => fi.path === 'it-e2e-project/report.txt')!;
+    const noteFi = initial.succeeded.find((fi) => fi.path === 'it-e2e-project/note.txt')!;
+    expect(reportFi).toBeDefined();
+    expect(noteFi).toBeDefined();
+
+    // Update just one file in place — mirror the manifest path on disk since Node's upload()
+    // re-upload path doubles as both the fs source and the manifest fork identity.
+    const projectDir = 'it-e2e-project';
+    fs.mkdirSync(projectDir, { recursive: true });
+    cleanupPaths.push(projectDir);
+    fs.writeFileSync(path.join(projectDir, 'report.txt'), 'Report V2');
+
+    await fileManager.upload(
+      drive,
+      { topic: reportFi.topic.toString(), path: 'it-e2e-project/report.txt' },
+      { actHistoryAddress: new Reference(reportFi.file.historyRef) },
+    );
+
+    const projectEntries = await retryOnPropagationDelay(() =>
+      fileManager.listFolder(drive, 'it-e2e-project', ListDepth.Shallow),
+    );
+    expect(projectEntries.filter((e) => e.type === NodeType.File)).toHaveLength(2);
+
+    const downloadResults = await retryOnPropagationDelay(() =>
+      fileManager.download(drive, ['it-e2e-project/report.txt', 'it-e2e-project/note.txt']),
+    );
+    const downloadedReport = downloadResults.find((d) => d.path === 'it-e2e-project/report.txt');
+    const downloadedNote = downloadResults.find((d) => d.path === 'it-e2e-project/note.txt');
+    expect(downloadedReport).toBeDefined();
+    expect(downloadedNote).toBeDefined();
+    expect(Buffer.from((downloadedReport!.result as Bytes).toUint8Array()).toString('utf-8')).toBe('Report V2');
+    expect(Buffer.from((downloadedNote!.result as Bytes).toUint8Array()).toString('utf-8')).toBe('Note V1');
+  });
+
+  it('simulates uploading a new version of a folder — new files join without disturbing old ones', async () => {
+    const v1FileA = writeTempFile('it-e2e-newversion-v1-a.txt', 'V1 File A');
+    const v1FileB = writeTempFile('it-e2e-newversion-v1-b.txt', 'V1 File B');
+
+    const v1Result = await fileManager.uploadMany(
+      drive,
+      [
+        { relativePath: 'gallery-v2/a.txt', source: v1FileA },
+        { relativePath: 'gallery-v2/b.txt', source: v1FileB },
+      ],
+      '',
+    );
+    expect(v1Result.failed).toHaveLength(0);
+
+    const v2FileC = writeTempFile('it-e2e-newversion-v2-c.txt', 'V2 File C');
+    const v2Result = await fileManager.uploadMany(drive, [{ relativePath: 'c.txt', source: v2FileC }], 'gallery-v2');
+    expect(v2Result.failed).toHaveLength(0);
+
+    const entries = await retryOnPropagationDelay(() => fileManager.listFolder(drive, 'gallery-v2', ListDepth.Shallow));
+    const fileEntries = entries.filter((e) => e.type === NodeType.File);
+    expect(fileEntries.map((e) => e.path).sort()).toEqual(['gallery-v2/a.txt', 'gallery-v2/b.txt', 'gallery-v2/c.txt']);
+
+    const downloadResults = await retryOnPropagationDelay(() =>
+      fileManager.download(drive, ['gallery-v2/a.txt', 'gallery-v2/b.txt', 'gallery-v2/c.txt']),
+    );
+    expect(downloadResults).toHaveLength(3);
+    const contents = Object.fromEntries(
+      downloadResults.map((d) => [d.path, Buffer.from((d.result as Bytes).toUint8Array()).toString('utf-8')]),
+    );
+    expect(contents['gallery-v2/a.txt']).toBe('V1 File A');
+    expect(contents['gallery-v2/b.txt']).toBe('V1 File B');
+    expect(contents['gallery-v2/c.txt']).toBe('V2 File C');
+  });
+
+  it('lists files with correct relative paths reflecting a multi-branch folder structure', async () => {
+    const readme = writeTempFile('it-e2e-structure-readme.txt', 'Readme');
+    const specA = writeTempFile('it-e2e-structure-spec-a.txt', 'Spec A');
+    const specB = writeTempFile('it-e2e-structure-spec-b.txt', 'Spec B');
+    const asset = writeTempFile('it-e2e-structure-asset.txt', 'Asset');
+
+    const result = await fileManager.uploadMany(
+      drive,
+      [
+        { relativePath: 'structure/readme.txt', source: readme },
+        { relativePath: 'structure/specs/a.txt', source: specA },
+        { relativePath: 'structure/specs/b.txt', source: specB },
+        { relativePath: 'structure/assets/images/asset.txt', source: asset },
+      ],
+      '',
+    );
+    expect(result.failed).toHaveLength(0);
+
+    const entries = await retryOnPropagationDelay(() => fileManager.listFolder(drive, 'structure', ListDepth.Deep));
+    const filePaths = entries
+      .filter((e) => e.type === NodeType.File)
+      .map((e) => e.path)
+      .sort();
+    expect(filePaths).toEqual([
+      'structure/assets/images/asset.txt',
+      'structure/readme.txt',
+      'structure/specs/a.txt',
+      'structure/specs/b.txt',
+    ]);
+
+    const folderPaths = entries
+      .filter((e) => e.type === NodeType.Folder)
+      .map((e) => e.path)
+      .sort();
+    expect(folderPaths).toEqual(['structure/assets', 'structure/assets/images', 'structure/specs']);
+  });
 });
 
 describe('FileManager AbortController', () => {
