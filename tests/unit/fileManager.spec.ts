@@ -36,7 +36,6 @@ import {
   MANIFEST_METADATA_FILE_TOPIC,
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
-  MANIFEST_METADATA_PATH,
   SWARM_ZERO_ADDRESS,
 } from '@/utils/constants';
 import { generateRandomBytes } from '@/utils/crypto';
@@ -353,6 +352,7 @@ describe('FileManager', () => {
       fm.fileInfoList.push(seedFile(drive, 'a.txt', '1'.repeat(64)), seedFile(drive, 'b.txt', '2'.repeat(64)));
 
       const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
+      const downloadFileSpy = jest.spyOn(Bee.prototype, 'downloadFile');
 
       const results = await fm.download(drive);
 
@@ -366,6 +366,8 @@ describe('FileManager', () => {
         { actHistoryAddress: SWARM_ZERO_ADDRESS.toString(), actPublisher },
         undefined,
       );
+
+      expect(downloadFileSpy).toHaveBeenCalledTimes(2);
       expect(results.map((r) => r.path).sort()).toEqual(['a.txt', 'b.txt']);
     });
 
@@ -375,10 +377,12 @@ describe('FileManager', () => {
       fm.fileInfoList.push(seedFile(drive, 'a.txt', '1'.repeat(64)), seedFile(drive, 'b.txt', '2'.repeat(64)));
 
       const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
+      const downloadFileSpy = jest.spyOn(Bee.prototype, 'downloadFile');
 
       const results = await fm.download(drive, ['a.txt']);
 
       expect(downloadDataSpy).toHaveBeenCalledTimes(1);
+      expect(downloadFileSpy).toHaveBeenCalledTimes(1);
       expect(results).toHaveLength(1);
       expect(results[0].path).toBe('a.txt');
     });
@@ -390,8 +394,11 @@ describe('FileManager', () => {
       fm.fileInfoList.push(seedFile(drive, 'mine.txt', '1'.repeat(64)));
       fm.fileInfoList.push(seedFile(otherDrive, 'not-mine.txt', '2'.repeat(64)));
 
+      const downloadFileSpy = jest.spyOn(Bee.prototype, 'downloadFile');
+
       const results = await fm.download(drive);
 
+      expect(downloadFileSpy).toHaveBeenCalledTimes(1);
       expect(results).toHaveLength(1);
       expect(results[0].path).toBe('mine.txt');
     });
@@ -658,7 +665,7 @@ describe('FileManager', () => {
       await expect(fm.getVersion(dummyFi)).rejects.toThrow(`File feed not found for topic: ${dummyFi.topic}`);
     });
 
-    it('restoring the current head is a no-op and does not emit FILE_VERSION_RESTORED', async () => {
+    it('restoring the current head is a no-op and throws', async () => {
       const head = FeedIndex.fromBigInt(5n);
       const headFi = { ...dummyFi, version: head.toString() };
 
@@ -670,7 +677,9 @@ describe('FileManager', () => {
 
       const spyEmit = jest.spyOn(fm.emitter, 'emit');
 
-      await fm.restoreVersion(headFi);
+      await expect(fm.restoreVersion(headFi)).rejects.toThrow(
+        `Head Slot cannot be restored. Please select a version lesser than: ${head.toString()}`,
+      );
 
       expect(spyEmit).not.toHaveBeenCalledWith(FileManagerEvents.FILE_VERSION_RESTORED, expect.anything());
     });
@@ -956,7 +965,6 @@ describe('FileManager', () => {
 
       const fileTopic = Topic.fromString('cold-file').toString();
       driveMantaray.addFork('cold.txt', new Reference(fileTopic), {
-        [MANIFEST_METADATA_PATH]: 'cold.txt',
         [MANIFEST_METADATA_FILE_TOPIC]: fileTopic,
         [MANIFEST_METADATA_NODE_TOPIC]: fileTopic,
         [MANIFEST_METADATA_NODE_TYPE]: NodeType.File,

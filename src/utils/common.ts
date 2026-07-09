@@ -63,3 +63,7 @@ export const verifyStampUsability = (s: PostageBatch | undefined, requestedBatch
 
   return s;
 };
+
+export const joinPath = (base: string, name: string): string => {
+  return base ? `${base}/${name}` : name;
+};

@@ -3,6 +3,7 @@ import type {
   BeeRequestOptions,
   CollectionUploadOptions,
   FileUploadOptions,
+  RedundancyLevel,
   RedundantUploadOptions,
 } from '@ethersphere/bee-js';
 import { isNode } from 'std-env';
@@ -18,11 +19,11 @@ interface ProcessedOptions {
 
 const processOptions = (
   isNode: boolean,
-  driveInfo: DriveInfo,
   fileOptions: FileInfoOptions,
-  uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
+  uploadOptions: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions | undefined,
+  redundancyLevel: RedundancyLevel,
 ): ProcessedOptions => {
-  const processedOptions = { ...uploadOptions, redundancyLevel: driveInfo.redundancyLevel };
+  const processedOptions = { ...uploadOptions, redundancyLevel };
 
   let file: ReferenceWithHistory | undefined;
 
@@ -42,10 +43,13 @@ export async function processUpload(
   bee: Bee,
   driveInfo: DriveInfo,
   fileOptions: FileInfoOptions,
-  uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
+  uploadOptions: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions | undefined,
+  // Effective redundancy level inherited from the target parent folder (or drive root) —
+  // resolved by the caller, since only it knows which ManifestHost the file is landing under.
+  redundancyLevel: RedundancyLevel,
   requestOptions?: BeeRequestOptions,
 ): Promise<ReferenceWithHistory> {
-  const processedOptions = processOptions(isNode, driveInfo, fileOptions, uploadOptions);
+  const processedOptions = processOptions(isNode, fileOptions, uploadOptions, redundancyLevel);
 
   if (processedOptions.file) {
     return processedOptions.file;
@@ -54,10 +58,10 @@ export async function processUpload(
   if (isNode) {
     const { processUploadNode } = await import('./upload.node');
     const nodeOptions = processedOptions.options as NodeUploadOptions;
-    return processUploadNode(bee, driveInfo, nodeOptions, uploadOptions, requestOptions);
+    return processUploadNode(bee, driveInfo, nodeOptions, processedOptions.uploadOptions, requestOptions);
   }
 
   const { processUploadBrowser } = await import('./upload.browser');
   const browserOptions = processedOptions.options as BrowserUploadOptions;
-  return processUploadBrowser(bee, driveInfo, browserOptions, uploadOptions, requestOptions);
+  return processUploadBrowser(bee, driveInfo, browserOptions, processedOptions.uploadOptions, requestOptions);
 }

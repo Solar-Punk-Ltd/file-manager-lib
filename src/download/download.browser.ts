@@ -15,7 +15,7 @@ async function downloadReadableFetch(
     options = prepareDownloadOptions(options);
   }
 
-  const response = await fetch(`${apiUrl}/${endpoint}/${resource}`, {
+  const response = await fetch(`${apiUrl}/${endpoint}/${resource}/`, {
     method: 'GET',
     headers: {
       ...requestOptions?.headers,

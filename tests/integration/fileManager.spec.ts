@@ -2,6 +2,7 @@
 import {
   BatchId,
   Bee,
+  Bytes,
   FeedIndex,
   Identifier,
   PostageBatch,
@@ -28,7 +29,7 @@ import { ensureUniqueSignerWithStamp } from './testSetupHelpers';
 
 import { FileManagerBase } from '@/fileManager';
 import { DriveInfo, FileRecord, FileStatus, FolderInfo } from '@/types';
-import { ListDepth, StateTopicInfo } from '@/types/utils';
+import { ListDepth, NodeType, StateTopicInfo } from '@/types/utils';
 import {
   ADMIN_STAMP_LABEL,
   DriveError,
@@ -697,6 +698,383 @@ describe('FileManager upload', () => {
   });
 });
 
+describe('FileManager uploadMany', () => {
+  let bee: Bee;
+  let fileManager: FileManagerBase;
+  let batchId: BatchId;
+  let drive: DriveInfo;
+  const tempFiles: string[] = [];
+
+  function writeTempFile(name: string, content: string): string {
+    fs.writeFileSync(name, content);
+    tempFiles.push(name);
+    return name;
+  }
+
+  beforeAll(async () => {
+    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
+    bee = beeDev;
+    batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'uploadManyIntegration');
+    fileManager = await createInitializedFileManager(bee, ownerStamp);
+
+    await fileManager.createDrive(batchId, 'uploadmany', false);
+    const tmpDrive = fileManager.driveList.find((d) => d.name === 'uploadmany');
+    expect(tmpDrive).toBeDefined();
+    drive = tmpDrive!;
+  });
+
+  afterAll(() => {
+    for (const f of tempFiles) {
+      fs.rmSync(f, { force: true });
+    }
+  });
+
+  it('uploads multiple flat files into the drive root, each with its own topic', async () => {
+    const fileA = writeTempFile('it-uploadmany-a.txt', 'Content A');
+    const fileB = writeTempFile('it-uploadmany-b.txt', 'Content B');
+    const fileC = writeTempFile('it-uploadmany-c.txt', 'Content C');
+
+    const result = await fileManager.uploadMany(
+      drive,
+      [
+        { relativePath: 'a.txt', source: fileA },
+        { relativePath: 'b.txt', source: fileB },
+        { relativePath: 'c.txt', source: fileC },
+      ],
+      '',
+    );
+
+    expect(result.succeeded).toHaveLength(3);
+    expect(result.failed).toHaveLength(0);
+
+    const entries = await retryOnPropagationDelay(() => fileManager.listFolder(drive, '', ListDepth.Shallow));
+    const fileEntries = entries.filter((e) => e.type === NodeType.File);
+    expect(fileEntries.map((e) => e.path).sort()).toEqual(['a.txt', 'b.txt', 'c.txt']);
+
+    const distinctTopics = new Set(
+      fileManager.fileInfoList
+        .filter((fi) => ['a.txt', 'b.txt', 'c.txt'].includes(fi.path))
+        .map((fi) => fi.topic.toString()),
+    );
+    expect(distinctTopics.size).toBe(3);
+  });
+
+  it('creates missing folders as needed and batches each touched manifest into a single save', async () => {
+    const reportFile = writeTempFile('it-uploadmany-report.pdf', 'report content');
+    const logoFile = writeTempFile('it-uploadmany-logo.png', 'logo content');
+    const readmeFile = writeTempFile('it-uploadmany-readme.md', 'readme content');
+
+    const folderCreatedEvents: unknown[] = [];
+    const filesUploadedEvents: unknown[] = [];
+    const onFolderCreated = (e: unknown): number => folderCreatedEvents.push(e);
+    const onFilesUploaded = (e: unknown): number => filesUploadedEvents.push(e);
+    fileManager.emitter.on(FileManagerEvents.FOLDER_CREATED, onFolderCreated);
+    fileManager.emitter.on(FileManagerEvents.FILES_UPLOADED, onFilesUploaded);
+
+    try {
+      const result = await fileManager.uploadMany(
+        drive,
+        [
+          { relativePath: 'docs/report.pdf', source: reportFile },
+          { relativePath: 'docs/img/logo.png', source: logoFile },
+          { relativePath: 'readme.md', source: readmeFile },
+        ],
+        '',
+      );
+
+      expect(result.failed).toHaveLength(0);
+      expect(result.succeeded).toHaveLength(3);
+      expect(folderCreatedEvents).toHaveLength(2);
+      expect(filesUploadedEvents).toHaveLength(1);
+
+      const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(drive, '', ListDepth.Shallow));
+      expect(rootEntries.some((e) => e.type === NodeType.File && e.path === 'readme.md')).toBe(true);
+      expect(rootEntries.some((e) => e.type === NodeType.Folder && e.path.endsWith('docs'))).toBe(true);
+
+      const docsEntries = await retryOnPropagationDelay(() => fileManager.listFolder(drive, 'docs', ListDepth.Shallow));
+      expect(docsEntries.some((e) => e.type === NodeType.File && e.path === 'docs/report.pdf')).toBe(true);
+      expect(docsEntries.some((e) => e.type === NodeType.Folder && e.path.endsWith('img'))).toBe(true);
+
+      const imgEntries = await retryOnPropagationDelay(() =>
+        fileManager.listFolder(drive, 'docs/img', ListDepth.Shallow),
+      );
+      expect(imgEntries.some((e) => e.type === NodeType.File && e.path === 'docs/img/logo.png')).toBe(true);
+    } finally {
+      fileManager.emitter.off(FileManagerEvents.FOLDER_CREATED, onFolderCreated);
+      fileManager.emitter.off(FileManagerEvents.FILES_UPLOADED, onFilesUploaded);
+    }
+  });
+
+  it('uploads into an existing folder without duplicating it', async () => {
+    await fileManager.createFolder(drive, ROOT_PATH, 'existing');
+    const xFile = writeTempFile('it-uploadmany-x.txt', 'x content');
+
+    const result = await fileManager.uploadMany(drive, [{ relativePath: 'sub/x.txt', source: xFile }], 'existing');
+
+    expect(result.failed).toHaveLength(0);
+    expect(result.succeeded).toHaveLength(1);
+
+    const existingEntries = await retryOnPropagationDelay(() =>
+      fileManager.listFolder(drive, 'existing', ListDepth.Shallow),
+    );
+    const subFolders = existingEntries.filter((e) => e.type === NodeType.Folder && e.path.endsWith('sub'));
+    expect(subFolders).toHaveLength(1);
+
+    const subEntries = await retryOnPropagationDelay(() =>
+      fileManager.listFolder(drive, 'existing/sub', ListDepth.Shallow),
+    );
+    expect(subEntries.some((e) => e.type === NodeType.File && e.path === 'existing/sub/x.txt')).toBe(true);
+
+    const rootEntries = await fileManager.listFolder(drive, '', ListDepth.Shallow);
+    expect(rootEntries.filter((e) => e.type === NodeType.Folder && e.path.endsWith('existing'))).toHaveLength(1);
+  });
+
+  it('round-trips file content exactly through the two-hop ACT-unwrap download path', async () => {
+    const contentA = 'Round trip content Alpha - '.repeat(50);
+    const contentB = 'Round trip content Beta !! - '.repeat(37);
+    const fileA = writeTempFile('it-uploadmany-roundtrip-a.txt', contentA);
+    const fileB = writeTempFile('it-uploadmany-roundtrip-b.txt', contentB);
+
+    const result = await fileManager.uploadMany(
+      drive,
+      [
+        { relativePath: 'roundtrip-a.txt', source: fileA },
+        { relativePath: 'roundtrip-b.txt', source: fileB },
+      ],
+      '',
+    );
+    expect(result.failed).toHaveLength(0);
+
+    const downloadResults = await retryOnPropagationDelay(() =>
+      fileManager.download(drive, ['roundtrip-a.txt', 'roundtrip-b.txt']),
+    );
+
+    const downloadedA = downloadResults.find((d) => d.path === 'roundtrip-a.txt');
+    const downloadedB = downloadResults.find((d) => d.path === 'roundtrip-b.txt');
+    expect(downloadedA).toBeDefined();
+    expect(downloadedB).toBeDefined();
+
+    const bytesA = downloadedA!.result as Bytes;
+    const bytesB = downloadedB!.result as Bytes;
+    expect(Buffer.from(bytesA.toUint8Array()).toString('utf-8')).toBe(contentA);
+    expect(Buffer.from(bytesB.toUint8Array()).toString('utf-8')).toBe(contentB);
+  });
+
+  it('fails fast without writing anything when a needed folder path is blocked by an existing file', async () => {
+    const blockerPath = 'it-uploadmany-blocker';
+    writeTempFile(blockerPath, 'blocker content');
+    await fileManager.upload(drive, { path: blockerPath });
+
+    const innerFile = writeTempFile('it-uploadmany-inner-src.txt', 'inner content');
+
+    await expect(
+      fileManager.uploadMany(drive, [{ relativePath: `${blockerPath}/inner.txt`, source: innerFile }], ''),
+    ).rejects.toThrow(/not a folder/i);
+
+    const rootEntries = await fileManager.listFolder(drive, '', ListDepth.Shallow);
+    expect(rootEntries.some((e) => e.path === 'inner.txt')).toBe(false);
+    expect(rootEntries.some((e) => e.type === NodeType.Folder && e.path.endsWith(blockerPath))).toBe(false);
+    expect(fileManager.fileInfoList.some((fi) => fi.path.includes('inner.txt'))).toBe(false);
+  });
+
+  it('rejects invalid relativePath and empty entries before doing any work', async () => {
+    const srcFile = writeTempFile('it-uploadmany-validation-src.txt', 'validation content');
+
+    await expect(
+      fileManager.uploadMany(drive, [{ relativePath: '../escape.txt', source: srcFile }], ''),
+    ).rejects.toThrow(/Invalid relativePath/);
+
+    await expect(fileManager.uploadMany(drive, [], '')).rejects.toThrow(/at least one entry/i);
+  });
+});
+
+describe('FileManager move', () => {
+  let bee: Bee;
+  let fileManager: FileManagerBase;
+  let driveA: DriveInfo;
+  let driveB: DriveInfo;
+  const cleanupPaths: string[] = [];
+
+  function writeTempFile(name: string, content: string): string {
+    fs.writeFileSync(name, content);
+    cleanupPaths.push(name);
+    return name;
+  }
+
+  beforeAll(async () => {
+    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
+    bee = beeDev;
+    const batchIdA = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'moveIntegrationA');
+    const batchIdB = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'moveIntegrationB');
+    fileManager = await createInitializedFileManager(bee, ownerStamp);
+
+    await fileManager.createDrive(batchIdA, 'move-a', false);
+    const tmpDriveA = fileManager.driveList.find((d) => d.name === 'move-a');
+    expect(tmpDriveA).toBeDefined();
+    driveA = tmpDriveA!;
+
+    await fileManager.createDrive(batchIdB, 'move-b', false);
+    const tmpDriveB = fileManager.driveList.find((d) => d.name === 'move-b');
+    expect(tmpDriveB).toBeDefined();
+    driveB = tmpDriveB!;
+  });
+
+  afterAll(() => {
+    for (const p of cleanupPaths) {
+      fs.rmSync(p, { recursive: true, force: true });
+    }
+  });
+
+  it('renames a file within the drive root, preserving content and bumping the version', async () => {
+    const fileA = writeTempFile('it-move-a.txt', 'Move Content A');
+    await fileManager.upload(driveA, { path: fileA });
+
+    const before = fileManager.fileInfoList.find((fi) => fi.path === fileA)!;
+    expect(before).toBeDefined();
+    const beforeVersion = BigInt((before.version ?? '0').toString());
+    const topic = before.topic.toString();
+
+    await fileManager.move(fileA, 'it-move-b.txt', driveA);
+
+    const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA, '', ListDepth.Shallow));
+    expect(rootEntries.some((e) => e.path === fileA)).toBe(false);
+    expect(rootEntries.some((e) => e.type === NodeType.File && e.path === 'it-move-b.txt')).toBe(true);
+
+    const moved = fileManager.fileInfoList.find((fi) => fi.topic.toString() === topic)!;
+    expect(moved).toBeDefined();
+    expect(moved.path).toBe('it-move-b.txt');
+    expect(BigInt(moved.version!.toString())).toBe(beforeVersion + 1n);
+
+    const downloadResults = await retryOnPropagationDelay(() => fileManager.download(driveA, ['it-move-b.txt']));
+    const downloaded = downloadResults.find((d) => d.path === 'it-move-b.txt');
+    expect(downloaded).toBeDefined();
+    expect(Buffer.from((downloaded!.result as Bytes).toUint8Array()).toString('utf-8')).toBe('Move Content A');
+  });
+
+  it('moves a root file into a newly created folder', async () => {
+    const docFile = writeTempFile('it-move-doc.txt', 'Archive Me');
+    await fileManager.upload(driveA, { path: docFile });
+    await fileManager.createFolder(driveA, ROOT_PATH, 'archive');
+
+    await fileManager.move(docFile, 'archive/doc.txt', driveA);
+
+    const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA, '', ListDepth.Shallow));
+    expect(rootEntries.some((e) => e.path === docFile)).toBe(false);
+
+    const archiveEntries = await retryOnPropagationDelay(() =>
+      fileManager.listFolder(driveA, 'archive', ListDepth.Shallow),
+    );
+    expect(archiveEntries.some((e) => e.type === NodeType.File && e.path === 'archive/doc.txt')).toBe(true);
+
+    const downloadResults = await retryOnPropagationDelay(() => fileManager.download(driveA, ['archive/doc.txt']));
+    const downloaded = downloadResults.find((d) => d.path === 'archive/doc.txt');
+    expect(downloaded).toBeDefined();
+    expect(Buffer.from((downloaded!.result as Bytes).toUint8Array()).toString('utf-8')).toBe('Archive Me');
+  });
+
+  it('moves a nested file back out to the drive root', async () => {
+    const folderName = 'it-move-inbox';
+    await fileManager.createFolder(driveA, ROOT_PATH, folderName);
+
+    fs.mkdirSync(folderName, { recursive: true });
+    cleanupPaths.push(folderName);
+    const inboxFilePath = path.join(folderName, 'note.txt');
+    fs.writeFileSync(inboxFilePath, 'Inbox Note');
+
+    await fileManager.upload(driveA, { path: inboxFilePath });
+
+    await fileManager.move(inboxFilePath, 'note.txt', driveA);
+
+    const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA, '', ListDepth.Shallow));
+    expect(rootEntries.some((e) => e.type === NodeType.File && e.path === 'note.txt')).toBe(true);
+
+    const folderEntries = await retryOnPropagationDelay(() =>
+      fileManager.listFolder(driveA, folderName, ListDepth.Shallow),
+    );
+    expect(folderEntries.some((e) => e.path === inboxFilePath)).toBe(false);
+
+    const downloadResults = await retryOnPropagationDelay(() => fileManager.download(driveA, ['note.txt']));
+    const downloaded = downloadResults.find((d) => d.path === 'note.txt');
+    expect(downloaded).toBeDefined();
+    expect(Buffer.from((downloaded!.result as Bytes).toUint8Array()).toString('utf-8')).toBe('Inbox Note');
+  });
+
+  it('moves a folder as a unit, composing correct descendant paths at read time', async () => {
+    const innerFile = writeTempFile('it-move-src-inner.txt', 'Inner File Content');
+    const uploadResult = await fileManager.uploadMany(
+      driveA,
+      [{ relativePath: 'src/inner.txt', source: innerFile }],
+      '',
+    );
+    expect(uploadResult.failed).toHaveLength(0);
+    const originalTopic = uploadResult.succeeded[0].topic.toString();
+
+    await fileManager.createFolder(driveA, ROOT_PATH, 'backup');
+
+    await fileManager.move('src', 'backup/src', driveA);
+
+    const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA, '', ListDepth.Shallow));
+    expect(rootEntries.some((e) => e.type === NodeType.Folder && e.path.replace(/^\//, '') === 'src')).toBe(false);
+
+    const backupEntries = await retryOnPropagationDelay(() =>
+      fileManager.listFolder(driveA, 'backup', ListDepth.Shallow),
+    );
+    expect(backupEntries.some((e) => e.type === NodeType.Folder && e.path === 'backup/src')).toBe(true);
+
+    const srcEntries = await retryOnPropagationDelay(() =>
+      fileManager.listFolder(driveA, 'backup/src', ListDepth.Shallow),
+    );
+    const innerEntry = srcEntries.find((e) => e.type === NodeType.File);
+    expect(innerEntry).toBeDefined();
+    expect(innerEntry!.topic).toBe(originalTopic);
+    // Fixed: nothing on Swarm ever claimed an absolute position, so listFolder composes the
+    // descendant's path fresh from the current tree — it correctly reflects the new location.
+    expect(innerEntry!.path).toBe('backup/src/inner.txt');
+
+    const movedFi = fileManager.fileInfoList.find((fi) => fi.topic.toString() === originalTopic)!;
+    expect(movedFi).toBeDefined();
+    // move()'s own in-memory prefix rewrite already corrected the cached entry — no fresh
+    // listFolder call was needed to get here.
+    expect(movedFi.path).toBe('backup/src/inner.txt');
+
+    const downloadResults = await retryOnPropagationDelay(() => fileManager.download(driveA, ['backup/src/inner.txt']));
+    const downloaded = downloadResults.find((d) => d.path === 'backup/src/inner.txt');
+    expect(downloaded).toBeDefined();
+    expect(Buffer.from((downloaded!.result as Bytes).toUint8Array()).toString('utf-8')).toBe('Inner File Content');
+  });
+
+  it('moves a file across drives, updating driveId and remaining downloadable from the target', async () => {
+    const xFile = writeTempFile('it-move-x.txt', 'Cross Drive Content');
+    await fileManager.upload(driveA, { path: xFile });
+
+    await fileManager.move(xFile, xFile, driveA, driveB);
+
+    const driveAEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA, '', ListDepth.Shallow));
+    expect(driveAEntries.some((e) => e.path === xFile)).toBe(false);
+
+    const driveBEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveB, '', ListDepth.Shallow));
+    expect(driveBEntries.some((e) => e.type === NodeType.File && e.path === xFile)).toBe(true);
+
+    const moved = fileManager.fileInfoList.find((fi) => fi.path === xFile && fi.driveId === driveB.id.toString());
+    expect(moved).toBeDefined();
+
+    const downloadResults = await retryOnPropagationDelay(() => fileManager.download(driveB, [xFile]));
+    const downloaded = downloadResults.find((d) => d.path === xFile);
+    expect(downloaded).toBeDefined();
+    expect(Buffer.from((downloaded!.result as Bytes).toUint8Array()).toString('utf-8')).toBe('Cross Drive Content');
+  });
+
+  it('rejects invalid move calls', async () => {
+    await expect(fileManager.move('it-move-nonexistent.txt', 'dest.txt', driveA)).rejects.toThrow(/not found/i);
+
+    const sameFile = writeTempFile('it-move-same.txt', 'Same Path Content');
+    await fileManager.upload(driveA, { path: sameFile });
+    await expect(fileManager.move(sameFile, sameFile, driveA)).rejects.toThrow(/identical/i);
+
+    await expect(fileManager.move(sameFile, 'nosuchfolder/dest.txt', driveA)).rejects.toThrow(/not found/i);
+  });
+});
+
 describe('FileManager download', () => {
   // TODO: these tests assumed download(fileInfo, paths, ...) could fetch individual nested forks
   // inside a single folder-collection upload. Under the drive-as-mantaray model, download()
@@ -1021,6 +1399,7 @@ describe('FileManager version control', () => {
     }
   });
 
+  // TODO: review this TC -> the description might me swapped with the next one
   it('restoring the current head does nothing', async () => {
     const NAME = 'noop-restore';
     try {
@@ -1034,7 +1413,7 @@ describe('FileManager version control', () => {
         },
       );
 
-      const currentHead = await fileManager.getVersion(base, base.version!);
+      const currentHead = await fileManager.getVersion(base, base.version);
 
       await fileManager.restoreVersion(currentHead);
 
@@ -1046,16 +1425,73 @@ describe('FileManager version control', () => {
     }
   });
 
-  it('restoreVersion() on a single version file reaffirms the head', async () => {
+  it('restoreVersion on a single version file reaffirms the head', async () => {
     const base = await ensureBase('noop-default');
     const headIdx = FeedIndex.fromBigInt(BigInt(base.version!.toString()));
     const before = await fileManager.getVersion(base, headIdx);
 
-    await fileManager.restoreVersion(before);
+    await expect(fileManager.restoreVersion(before)).rejects.toThrow(
+      `Head Slot cannot be restored. Please select a version lesser than: ${before.version?.toString()}`,
+    );
 
     const after = await fileManager.getVersion(base, headIdx);
     expect(after.version).toBe(before.version);
     expect(after.file.reference).toBe(before.file.reference);
+  });
+
+  it("restoring an old version keeps the current (post-move) location, not the version's recorded path", async () => {
+    const NAME = 'restore-move-file.txt';
+    try {
+      fs.writeFileSync(NAME, 'Restore Move V0 Content');
+      await fileManager.upload(drive, { path: NAME });
+      const base = fileManager.fileInfoList.at(-1)!;
+      const topic = base.topic.toString();
+
+      fs.writeFileSync(NAME, 'Restore Move V1 Content');
+      await fileManager.upload(
+        drive,
+        { topic, path: NAME },
+        { actHistoryAddress: new Reference(base.file.historyRef) },
+      );
+
+      await fileManager.createFolder(drive, ROOT_PATH, 'restore-move-dest');
+      const destPath = 'restore-move-dest/restore-move-file.txt';
+      await fileManager.move(NAME, destPath, drive);
+
+      const v0 = await fileManager.getVersion(base, FEED_INDEX_ZERO);
+      expect(v0.version).toBe(FEED_INDEX_ZERO.toString());
+
+      const { feedIndex: headBeforeRestore } = await getFeedData(
+        bee,
+        new Topic(topic),
+        signer.publicKey().address().toString(),
+      );
+
+      await fileManager.restoreVersion(v0);
+
+      const cached = fileManager.fileInfoList.find((f) => f.topic.toString() === topic)!;
+      expect(cached).toBeDefined();
+      // Restoring content must not regress the tree position back to v0's own recorded path.
+      expect(cached.path).toBe(destPath);
+
+      const { feedIndex: headAfterRestore } = await retryOnPropagationDelay(async () => {
+        const result = await getFeedData(bee, new Topic(topic), signer.publicKey().address().toString());
+        if (!(result.feedIndex.toBigInt() > headBeforeRestore.toBigInt())) {
+          throw new Error('feed head has not advanced yet');
+        }
+        return result;
+      });
+      expect(headAfterRestore.toBigInt()).toBeGreaterThan(headBeforeRestore.toBigInt());
+
+      const downloadResults = await retryOnPropagationDelay(() => fileManager.download(drive, [destPath]));
+      const downloaded = downloadResults.find((d) => d.path === destPath);
+      expect(downloaded).toBeDefined();
+      expect(Buffer.from((downloaded!.result as Bytes).toUint8Array()).toString('utf-8')).toBe(
+        'Restore Move V0 Content',
+      );
+    } finally {
+      fs.rmSync(NAME, { force: true });
+    }
   });
 });
 

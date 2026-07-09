@@ -14,8 +14,8 @@ import {
 import { EventEmitter } from '../eventEmitter';
 import { DirectoryEntry } from '../utils/mantaray';
 
-import { DownloadResult, DriveInfo, FileRecord, FolderInfo, ShareItem } from './info';
-import { FileInfoOptions, ListDepth } from './utils';
+import { DownloadResult, DriveInfo, FileRecord, FolderInfo, ShareItem, UploadManyResult } from './info';
+import { FileInfoOptions, ListDepth, UploadManyEntry } from './utils';
 
 /**
  * Interface representing a file manager with various file operations.
@@ -52,6 +52,9 @@ export interface FileManager {
 
   /**
    * Uploads a file with the given options.
+   *
+   * For multi-file/folder uploads use uploadMany — passing multiple files here produces a
+   * single opaque collection without per-file versioning, ACT, or listing.
    * @param infoOptions - The options for the file info upload.
    * @param uploadOptions - File and collection related upload options.
    * @param requestOptions - Additional Bee request options.
@@ -64,6 +67,30 @@ export interface FileManager {
     uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<void>;
+
+  /**
+   * Uploads multiple files, recreating their folder hierarchy as real folder-nodes under
+   * destinationPath. Each file becomes its own node with per-file versioning and ACT, unlike a
+   * single opaque collection upload via upload(). Missing folders are created as needed; each
+   * touched parent manifest is saved once at the end. Tolerates partial failure: per-file errors
+   * are collected rather than aborting the whole batch.
+   * @param driveInfo - The drive to upload into.
+   * @param entries - The files to upload, each with a path relative to destinationPath.
+   * @param destinationPath - Absolute path of the destination folder, or '' / '/' for the drive root.
+   * @param uploadOptions - File-related upload options.
+   * @param requestOptions - Additional Bee request options.
+   * @emits FileManagerEvents.FOLDER_CREATED (per folder created)
+   * @emits FileManagerEvents.FILE_UPLOADED (per file uploaded)
+   * @emits FileManagerEvents.FILES_UPLOADED (once, with the batch summary)
+   * @returns The succeeded FileRecords and any per-file failures.
+   */
+  uploadMany(
+    driveInfo: DriveInfo,
+    entries: UploadManyEntry[],
+    destinationPath?: string,
+    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<UploadManyResult>;
 
   /**
    * Downloads files for all matching paths in a drive.

@@ -6,8 +6,15 @@ export type {
   FolderInfo,
   ManifestHost,
   ShareItem,
+  UploadManyResult,
 } from './info';
 export { FileStatus } from './info';
-export type { BrowserUploadOptions, FileInfoOptions, NodeUploadOptions, UploadProgress } from './utils';
+export type {
+  BrowserUploadOptions,
+  FileInfoOptions,
+  NodeUploadOptions,
+  UploadManyEntry,
+  UploadProgress,
+} from './utils';
 export { ListDepth, NodeType } from './utils';
 export type { FileManager } from './fileManager';

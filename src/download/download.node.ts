@@ -23,7 +23,9 @@ export async function downloadNode(
 
       const contentRef = new Reference(rawRef.toUint8Array());
 
-      return await bee.downloadData(contentRef, options, requestOptions);
+      const file = await bee.downloadFile(contentRef, undefined, options, requestOptions);
+
+      return file.data;
     }),
     (value, ix) => results.push({ path: resources[ix].path, result: value }),
     (reason, ix) => {

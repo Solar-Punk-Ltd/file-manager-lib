@@ -37,6 +37,14 @@ export interface NodeUploadOptions {
   path: string;
 }
 
+export interface UploadManyEntry {
+  /** Path relative to destinationPath, e.g. "docs/report.pdf". For browser folder
+   *  selections, derive from File.webkitRelativePath; for flat multi-select, File.name. */
+  relativePath: string;
+  /** Browser: the File object. Node: absolute filesystem path. */
+  source: File | string;
+}
+
 export interface ReferenceWithHistory {
   reference: string | Reference;
   historyRef: string | Reference;

@@ -19,6 +19,12 @@ export enum FileStatus {
 export interface FileRecord {
   topic: string | Topic;
   driveId: string;
+  /**
+   * Persisted value (what gets written to the file's feed) is the relative filename only.
+   * The in-memory copy held in FileManager.fileInfoList is stamped with the current absolute
+   * path by whichever walker or write path last resolved it — always trust the in-memory value,
+   * not a value freshly deserialized from the feed without re-stamping.
+   */
   path: string;
   file: ReferenceWithHistory;
   batchId: string | BatchId;
@@ -61,6 +67,11 @@ export interface DownloadResource {
 export interface DownloadResult {
   path: string;
   result: Bytes | ReadableStream<Uint8Array>;
+}
+
+export interface UploadManyResult {
+  succeeded: FileRecord[];
+  failed: { path: string; error: string }[];
 }
 
 export interface DriveInfo {

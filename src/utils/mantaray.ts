@@ -2,12 +2,7 @@ import { Bee, BeeRequestOptions, DownloadOptions, MantarayNode, Reference } from
 
 import { NodeType } from '../types/utils';
 
-import {
-  MANIFEST_METADATA_FILE_TOPIC,
-  MANIFEST_METADATA_NODE_TOPIC,
-  MANIFEST_METADATA_NODE_TYPE,
-  MANIFEST_METADATA_PATH,
-} from './constants';
+import { MANIFEST_METADATA_FILE_TOPIC, MANIFEST_METADATA_NODE_TOPIC, MANIFEST_METADATA_NODE_TYPE } from './constants';
 
 export async function loadMantaray(
   bee: Bee,
@@ -40,7 +35,7 @@ export function getAllNodeEntries(root: MantarayNode): DirectoryEntry[] {
       if (!nodeTopic || !nodeType) return null;
 
       return {
-        path: meta[MANIFEST_METADATA_PATH] ?? node.fullPathString,
+        path: node.fullPathString,
         type: nodeType,
         topic: nodeTopic,
         fileTopic: nodeType === NodeType.File ? meta[MANIFEST_METADATA_FILE_TOPIC] : undefined,

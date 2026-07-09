@@ -12,5 +12,7 @@ export enum FileManagerEvents {
   DRIVE_FORGOTTEN = 'drive-forgotten',
   DRIVE_DESTROYED = 'drive-destroyed',
   FOLDER_FORGOTTEN = 'folder-forgotten',
+  FOLDER_CREATED = 'folder-created',
+  FILES_UPLOADED = 'files-uploaded',
   STATE_INVALID = 'state-invalid',
 }

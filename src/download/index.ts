@@ -3,7 +3,7 @@ import { isNode } from 'std-env';
 
 import { DownloadResource, DownloadResult } from '../types';
 
-const bytesEndpoint = 'bytes';
+const bzzEndpoint = 'bzz';
 
 export async function processDownload(
   bee: Bee,
@@ -17,5 +17,5 @@ export async function processDownload(
   }
 
   const { downloadBrowser } = await import('./download.browser');
-  return downloadBrowser(bee, resources, bytesEndpoint, options, requestOptions);
+  return downloadBrowser(bee, resources, bzzEndpoint, options, requestOptions);
 }
