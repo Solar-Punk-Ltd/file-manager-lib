@@ -19,7 +19,7 @@
     "build:cjs": "tsc -p tsconfig.cjs.json",
     "build:esm": "tsc -p tsconfig.esm.json",
     "build:types": "tsc --emitDeclarationOnly --declaration --outDir dist/types",
-    "test": "jest --config=jest.config.ts --runInBand --verbose",
+    "test": "jest --config=jest.config.ts --runInBand --verbose --silent",
     "test:ut": "pnpm run test --selectProjects=unit",
     "test:it": "pnpm run test --selectProjects=integration",
     "test:coverage": "jest --coverage",
@@ -50,7 +50,7 @@
   "homepage": "https://github.com/Solar-Punk-Ltd/file-manager-lib",
   "license": "Apache-2.0",
   "dependencies": {
-    "@ethersphere/bee-js": "12.2.2",
+    "@ethersphere/bee-js": "file:../bee-js",
     "cafe-utility": "^36.2.0",
     "std-env": "^3.10.0"
   },

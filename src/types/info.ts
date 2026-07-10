@@ -1,13 +1,4 @@
-import {
-  BatchId,
-  Bytes,
-  EthAddress,
-  FeedIndex,
-  Identifier,
-  PublicKey,
-  RedundancyLevel,
-  Topic,
-} from '@ethersphere/bee-js';
+import { BatchId, EthAddress, FeedIndex, Identifier, PublicKey, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 
 import { ReferenceWithHistory } from './utils';
 
@@ -66,7 +57,7 @@ export interface DownloadResource {
 
 export interface DownloadResult {
   path: string;
-  result: Bytes | ReadableStream<Uint8Array>;
+  result: ReadableStream<Uint8Array>;
 }
 
 export interface UploadManyResult {

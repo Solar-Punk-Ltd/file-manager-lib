@@ -1,7 +1,6 @@
 import type {
   Bee,
   BeeRequestOptions,
-  CollectionUploadOptions,
   FileUploadOptions,
   RedundancyLevel,
   RedundantUploadOptions,
@@ -13,14 +12,14 @@ import type { BrowserUploadOptions, NodeUploadOptions, ReferenceWithHistory } fr
 
 interface ProcessedOptions {
   options: BrowserUploadOptions | NodeUploadOptions;
-  uploadOptions: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions;
+  uploadOptions: RedundantUploadOptions | FileUploadOptions;
   file?: ReferenceWithHistory;
 }
 
 const processOptions = (
   isNode: boolean,
   fileOptions: FileInfoOptions,
-  uploadOptions: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions | undefined,
+  uploadOptions: RedundantUploadOptions | FileUploadOptions | undefined,
   redundancyLevel: RedundancyLevel,
 ): ProcessedOptions => {
   const processedOptions = { ...uploadOptions, redundancyLevel };
@@ -39,11 +38,12 @@ const processOptions = (
   return { options, uploadOptions: processedOptions, file };
 };
 
+// TODO: why separate rLevel arg ?
 export async function processUpload(
   bee: Bee,
   driveInfo: DriveInfo,
   fileOptions: FileInfoOptions,
-  uploadOptions: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions | undefined,
+  uploadOptions: RedundantUploadOptions | FileUploadOptions | undefined,
   // Effective redundancy level inherited from the target parent folder (or drive root) —
   // resolved by the caller, since only it knows which ManifestHost the file is landing under.
   redundancyLevel: RedundancyLevel,

@@ -155,27 +155,23 @@ export function createInitMocks(data?: Reference): any {
   loadStampListMock();
   jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(new Bytes(data || SWARM_ZERO_ADDRESS));
   jest.spyOn(Bee.prototype, 'downloadFile').mockResolvedValue({ data: new Bytes(SWARM_ZERO_ADDRESS) });
+  jest.spyOn(Bee.prototype, 'downloadReadableData').mockResolvedValue(
+    new ReadableStream<Uint8Array>({
+      // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+      start(controller) {
+        controller.enqueue((data || SWARM_ZERO_ADDRESS).toUint8Array());
+        controller.close();
+      },
+    }),
+  );
   jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValue({
     reference: data || SWARM_ZERO_ADDRESS,
     historyAddress: Optional.of(data || SWARM_ZERO_ADDRESS),
   } as unknown as UploadResult);
+  jest.spyOn(Bee.prototype, 'streamFile').mockResolvedValue((data || SWARM_ZERO_ADDRESS) as Reference);
   jest.spyOn(Bee.prototype, 'makeFeedWriter').mockReturnValue(createMockFeedWriter());
   jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue(createMockFeedReader());
   jest.spyOn(Bee.prototype, 'getPostageBatches').mockResolvedValue(loadStampListMock());
-}
-
-export function createUploadFilesFromDirectorySpy(char: string): jest.SpyInstance {
-  return jest.spyOn(Bee.prototype, 'uploadFilesFromDirectory').mockResolvedValueOnce({
-    reference: new Reference(char.repeat(64)),
-    historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
-  });
-}
-
-export function createUploadFileSpy(char: string): jest.SpyInstance {
-  return jest.spyOn(Bee.prototype, 'uploadFile').mockResolvedValueOnce({
-    reference: new Reference(char.repeat(64)),
-    historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
-  });
 }
 
 export function createUploadDataSpy(char: string): jest.SpyInstance {

@@ -17,8 +17,6 @@ import {
   createMockDriveInfo,
   createMockFileInfo,
   createMockNodeAddresses,
-  createUploadFilesFromDirectorySpy,
-  createUploadFileSpy,
   MOCK_BATCH_ID,
   mockPostageBatch,
 } from '../mockHelpers';
@@ -352,7 +350,7 @@ describe('FileManager', () => {
       fm.fileInfoList.push(seedFile(drive, 'a.txt', '1'.repeat(64)), seedFile(drive, 'b.txt', '2'.repeat(64)));
 
       const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
-      const downloadFileSpy = jest.spyOn(Bee.prototype, 'downloadFile');
+      const downloadReadableDataSpy = jest.spyOn(Bee.prototype, 'downloadReadableData');
 
       const results = await fm.download(drive);
 
@@ -367,7 +365,8 @@ describe('FileManager', () => {
         undefined,
       );
 
-      expect(downloadFileSpy).toHaveBeenCalledTimes(2);
+      expect(downloadDataSpy).toHaveBeenCalledTimes(2);
+      expect(downloadReadableDataSpy).toHaveBeenCalledTimes(2);
       expect(results.map((r) => r.path).sort()).toEqual(['a.txt', 'b.txt']);
     });
 
@@ -377,12 +376,11 @@ describe('FileManager', () => {
       fm.fileInfoList.push(seedFile(drive, 'a.txt', '1'.repeat(64)), seedFile(drive, 'b.txt', '2'.repeat(64)));
 
       const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
-      const downloadFileSpy = jest.spyOn(Bee.prototype, 'downloadFile');
-
+      const downloadReadableDataSpy = jest.spyOn(Bee.prototype, 'downloadReadableData');
       const results = await fm.download(drive, ['a.txt']);
 
       expect(downloadDataSpy).toHaveBeenCalledTimes(1);
-      expect(downloadFileSpy).toHaveBeenCalledTimes(1);
+      expect(downloadReadableDataSpy).toHaveBeenCalledTimes(1);
       expect(results).toHaveLength(1);
       expect(results[0].path).toBe('a.txt');
     });
@@ -394,11 +392,11 @@ describe('FileManager', () => {
       fm.fileInfoList.push(seedFile(drive, 'mine.txt', '1'.repeat(64)));
       fm.fileInfoList.push(seedFile(otherDrive, 'not-mine.txt', '2'.repeat(64)));
 
-      const downloadFileSpy = jest.spyOn(Bee.prototype, 'downloadFile');
+      const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
 
       const results = await fm.download(drive);
 
-      expect(downloadFileSpy).toHaveBeenCalledTimes(1);
+      expect(downloadDataSpy).toHaveBeenCalledTimes(1);
       expect(results).toHaveLength(1);
       expect(results[0].path).toBe('mine.txt');
     });
@@ -493,22 +491,14 @@ describe('FileManager', () => {
   });
 
   describe('upload', () => {
-    it('uploads a directory via uploadFilesFromDirectory and registers the fork + fileInfoList entry', async () => {
+    it('throws when uploading a directory — directories must go through uploadMany', async () => {
       const fm = await createInitializedFileManager();
       await fm.createDrive(otherMockBatchId, 'Test Drive', false);
       const di = fm.driveList[1];
 
-      const uploadDirSpy = createUploadFilesFromDirectorySpy('1');
-
-      await fm.upload(di, { path: 'tests' } as any);
-
-      expect(uploadDirSpy).toHaveBeenCalled();
-      const fi = fm.fileInfoList.find((f) => f.driveId === di.id.toString() && f.path === 'tests');
-      expect(fi).toBeDefined();
-      expect(fi?.topic).toEqual(expect.any(String));
-
-      const driveMantaray = (fm as any).nodeManifestCache.get(di.driveFeedTopic.toString()) as MantarayNode;
-      expect(driveMantaray.find('tests')).toBeTruthy();
+      await expect(fm.upload(di, { path: 'tests' } as any)).rejects.toThrow(
+        'Cannot upload a directory - use uploadMany',
+      );
     });
 
     it('throws when a topic is provided without a matching actHistoryAddress', async () => {
@@ -535,7 +525,6 @@ describe('FileManager', () => {
       await fm.createDrive(otherMockBatchId, 'Test Drive', false);
       const di = fm.driveList[1];
 
-      createUploadFileSpy('2');
       await fm.upload(di, { path: 'package.json' } as any);
       expect(fm.fileInfoList.filter((fi) => fi.path === 'package.json')).toHaveLength(1);
 
@@ -557,7 +546,6 @@ describe('FileManager', () => {
       await fm.createDrive(otherMockBatchId, 'Test Drive', false);
       const di = fm.driveList[1];
 
-      createUploadFileSpy('2');
       await fm.upload(di, { path: 'package.json' } as any);
       const original = fm.fileInfoList.find((fi) => fi.path === 'package.json')!;
 
@@ -897,7 +885,6 @@ describe('FileManager', () => {
     });
 
     it('removes a file fork and its fileInfoList entry, emitting FILE_FORGOTTEN', async () => {
-      createUploadFileSpy('a');
       await fm.upload(drive, { path: 'package.json' } as any);
       const uploaded = fm.fileInfoList.find((f) => f.path === 'package.json')!;
       expect(uploaded).toBeDefined();
@@ -943,7 +930,6 @@ describe('FileManager', () => {
       await fm.createDrive(otherMockBatchId, 'Test Drive', false);
       const drive = fm.driveList[1];
 
-      createUploadFileSpy('2');
       await fm.upload(drive, { path: 'package.json' } as any);
       const original = fm.fileInfoList.find((fi) => fi.path === 'package.json')!;
 
@@ -1071,7 +1057,6 @@ describe('FileManager', () => {
       const redundancy = RedundancyLevel.MEDIUM;
       await fm.createDrive(otherMockBatchId, 'Test Drive', false, redundancy);
       const di = fm.driveList[1];
-      createUploadFileSpy('2');
 
       jest.useFakeTimers();
       const fixedNow = 1_755_158_248_500;
@@ -1109,34 +1094,33 @@ describe('FileManager', () => {
   });
 
   describe('AbortController', () => {
-    it('should pass requestOptions with signal to uploadFilesFromDirectory', async () => {
+    it('should throw for a directory upload regardless of an abort signal', async () => {
       const fm = await createInitializedFileManager();
       await fm.createDrive(otherMockBatchId, 'Test Drive', false);
       const di = fm.driveList[1];
 
-      const uploadFileOrDirectorySpy = createUploadFilesFromDirectorySpy('1');
       const controller = new AbortController();
 
-      await fm.upload(di, { path: 'tests' } as any, undefined, { signal: controller.signal });
-
-      expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
-      const callArgs = uploadFileOrDirectorySpy.mock.calls[0];
-      expect(callArgs[3]).toHaveProperty('signal', controller.signal);
+      await expect(fm.upload(di, { path: 'tests' } as any, undefined, { signal: controller.signal })).rejects.toThrow(
+        'Cannot upload a directory - use uploadMany',
+      );
     });
 
-    it('should pass requestOptions with signal to uploadFile', async () => {
+    it('should pass requestOptions with signal to uploadData', async () => {
       const fm = await createInitializedFileManager();
       await fm.createDrive(otherMockBatchId, 'Test Drive', false);
       const di = fm.driveList[1];
 
-      const uploadFileSpy = createUploadFileSpy('2');
+      const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
       const controller = new AbortController();
 
       await fm.upload(di, { path: 'package.json' } as any, undefined, { signal: controller.signal });
 
-      expect(uploadFileSpy).toHaveBeenCalled();
-      const callArgs = uploadFileSpy.mock.calls[0];
-      expect(callArgs[4]).toHaveProperty('signal', controller.signal);
+      const callsWithOptions = uploadDataSpy.mock.calls.filter((call) => call[3] !== undefined);
+      expect(callsWithOptions.length).toBeGreaterThan(0);
+      for (const call of callsWithOptions) {
+        expect(call[3]).toHaveProperty('signal', controller.signal);
+      }
     });
 
     it('should not pass signal if requestOptions is undefined', async () => {
@@ -1144,13 +1128,14 @@ describe('FileManager', () => {
       await fm.createDrive(otherMockBatchId, 'Test Drive', false);
       const di = fm.driveList[1];
 
-      const uploadFileOrDirectorySpy = createUploadFilesFromDirectorySpy('1');
+      const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
 
-      await fm.upload(di, { path: 'tests' } as any);
+      await fm.upload(di, { path: 'package.json' } as any);
 
-      expect(uploadFileOrDirectorySpy).toHaveBeenCalled();
-      const callArgs = uploadFileOrDirectorySpy.mock.calls[0];
-      expect(callArgs[3]?.signal).toBeUndefined();
+      expect(uploadDataSpy).toHaveBeenCalled();
+      for (const call of uploadDataSpy.mock.calls) {
+        expect(call[3]?.signal).toBeUndefined();
+      }
     });
 
     it('should allow upload to proceed when signal is not aborted', async () => {
@@ -1158,11 +1143,10 @@ describe('FileManager', () => {
       await fm.createDrive(otherMockBatchId, 'Test Drive', false);
       const di = fm.driveList[1];
 
-      createUploadFilesFromDirectorySpy('1');
       const controller = new AbortController();
 
       await expect(
-        fm.upload(di, { path: 'tests' } as any, undefined, { signal: controller.signal }),
+        fm.upload(di, { path: 'package.json' } as any, undefined, { signal: controller.signal }),
       ).resolves.not.toThrow();
     });
 

@@ -43,6 +43,12 @@ export async function readFilesOrDirectory(fullPath: string, name?: string): Pro
   return relativeFilePaths;
 }
 
+export async function streamToUint8Array(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  const buffer = await new Response(stream).arrayBuffer();
+
+  return new Uint8Array(buffer);
+}
+
 export async function retryOnPropagationDelay<T>(fn: () => Promise<T>, attempts = 5, delayMs = 500): Promise<T> {
   let lastError: unknown;
   for (let i = 0; i < attempts; i++) {

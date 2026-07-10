@@ -1,7 +1,6 @@
 import {
   BatchId,
   BeeRequestOptions,
-  CollectionUploadOptions,
   DownloadOptions,
   FeedIndex,
   FileUploadOptions,
@@ -64,7 +63,7 @@ export interface FileManager {
   upload(
     driveInfo: DriveInfo,
     infoOptions: FileInfoOptions,
-    uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
+    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<void>;
 

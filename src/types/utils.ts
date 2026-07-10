@@ -8,7 +8,7 @@ export interface StateTopicInfo {
 }
 
 export interface BrowserUploadOptions {
-  files: File[] | FileList;
+  file: File;
   onUploadProgress?: (progress: UploadProgress) => void;
 }
 

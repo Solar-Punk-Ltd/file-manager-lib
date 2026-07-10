@@ -13,6 +13,7 @@ import {
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
 } from './constants';
+import { DriveError } from './errors';
 
 export function isRecord(value: unknown): value is Record<string, string> {
   return Types.isStrictlyObject(value) && Object.values(value).every((v) => typeof v === 'string');
@@ -113,7 +114,7 @@ export function driveInfoFromMetadata(meta: Record<string, string>): DriveInfo {
   const driveFeedTopic = meta[MANIFEST_METADATA_NODE_TOPIC];
 
   if (!id || !name || !owner || !batchId || !driveFeedTopic) {
-    throw new Error(`Invalid drive fork metadata — missing required fields`);
+    throw new DriveError(`Invalid drive fork metadata — missing required fields`);
   }
 
   const driveInfo: DriveInfo = {

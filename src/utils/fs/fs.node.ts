@@ -3,11 +3,12 @@ import type { ReadStream } from 'fs';
 import { FileError } from '../errors';
 
 export interface FileData {
-  data: string | Uint8Array | ReadStream;
+  data: ReadStream;
   name: string;
   contentType: string;
 }
 
+// TODO: make sure this list is extensive enough - might not even be needed at all
 const contentTypes: Map<string, string> = new Map([
   ['.mp4', 'video/mp4'],
   ['.webm', 'video/webm'],

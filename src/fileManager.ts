@@ -3,7 +3,6 @@ import {
   Bee,
   BeeRequestOptions,
   Bytes,
-  CollectionUploadOptions,
   DownloadOptions,
   EthAddress,
   FeedIndex,
@@ -223,13 +222,17 @@ export class FileManagerBase implements FileManager {
     // ideally this is index 0 on a fresh account.
     const { feedIndexNext } = await getFeedData(this.bee, FILEMANAGER_STATE_TOPIC, this.signerAddress);
     const isStateExisting = !feedIndexNext.equals(FEED_INDEX_ZERO);
+    // TODO: verify that this.adminManifestRef is undefined unless resetState:
+    // if (this.adminManifestRef && !resetState) {
+    //   throw new DriveError('Admin manifest already set');
+    // }
     if (!resetState && isStateExisting) {
       throw new DriveError('Admin state already exists. Pass resetState=true to overwrite.');
     }
 
     const randomTopic = generateRandomBytes(Topic.LENGTH);
     const newStateFeedTopic = new Topic(randomTopic);
-
+    // TODO: shouldn't the act history address be reused ? -> use the same root admin ACT
     const topicUploadRes = await this.bee.uploadData(
       batchId,
       newStateFeedTopic.toUint8Array(),
@@ -269,6 +272,9 @@ export class FileManagerBase implements FileManager {
   }
 
   private async initDriveList(requestOptions?: BeeRequestOptions): Promise<void> {
+    if (this.adminManifestRef) {
+      throw new DriveError('Admin manifest already set');
+    }
     if (!this.stateFeedTopic) {
       throw new DriveError('State feed topic not set');
     }
@@ -311,12 +317,14 @@ export class FileManagerBase implements FileManager {
           feedIndex: driveFeedIndex,
           feedIndexNext: driveFeedIndexNext,
         } = await getFeedData(this.bee, new Topic(driveInfo.driveFeedTopic.toString()), this.signerAddress);
+
         if (driveFeedIndex.equals(FeedIndex.MINUS_ONE)) {
           console.warn(
             `initDriveList: drive ${driveInfo.name} (${driveInfo.id}) has no manifest feed — skipping corrupt/incomplete drive`,
           );
           return;
         }
+        // TODO: should this be called after driveInfo.isAdmin check ?
         driveInfo.manifestRef = drivePayload.toJSON() as ReferenceWithHistory;
         this.nodeFeedIndexCache.set(driveInfo.driveFeedTopic.toString(), driveFeedIndexNext.toBigInt());
 
@@ -329,13 +337,16 @@ export class FileManagerBase implements FileManager {
             this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
             throw error;
           }
+          // TODO: this.adminManifestRef setting vs driveInfo.manifestRef ?
           this.adminRedundancyLevel = driveInfo.redundancyLevel;
         }
 
         return driveInfo;
       }),
       (driveInfo) => {
-        if (driveInfo) this.driveList.push(driveInfo);
+        if (driveInfo) {
+          this.driveList.push(driveInfo);
+        }
       },
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (reason) => console.error(`initDriveList: failed to load drive from fork: ${(reason as any)?.message || reason}`),
@@ -343,6 +354,10 @@ export class FileManagerBase implements FileManager {
   }
 
   private async pruneDriveMetadata(driveInfo: DriveInfo, requestOptions?: BeeRequestOptions): Promise<void> {
+    if (!this.adminManifestRef) {
+      throw new DriveError('Admin manifest not set');
+    }
+
     const driveIx = this.driveList.findIndex((d) => d.id.toString() === driveInfo.id.toString());
     const stateTopic = this.stateFeedTopic;
 
@@ -403,15 +418,15 @@ export class FileManagerBase implements FileManager {
       driveName = ADMIN_STAMP_LABEL;
 
       await this.fetchAndSetAdminStamp(batchId.toString(), requestOptions);
-      verifyStampUsability(this._adminStamp, batchId.toString());
+      verifyStampUsability(this._adminStamp, batchId.toString()).batchID.toString();
       await this.createAdminManifest(batchId.toString(), resetState, requestOptions);
     } else {
-      if (!this._adminStamp) {
-        throw new DriveError('Admin stamp not found');
-      }
+      const fetchedStamp = await fetchStamp(this.bee, batchId);
+      verifyStampUsability(fetchedStamp, batchId.toString()).batchID.toString();
+    }
 
-      const stamp = await fetchStamp(this.bee, batchId);
-      verifyStampUsability(stamp, batchId.toString());
+    if (!this._adminStamp) {
+      throw new DriveError('Admin stamp not found');
     }
 
     if (resetState) {
@@ -445,7 +460,8 @@ export class FileManagerBase implements FileManager {
       isAdmin,
     };
     this.driveList.push(driveInfo);
-
+    // TODO: shouldn't the act history address be reused ? -> use the same root drive ACT
+    // TODO: empty mantaray save makes no sense ? drivename at least? -> always creates the same hash ?
     const emptyMantaray = new MantarayNode();
     const saveResult = await emptyMantaray.saveRecursively(this.bee, driveInfo.batchId, { act: false }, requestOptions);
     const manifestUpload = await this.bee.uploadData(
@@ -454,28 +470,30 @@ export class FileManagerBase implements FileManager {
       { act: true, redundancyLevel: driveInfo.redundancyLevel },
       requestOptions,
     );
+
     driveInfo.manifestRef = {
       reference: manifestUpload.reference.toString(),
       historyRef: manifestUpload.historyAddress.getOrThrow().toString(),
     };
     const fw = this.bee.makeFeedWriter(new Topic(driveInfo.driveFeedTopic).toUint8Array(), this.signer);
     await fw.uploadPayload(driveInfo.batchId, JSON.stringify(driveInfo.manifestRef), { index: FEED_INDEX_ZERO });
+
     this.nodeManifestCache.set(driveInfo.driveFeedTopic.toString(), emptyMantaray);
     this.nodeFeedIndexCache.set(driveInfo.driveFeedTopic.toString(), 1n);
+
+    if (!this.adminManifestRef) {
+      throw new DriveError('Admin manifest not set');
+    }
 
     const stateTopic = this.stateFeedTopic;
     if (!stateTopic) {
       throw new DriveError('Admin state not initialized');
     }
 
-    if (!this._adminStamp) {
-      throw new DriveError('Admin stamp not found');
-    }
-
     const adminHost: ManifestHost = {
       topic: stateTopic.toString(),
       manifestRef: this.adminManifestRef,
-      batchId: this._adminStamp.batchID,
+      batchId: this._adminStamp.batchID.toString(),
       redundancyLevel: this.adminRedundancyLevel,
     };
 
@@ -744,16 +762,22 @@ export class FileManagerBase implements FileManager {
     return processDownload(this.bee, resources, options, requestOptions);
   }
 
+  // TODO: maybe use FileUploadOptions contenttype and size or drop it
+  // bee-js comment: Specifies Content-Length for the given data. It is required when uploading with Readable.
   async upload(
     driveInfo: DriveInfo,
     fileOptions: FileInfoOptions,
-    uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
+    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
     requestOptions?.signal?.throwIfAborted();
 
     if (!this.stateFeedTopic || !this.isInitialized) {
       throw new DriveError('FileManager is not initialized.');
+    }
+
+    if (!this.publisher) {
+      throw new SignerError('Publisher not found');
     }
 
     const fileOptionTopic = fileOptions.topic;
@@ -773,10 +797,6 @@ export class FileManagerBase implements FileManager {
           `Cannot change path during re-upload (existing: ${existing.path}, requested: ${fileOptions.path}). Use move() to relocate a file.`,
         );
       }
-    }
-
-    if (!this.publisher) {
-      throw new SignerError('Publisher not found');
     }
 
     const driveIndex = this.driveList.findIndex((d) => d.id.toString() === driveInfo.id.toString());
@@ -1046,7 +1066,7 @@ export class FileManagerBase implements FileManager {
         const fileOptions: FileInfoOptions =
           typeof planned.entry.source === 'string'
             ? ({ path: planned.entry.source } as NodeUploadOptions as FileInfoOptions)
-            : ({ path: planned.fullPath, files: [planned.entry.source] } as BrowserUploadOptions as FileInfoOptions);
+            : ({ path: planned.fullPath, file: planned.entry.source } as BrowserUploadOptions as FileInfoOptions);
 
         const file = await processUpload(
           this.bee,
@@ -1288,6 +1308,7 @@ export class FileManagerBase implements FileManager {
     requestOptions?: BeeRequestOptions,
   ): Promise<ReferenceWithHistory> {
     const saveResult = await mantaray.saveRecursively(this.bee, host.batchId, { act: false }, requestOptions);
+    // TODO: actHistoryAddress is not used --> where is it stored and how to pass it on?
     const manifestUpload = await this.bee.uploadData(
       host.batchId,
       saveResult.reference.toUint8Array(),

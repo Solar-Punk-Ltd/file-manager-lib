@@ -2,6 +2,7 @@ import { BatchId, Bee, BeeRequestOptions, RedundantUploadOptions, UploadResult }
 
 import { BrowserUploadOptions, DriveInfo } from '../types';
 import { ReferenceWithHistory } from '../types/utils';
+import { FileError } from '../utils/errors';
 
 // Do not call streamFiles with act: true because it would encrypt all the chunks recursively, that is unnecessary
 // Wrap the uplodResult instead and encrypt that reference at the root level
@@ -12,22 +13,18 @@ export async function uploadBrowser(
   uploadOptions?: RedundantUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<UploadResult> {
-  const streamFilesOpts = uploadOptions ? { ...uploadOptions, act: false, actHistoryAddress: undefined } : undefined;
+  const streamFileOpts = uploadOptions ? { ...uploadOptions, act: false, actHistoryAddress: undefined } : undefined;
 
-  const uploadResult = await bee.streamFiles(
+  // TODO: redundantoptions for streamfile(s)
+  const rootRef = await bee.streamFile(
     batchId,
-    browserOptions.files,
+    browserOptions.file,
     browserOptions.onUploadProgress,
-    streamFilesOpts,
+    streamFileOpts,
     requestOptions,
   );
 
-  return await bee.uploadData(
-    batchId,
-    uploadResult.reference.toUint8Array(),
-    { ...uploadOptions, act: true },
-    requestOptions,
-  );
+  return await bee.uploadData(batchId, rootRef.toUint8Array(), { ...uploadOptions, act: true }, requestOptions);
 }
 
 export async function processUploadBrowser(
@@ -37,8 +34,8 @@ export async function processUploadBrowser(
   uploadOptions?: RedundantUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<ReferenceWithHistory> {
-  if (!browserOptions.files) {
-    throw new Error('Files are required.');
+  if (!browserOptions.file) {
+    throw new FileError('File is required.');
   }
 
   const uploadResult = await uploadBrowser(bee, driveInfo.batchId, browserOptions, uploadOptions, requestOptions);

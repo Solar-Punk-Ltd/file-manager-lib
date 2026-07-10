@@ -1,7 +1,6 @@
 import {
   BatchId,
   Bee,
-  Bytes,
   FeedIndex,
   Identifier,
   PostageBatch,
@@ -22,6 +21,7 @@ import {
   OTHER_BEE_URL,
   OTHER_MOCK_SIGNER,
   retryOnPropagationDelay,
+  streamToUint8Array,
 } from '../utils';
 
 import { ensureUniqueSignerWithStamp } from './testSetupHelpers';
@@ -180,10 +180,10 @@ describe('FileManager initialization', () => {
       const downloadedNested = downloadResults.find((d) => d.path === 'docs/note.txt');
       expect(downloadedRoot).toBeDefined();
       expect(downloadedNested).toBeDefined();
-      expect(Buffer.from((downloadedRoot!.result as Bytes).toUint8Array()).toString('utf-8')).toBe(
+      expect(Buffer.from(await streamToUint8Array(downloadedRoot!.result)).toString('utf-8')).toBe(
         'Init nested root content',
       );
-      expect(Buffer.from((downloadedNested!.result as Bytes).toUint8Array()).toString('utf-8')).toBe(
+      expect(Buffer.from(await streamToUint8Array(downloadedNested!.result)).toString('utf-8')).toBe(
         'Init nested docs content',
       );
     } finally {
@@ -978,10 +978,10 @@ describe('FileManager uploadMany', () => {
     expect(downloadedA).toBeDefined();
     expect(downloadedB).toBeDefined();
 
-    const bytesA = downloadedA!.result as Bytes;
-    const bytesB = downloadedB!.result as Bytes;
-    expect(Buffer.from(bytesA.toUint8Array()).toString('utf-8')).toBe(contentA);
-    expect(Buffer.from(bytesB.toUint8Array()).toString('utf-8')).toBe(contentB);
+    const bytesA = await streamToUint8Array(downloadedA!.result);
+    const bytesB = await streamToUint8Array(downloadedB!.result);
+    expect(Buffer.from(bytesA).toString('utf-8')).toBe(contentA);
+    expect(Buffer.from(bytesB).toString('utf-8')).toBe(contentB);
   });
 
   it('fails fast without writing anything when a needed folder path is blocked by an existing file', async () => {
@@ -1072,7 +1072,7 @@ describe('FileManager move', () => {
     const downloadResults = await retryOnPropagationDelay(() => fileManager.download(driveA, ['it-move-b.txt']));
     const downloaded = downloadResults.find((d) => d.path === 'it-move-b.txt');
     expect(downloaded).toBeDefined();
-    expect(Buffer.from((downloaded!.result as Bytes).toUint8Array()).toString('utf-8')).toBe('Move Content A');
+    expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Move Content A');
   });
 
   it('moves a root file into a newly created folder', async () => {
@@ -1093,7 +1093,7 @@ describe('FileManager move', () => {
     const downloadResults = await retryOnPropagationDelay(() => fileManager.download(driveA, ['archive/doc.txt']));
     const downloaded = downloadResults.find((d) => d.path === 'archive/doc.txt');
     expect(downloaded).toBeDefined();
-    expect(Buffer.from((downloaded!.result as Bytes).toUint8Array()).toString('utf-8')).toBe('Archive Me');
+    expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Archive Me');
   });
 
   it('moves a nested file back out to the drive root', async () => {
@@ -1120,7 +1120,7 @@ describe('FileManager move', () => {
     const downloadResults = await retryOnPropagationDelay(() => fileManager.download(driveA, ['note.txt']));
     const downloaded = downloadResults.find((d) => d.path === 'note.txt');
     expect(downloaded).toBeDefined();
-    expect(Buffer.from((downloaded!.result as Bytes).toUint8Array()).toString('utf-8')).toBe('Inbox Note');
+    expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Inbox Note');
   });
 
   it('moves a folder as a unit, composing correct descendant paths at read time', async () => {
@@ -1164,7 +1164,7 @@ describe('FileManager move', () => {
     const downloadResults = await retryOnPropagationDelay(() => fileManager.download(driveA, ['backup/src/inner.txt']));
     const downloaded = downloadResults.find((d) => d.path === 'backup/src/inner.txt');
     expect(downloaded).toBeDefined();
-    expect(Buffer.from((downloaded!.result as Bytes).toUint8Array()).toString('utf-8')).toBe('Inner File Content');
+    expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Inner File Content');
   });
 
   it('moves a file across drives, updating driveId and remaining downloadable from the target', async () => {
@@ -1185,7 +1185,7 @@ describe('FileManager move', () => {
     const downloadResults = await retryOnPropagationDelay(() => fileManager.download(driveB, [xFile]));
     const downloaded = downloadResults.find((d) => d.path === xFile);
     expect(downloaded).toBeDefined();
-    expect(Buffer.from((downloaded!.result as Bytes).toUint8Array()).toString('utf-8')).toBe('Cross Drive Content');
+    expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Cross Drive Content');
   });
 
   it('rejects invalid move calls', async () => {
@@ -1249,8 +1249,8 @@ describe('FileManager download', () => {
 
     const downloadedA = downloadResults.find((d) => d.path === 'all-a.txt');
     const downloadedB = downloadResults.find((d) => d.path === 'all-b.txt');
-    expect(Buffer.from((downloadedA!.result as Bytes).toUint8Array()).toString('utf-8')).toBe('Download All A');
-    expect(Buffer.from((downloadedB!.result as Bytes).toUint8Array()).toString('utf-8')).toBe('Download All B');
+    expect(Buffer.from(await streamToUint8Array(downloadedA!.result)).toString('utf-8')).toBe('Download All A');
+    expect(Buffer.from(await streamToUint8Array(downloadedB!.result)).toString('utf-8')).toBe('Download All B');
   });
 
   it('downloads only the specified paths', async () => {
@@ -1270,7 +1270,7 @@ describe('FileManager download', () => {
     const downloadResults = await retryOnPropagationDelay(() => fileManager.download(drive, ['only-c.txt']));
     expect(downloadResults).toHaveLength(1);
     expect(downloadResults[0].path).toBe('only-c.txt');
-    expect(Buffer.from((downloadResults[0].result as Bytes).toUint8Array()).toString('utf-8')).toBe('Download Only C');
+    expect(Buffer.from(await streamToUint8Array(downloadResults[0].result)).toString('utf-8')).toBe('Download Only C');
   });
 
   it('returns an empty array when the drive has no files', async () => {
@@ -1513,9 +1513,9 @@ describe('FileManager version control', () => {
           actPublisher: new PublicKey(v0.actPublisher).toCompressedHex(),
         });
         const contentRef = new Reference(rawRef.toUint8Array());
-        return bee.downloadFile(contentRef);
+        return streamToUint8Array(await bee.downloadReadableData(contentRef.toString()));
       });
-      expect(Buffer.from(v0Bytes.data.toUint8Array()).toString('utf-8')).toBe('Version bytes v0');
+      expect(Buffer.from(v0Bytes).toString('utf-8')).toBe('Version bytes v0');
 
       const headBytes = await retryOnPropagationDelay(async () => {
         const rawRef = await bee.downloadData(head.file.reference.toString(), {
@@ -1523,9 +1523,9 @@ describe('FileManager version control', () => {
           actPublisher: new PublicKey(head.actPublisher).toCompressedHex(),
         });
         const contentRef = new Reference(rawRef.toUint8Array());
-        return bee.downloadFile(contentRef);
+        return streamToUint8Array(await bee.downloadReadableData(contentRef.toString()));
       });
-      expect(Buffer.from(headBytes.data.toUint8Array()).toString('utf-8')).toBe('Version bytes v1');
+      expect(Buffer.from(headBytes).toString('utf-8')).toBe('Version bytes v1');
     } finally {
       fs.rmSync(NAME, { force: true });
     }
@@ -1714,7 +1714,7 @@ describe('FileManager version control', () => {
       const downloadResults = await retryOnPropagationDelay(() => fileManager.download(drive, [destPath]));
       const downloaded = downloadResults.find((d) => d.path === destPath);
       expect(downloaded).toBeDefined();
-      expect(Buffer.from((downloaded!.result as Bytes).toUint8Array()).toString('utf-8')).toBe(
+      expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe(
         'Restore Move V0 Content',
       );
     } finally {
@@ -1831,8 +1831,8 @@ describe('FileManager End-to-End User Workflow', () => {
     const downloadedNote = downloadResults.find((d) => d.path === 'it-e2e-project/note.txt');
     expect(downloadedReport).toBeDefined();
     expect(downloadedNote).toBeDefined();
-    expect(Buffer.from((downloadedReport!.result as Bytes).toUint8Array()).toString('utf-8')).toBe('Report V2');
-    expect(Buffer.from((downloadedNote!.result as Bytes).toUint8Array()).toString('utf-8')).toBe('Note V1');
+    expect(Buffer.from(await streamToUint8Array(downloadedReport!.result)).toString('utf-8')).toBe('Report V2');
+    expect(Buffer.from(await streamToUint8Array(downloadedNote!.result)).toString('utf-8')).toBe('Note V1');
   });
 
   it('simulates uploading a new version of a folder — new files join without disturbing old ones', async () => {
@@ -1862,7 +1862,9 @@ describe('FileManager End-to-End User Workflow', () => {
     );
     expect(downloadResults).toHaveLength(3);
     const contents = Object.fromEntries(
-      downloadResults.map((d) => [d.path, Buffer.from((d.result as Bytes).toUint8Array()).toString('utf-8')]),
+      await Promise.all(
+        downloadResults.map(async (d) => [d.path, Buffer.from(await streamToUint8Array(d.result)).toString('utf-8')]),
+      ),
     );
     expect(contents['gallery-v2/a.txt']).toBe('V1 File A');
     expect(contents['gallery-v2/b.txt']).toBe('V1 File B');
