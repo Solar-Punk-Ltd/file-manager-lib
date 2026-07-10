@@ -26,7 +26,7 @@ import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
 import { DriveInfo, FileRecord, FileStatus, ListDepth, NodeType } from '@/types';
 import { FeedResultWithIndex } from '@/types/utils';
-import { DriveError, FileManagerEvents, SignerError } from '@/utils';
+import { DriveError, FileError, FileManagerEvents, SignerError } from '@/utils';
 import { fetchStamp, getFeedData } from '@/utils/bee';
 import {
   ADMIN_STAMP_LABEL,
@@ -499,6 +499,52 @@ describe('FileManager', () => {
       await expect(fm.upload(di, { path: 'tests' } as any)).rejects.toThrow(
         'Cannot upload a directory - use uploadMany',
       );
+    });
+
+    it('throws a FileError instance for a directory upload', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
+      const di = fm.driveList[1];
+
+      await expect(fm.upload(di, { path: 'tests' } as any)).rejects.toBeInstanceOf(FileError);
+    });
+
+    it('throws for a directory even in topic-reuse mode (isDir check is not bypassed by supplying a topic)', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
+      const di = fm.driveList[1];
+
+      await expect(
+        fm.upload(
+          di,
+          { topic: Topic.fromString('dir-reupload').toString(), path: 'tests' } as any,
+          { actHistoryAddress: SWARM_ZERO_ADDRESS } as any,
+        ),
+      ).rejects.toThrow('Cannot upload a directory - use uploadMany');
+    });
+
+    it('throws for a nested directory path (not just a top-level one)', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
+      const di = fm.driveList[1];
+      // Drive-side parent folder must resolve before the fs isDir check is even reached.
+      await fm.createFolder(di, '', 'tests');
+
+      await expect(fm.upload(di, { path: 'tests/unit' } as any)).rejects.toThrow(
+        'Cannot upload a directory - use uploadMany',
+      );
+    });
+
+    it('does not add a fork or fileInfoList entry when a directory upload is rejected', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
+      const di = fm.driveList[1];
+
+      await expect(fm.upload(di, { path: 'tests' } as any)).rejects.toThrow();
+
+      expect(fm.fileInfoList.find((fi) => fi.path === 'tests')).toBeUndefined();
+      const driveMantaray = (fm as any).nodeManifestCache.get(di.driveFeedTopic.toString()) as MantarayNode;
+      expect(driveMantaray.find('tests')).toBeFalsy();
     });
 
     it('throws when a topic is provided without a matching actHistoryAddress', async () => {

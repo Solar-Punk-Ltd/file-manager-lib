@@ -15,7 +15,7 @@ async function uploadNode(
     bee,
     batchId,
     nodeOptions.path,
-    { ...uploadOptions, act: false },
+    { ...uploadOptions, act: false, actHistoryAddress: undefined },
     requestOptions,
   );
 

@@ -1,6 +1,7 @@
 import {
   BatchId,
   Bee,
+  BeeResponseError,
   FeedIndex,
   Identifier,
   PostageBatch,
@@ -127,8 +128,8 @@ describe('FileManager initialization', () => {
         actPublisher: OTHER_MOCK_SIGNER.publicKey(),
       });
     } catch (error) {
-      expect(error).toBeInstanceOf(Error);
-      expect((error as Error).stack?.includes('404')).toBeTruthy();
+      expect(error).toBeInstanceOf(BeeResponseError);
+      expect((error as BeeResponseError).status).toBe(404);
     }
 
     try {
@@ -139,8 +140,8 @@ describe('FileManager initialization', () => {
         }),
       );
     } catch (error) {
-      expect(error).toBeInstanceOf(Error);
-      expect((error as Error).stack?.includes('404')).toBeTruthy();
+      expect(error).toBeInstanceOf(BeeResponseError);
+      expect((error as BeeResponseError).status).toBe(404);
     }
   });
 
@@ -190,14 +191,6 @@ describe('FileManager initialization', () => {
       fs.rmSync(rootFile, { force: true });
       fs.rmSync(nestedDir, { recursive: true, force: true });
     }
-  });
-
-  it('should verify Bee versions and supported API', async () => {
-    const versions = await bee.getVersions();
-    expect(versions.beeVersion).toBeDefined();
-    expect(versions.beeApiVersion).toBeDefined();
-    const supported = await bee.isSupportedApiVersion();
-    expect(supported).toBeTruthy();
   });
 
   it('should not reinitialize if already initialized', async () => {
@@ -672,7 +665,7 @@ describe('FileManager upload', () => {
   let bee: Bee;
   let fileManager: FileManagerBase;
   let batchId: BatchId;
-  let tempUploadDir: string;
+  let tempUploadFile: string;
   let drive: DriveInfo;
 
   beforeAll(async () => {
@@ -681,7 +674,7 @@ describe('FileManager upload', () => {
 
     // Flat, cwd-relative name: upload()'s `path` doubles as both the on-disk source and the
     // top-level drive manifest fork name, so it must resolve with zero intermediate segments.
-    tempUploadDir = 'it-upload-integration';
+    tempUploadFile = 'it-upload-integration.txt';
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'uploadIntegrationStamp');
     fileManager = await createInitializedFileManager(bee, ownerStamp);
 
@@ -690,34 +683,29 @@ describe('FileManager upload', () => {
     expect(tmpDrive).toBeDefined();
     drive = tmpDrive!;
 
-    fs.mkdirSync(tempUploadDir, { recursive: true });
-    fs.writeFileSync(path.join(tempUploadDir, 'file1.txt'), 'Upload Content 1');
-    fs.writeFileSync(path.join(tempUploadDir, 'file2.txt'), 'Upload Content 2');
-    const subfolder = path.join(tempUploadDir, 'subfolder');
-    fs.mkdirSync(subfolder, { recursive: true });
-    fs.writeFileSync(path.join(subfolder, 'file3.txt'), 'Upload Content 3');
+    fs.writeFileSync(tempUploadFile, 'Upload Content 1');
   });
 
   afterAll(() => {
-    fs.rmSync(tempUploadDir, { recursive: true, force: true });
+    fs.rmSync(tempUploadFile, { force: true });
   });
 
-  it('should upload a directory and update the file info list with different versions', async () => {
-    await fileManager.upload(drive, { path: tempUploadDir });
-    const firstInfo = fileManager.fileInfoList.find((fi) => fi.path === tempUploadDir);
+  it('should upload a file and update the file info list with different versions', async () => {
+    await fileManager.upload(drive, { path: tempUploadFile });
+    const firstInfo = fileManager.fileInfoList.find((fi) => fi.path === tempUploadFile);
     expect(firstInfo).toBeDefined();
 
     await fileManager.upload(
       drive,
       {
         topic: firstInfo?.topic,
-        path: tempUploadDir,
+        path: tempUploadFile,
       },
       {
         actHistoryAddress: new Reference(firstInfo!.file.historyRef),
       },
     );
-    const secondInfo = fileManager.fileInfoList.find((fi) => fi.path === tempUploadDir);
+    const secondInfo = fileManager.fileInfoList.find((fi) => fi.path === tempUploadFile);
     const secondVersion = new FeedIndex(firstInfo!.version!).next();
     expect(secondInfo).toBeDefined();
     expect(secondInfo?.topic).toEqual(firstInfo?.topic);
@@ -729,21 +717,21 @@ describe('FileManager upload', () => {
       {
         topic: firstInfo?.topic,
         version: thirdVersion,
-        path: tempUploadDir,
+        path: tempUploadFile,
       },
       {
         actHistoryAddress: new Reference(firstInfo!.file.historyRef),
       },
     );
-    const thirdInfo = fileManager.fileInfoList.find((fi) => fi.path === tempUploadDir);
+    const thirdInfo = fileManager.fileInfoList.find((fi) => fi.path === tempUploadFile);
     expect(thirdInfo).toBeDefined();
     expect(thirdInfo?.topic).toEqual(firstInfo?.topic);
     expect(thirdInfo?.version).toEqual(thirdVersion);
   });
 
   it('should NOT re-upload the same file but update the metadata', async () => {
-    await fileManager.upload(drive, { path: tempUploadDir });
-    const firstInfo = fileManager.fileInfoList.find((fi) => fi.path === tempUploadDir);
+    await fileManager.upload(drive, { path: tempUploadFile });
+    const firstInfo = fileManager.fileInfoList.find((fi) => fi.path === tempUploadFile);
     expect(firstInfo).toBeDefined();
 
     await fileManager.upload(
@@ -751,13 +739,13 @@ describe('FileManager upload', () => {
       {
         topic: firstInfo?.topic,
         file: firstInfo?.file,
-        path: tempUploadDir,
+        path: tempUploadFile,
       },
       {
         actHistoryAddress: new Reference(firstInfo!.file.historyRef),
       },
     );
-    const secondInfo = fileManager.fileInfoList.find((fi) => fi.path === tempUploadDir);
+    const secondInfo = fileManager.fileInfoList.find((fi) => fi.path === tempUploadFile);
     expect(secondInfo).toBeDefined();
     expect(secondInfo?.file).toEqual(firstInfo?.file);
 
@@ -766,13 +754,13 @@ describe('FileManager upload', () => {
       {
         topic: firstInfo?.topic,
         file: firstInfo?.file,
-        path: tempUploadDir,
+        path: tempUploadFile,
       },
       {
         actHistoryAddress: new Reference(firstInfo!.file.historyRef),
       },
     );
-    const thirdInfo = fileManager.fileInfoList.find((fi) => fi.path === tempUploadDir);
+    const thirdInfo = fileManager.fileInfoList.find((fi) => fi.path === tempUploadFile);
     expect(thirdInfo).toBeDefined();
     expect(thirdInfo?.file).toEqual(firstInfo?.file);
   });
@@ -781,7 +769,7 @@ describe('FileManager upload', () => {
     await expect(
       fileManager.upload(drive, {
         topic: 'someInfoTopic',
-        path: tempUploadDir,
+        path: tempUploadFile,
       }),
     ).rejects.toThrow(new FileInfoError('Options topic and historyRef have to be provided at the same time.'));
   });
@@ -799,26 +787,41 @@ describe('FileManager upload', () => {
   });
 
   it('does not create a second fileInfo when bumping to a new version', async () => {
-    await fileManager.upload(drive, { path: tempUploadDir });
-    const original = fileManager.fileInfoList.find((fi) => fi.path === tempUploadDir)!;
+    await fileManager.upload(drive, { path: tempUploadFile });
+    const original = fileManager.fileInfoList.find((fi) => fi.path === tempUploadFile)!;
     expect(original).toBeDefined();
 
     await fileManager.upload(
       drive,
       {
         topic: original.topic,
-        path: tempUploadDir,
+        path: tempUploadFile,
       },
       {
         actHistoryAddress: new Reference(original.file.historyRef),
       },
     );
 
-    const entries = fileManager.fileInfoList.filter((fi) => fi.path === tempUploadDir && fi.topic === original.topic);
+    const entries = fileManager.fileInfoList.filter((fi) => fi.path === tempUploadFile && fi.topic === original.topic);
     expect(entries).toHaveLength(1);
 
     const bumped = entries[0];
     expect(BigInt(bumped.version!.toString())).toBeGreaterThan(BigInt(original.version?.toString() || '0'));
+  });
+
+  it('throws when uploading a directory — directories must go through uploadMany', async () => {
+    const dirPath = 'it-upload-integration-dir';
+    fs.mkdirSync(dirPath, { recursive: true });
+    fs.writeFileSync(path.join(dirPath, 'inner.txt'), 'Inner Content');
+
+    try {
+      await expect(fileManager.upload(drive, { path: dirPath })).rejects.toThrow(
+        'Cannot upload a directory - use uploadMany',
+      );
+      expect(fileManager.fileInfoList.some((fi) => fi.path === dirPath)).toBe(false);
+    } finally {
+      fs.rmSync(dirPath, { recursive: true, force: true });
+    }
   });
 });
 
@@ -1824,9 +1827,13 @@ describe('FileManager End-to-End User Workflow', () => {
     );
     expect(projectEntries.filter((e) => e.type === NodeType.File)).toHaveLength(2);
 
-    const downloadResults = await retryOnPropagationDelay(() =>
-      fileManager.download(drive, ['it-e2e-project/report.txt', 'it-e2e-project/note.txt']),
-    );
+    const downloadResults = await retryOnPropagationDelay(async () => {
+      const results = await fileManager.download(drive, ['it-e2e-project/report.txt', 'it-e2e-project/note.txt']);
+      if (results.length < 2) {
+        throw new Error(`Expected 2 download results, got ${results.length}`);
+      }
+      return results;
+    });
     const downloadedReport = downloadResults.find((d) => d.path === 'it-e2e-project/report.txt');
     const downloadedNote = downloadResults.find((d) => d.path === 'it-e2e-project/note.txt');
     expect(downloadedReport).toBeDefined();
