@@ -752,62 +752,110 @@ export class FileManagerBase implements FileManager {
 
     const driveFiles = this.fileInfoList.filter((f) => f.driveId === driveInfo.id.toString());
     const files = paths && paths.length > 0 ? driveFiles.filter((f) => paths.includes(f.path)) : driveFiles;
-    const resources: DownloadResource[] = files.map((fi) => ({
+
+    return this.downloadFiles(files, options, requestOptions);
+  }
+
+  /**
+   * Download files whose FileRecords the caller already holds — no drive traversal or hydration.
+   * Fetches exactly the passed records: it does NOT re-resolve them against current drive state,
+   * so the caller is responsible for record currency (a stale record fetches whatever it points at,
+   * e.g. an older version). For path- or drive-based fetching that resolves fresh, use download().
+   */
+  async downloadFiles(
+    fileRecords: FileRecord[],
+    options?: DownloadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<DownloadResult[]> {
+    requestOptions?.signal?.throwIfAborted();
+
+    if (fileRecords.length === 0) return [];
+
+    const resources: DownloadResource[] = fileRecords.map((fi) => ({
       path: fi.path,
-      reference: fi.file.reference.toString(),
-      actHistoryAddress: fi.file.historyRef.toString(),
+      reference: fi.fileRefAndHistory.reference.toString(),
+      actHistoryAddress: fi.fileRefAndHistory.historyRef.toString(),
       actPublisher: new PublicKey(fi.actPublisher).toCompressedHex(),
     }));
 
-    return processDownload(this.bee, resources, options, requestOptions);
+    return await processDownload(this.bee, resources, options, requestOptions);
+  }
+
+  // Shared entry-guard triple used by the mutating public methods. `driveInfo` optionally adds the
+  // drive-in-list check; `requirePublisher` allows methods that don't currently gate on a publisher
+  // to opt out (behaviour-preserving during the incremental refactor).
+  private assertReady(
+    driveInfo?: DriveInfo,
+    requestOptions?: BeeRequestOptions,
+    requirePublisher: boolean = true,
+  ): void {
+    requestOptions?.signal?.throwIfAborted();
+    if (!this.isInitialized) {
+      throw new DriveError('FileManager is not initialized');
+    }
+    if (requirePublisher && !this.publisher) {
+      throw new SignerError('Publisher not found');
+    }
+    if (driveInfo) {
+      const exists = this.driveList.some((d) => d.id.toString() === driveInfo.id.toString());
+      if (!exists) {
+        throw new FileInfoError(`Drive ${driveInfo.name} with id ${driveInfo.id.toString()} not found`);
+      }
+    }
+  }
+
+  // Upload a single file's bytes and ACT-wrap them, returning the content reference + history.
+  // The two-step raw-upload → ACT-wrap sequence lives inside processUpload's platform impls
+  // (upload.browser.ts / upload.node.ts); this helper only encapsulates the processUpload call
+  // so upload() and uploadMany()'s Phase 3 share one invocation shape.
+  private async uploadFileContent(
+    driveInfo: DriveInfo,
+    fileOptions: FileInfoOptions,
+    uploadOptions: RedundantUploadOptions | FileUploadOptions | undefined,
+    redundancyLevel: RedundancyLevel,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<ReferenceWithHistory> {
+    return await processUpload(this.bee, driveInfo, fileOptions, uploadOptions, redundancyLevel, requestOptions);
+  }
+
+  // In-memory only: add a file fork to a mantaray with the standard file metadata keys.
+  // Does NOT save the manifest — save orchestration stays with each caller (inline for upload,
+  // batched in uploadMany Phase 4).
+  private addFileToManifest(mantaray: MantarayNode, filename: string, fileTopic: string): void {
+    mantaray.addFork(filename, new Reference(fileTopic), {
+      [MANIFEST_METADATA_FILE_TOPIC]: fileTopic,
+      [MANIFEST_METADATA_NODE_TOPIC]: fileTopic,
+      [MANIFEST_METADATA_NODE_TYPE]: NodeType.File,
+    });
   }
 
   // TODO: maybe use FileUploadOptions contenttype and size or drop it
   // bee-js comment: Specifies Content-Length for the given data. It is required when uploading with Readable.
+  //
+  // upload() is strictly for NEW files: it mints a fresh feed topic and adds a new fork to the drive
+  // manifest. To re-version (new bytes) or change metadata of an EXISTING file, use update() — it
+  // reuses the file's topic, writes a new feed slot, and never touches the manifest.
+  //
+  // Entry-check-only abort: assertReady() is the single abort checkpoint; once the upload/save
+  // sequence starts it runs to completion (a completed file is a valid standalone node).
   async upload(
     driveInfo: DriveInfo,
     fileOptions: FileInfoOptions,
     uploadOptions?: RedundantUploadOptions | FileUploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
-    requestOptions?.signal?.throwIfAborted();
+    this.assertReady(driveInfo, requestOptions);
 
-    if (!this.stateFeedTopic || !this.isInitialized) {
+    // stateFeedTopic / publisher kept inline for type-narrowing (assertReady checks them but does
+    // not assert on `this`).
+    if (!this.stateFeedTopic) {
       throw new DriveError('FileManager is not initialized.');
     }
-
     if (!this.publisher) {
       throw new SignerError('Publisher not found');
     }
 
-    const fileOptionTopic = fileOptions.topic;
-
-    if (
-      (fileOptionTopic && !uploadOptions?.actHistoryAddress) ||
-      (!fileOptionTopic && uploadOptions?.actHistoryAddress)
-    ) {
-      throw new FileInfoError('Options topic and historyRef have to be provided at the same time.');
-    }
-
-    if (fileOptionTopic) {
-      const existing = this.fileInfoList.find((f) => f.topic.toString() === fileOptionTopic.toString());
-
-      if (existing && existing.path !== fileOptions.path) {
-        throw new FileInfoError(
-          `Cannot change path during re-upload (existing: ${existing.path}, requested: ${fileOptions.path}). Use move() to relocate a file.`,
-        );
-      }
-    }
-
-    const driveIndex = this.driveList.findIndex((d) => d.id.toString() === driveInfo.id.toString());
-    if (driveIndex === -1) {
-      throw new FileInfoError(`Drive ${driveInfo.name} with id ${driveInfo.id.toString()} not found`);
-    }
-
-    // Resolve the parent folder up front — unconditionally, so a re-upload also inherits the
-    // correct redundancyLevel below, not just the first-time fork-add further down. Safe for
-    // re-uploads too: the drift guard above already requires the path to be unchanged, so this
-    // resolves the same parent the file's fork already lives under.
+    // Resolve the parent folder up front so the new fork inherits the parent's redundancy level.
     const lastSlash = fileOptions.path.lastIndexOf('/');
     const parentPath = lastSlash > 0 ? fileOptions.path.substring(0, lastSlash) : '';
     const filename = lastSlash >= 0 ? fileOptions.path.substring(lastSlash + 1) : fileOptions.path;
@@ -821,10 +869,10 @@ export class FileManagerBase implements FileManager {
     };
 
     const owner = this.signerAddress;
-    const { topic, version } = await this.getTopicAndVersion(owner, fileOptionTopic, fileOptions.version?.toString());
+    // No topic arg → fresh topic + version 0.
+    const { topic, version } = await this.getTopicAndVersion(owner);
 
-    const file = await processUpload(
-      this.bee,
+    const fileWrapper = await this.uploadFileContent(
       driveInfo,
       fileOptions,
       uploadOptions,
@@ -838,7 +886,7 @@ export class FileManagerBase implements FileManager {
       // Persisted value is the relative filename — see FileRecord.path doc comment.
       path: filename,
       actPublisher: this.publisher.toCompressedHex(),
-      file,
+      fileRefAndHistory: fileWrapper,
       driveId: driveInfo.id.toString(),
       timestamp: new Date().getTime(),
       shared: false,
@@ -852,27 +900,106 @@ export class FileManagerBase implements FileManager {
     // In-memory copy is stamped with the caller-known absolute path — no walk needed here.
     fileInfo.path = fileOptions.path;
 
-    // no need to save the drive list again if the file info feed is already saved in state
-    if (!fileOptionTopic) {
-      const mantaray = await this.getNodeManifest(targetHost, requestOptions);
+    const mantaray = await this.getNodeManifest(targetHost, requestOptions);
 
-      const fileTopicRef = new Reference(topic);
-      mantaray.addFork(filename, fileTopicRef, {
-        [MANIFEST_METADATA_FILE_TOPIC]: topic,
-        [MANIFEST_METADATA_NODE_TOPIC]: topic,
-        [MANIFEST_METADATA_NODE_TYPE]: NodeType.File,
-      });
+    this.addFileToManifest(mantaray, filename, topic);
 
-      const newManifestRef = await this.saveNodeManifest(mantaray, targetHost, requestOptions);
+    const newManifestRef = await this.saveNodeManifest(mantaray, targetHost, requestOptions);
 
-      if (!parentFolder) {
-        const driveIndex = this.driveList.findIndex((d) => d.id.toString() === driveInfo.id.toString());
+    if (!parentFolder) {
+      const driveIndex = this.driveList.findIndex((d) => d.id.toString() === driveInfo.id.toString());
 
-        if (driveIndex !== -1) {
-          this.driveList[driveIndex].manifestRef = newManifestRef;
-        }
+      if (driveIndex !== -1) {
+        this.driveList[driveIndex].manifestRef = newManifestRef;
       }
     }
+
+    this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
+  }
+
+  // update() re-versions or changes metadata of an EXISTING file the caller already holds as a
+  // FileRecord. Everything derives from `record` (topic, actPublisher, redundancyLevel, current
+  // version, and — the single source of truth for ACT-history continuation — fileRefAndHistory).
+  //
+  // `changes.source` present = new bytes (a browser File, or a node filesystem path — mirroring
+  // UploadManyEntry.source); absent = metadata-only (reuse the existing content ref verbatim).
+  // update() never renames and never touches the manifest — the fork stays at record.path. Renames
+  // go through move().
+  //
+  // Entry-check-only abort, same as upload().
+  async update(
+    driveInfo: DriveInfo,
+    record: FileRecord,
+    changes: { source?: File | string; customMetadata?: Record<string, string> },
+    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void> {
+    this.assertReady(driveInfo, requestOptions);
+
+    if (!this.stateFeedTopic) {
+      throw new DriveError('FileManager is not initialized.');
+    }
+    if (!this.publisher) {
+      throw new SignerError('Publisher not found');
+    }
+
+    const owner = this.signerAddress;
+    // Topic arg + no version → bump to the next feed slot (same increment path upload's re-version
+    // branch used).
+    const { topic, version } = await this.getTopicAndVersion(owner, record.topic);
+
+    const mergedMetadata = changes.customMetadata
+      ? { ...record.customMetadata, ...changes.customMetadata }
+      : record.customMetadata;
+
+    let fileWrapper: ReferenceWithHistory;
+    if (changes.source !== undefined) {
+      // New bytes: continue the file's ACT history from record.fileRefAndHistory.historyRef (the
+      // single source of truth). Build a new-content fileOptions (no topic/fileRefAndHistory, so
+      // uploadFileContent actually uploads instead of short-circuiting on the reuse shortcut).
+      const contentUploadOptions = {
+        ...uploadOptions,
+        actHistoryAddress: record.fileRefAndHistory.historyRef.toString(),
+      };
+      const fileOptions: FileInfoOptions =
+        typeof changes.source === 'string'
+          ? ({ path: changes.source } as NodeUploadOptions as FileInfoOptions)
+          : ({ path: record.path, file: changes.source } as BrowserUploadOptions as FileInfoOptions);
+
+      fileWrapper = await this.uploadFileContent(
+        driveInfo,
+        fileOptions,
+        contentUploadOptions,
+        record.redundancyLevel ?? driveInfo.redundancyLevel,
+        requestOptions,
+      );
+    } else {
+      // Metadata-only: reuse the existing content ref verbatim, no bytes uploaded.
+      fileWrapper = record.fileRefAndHistory;
+    }
+
+    const fileInfo: FileRecord = {
+      batchId: record.batchId.toString(),
+      owner,
+      topic,
+      // Copied verbatim — update never renames; the manifest fork key stays authoritative and the
+      // walkers re-derive path from it on hydration, so no split/reassembly here.
+      path: record.path,
+      actPublisher: new PublicKey(record.actPublisher).toCompressedHex(),
+      fileRefAndHistory: fileWrapper,
+      driveId: record.driveId,
+      timestamp: new Date().getTime(),
+      shared: record.shared ?? false,
+      version,
+      customMetadata: mergedMetadata,
+      redundancyLevel: record.redundancyLevel,
+      status: record.status ?? FileStatus.Active,
+    };
+
+    await this.saveFileInfoFeed(fileInfo, requestOptions);
+    // Location is unchanged — restamp the caller-known absolute path (saveFileInfoFeed already
+    // upserted the in-memory fileInfoList entry via uploadFileInfo).
+    fileInfo.path = record.path;
 
     this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
   }
@@ -1068,8 +1195,7 @@ export class FileManagerBase implements FileManager {
             ? ({ path: planned.entry.source } as NodeUploadOptions as FileInfoOptions)
             : ({ path: planned.fullPath, file: planned.entry.source } as BrowserUploadOptions as FileInfoOptions);
 
-        const file = await processUpload(
-          this.bee,
+        const fileWrapper = await this.uploadFileContent(
           driveInfo,
           fileOptions,
           uploadOptions,
@@ -1084,7 +1210,7 @@ export class FileManagerBase implements FileManager {
           // Persisted value is the relative filename — see FileRecord.path doc comment.
           path: planned.filename,
           actPublisher: publisher.toCompressedHex(),
-          file,
+          fileRefAndHistory: fileWrapper,
           driveId: driveInfo.id.toString(),
           timestamp: new Date().getTime(),
           shared: false,
@@ -1098,11 +1224,7 @@ export class FileManagerBase implements FileManager {
         fileInfo.path = planned.fullPath;
 
         const parentMantaray = await this.getNodeManifest(parentHost, requestOptions);
-        parentMantaray.addFork(planned.filename, new Reference(topic), {
-          [MANIFEST_METADATA_FILE_TOPIC]: topic,
-          [MANIFEST_METADATA_NODE_TOPIC]: topic,
-          [MANIFEST_METADATA_NODE_TYPE]: NodeType.File,
-        });
+        this.addFileToManifest(parentMantaray, planned.filename, topic);
         dirtyHosts.set(parentHost.topic, parentHost);
 
         this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
@@ -1228,9 +1350,9 @@ export class FileManagerBase implements FileManager {
       ...versionToRestore,
       path: cached?.path ?? versionToRestore.path,
       version: feedIndexNext.toString(),
-      file: {
-        reference: versionToRestore.file.reference,
-        historyRef: versionToRestore.file.historyRef,
+      fileRefAndHistory: {
+        reference: versionToRestore.fileRefAndHistory.reference,
+        historyRef: versionToRestore.fileRefAndHistory.historyRef,
       },
       timestamp: Date.now(),
     };
@@ -1587,11 +1709,10 @@ export class FileManagerBase implements FileManager {
     targetDriveInfo?: DriveInfo,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
-    requestOptions?.signal?.throwIfAborted();
+    // Behaviour-preserving: move never gated on a publisher at the top today (only inside its
+    // lazy-fetch path), so keep requirePublisher = false here.
+    this.assertReady(undefined, requestOptions, false);
 
-    if (!this.isInitialized) {
-      throw new DriveError('FileManager is not initialized');
-    }
     if (!fromPath || fromPath === ROOT_PATH) {
       throw new DriveError('Cannot move root folder');
     }
@@ -1759,7 +1880,7 @@ export class FileManagerBase implements FileManager {
       if (!folderTopic) {
         throw new FileInfoError(`Folder fork missing topic: ${currentPath}`);
       }
-
+      // TODO: is this call here efficient and indeed necessary - review
       const {
         payload: folderPayload,
         feedIndex: folderFeedIndex,
@@ -1851,11 +1972,9 @@ export class FileManagerBase implements FileManager {
     redundancyLevel?: RedundancyLevel,
     requestOptions?: BeeRequestOptions,
   ): Promise<FolderInfo> {
-    requestOptions?.signal?.throwIfAborted();
+    // Behaviour-preserving: createFolder does not gate on a publisher today.
+    this.assertReady(undefined, requestOptions, false);
 
-    if (!this.isInitialized) {
-      throw new DriveError('FileManager is not initialized');
-    }
     if (!folderName || folderName.includes('/')) {
       throw new DriveError('Invalid folder name');
     }

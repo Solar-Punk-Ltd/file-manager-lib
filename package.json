@@ -54,6 +54,11 @@
     "cafe-utility": "^36.2.0",
     "std-env": "^3.10.0"
   },
+  "overrides": {
+    "@ethersphere/bee-factory": {
+      "@ethersphere/bee-js": "file:../bee-js"
+    }
+  },
   "devDependencies": {
     "@commitlint/cli": "^20.4.1",
     "@commitlint/config-conventional": "^20.4.1",

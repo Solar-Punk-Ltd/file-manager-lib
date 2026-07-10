@@ -17,7 +17,7 @@ export interface FileRecord {
    * not a value freshly deserialized from the feed without re-stamping.
    */
   path: string;
-  file: ReferenceWithHistory;
+  fileRefAndHistory: ReferenceWithHistory;
   batchId: string | BatchId;
   owner: string | EthAddress;
   actPublisher: string | PublicKey;

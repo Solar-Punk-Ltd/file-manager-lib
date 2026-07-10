@@ -26,9 +26,9 @@ export function assertFileRecord(value: unknown): asserts value is FileRecord {
 
   const fi = value as unknown as FileRecord;
 
-  new Reference(fi.file.reference);
+  new Reference(fi.fileRefAndHistory.reference);
   new Reference(fi.batchId);
-  new Reference(fi.file.historyRef);
+  new Reference(fi.fileRefAndHistory.historyRef);
   new EthAddress(fi.owner);
   new Topic(fi.topic);
   new PublicKey(fi.actPublisher);

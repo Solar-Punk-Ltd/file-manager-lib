@@ -1,4 +1,4 @@
-import { Bytes, FeedIndex, Reference, Topic } from '@ethersphere/bee-js';
+import { Bytes, FeedIndex, Reference } from '@ethersphere/bee-js';
 
 import { FileRecord } from './info';
 
@@ -23,13 +23,13 @@ export enum ListDepth {
   Deep = 'deep',
 }
 
-export interface PartialFileInfo extends Omit<
+// upload() only accepts NEW-content fields (path + customMetadata, plus the platform
+// Browser/Node file source via the intersection below). Re-version inputs (topic,
+// fileRefAndHistory) moved to update(record, ...), so they are intentionally omitted here.
+export type PartialFileInfo = Omit<
   FileRecord,
-  'owner' | 'actPublisher' | 'file' | 'topic' | 'driveId' | 'batchId' | 'redundancyLevel' | 'status'
-> {
-  file?: ReferenceWithHistory;
-  topic?: string | Topic;
-}
+  'owner' | 'actPublisher' | 'fileRefAndHistory' | 'topic' | 'driveId' | 'batchId' | 'redundancyLevel' | 'status'
+>;
 
 export type FileInfoOptions = PartialFileInfo & (BrowserUploadOptions | NodeUploadOptions);
 

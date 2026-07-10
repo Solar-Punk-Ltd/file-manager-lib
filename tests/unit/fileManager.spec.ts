@@ -340,7 +340,7 @@ describe('FileManager', () => {
         topic: Topic.fromString(`dl-${path}`).toString(),
         driveId: drive.id.toString(),
         path,
-        file: { reference: ref, historyRef: SWARM_ZERO_ADDRESS.toString() },
+        fileRefAndHistory: { reference: ref, historyRef: SWARM_ZERO_ADDRESS.toString() },
       };
     }
 
@@ -402,6 +402,60 @@ describe('FileManager', () => {
     });
   });
 
+  describe('downloadFiles', () => {
+    function makeRecord(drive: DriveInfo, path: string, ref: string): FileRecord {
+      return {
+        batchId: MOCK_BATCH_ID,
+        owner,
+        actPublisher,
+        topic: Topic.fromString(`dlf-${path}`).toString(),
+        driveId: drive.id.toString(),
+        path,
+        fileRefAndHistory: { reference: ref, historyRef: SWARM_ZERO_ADDRESS.toString() },
+      };
+    }
+
+    it('fetches exactly the passed records with no drive traversal', async () => {
+      const fm = await createInitializedFileManager();
+      const drive = fm.driveList[0];
+      const records = [makeRecord(drive, 'a.txt', '1'.repeat(64)), makeRecord(drive, 'b.txt', '2'.repeat(64))];
+
+      const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
+      const downloadReadableDataSpy = jest.spyOn(Bee.prototype, 'downloadReadableData');
+      const listFolderSpy = jest.spyOn(fm, 'listFolder');
+      const loadFolderFilesSpy = jest.spyOn(fm as any, 'loadFolderFiles');
+
+      const results = await fm.downloadFiles(records);
+
+      expect(downloadDataSpy).toHaveBeenCalledWith(
+        '1'.repeat(64),
+        { actHistoryAddress: SWARM_ZERO_ADDRESS.toString(), actPublisher },
+        undefined,
+      );
+      expect(downloadDataSpy).toHaveBeenCalledWith(
+        '2'.repeat(64),
+        { actHistoryAddress: SWARM_ZERO_ADDRESS.toString(), actPublisher },
+        undefined,
+      );
+      expect(downloadDataSpy).toHaveBeenCalledTimes(2);
+      expect(downloadReadableDataSpy).toHaveBeenCalledTimes(2);
+      expect(results.map((r) => r.path).sort()).toEqual(['a.txt', 'b.txt']);
+
+      expect(listFolderSpy).not.toHaveBeenCalled();
+      expect(loadFolderFilesSpy).not.toHaveBeenCalled();
+    });
+
+    it('returns an empty array without touching Bee when given no records', async () => {
+      const fm = await createInitializedFileManager();
+      const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
+
+      const results = await fm.downloadFiles([]);
+
+      expect(results).toEqual([]);
+      expect(downloadDataSpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe('listFolder', () => {
     it('returns shallow entries and hydrates newly discovered files exactly once', async () => {
       const fm = await createInitializedFileManager();
@@ -424,7 +478,7 @@ describe('FileManager', () => {
         topic: topicB,
         driveId: drive.id.toString(),
         path: 'b.txt',
-        file: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        fileRefAndHistory: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
       });
 
       // Clear the calls made by createInitializedFileManager()'s own bootstrap so the count below
@@ -446,7 +500,7 @@ describe('FileManager', () => {
             topic: topicA,
             driveId: drive.id.toString(),
             path: 'a.txt',
-            file: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+            fileRefAndHistory: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
           }),
         ),
       );
@@ -491,6 +545,43 @@ describe('FileManager', () => {
   });
 
   describe('upload', () => {
+    it('uploads a new file: adds it to fileInfoList at version 0 and forks it into the drive manifest', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
+      const di = fm.driveList[1];
+
+      await fm.upload(di, { path: 'package.json' } as any);
+
+      const entries = fm.fileInfoList.filter((fi) => fi.path === 'package.json');
+      expect(entries).toHaveLength(1);
+      expect(entries[0].version).toBe(FEED_INDEX_ZERO.toString());
+      expect(entries[0].driveId).toBe(di.id.toString());
+      expect(entries[0].status).toBe(FileStatus.Active);
+
+      // Fresh topic is minted (not derived from any input).
+      expect(entries[0].topic.toString().length).toBeGreaterThan(0);
+
+      const driveMantaray = (fm as any).nodeManifestCache.get(di.driveFeedTopic.toString()) as MantarayNode;
+      expect(driveMantaray.find('package.json')).toBeTruthy();
+    });
+
+    it('uploads into a subfolder: forks the file into the folder manifest, not the drive root', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
+      const di = fm.driveList[1];
+      await fm.createFolder(di, '', 'docs');
+
+      await fm.upload(di, { path: 'docs/package.json' } as any);
+
+      expect(fm.fileInfoList.find((fi) => fi.path === 'docs/package.json')).toBeDefined();
+
+      // The file fork lives under the folder's own manifest — the drive root manifest carries the
+      // 'docs' folder fork but not the file leaf.
+      const driveMantaray = (fm as any).nodeManifestCache.get(di.driveFeedTopic.toString()) as MantarayNode;
+      expect(driveMantaray.find('docs')).toBeTruthy();
+      expect(driveMantaray.find('package.json')).toBeFalsy();
+    });
+
     it('throws when uploading a directory — directories must go through uploadMany', async () => {
       const fm = await createInitializedFileManager();
       await fm.createDrive(otherMockBatchId, 'Test Drive', false);
@@ -507,20 +598,6 @@ describe('FileManager', () => {
       const di = fm.driveList[1];
 
       await expect(fm.upload(di, { path: 'tests' } as any)).rejects.toBeInstanceOf(FileError);
-    });
-
-    it('throws for a directory even in topic-reuse mode (isDir check is not bypassed by supplying a topic)', async () => {
-      const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
-      const di = fm.driveList[1];
-
-      await expect(
-        fm.upload(
-          di,
-          { topic: Topic.fromString('dir-reupload').toString(), path: 'tests' } as any,
-          { actHistoryAddress: SWARM_ZERO_ADDRESS } as any,
-        ),
-      ).rejects.toThrow('Cannot upload a directory - use uploadMany');
     });
 
     it('throws for a nested directory path (not just a top-level one)', async () => {
@@ -547,16 +624,6 @@ describe('FileManager', () => {
       expect(driveMantaray.find('tests')).toBeFalsy();
     });
 
-    it('throws when a topic is provided without a matching actHistoryAddress', async () => {
-      const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
-      const di = fm.driveList[1];
-
-      await expect(fm.upload(di, { topic: 'topic', path: 'package.json' } as any)).rejects.toThrow(
-        'Options topic and historyRef have to be provided at the same time.',
-      );
-    });
-
     it('throws when a drive is not found', async () => {
       const fm = await createInitializedFileManager();
       const ghost = createMockDriveInfo({ id: '7'.repeat(64), name: 'ghost' });
@@ -565,43 +632,128 @@ describe('FileManager', () => {
         `Drive ${ghost.name} with id ${ghost.id.toString()} not found`,
       );
     });
+  });
 
-    it('does not duplicate the fileInfoList entry when re-uploading the same topic, and bumps the version', async () => {
+  describe('update', () => {
+    // Seed a real, version-0 record via a fresh upload so update() re-versions an actual file.
+    async function seedUploadedFile(): Promise<{ fm: FileManagerBase; di: DriveInfo; record: FileRecord }> {
       const fm = await createInitializedFileManager();
       await fm.createDrive(otherMockBatchId, 'Test Drive', false);
       const di = fm.driveList[1];
-
       await fm.upload(di, { path: 'package.json' } as any);
-      expect(fm.fileInfoList.filter((fi) => fi.path === 'package.json')).toHaveLength(1);
+      const record = fm.fileInfoList.find((fi) => fi.path === 'package.json')!;
+      return { fm, di, record };
+    }
 
-      const original = fm.fileInfoList.find((fi) => fi.path === 'package.json')!;
+    it('metadata-only: bumps version, merges customMetadata, reuses the content ref, and does not upload bytes', async () => {
+      const { fm, di, record } = await seedUploadedFile();
 
-      await fm.upload(
-        di,
-        { topic: original.topic, file: original.file, path: original.path } as any,
-        { actHistoryAddress: original.file.historyRef } as any,
-      );
+      const contentSpy = jest.spyOn(fm as any, 'uploadFileContent');
+      const handler = jest.fn();
+      fm.emitter.on(FileManagerEvents.FILE_UPLOADED, handler);
 
-      const updated = fm.fileInfoList.filter((fi) => fi.path === 'package.json');
-      expect(updated).toHaveLength(1);
-      expect(updated[0].version).toBe(FeedIndex.fromBigInt(1n).toString());
+      await fm.update(di, record, { customMetadata: { note: 'hello' } });
+
+      const entries = fm.fileInfoList.filter((fi) => fi.topic.toString() === record.topic.toString());
+      expect(entries).toHaveLength(1);
+      const updated = entries[0];
+      expect(updated.version).toBe(FeedIndex.fromBigInt(1n).toString());
+      expect(updated.path).toBe(record.path);
+      expect(updated.customMetadata).toMatchObject({ note: 'hello' });
+      // Content ref reused verbatim — no bytes uploaded.
+      expect(updated.fileRefAndHistory).toEqual(record.fileRefAndHistory);
+      expect(contentSpy).not.toHaveBeenCalled();
+      expect(handler).toHaveBeenCalled();
     });
 
-    it('throws when trying to change the path of an existing topic without using move()', async () => {
+    it('metadata-only with empty changes re-publishes a new version (content and metadata unchanged)', async () => {
+      const { fm, di, record } = await seedUploadedFile();
+
+      await fm.update(di, record, {});
+
+      const updated = fm.fileInfoList.find((fi) => fi.topic.toString() === record.topic.toString())!;
+      expect(updated.version).toBe(FeedIndex.fromBigInt(1n).toString());
+      expect(updated.path).toBe(record.path);
+      expect(updated.fileRefAndHistory).toEqual(record.fileRefAndHistory);
+    });
+
+    it('never touches the drive manifest (no fork add, no manifest save) even when uploading new bytes', async () => {
+      const { fm, di, record } = await seedUploadedFile();
+
+      const saveManifestSpy = jest.spyOn(fm as any, 'saveNodeManifest');
+      const addForkSpy = jest.spyOn(fm as any, 'addFileToManifest');
+
+      await fm.update(di, record, { source: 'package.json' });
+
+      expect(saveManifestSpy).not.toHaveBeenCalled();
+      expect(addForkSpy).not.toHaveBeenCalled();
+    });
+
+    it('new bytes: derives actHistoryAddress from the record and bumps the version', async () => {
       const fm = await createInitializedFileManager();
       await fm.createDrive(otherMockBatchId, 'Test Drive', false);
       const di = fm.driveList[1];
+      const topic = Topic.fromString('update-new-bytes').toString();
+      const priorHistoryRef = '9'.repeat(64);
 
-      await fm.upload(di, { path: 'package.json' } as any);
-      const original = fm.fileInfoList.find((fi) => fi.path === 'package.json')!;
+      const record: FileRecord = {
+        batchId: MOCK_BATCH_ID,
+        owner,
+        actPublisher,
+        topic,
+        driveId: di.id.toString(),
+        path: 'package.json',
+        fileRefAndHistory: { reference: '8'.repeat(64), historyRef: priorHistoryRef },
+        version: FEED_INDEX_ZERO.toString(),
+      };
+      fm.fileInfoList.push(record);
 
-      await expect(
-        fm.upload(
-          di,
-          { topic: original.topic, file: original.file, path: 'renamed.json' } as any,
-          { actHistoryAddress: original.file.historyRef } as any,
-        ),
-      ).rejects.toThrow(/Cannot change path during re-upload/);
+      const contentSpy = jest.spyOn(fm as any, 'uploadFileContent');
+
+      await fm.update(di, record, { source: 'package.json' });
+
+      expect(contentSpy).toHaveBeenCalledTimes(1);
+      // 3rd arg to uploadFileContent is the content uploadOptions carrying the derived history ref.
+      expect(contentSpy.mock.calls[0][2]).toMatchObject({ actHistoryAddress: priorHistoryRef });
+
+      const updated = fm.fileInfoList.find((fi) => fi.topic.toString() === topic)!;
+      expect(updated.version).toBe(FeedIndex.fromBigInt(1n).toString());
+      expect(updated.path).toBe('package.json');
+    });
+
+    it('does not create a second fileInfoList entry when re-versioning (upsert, not append)', async () => {
+      const { fm, di, record } = await seedUploadedFile();
+
+      await fm.update(di, record, { source: 'package.json' });
+
+      expect(fm.fileInfoList.filter((fi) => fi.topic.toString() === record.topic.toString())).toHaveLength(1);
+    });
+
+    it('throws when uploading a directory as the new content source', async () => {
+      const { fm, di, record } = await seedUploadedFile();
+
+      await expect(fm.update(di, record, { source: 'tests' })).rejects.toThrow(
+        'Cannot upload a directory - use uploadMany',
+      );
+    });
+
+    it('throws when the drive is not found', async () => {
+      const fm = await createInitializedFileManager();
+      const ghost = createMockDriveInfo({ id: '7'.repeat(64), name: 'ghost' });
+      const record: FileRecord = {
+        batchId: MOCK_BATCH_ID,
+        owner,
+        actPublisher,
+        topic: Topic.fromString('orphan').toString(),
+        driveId: ghost.id.toString(),
+        path: 'package.json',
+        fileRefAndHistory: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        version: FEED_INDEX_ZERO.toString(),
+      };
+
+      await expect(fm.update(ghost, record, {})).rejects.toThrow(
+        `Drive ${ghost.name} with id ${ghost.id.toString()} not found`,
+      );
     });
   });
 
@@ -636,7 +788,7 @@ describe('FileManager', () => {
     const dummyTopic = Topic.fromString('deadbeef').toString();
     const dummyFi: FileRecord = {
       topic: dummyTopic,
-      file: { historyRef: SWARM_ZERO_ADDRESS.toString(), reference: SWARM_ZERO_ADDRESS.toString() },
+      fileRefAndHistory: { historyRef: SWARM_ZERO_ADDRESS.toString(), reference: SWARM_ZERO_ADDRESS.toString() },
       owner,
       batchId: MOCK_BATCH_ID,
       driveId: Identifier.fromString('version-drive').toString(),
@@ -825,7 +977,7 @@ describe('FileManager', () => {
           topic: Topic.fromString('forget-x').toString(),
           driveId: target.id.toString(),
           path: 'x.txt',
-          file: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+          fileRefAndHistory: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
         },
         {
           batchId: target.batchId.toString(),
@@ -834,7 +986,7 @@ describe('FileManager', () => {
           topic: Topic.fromString('forget-y').toString(),
           driveId: target.id.toString(),
           path: 'y.txt',
-          file: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+          fileRefAndHistory: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
         },
       );
 
@@ -879,7 +1031,7 @@ describe('FileManager', () => {
         topic: Topic.fromString('lifecycle-target').toString(),
         driveId: drive.id.toString(),
         path: 'notes.txt',
-        file: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        fileRefAndHistory: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
         version: FEED_INDEX_ZERO.toString(),
         status: FileStatus.Active,
         timestamp: 0,
@@ -957,7 +1109,7 @@ describe('FileManager', () => {
         topic: Topic.fromString('doc-a').toString(),
         driveId: drive.id.toString(),
         path: 'Docs/a.txt',
-        file: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        fileRefAndHistory: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
       });
 
       const handler = jest.fn();
@@ -1009,7 +1161,7 @@ describe('FileManager', () => {
         batchId: MOCK_BATCH_ID,
         owner,
         actPublisher,
-        file: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        fileRefAndHistory: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
       };
 
       (getFeedData as jest.Mock).mockResolvedValue({
@@ -1240,7 +1392,7 @@ describe('FileManager', () => {
         topic: Topic.fromString('signal-file').toString(),
         driveId: drive.id.toString(),
         path: 'a.txt',
-        file: { reference: '1'.repeat(64), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        fileRefAndHistory: { reference: '1'.repeat(64), historyRef: SWARM_ZERO_ADDRESS.toString() },
       });
 
       const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');

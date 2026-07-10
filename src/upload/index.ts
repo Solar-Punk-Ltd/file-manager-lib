@@ -13,7 +13,6 @@ import type { BrowserUploadOptions, NodeUploadOptions, ReferenceWithHistory } fr
 interface ProcessedOptions {
   options: BrowserUploadOptions | NodeUploadOptions;
   uploadOptions: RedundantUploadOptions | FileUploadOptions;
-  file?: ReferenceWithHistory;
 }
 
 const processOptions = (
@@ -24,18 +23,9 @@ const processOptions = (
 ): ProcessedOptions => {
   const processedOptions = { ...uploadOptions, redundancyLevel };
 
-  let file: ReferenceWithHistory | undefined;
-
-  if (fileOptions.file) {
-    file = {
-      reference: fileOptions.file.reference.toString(),
-      historyRef: fileOptions.file.historyRef.toString(),
-    };
-  }
-
   const options = isNode ? (fileOptions as NodeUploadOptions) : (fileOptions as BrowserUploadOptions);
 
-  return { options, uploadOptions: processedOptions, file };
+  return { options, uploadOptions: processedOptions };
 };
 
 // TODO: why separate rLevel arg ?
@@ -50,10 +40,6 @@ export async function processUpload(
   requestOptions?: BeeRequestOptions,
 ): Promise<ReferenceWithHistory> {
   const processedOptions = processOptions(isNode, fileOptions, uploadOptions, redundancyLevel);
-
-  if (processedOptions.file) {
-    return processedOptions.file;
-  }
 
   if (isNode) {
     const { processUploadNode } = await import('./upload.node');

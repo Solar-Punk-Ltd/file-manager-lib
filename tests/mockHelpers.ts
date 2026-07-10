@@ -93,7 +93,7 @@ export async function createMockFileInfo(
     driveId: Identifier.fromString('123').toString(),
     owner: owner,
     actPublisher,
-    file: {
+    fileRefAndHistory: {
       reference: ref,
       historyRef: SWARM_ZERO_ADDRESS.toString(),
     },

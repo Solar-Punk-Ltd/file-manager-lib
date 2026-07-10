@@ -50,11 +50,12 @@ export interface FileManager {
   ): Promise<void>;
 
   /**
-   * Uploads a file with the given options.
+   * Uploads a NEW file with the given options — mints a fresh feed topic and adds a new fork to
+   * the drive manifest. To re-version or change metadata of an existing file, use update().
    *
    * For multi-file/folder uploads use uploadMany — passing multiple files here produces a
    * single opaque collection without per-file versioning, ACT, or listing.
-   * @param infoOptions - The options for the file info upload.
+   * @param infoOptions - The options for the file info upload (new content: path/file; no topic).
    * @param uploadOptions - File and collection related upload options.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FILE_UPLOADED
@@ -67,6 +68,27 @@ export interface FileManager {
     requestOptions?: BeeRequestOptions,
   ): Promise<void>;
 
+  /**
+   * Re-versions or changes metadata of an EXISTING file. Reuses the file's feed topic, writes a
+   * new feed slot, and never touches the drive manifest (no rename — use move() to relocate).
+   * Everything derives from `record`, including the ACT-history continuation reference.
+   * @param driveInfo - The drive the file belongs to.
+   * @param record - The existing file's FileRecord (the single source of truth).
+   * @param changes - `source` present = new bytes (browser File or node filesystem path); absent =
+   *                  metadata-only. `customMetadata` is merged over the record's existing metadata.
+   * @param uploadOptions - File-related upload options (actHistoryAddress is derived from record).
+   * @param requestOptions - Additional Bee request options.
+   * @emits FileManagerEvents.FILE_UPLOADED
+   * @returns A promise that resolves when the update is complete.
+   */
+  update(
+    driveInfo: DriveInfo,
+    record: FileRecord,
+    changes: { source?: File | string; customMetadata?: Record<string, string> },
+    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void>;
+  // TODO: I don't like the uploadmanyentry source -> maybe use the same node vs browser options as in upload
   /**
    * Uploads multiple files, recreating their folder hierarchy as real folder-nodes under
    * destinationPath. Each file becomes its own node with per-file versioning and ACT, unlike a
@@ -107,6 +129,21 @@ export interface FileManager {
     requestOptions?: BeeRequestOptions,
   ): Promise<DownloadResult[]>;
 
+  /**
+   * Downloads files whose FileRecords the caller already holds — no drive traversal or hydration.
+   * Fetches exactly the passed records; does not re-resolve them against current drive state.
+   * @param fileRecords - The FileRecords to fetch content for.
+   * @param options - Optional download options.
+   * @param requestOptions - Additional Bee request options.
+   * @returns A promise that resolves to an array of DownloadResult, one per record.
+   */
+  downloadFiles(
+    fileRecords: FileRecord[],
+    options?: DownloadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<DownloadResult[]>;
+
+  // TODO: Folder manifests key forks by plaintext filename (Model A). Anyone granted a folder's ACT root can enumerate all names within it (names only — not content or per-file access). Acceptable under single-owner; revisit in the sharing epic if per-grantee-group name confidentiality is required. Fix-direction: key forks by opaque topic, move names into the per-file ACT-encrypted FileRecord (loses cheap listing + the name-based hierarchy walk).
   /**
    * Lists entries in a folder (or drive root) in the drive manifest.
    * Also populates the fileInfoList cache for any file entries encountered.

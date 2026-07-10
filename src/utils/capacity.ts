@@ -33,7 +33,7 @@ const dummyDriveInfo: DriveInfo = {
 const dummyDriveInfoSize = getEncodedSize(JSON.stringify(dummyDriveInfo));
 const dummyFileRecord: FileRecord = {
   batchId: DUMMY_STAMP.toString(),
-  file: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+  fileRefAndHistory: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
   path: 'a'.repeat(40),
   owner: DUMMY_SIGNER.publicKey().address().toString(),
   actPublisher: DUMMY_SIGNER.publicKey().toString(),
