@@ -6,14 +6,14 @@ export type {
   FolderInfo,
   ManifestHost,
   ShareItem,
-  UploadManyResult,
+  UploadFilesResult,
 } from './info';
 export { FileStatus } from './info';
 export type {
   BrowserUploadOptions,
   FileInfoOptions,
   NodeUploadOptions,
-  UploadManyEntry,
+  UploadFilesEntry,
   UploadProgress,
 } from './utils';
 export { ListDepth, NodeType } from './utils';

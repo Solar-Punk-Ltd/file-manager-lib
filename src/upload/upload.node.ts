@@ -38,7 +38,7 @@ async function uploadFile(
   const isPathDir = await isDir(resolvedPath);
 
   if (isPathDir) {
-    throw new FileError(`Cannot upload a directory - use uploadMany`);
+    throw new FileError(`Cannot upload a directory - use uploadFiles`);
   }
 
   try {

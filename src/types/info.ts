@@ -60,7 +60,7 @@ export interface DownloadResult {
   result: ReadableStream<Uint8Array>;
 }
 
-export interface UploadManyResult {
+export interface UploadFilesResult {
   succeeded: FileRecord[];
   failed: { path: string; error: string }[];
 }

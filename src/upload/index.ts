@@ -9,6 +9,29 @@ import { isNode } from 'std-env';
 
 import type { DriveInfo, FileInfoOptions } from '../types';
 import type { BrowserUploadOptions, NodeUploadOptions, ReferenceWithHistory } from '../types/utils';
+import { FileError } from '../utils/errors';
+
+export async function assertUploadableSource(fileOptions: FileInfoOptions): Promise<void> {
+  // TODO: processUpload reports the missing path/file itself -> throw here?
+  if (isNode) {
+    const nodeOptions = fileOptions as NodeUploadOptions;
+    if (!nodeOptions.path) {
+      return;
+    }
+
+    const { isDir } = await import('../utils/fs/fs.node');
+    if (await isDir(nodeOptions.path)) {
+      throw new FileError('Cannot upload a directory - use uploadFiles');
+    }
+
+    return;
+  }
+
+  const isFileProvided = (fileOptions as BrowserUploadOptions).file;
+  if (!isFileProvided) {
+    throw new FileError('File is required.');
+  }
+}
 
 interface ProcessedOptions {
   options: BrowserUploadOptions | NodeUploadOptions;

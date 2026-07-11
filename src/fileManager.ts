@@ -56,10 +56,10 @@ import {
   ManifestHost,
   NodeUploadOptions,
   ShareItem,
-  UploadManyEntry,
-  UploadManyResult,
+  UploadFilesEntry,
+  UploadFilesResult,
 } from './types';
-import { processUpload } from './upload';
+import { assertUploadableSource, processUpload } from './upload';
 import {
   ADMIN_STAMP_LABEL,
   BeeVersionError,
@@ -74,7 +74,6 @@ import {
   SubscriptionError,
 } from './utils';
 
-// TODO: consider using POT
 export class FileManagerBase implements FileManager {
   private bee: Bee;
   private signer: PrivateKey;
@@ -524,21 +523,21 @@ export class FileManagerBase implements FileManager {
 
   async listFolder(
     driveInfo: DriveInfo,
-    folderPath: string,
+    path: string,
     depth: ListDepth = ListDepth.Shallow,
     maxDepth?: number,
     requestOptions?: BeeRequestOptions,
   ): Promise<DirectoryEntry[]> {
     requestOptions?.signal?.throwIfAborted();
 
-    const startFolder = await this.resolveFolder(driveInfo, folderPath, requestOptions);
+    const startFolder = await this.resolveFolder(driveInfo, path, requestOptions);
     const startHost: ManifestHost = startFolder ?? {
       topic: driveInfo.driveFeedTopic.toString(),
       manifestRef: driveInfo.manifestRef,
       batchId: driveInfo.batchId,
       redundancyLevel: driveInfo.redundancyLevel,
     };
-    const startBasePath = folderPath.split('/').filter(Boolean).join('/');
+    const startBasePath = path.split('/').filter(Boolean).join('/');
 
     // TODO: MAX_SAFE_INTEGER seems wrong here
     const results: DirectoryEntry[] = [];
@@ -655,112 +654,40 @@ export class FileManagerBase implements FileManager {
     return results;
   }
 
-  private async loadFolderFiles(
+  // Download an entire folder subtree of a drive: resolves the subtree's records fresh (hydrating
+  // via listFolder), then fetches them. path '' (default) = the whole drive.
+  async downloadFolder(
     driveInfo: DriveInfo,
-    folderPath: string,
-    onlyPaths?: Set<string>,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<void> {
-    requestOptions?.signal?.throwIfAborted();
-
-    const publisher = this.publisher;
-    if (!publisher) {
-      return;
-    }
-
-    const folder = await this.resolveFolder(driveInfo, folderPath, requestOptions);
-    const host: ManifestHost = folder ?? {
-      topic: driveInfo.driveFeedTopic.toString(),
-      manifestRef: driveInfo.manifestRef,
-      batchId: driveInfo.batchId,
-      redundancyLevel: driveInfo.redundancyLevel,
-    };
-    const basePath = folderPath.split('/').filter(Boolean).join('/');
-
-    const mantaray = await this.getNodeManifest(host, requestOptions);
-    const fileEntries = getAllNodeEntries(mantaray)
-      .filter((e) => e.type === NodeType.File)
-      .map((e) => ({ ...e, path: joinPath(basePath, e.path) }))
-      .filter(
-        (e) => (!onlyPaths || onlyPaths.has(e.path)) && !this.fileInfoList.some((f) => f.topic.toString() === e.topic),
-      );
-
-    await awaitAllPromisesBounded(
-      fileEntries.map((entry) => async (): Promise<FileRecord | null> => {
-        const feedData = await getFeedData(
-          this.bee,
-          new Topic(entry.topic),
-          this.signerAddress,
-          undefined,
-          requestOptions,
-        );
-
-        if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
-          console.warn(`loadFolderFiles: file feed not found for ${entry.path} — skipping`);
-          return null;
-        }
-
-        this.nodeFeedIndexCache.set(entry.topic, feedData.feedIndexNext.toBigInt());
-
-        const fi = await this.fetchFileInfo(entry.topic, publisher.toCompressedHex(), feedData, requestOptions);
-        // In-memory copy is stamped with the path composed while walking — mirrors the existing
-        // version stamp in fetchFileInfo.
-        fi.path = entry.path;
-        return fi;
-      }),
-      MAX_CONCURRENT_FEED_FETCHES,
-      (fi) => {
-        if (fi) this.fileInfoList.push(fi);
-      },
-      (reason) => {
-        if (requestOptions?.signal?.aborted) return;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        console.error(`loadFolderFiles: ${(reason as any)?.message || reason}`);
-      },
-    );
-
-    requestOptions?.signal?.throwIfAborted();
-  }
-
-  async download(
-    driveInfo: DriveInfo,
-    paths?: string[],
+    path: string = '',
     options?: DownloadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<DownloadResult[]> {
-    if (paths && paths.length > 0) {
-      const parents = new Map<string, Set<string>>();
+    requestOptions?.signal?.throwIfAborted();
 
-      for (const p of paths) {
-        const lastSlash = p.lastIndexOf('/');
-        const parent = lastSlash > 0 ? p.substring(0, lastSlash) : '';
+    await this.listFolder(driveInfo, path, ListDepth.Deep, undefined, requestOptions);
 
-        if (!parents.has(parent)) parents.set(parent, new Set());
-
-        const pathSet = parents.get(parent) as Set<string>;
-        pathSet.add(p);
-      }
-
-      await Promise.all(
-        Array.from(parents.entries()).map(([parent, pathSet]) =>
-          this.loadFolderFiles(driveInfo, parent, pathSet, requestOptions),
-        ),
-      );
-    } else {
-      await this.listFolder(driveInfo, '', ListDepth.Deep, undefined, requestOptions);
-    }
-
-    const driveFiles = this.fileInfoList.filter((f) => f.driveId === driveInfo.id.toString());
-    const files = paths && paths.length > 0 ? driveFiles.filter((f) => paths.includes(f.path)) : driveFiles;
+    const normalized = path.split('/').filter(Boolean).join('/');
+    const prefix = normalized ? normalized + '/' : '';
+    const files = this.fileInfoList.filter((f) => f.driveId === driveInfo.id.toString() && f.path.startsWith(prefix));
 
     return this.downloadFiles(files, options, requestOptions);
+  }
+
+  // Download a single file the caller already holds as a FileRecord — convenience wrapper over
+  // downloadFiles(). Does not re-resolve against drive state (see downloadFiles).
+  async downloadFile(
+    fileRecord: FileRecord,
+    options?: DownloadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<DownloadResult> {
+    return (await this.downloadFiles([fileRecord], options, requestOptions))[0];
   }
 
   /**
    * Download files whose FileRecords the caller already holds — no drive traversal or hydration.
    * Fetches exactly the passed records: it does NOT re-resolve them against current drive state,
    * so the caller is responsible for record currency (a stale record fetches whatever it points at,
-   * e.g. an older version). For path- or drive-based fetching that resolves fresh, use download().
+   * e.g. an older version). For folder- or drive-based fetching that resolves fresh, use downloadFolder().
    */
   async downloadFiles(
     fileRecords: FileRecord[],
@@ -807,12 +734,12 @@ export class FileManagerBase implements FileManager {
   // Upload a single file's bytes and ACT-wrap them, returning the content reference + history.
   // The two-step raw-upload → ACT-wrap sequence lives inside processUpload's platform impls
   // (upload.browser.ts / upload.node.ts); this helper only encapsulates the processUpload call
-  // so upload() and uploadMany()'s Phase 3 share one invocation shape.
+  // so uploadFile() and uploadFiles()'s Phase 3 share one invocation shape.
   private async uploadFileContent(
     driveInfo: DriveInfo,
     fileOptions: FileInfoOptions,
-    uploadOptions: RedundantUploadOptions | FileUploadOptions | undefined,
     redundancyLevel: RedundancyLevel,
+    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<ReferenceWithHistory> {
     return await processUpload(this.bee, driveInfo, fileOptions, uploadOptions, redundancyLevel, requestOptions);
@@ -820,7 +747,7 @@ export class FileManagerBase implements FileManager {
 
   // In-memory only: add a file fork to a mantaray with the standard file metadata keys.
   // Does NOT save the manifest — save orchestration stays with each caller (inline for upload,
-  // batched in uploadMany Phase 4).
+  // batched in uploadFiles Phase 4).
   private addFileToManifest(mantaray: MantarayNode, filename: string, fileTopic: string): void {
     mantaray.addFork(filename, new Reference(fileTopic), {
       [MANIFEST_METADATA_FILE_TOPIC]: fileTopic,
@@ -830,15 +757,16 @@ export class FileManagerBase implements FileManager {
   }
 
   // TODO: maybe use FileUploadOptions contenttype and size or drop it
+  // TODO: now rLevel is derivet from tha parent folder/ drive -> default to it and potentially overwrite it
   // bee-js comment: Specifies Content-Length for the given data. It is required when uploading with Readable.
   //
-  // upload() is strictly for NEW files: it mints a fresh feed topic and adds a new fork to the drive
-  // manifest. To re-version (new bytes) or change metadata of an EXISTING file, use update() — it
+  // uploadFile() is strictly for NEW files: it mints a fresh feed topic and adds a new fork to the drive
+  // manifest. To re-version (new bytes) or change metadata of an EXISTING file, use updateFile() — it
   // reuses the file's topic, writes a new feed slot, and never touches the manifest.
   //
   // Entry-check-only abort: assertReady() is the single abort checkpoint; once the upload/save
   // sequence starts it runs to completion (a completed file is a valid standalone node).
-  async upload(
+  async uploadFile(
     driveInfo: DriveInfo,
     fileOptions: FileInfoOptions,
     uploadOptions?: RedundantUploadOptions | FileUploadOptions,
@@ -854,6 +782,8 @@ export class FileManagerBase implements FileManager {
     if (!this.publisher) {
       throw new SignerError('Publisher not found');
     }
+
+    await assertUploadableSource(fileOptions);
 
     // Resolve the parent folder up front so the new fork inherits the parent's redundancy level.
     const lastSlash = fileOptions.path.lastIndexOf('/');
@@ -875,8 +805,8 @@ export class FileManagerBase implements FileManager {
     const fileWrapper = await this.uploadFileContent(
       driveInfo,
       fileOptions,
-      uploadOptions,
       targetHost.redundancyLevel,
+      uploadOptions,
       requestOptions,
     );
     const fileInfo: FileRecord = {
@@ -917,17 +847,17 @@ export class FileManagerBase implements FileManager {
     this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
   }
 
-  // update() re-versions or changes metadata of an EXISTING file the caller already holds as a
+  // updateFile() re-versions or changes metadata of an EXISTING file the caller already holds as a
   // FileRecord. Everything derives from `record` (topic, actPublisher, redundancyLevel, current
   // version, and — the single source of truth for ACT-history continuation — fileRefAndHistory).
   //
   // `changes.source` present = new bytes (a browser File, or a node filesystem path — mirroring
-  // UploadManyEntry.source); absent = metadata-only (reuse the existing content ref verbatim).
-  // update() never renames and never touches the manifest — the fork stays at record.path. Renames
+  // UploadFilesEntry.source); absent = metadata-only (reuse the existing content ref verbatim).
+  // updateFile() never renames and never touches the manifest — the fork stays at record.path. Renames
   // go through move().
   //
-  // Entry-check-only abort, same as upload().
-  async update(
+  // Entry-check-only abort, same as uploadFile().
+  async updateFile(
     driveInfo: DriveInfo,
     record: FileRecord,
     changes: { source?: File | string; customMetadata?: Record<string, string> },
@@ -969,8 +899,8 @@ export class FileManagerBase implements FileManager {
       fileWrapper = await this.uploadFileContent(
         driveInfo,
         fileOptions,
-        contentUploadOptions,
         record.redundancyLevel ?? driveInfo.redundancyLevel,
+        contentUploadOptions,
         requestOptions,
       );
     } else {
@@ -1004,13 +934,13 @@ export class FileManagerBase implements FileManager {
     this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
   }
 
-  async uploadMany(
+  async uploadFiles(
     driveInfo: DriveInfo,
-    entries: UploadManyEntry[],
+    entries: UploadFilesEntry[],
     destinationPath: string = '',
     uploadOptions?: RedundantUploadOptions | FileUploadOptions,
     requestOptions?: BeeRequestOptions,
-  ): Promise<UploadManyResult> {
+  ): Promise<UploadFilesResult> {
     // Phase 0 — guards. Reject immediately if already aborted before any work starts.
     requestOptions?.signal?.throwIfAborted();
 
@@ -1027,7 +957,7 @@ export class FileManagerBase implements FileManager {
     }
 
     if (!entries.length) {
-      throw new FileInfoError('uploadMany requires at least one entry');
+      throw new FileInfoError('uploadFiles requires at least one entry');
     }
 
     for (const entry of entries) {
@@ -1053,7 +983,7 @@ export class FileManagerBase implements FileManager {
     };
 
     interface PlannedFile {
-      entry: UploadManyEntry;
+      entry: UploadFilesEntry;
       fullPath: string;
       filename: string;
       parentPath: string;
@@ -1082,42 +1012,42 @@ export class FileManagerBase implements FileManager {
     hostMap.set(destKey, destHost);
 
     const missingFolderPaths = new Set<string>();
-    const missingFolders: { folderPath: string; parentPath: string; folderName: string }[] = [];
+    const missingFolders: { path: string; parentPath: string; folderName: string }[] = [];
 
-    for (const folderPath of sortedFolderPaths) {
-      const segments = segmentsOf(folderPath);
+    for (const path of sortedFolderPaths) {
+      const segments = segmentsOf(path);
       const folderName = segments[segments.length - 1];
       const parentPath = segments.slice(0, -1).join('/');
 
       if (missingFolderPaths.has(parentPath)) {
         // Parent doesn't exist yet (queued for Phase 2) — this folder can't exist either.
-        missingFolderPaths.add(folderPath);
-        missingFolders.push({ folderPath, parentPath, folderName });
+        missingFolderPaths.add(path);
+        missingFolders.push({ path, parentPath, folderName });
         continue;
       }
 
       const parentHost = hostMap.get(parentPath);
       if (!parentHost) {
-        throw new DriveError(`Internal error: parent folder not resolved for path: ${folderPath}`);
+        throw new DriveError(`Internal error: parent folder not resolved for path: ${path}`);
       }
 
       const parentMantaray = await this.getNodeManifest(parentHost, requestOptions);
       const fork = parentMantaray.find(folderName);
 
       if (!fork) {
-        missingFolderPaths.add(folderPath);
-        missingFolders.push({ folderPath, parentPath, folderName });
+        missingFolderPaths.add(path);
+        missingFolders.push({ path: path, parentPath, folderName });
         continue;
       }
 
       const meta = fork.metadata ?? {};
       if (meta[MANIFEST_METADATA_NODE_TYPE] !== NodeType.Folder) {
-        throw new DriveError(`Path is not a folder: ${folderPath}`);
+        throw new DriveError(`Path is not a folder: ${path}`);
       }
 
       const folderTopic = meta[MANIFEST_METADATA_NODE_TOPIC];
       if (!folderTopic) {
-        throw new FileInfoError(`Folder fork missing topic: ${folderPath}`);
+        throw new FileInfoError(`Folder fork missing topic: ${path}`);
       }
 
       const { payload, feedIndex } = await getFeedData(
@@ -1128,10 +1058,10 @@ export class FileManagerBase implements FileManager {
         requestOptions,
       );
       if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
-        throw new DriveError(`Folder feed not found for path: ${folderPath}`);
+        throw new DriveError(`Folder feed not found for path: ${path}`);
       }
 
-      hostMap.set(folderPath, {
+      hostMap.set(path, {
         topic: folderTopic,
         manifestRef: payload.toJSON() as ReferenceWithHistory,
         batchId: driveInfo.batchId,
@@ -1146,10 +1076,10 @@ export class FileManagerBase implements FileManager {
 
     // Phase 2 — create missing folders, shallow-to-deep, sequential (folder count is small and
     // ordering matters: each folder's parent must already be in hostMap when it's created).
-    for (const { folderPath, parentPath, folderName } of missingFolders) {
+    for (const { path, parentPath, folderName } of missingFolders) {
       const parentHost = hostMap.get(parentPath);
       if (!parentHost) {
-        throw new DriveError(`Internal error: parent folder not resolved for path: ${folderPath}`);
+        throw new DriveError(`Internal error: parent folder not resolved for path: ${path}`);
       }
 
       const folderInfo = await this.createFolderNode(
@@ -1161,7 +1091,7 @@ export class FileManagerBase implements FileManager {
         requestOptions,
       );
 
-      hostMap.set(folderPath, {
+      hostMap.set(path, {
         topic: folderInfo.topic,
         manifestRef: folderInfo.manifestRef,
         batchId: folderInfo.batchId,
@@ -1198,8 +1128,8 @@ export class FileManagerBase implements FileManager {
         const fileWrapper = await this.uploadFileContent(
           driveInfo,
           fileOptions,
-          uploadOptions,
           parentHost.redundancyLevel,
+          uploadOptions,
           requestOptions,
         );
 
@@ -1257,7 +1187,7 @@ export class FileManagerBase implements FileManager {
       }
     }
 
-    const result: UploadManyResult = { succeeded, failed };
+    const result: UploadFilesResult = { succeeded, failed };
     this.emitter.emit(FileManagerEvents.FILES_UPLOADED, result);
 
     return result;
@@ -1298,7 +1228,7 @@ export class FileManagerBase implements FileManager {
     return { topic, version: version ? version : FEED_INDEX_ZERO.toString() };
   }
 
-  async getVersion(fi: FileRecord, version?: string | FeedIndex): Promise<FileRecord> {
+  async getFileVersion(fi: FileRecord, version?: string | FeedIndex): Promise<FileRecord> {
     const localHead = this.fileInfoList.find((f) => f.topic.toString() === fi.topic.toString());
 
     if (localHead && localHead.version && version) {
@@ -1319,7 +1249,7 @@ export class FileManagerBase implements FileManager {
     return this.fetchFileInfo(topic.toString(), new PublicKey(fi.actPublisher).toCompressedHex(), feedData);
   }
 
-  async restoreVersion(versionToRestore: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
+  async restoreFileVersion(versionToRestore: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
     const { feedIndex, feedIndexNext } = await getFeedData(
       this.bee,
       new Topic(versionToRestore.topic),
@@ -1341,7 +1271,7 @@ export class FileManagerBase implements FileManager {
     }
 
     // Restoring a version restores content, not location — keep the current tree position.
-    // versionToRestore may come raw from getVersion (relative, unstamped path); the cached
+    // versionToRestore may come raw from getFileVersion (relative, unstamped path); the cached
     // entry carries the walk-derived absolute path.
     // TODO: if cached is not found -> split full path versionToRestore and only use the relative path/name
     const cached = this.fileInfoList.find((f) => f.topic.toString() === versionToRestore.topic.toString());
@@ -1612,7 +1542,7 @@ export class FileManagerBase implements FileManager {
           this.fileInfoList.splice(i, 1);
         }
       }
-      this.emitter.emit(FileManagerEvents.FOLDER_FORGOTTEN, { driveInfo, folderPath: path });
+      this.emitter.emit(FileManagerEvents.FOLDER_FORGOTTEN, { driveInfo, path });
     } else {
       const fiIndex = this.fileInfoList.findIndex((f) => f.driveId === driveInfo.id.toString() && f.path === path);
       const forgotten = fiIndex !== -1 ? this.fileInfoList[fiIndex] : undefined;
@@ -1913,7 +1843,7 @@ export class FileManagerBase implements FileManager {
   // slot 0) and adds its fork to the PARENT's in-memory mantaray — but does not save the parent's
   // manifest or update the drive list. Callers that need the parent persisted immediately
   // (createFolder) do that themselves right after; callers batching many changes onto one parent
-  // (uploadMany) defer it and save once at the end.
+  // (uploadFiles) defer it and save once at the end.
   private async createFolderNode(
     driveInfo: DriveInfo,
     parentHost: ManifestHost,

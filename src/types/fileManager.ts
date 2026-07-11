@@ -13,8 +13,8 @@ import {
 import { EventEmitter } from '../eventEmitter';
 import { DirectoryEntry } from '../utils/mantaray';
 
-import { DownloadResult, DriveInfo, FileRecord, FolderInfo, ShareItem, UploadManyResult } from './info';
-import { FileInfoOptions, ListDepth, UploadManyEntry } from './utils';
+import { DownloadResult, DriveInfo, FileRecord, FolderInfo, ShareItem, UploadFilesResult } from './info';
+import { FileInfoOptions, ListDepth, UploadFilesEntry } from './utils';
 
 /**
  * Interface representing a file manager with various file operations.
@@ -51,9 +51,9 @@ export interface FileManager {
 
   /**
    * Uploads a NEW file with the given options — mints a fresh feed topic and adds a new fork to
-   * the drive manifest. To re-version or change metadata of an existing file, use update().
+   * the drive manifest. To re-version or change metadata of an existing file, use updateFile().
    *
-   * For multi-file/folder uploads use uploadMany — passing multiple files here produces a
+   * For multi-file/folder uploads use uploadFiles — passing multiple files here produces a
    * single opaque collection without per-file versioning, ACT, or listing.
    * @param infoOptions - The options for the file info upload (new content: path/file; no topic).
    * @param uploadOptions - File and collection related upload options.
@@ -61,7 +61,7 @@ export interface FileManager {
    * @emits FileManagerEvents.FILE_UPLOADED
    * @returns A promise that resolves when the upload is complete.
    */
-  upload(
+  uploadFile(
     driveInfo: DriveInfo,
     infoOptions: FileInfoOptions,
     uploadOptions?: RedundantUploadOptions | FileUploadOptions,
@@ -81,18 +81,18 @@ export interface FileManager {
    * @emits FileManagerEvents.FILE_UPLOADED
    * @returns A promise that resolves when the update is complete.
    */
-  update(
+  updateFile(
     driveInfo: DriveInfo,
     record: FileRecord,
     changes: { source?: File | string; customMetadata?: Record<string, string> },
     uploadOptions?: RedundantUploadOptions | FileUploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<void>;
-  // TODO: I don't like the uploadmanyentry source -> maybe use the same node vs browser options as in upload
+  // TODO: UploadFilesEntry source -> maybe use the same node vs browser options as in uploadFile and derive the correct params
   /**
    * Uploads multiple files, recreating their folder hierarchy as real folder-nodes under
    * destinationPath. Each file becomes its own node with per-file versioning and ACT, unlike a
-   * single opaque collection upload via upload(). Missing folders are created as needed; each
+   * single opaque collection upload via uploadFile(). Missing folders are created as needed; each
    * touched parent manifest is saved once at the end. Tolerates partial failure: per-file errors
    * are collected rather than aborting the whole batch.
    * @param driveInfo - The drive to upload into.
@@ -105,29 +105,41 @@ export interface FileManager {
    * @emits FileManagerEvents.FILES_UPLOADED (once, with the batch summary)
    * @returns The succeeded FileRecords and any per-file failures.
    */
-  uploadMany(
+  uploadFiles(
     driveInfo: DriveInfo,
-    entries: UploadManyEntry[],
+    entries: UploadFilesEntry[],
     destinationPath?: string,
     uploadOptions?: RedundantUploadOptions | FileUploadOptions,
     requestOptions?: BeeRequestOptions,
-  ): Promise<UploadManyResult>;
+  ): Promise<UploadFilesResult>;
 
   /**
-   * Downloads files for all matching paths in a drive.
+   * Downloads every file in a folder subtree of a drive (resolved fresh via listFolder).
    * @param driveInfo - The drive to download from.
-   * @param paths - Optional array of paths to filter by.
+   * @param path - Absolute path of the folder; '' / omitted = the whole drive.
    * @param options - Optional download options.
    * @param requestOptions - Additional Bee request options.
-   * @emits FileManagerEvents.FILE_DOWNLOADED
-   * @returns A promise that resolves to an array of DownloadResult, one per matched file.
+   * @returns A promise that resolves to an array of DownloadResult, one per file in the subtree.
    */
-  download(
+  downloadFolder(
     driveInfo: DriveInfo,
-    paths?: string[],
+    path?: string,
     options?: DownloadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<DownloadResult[]>;
+
+  /**
+   * Downloads a single file the caller already holds as a FileRecord.
+   * @param fileRecord - The file to fetch.
+   * @param options - Optional download options.
+   * @param requestOptions - Additional Bee request options.
+   * @returns A promise that resolves to a single DownloadResult.
+   */
+  downloadFile(
+    fileRecord: FileRecord,
+    options?: DownloadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<DownloadResult>;
 
   /**
    * Downloads files whose FileRecords the caller already holds — no drive traversal or hydration.
@@ -148,7 +160,7 @@ export interface FileManager {
    * Lists entries in a folder (or drive root) in the drive manifest.
    * Also populates the fileInfoList cache for any file entries encountered.
    * @param driveInfo - The drive containing the folder.
-   * @param folderPath - Absolute path of the folder, or '' / '/' for the drive root.
+   * @param path - Absolute path of the folder, or '' / '/' for the drive root.
    * @param depth - Shallow (one level) or Deep (full BFS). Defaults to Shallow.
    * @param maxDepth - Maximum BFS levels when depth is Deep; unlimited if omitted.
    * @param requestOptions - Additional Bee request options.
@@ -156,7 +168,7 @@ export interface FileManager {
    */
   listFolder(
     driveInfo: DriveInfo,
-    folderPath: string,
+    path: string,
     depth?: ListDepth,
     maxDepth?: number,
     requestOptions?: BeeRequestOptions,
@@ -244,7 +256,7 @@ export interface FileManager {
    * @param version - Optional desired version slot as a FeedIndex or hex/string. If omitted, fetches latest.
    * @returns The FileRecord corresponding to the requested version, either cached or fetched.
    */
-  getVersion(fileInfo: FileRecord, version?: FeedIndex): Promise<FileRecord>;
+  getFileVersion(fileInfo: FileRecord, version?: string | FeedIndex): Promise<FileRecord>;
 
   /**
    * Restore a previous version of a file as the new "head" in your feed.
@@ -254,7 +266,7 @@ export interface FileManager {
    * @emits FileManagerEvents.FILE_VERSION_RESTORED
    * @throws FileInfoError if no versions are found.
    */
-  restoreVersion(versionToRestore: FileRecord, requestOptions?: BeeRequestOptions): Promise<void>;
+  restoreFileVersion(versionToRestore: FileRecord, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
    * Moves a file or folder within a drive from one path to another.

@@ -23,9 +23,9 @@ export enum ListDepth {
   Deep = 'deep',
 }
 
-// upload() only accepts NEW-content fields (path + customMetadata, plus the platform
+// uploadFile() only accepts NEW-content fields (path + customMetadata, plus the platform
 // Browser/Node file source via the intersection below). Re-version inputs (topic,
-// fileRefAndHistory) moved to update(record, ...), so they are intentionally omitted here.
+// fileRefAndHistory) moved to updateFile(record, ...), so they are intentionally omitted here.
 export type PartialFileInfo = Omit<
   FileRecord,
   'owner' | 'actPublisher' | 'fileRefAndHistory' | 'topic' | 'driveId' | 'batchId' | 'redundancyLevel' | 'status'
@@ -37,7 +37,7 @@ export interface NodeUploadOptions {
   path: string;
 }
 
-export interface UploadManyEntry {
+export interface UploadFilesEntry {
   /** Path relative to destinationPath, e.g. "docs/report.pdf". For browser folder
    *  selections, derive from File.webkitRelativePath; for flat multi-select, File.name. */
   relativePath: string;
