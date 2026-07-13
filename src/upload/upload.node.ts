@@ -11,20 +11,13 @@ async function uploadNode(
   uploadOptions?: FileUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<UploadResult> {
-  const uploadResult = await uploadFile(
-    bee,
-    batchId,
-    nodeOptions.path,
-    { ...uploadOptions, act: false, actHistoryAddress: undefined },
-    requestOptions,
-  );
+  const result = await uploadFile(bee, batchId, nodeOptions.path, { ...uploadOptions, act: true }, requestOptions);
 
-  return await bee.uploadData(
-    batchId,
-    uploadResult.reference.toUint8Array(),
-    { ...uploadOptions, act: true },
-    requestOptions,
-  );
+  if (result.tagUid !== undefined) {
+    nodeOptions.onUploadProgress?.(result.tagUid);
+  }
+
+  return result;
 }
 
 async function uploadFile(

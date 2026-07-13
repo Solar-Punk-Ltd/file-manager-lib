@@ -7,6 +7,17 @@ export enum FileStatus {
   Trashed = 'trashed',
 }
 
+export enum NodeType {
+  File = 'file',
+  Folder = 'folder',
+  Drive = 'drive',
+}
+
+export enum ListDepth {
+  Shallow = 'shallow',
+  Deep = 'deep',
+}
+
 export interface FileRecord {
   topic: string | Topic;
   driveId: string;
@@ -74,4 +85,9 @@ export interface DriveInfo {
   isAdmin: boolean;
   driveFeedTopic: string | Topic;
   manifestRef?: ReferenceWithHistory;
+}
+
+export interface StateTopicInfo {
+  topicReference: string;
+  historyAddress: string;
 }

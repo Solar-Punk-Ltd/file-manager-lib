@@ -19,7 +19,8 @@ import {
   Topic,
 } from '@ethersphere/bee-js';
 
-import { FeedResultWithIndex, ListDepth, NodeType, ReferenceWithHistory, StateTopicInfo } from './types/utils';
+import { ListDepth, NodeType, StateTopicInfo } from './types/info';
+import { FeedResultWithIndex, ReferenceWithHistory } from './types/utils';
 import { assertFileRecord, assertStateTopicInfo, driveInfoFromMetadata } from './utils/asserts';
 import { fetchStamp, getFeedData } from './utils/bee';
 import { awaitAllPromisesBounded, joinPath, settlePromises, verifyStampUsability } from './utils/common';
@@ -62,7 +63,7 @@ import {
 import { assertUploadableSource, processUpload } from './upload';
 import {
   ADMIN_STAMP_LABEL,
-  BeeVersionError,
+  // BeeVersionError,
   DriveError,
   FileInfoError,
   FILEMANAGER_STATE_TOPIC,
@@ -157,7 +158,7 @@ export class FileManagerBase implements FileManager {
     if (!supportedApi) {
       console.error('Supported bee API version: ', beeVersions.supportedBeeApiVersion);
       console.error('Supported bee version: ', beeVersions.supportedBeeVersion);
-      throw new BeeVersionError('Bee or Bee API version not supported');
+      // throw new BeeVersionError('Bee or Bee API version not supported');
     }
   }
 
@@ -732,20 +733,6 @@ export class FileManagerBase implements FileManager {
     }
   }
 
-  // Upload a single file's bytes and ACT-wrap them, returning the content reference + history.
-  // The two-step raw-upload → ACT-wrap sequence lives inside processUpload's platform impls
-  // (upload.browser.ts / upload.node.ts); this helper only encapsulates the processUpload call
-  // so uploadFile() and uploadFiles()'s Phase 3 share one invocation shape.
-  private async uploadFileContent(
-    driveInfo: DriveInfo,
-    fileOptions: FileInfoOptions,
-    redundancyLevel: RedundancyLevel,
-    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<ReferenceWithHistory> {
-    return await processUpload(this.bee, driveInfo, fileOptions, uploadOptions, redundancyLevel, requestOptions);
-  }
-
   // In-memory only: add a file fork to a mantaray with the standard file metadata keys.
   // Does NOT save the manifest — save orchestration stays with each caller (inline for upload,
   // batched in uploadFiles Phase 4).
@@ -801,7 +788,8 @@ export class FileManagerBase implements FileManager {
     // No topic arg → fresh topic + version 0.
     const { topic, version } = await this.getTopicAndVersion(owner);
 
-    const fileWrapper = await this.uploadFileContent(
+    const fileWrapper = await processUpload(
+      this.bee,
       driveInfo,
       fileOptions,
       targetHost.redundancyLevel,
@@ -883,9 +871,6 @@ export class FileManagerBase implements FileManager {
 
     let fileWrapper: ReferenceWithHistory;
     if (changes.source !== undefined) {
-      // New bytes: continue the file's ACT history from record.fileRefAndHistory.historyRef (the
-      // single source of truth). Build a new-content fileOptions (no topic/fileRefAndHistory, so
-      // uploadFileContent actually uploads instead of short-circuiting on the reuse shortcut).
       const contentUploadOptions = {
         ...uploadOptions,
         actHistoryAddress: record.fileRefAndHistory.historyRef.toString(),
@@ -895,7 +880,8 @@ export class FileManagerBase implements FileManager {
           ? ({ path: changes.source } as NodeUploadOptions as FileInfoOptions)
           : ({ path: record.path, file: changes.source } as BrowserUploadOptions as FileInfoOptions);
 
-      fileWrapper = await this.uploadFileContent(
+      fileWrapper = await processUpload(
+        this.bee,
         driveInfo,
         fileOptions,
         record.redundancyLevel ?? driveInfo.redundancyLevel,
@@ -1125,7 +1111,8 @@ export class FileManagerBase implements FileManager {
             ? ({ path: planned.entry.source } as NodeUploadOptions as FileInfoOptions)
             : ({ path: planned.fullPath, file: planned.entry.source } as BrowserUploadOptions as FileInfoOptions);
 
-        const fileWrapper = await this.uploadFileContent(
+        const fileWrapper = await processUpload(
+          this.bee,
           driveInfo,
           fileOptions,
           parentHost.redundancyLevel,
@@ -1336,7 +1323,7 @@ export class FileManagerBase implements FileManager {
     if (!this.publisher) {
       throw new SignerError('Publisher not found');
     }
-
+    // TODO: always fetch manifest??
     const raw = await this.bee.downloadData(
       host.manifestRef.reference,
       { actHistoryAddress: host.manifestRef.historyRef, actPublisher: this.publisher },

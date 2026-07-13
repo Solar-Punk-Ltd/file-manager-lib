@@ -1,8 +1,7 @@
 import { BatchId, EthAddress, Identifier, PublicKey, RedundancyLevel, Reference, Topic } from '@ethersphere/bee-js';
 import { Types } from 'cafe-utility';
 
-import { DriveInfo, FileRecord, ShareItem } from '../types';
-import { StateTopicInfo } from '../types/utils';
+import { DriveInfo, FileRecord, ShareItem, StateTopicInfo } from '../types/info';
 
 import {
   MANIFEST_METADATA_DRIVE_BATCH_ID,

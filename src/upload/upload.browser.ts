@@ -4,24 +4,20 @@ import { BrowserUploadOptions, DriveInfo } from '../types';
 import { ReferenceWithHistory } from '../types/utils';
 import { FileError } from '../utils/errors';
 
-// Do not call streamFiles with act: true because it would encrypt all the chunks recursively, that is unnecessary
-// Wrap the uplodResult instead and encrypt that reference at the root level
-export async function uploadBrowser(
+async function uploadBrowser(
   bee: Bee,
   batchId: string | BatchId,
   browserOptions: BrowserUploadOptions,
   uploadOptions?: RedundantUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<UploadResult> {
-  const streamFileOpts = uploadOptions ? { ...uploadOptions, act: false, actHistoryAddress: undefined } : undefined;
+  const result = await bee.uploadData(batchId, browserOptions.file, { ...uploadOptions, act: true }, requestOptions);
 
-  const { reference, tagUid } = await bee.uploadData(batchId, browserOptions.file, streamFileOpts, requestOptions);
-
-  if (tagUid !== undefined) {
-    browserOptions.onUploadProgress?.(tagUid);
+  if (result.tagUid !== undefined) {
+    browserOptions.onUploadProgress?.(result.tagUid);
   }
 
-  return await bee.uploadData(batchId, reference.toUint8Array(), { ...uploadOptions, act: true }, requestOptions);
+  return result;
 }
 
 export async function processUploadBrowser(

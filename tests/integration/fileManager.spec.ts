@@ -28,8 +28,7 @@ import {
 import { ensureUniqueSignerWithStamp } from './testSetupHelpers';
 
 import { FileManagerBase } from '@/fileManager';
-import { DriveInfo, FileRecord, FileStatus, FolderInfo } from '@/types';
-import { ListDepth, NodeType, StateTopicInfo } from '@/types/utils';
+import { DriveInfo, FileRecord, FileStatus, FolderInfo, ListDepth, NodeType, StateTopicInfo } from '@/types';
 import {
   ADMIN_STAMP_LABEL,
   DriveError,

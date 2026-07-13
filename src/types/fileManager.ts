@@ -13,8 +13,8 @@ import {
 import { EventEmitter } from '../eventEmitter';
 import { DirectoryEntry } from '../utils/mantaray';
 
-import { DownloadResult, DriveInfo, FileRecord, FolderInfo, ShareItem, UploadFilesResult } from './info';
-import { FileInfoOptions, ListDepth, UploadFilesEntry } from './utils';
+import { DownloadResult, DriveInfo, FileRecord, FolderInfo, ListDepth, ShareItem, UploadFilesResult } from './info';
+import { FileInfoOptions, UploadFilesEntry } from './upload';
 
 /**
  * Interface representing a file manager with various file operations.

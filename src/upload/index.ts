@@ -7,8 +7,9 @@ import type {
 } from '@ethersphere/bee-js';
 import { isNode } from 'std-env';
 
-import type { DriveInfo, FileInfoOptions } from '../types';
-import type { BrowserUploadOptions, NodeUploadOptions, ReferenceWithHistory } from '../types/utils';
+import type { DriveInfo } from '../types/info';
+import type { BrowserUploadOptions, FileInfoOptions, NodeUploadOptions } from '../types/upload';
+import type { ReferenceWithHistory } from '../types/utils';
 import { FileError } from '../utils/errors';
 
 export async function assertUploadableSource(fileOptions: FileInfoOptions): Promise<void> {
@@ -51,15 +52,13 @@ const processOptions = (
   return { options, uploadOptions: processedOptions };
 };
 
-// TODO: why separate rLevel arg ?
+// TODO: why separate rLevel arg ? --> merge and require
 export async function processUpload(
   bee: Bee,
   driveInfo: DriveInfo,
   fileOptions: FileInfoOptions,
-  uploadOptions: RedundantUploadOptions | FileUploadOptions | undefined,
-  // Effective redundancy level inherited from the target parent folder (or drive root) —
-  // resolved by the caller, since only it knows which ManifestHost the file is landing under.
   redundancyLevel: RedundancyLevel,
+  uploadOptions?: RedundantUploadOptions | FileUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<ReferenceWithHistory> {
   const processedOptions = processOptions(isNode, fileOptions, uploadOptions, redundancyLevel);

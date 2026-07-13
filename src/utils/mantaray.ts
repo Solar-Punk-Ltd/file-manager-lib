@@ -1,6 +1,6 @@
 import { Bee, BeeRequestOptions, DownloadOptions, MantarayNode, Reference } from '@ethersphere/bee-js';
 
-import { NodeType } from '../types/utils';
+import { NodeType } from '../types/info';
 
 import { MANIFEST_METADATA_FILE_TOPIC, MANIFEST_METADATA_NODE_TOPIC, MANIFEST_METADATA_NODE_TYPE } from './constants';
 

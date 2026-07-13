@@ -7,14 +7,8 @@ export type {
   ManifestHost,
   ShareItem,
   UploadFilesResult,
+  StateTopicInfo,
 } from './info';
-export { FileStatus } from './info';
-export type {
-  BrowserUploadOptions,
-  FileInfoOptions,
-  NodeUploadOptions,
-  UploadFilesEntry,
-  UploadProgress,
-} from './utils';
-export { ListDepth, NodeType } from './utils';
+export { ListDepth, NodeType, FileStatus } from './info';
+export type { BrowserUploadOptions, FileInfoOptions, NodeUploadOptions, UploadFilesEntry } from './upload';
 export type { FileManager } from './fileManager';
