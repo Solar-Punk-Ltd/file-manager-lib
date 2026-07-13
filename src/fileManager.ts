@@ -86,6 +86,7 @@ export class FileManagerBase implements FileManager {
   private _adminStamp: PostageBatch | undefined = undefined;
   private nodeManifestCache: Map<string, MantarayNode> = new Map();
   private nodeFeedIndexCache: Map<string, bigint> = new Map();
+  private fileInfoHistoryCache: Map<string, string> = new Map();
   private adminManifestRef: ReferenceWithHistory | undefined = undefined;
   private adminRedundancyLevel: RedundancyLevel = RedundancyLevel.OFF;
 
@@ -162,7 +163,6 @@ export class FileManagerBase implements FileManager {
     }
   }
 
-  // fetches the node public key neccessary for ACT handling
   private async initPublisher(): Promise<void> {
     this.publisher = (await this.bee.getNodeAddresses()).publicKey;
   }
@@ -232,16 +232,16 @@ export class FileManagerBase implements FileManager {
 
     const randomTopic = generateRandomBytes(Topic.LENGTH);
     const newStateFeedTopic = new Topic(randomTopic);
-    // TODO: shouldn't the act history address be reused ? -> use the same root admin ACT
     const topicUploadRes = await this.bee.uploadData(
       batchId,
       newStateFeedTopic.toUint8Array(),
       { act: true },
       requestOptions,
     );
+    const historyRef = topicUploadRes.historyAddress.getOrThrow().toString();
     const topicState: StateTopicInfo = {
       topicReference: topicUploadRes.reference.toString(),
-      historyAddress: topicUploadRes.historyAddress.getOrThrow().toString(),
+      historyAddress: historyRef,
     };
     const statefw = this.bee.makeFeedWriter(FILEMANAGER_STATE_TOPIC.toUint8Array(), this.signer);
     await statefw.uploadPayload(batchId, JSON.stringify(topicState), { index: feedIndexNext });
@@ -250,10 +250,11 @@ export class FileManagerBase implements FileManager {
 
     const emptyAdminMantaray = new MantarayNode();
     const saveResult = await emptyAdminMantaray.saveRecursively(this.bee, batchId, { act: false }, requestOptions);
+    // TODO: development assert below manifestUpload === historyRef  and is historyRef needed here?
     const manifestUpload = await this.bee.uploadData(
       batchId,
       saveResult.reference.toUint8Array(),
-      { act: true },
+      { act: true, actHistoryAddress: historyRef },
       requestOptions,
     );
     const adminManifestRef: ReferenceWithHistory = {
@@ -460,7 +461,6 @@ export class FileManagerBase implements FileManager {
       isAdmin,
     };
     this.driveList.push(driveInfo);
-    // TODO: shouldn't the act history address be reused ? -> use the same root drive ACT
     // TODO: empty mantaray save makes no sense ? drivename at least? -> always creates the same hash ?
     const emptyMantaray = new MantarayNode();
     const saveResult = await emptyMantaray.saveRecursively(this.bee, driveInfo.batchId, { act: false }, requestOptions);
@@ -516,6 +516,7 @@ export class FileManagerBase implements FileManager {
         [MANIFEST_METADATA_REDUNDANCY_LEVEL]: driveInfo.redundancyLevel.toString(),
       },
     );
+
     const newAdminManifestRef = await this.saveNodeManifest(adminMantaray, adminHost, requestOptions);
     this.adminManifestRef = newAdminManifestRef;
 
@@ -1286,17 +1287,23 @@ export class FileManagerBase implements FileManager {
     requestOptions?: BeeRequestOptions,
   ): Promise<ReferenceWithHistory> {
     try {
+      const topicStr = fileInfo.topic.toString();
+      let historyRef = this.fileInfoHistoryCache.get(topicStr);
+
       const uploadInfoRes = await this.bee.uploadData(
         fileInfo.batchId,
         JSON.stringify(fileInfo),
         {
           act: true,
+          actHistoryAddress: historyRef,
           redundancyLevel: fileInfo.redundancyLevel,
         },
         requestOptions,
       );
+      historyRef = uploadInfoRes.historyAddress.getOrThrow().toString();
+      this.fileInfoHistoryCache.set(topicStr, historyRef);
 
-      const existingIx = this.fileInfoList.findIndex((f) => f.topic.toString() === fileInfo.topic.toString());
+      const existingIx = this.fileInfoList.findIndex((f) => f.topic.toString() === topicStr);
       if (existingIx !== -1) {
         this.fileInfoList[existingIx] = fileInfo;
       } else {
@@ -1305,7 +1312,7 @@ export class FileManagerBase implements FileManager {
 
       return {
         reference: uploadInfoRes.reference.toString(),
-        historyRef: uploadInfoRes.historyAddress.getOrThrow().toString(),
+        historyRef: historyRef,
       };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
@@ -1347,11 +1354,10 @@ export class FileManagerBase implements FileManager {
     requestOptions?: BeeRequestOptions,
   ): Promise<ReferenceWithHistory> {
     const saveResult = await mantaray.saveRecursively(this.bee, host.batchId, { act: false }, requestOptions);
-    // TODO: actHistoryAddress is not used --> where is it stored and how to pass it on?
     const manifestUpload = await this.bee.uploadData(
       host.batchId,
       saveResult.reference.toUint8Array(),
-      { act: true, redundancyLevel: host.redundancyLevel },
+      { act: true, actHistoryAddress: host.manifestRef?.historyRef.toString(), redundancyLevel: host.redundancyLevel },
       requestOptions,
     );
     const newManifestRef: ReferenceWithHistory = {
@@ -1421,8 +1427,15 @@ export class FileManagerBase implements FileManager {
 
     const fileInfo = fileBytes.toJSON() as FileRecord;
     assertFileRecord(fileInfo);
+    if (topic !== fileInfo.topic.toString()) {
+      throw new FileInfoError(
+        `Feed topic ${topic.slice(0, 6)} != fi.topic ${fileInfo.topic.toString().slice(0, 6)} for info: ${fileInfo.path}`,
+      );
+    }
+
     // make sure that version tracks the actual feed index
     fileInfo.version = feeData.feedIndex.toString();
+    this.fileInfoHistoryCache.set(topic, data.historyRef.toString());
 
     return fileInfo;
   }
