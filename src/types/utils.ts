@@ -9,7 +9,7 @@ export interface StateTopicInfo {
 
 export interface BrowserUploadOptions {
   file: File;
-  onUploadProgress?: (progress: UploadProgress) => void;
+  onUploadProgress?: (tagUid: number) => void;
 }
 
 export enum NodeType {

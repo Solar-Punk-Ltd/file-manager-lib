@@ -168,7 +168,6 @@ export function createInitMocks(data?: Reference): any {
     reference: data || SWARM_ZERO_ADDRESS,
     historyAddress: Optional.of(data || SWARM_ZERO_ADDRESS),
   } as unknown as UploadResult);
-  jest.spyOn(Bee.prototype, 'streamFile').mockResolvedValue((data || SWARM_ZERO_ADDRESS) as Reference);
   jest.spyOn(Bee.prototype, 'makeFeedWriter').mockReturnValue(createMockFeedWriter());
   jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue(createMockFeedReader());
   jest.spyOn(Bee.prototype, 'getPostageBatches').mockResolvedValue(loadStampListMock());

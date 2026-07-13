@@ -15,16 +15,13 @@ export async function uploadBrowser(
 ): Promise<UploadResult> {
   const streamFileOpts = uploadOptions ? { ...uploadOptions, act: false, actHistoryAddress: undefined } : undefined;
 
-  // TODO: redundantoptions for streamfile(s)
-  const rootRef = await bee.streamFile(
-    batchId,
-    browserOptions.file,
-    browserOptions.onUploadProgress,
-    streamFileOpts,
-    requestOptions,
-  );
+  const { reference, tagUid } = await bee.uploadData(batchId, browserOptions.file, streamFileOpts, requestOptions);
 
-  return await bee.uploadData(batchId, rootRef.toUint8Array(), { ...uploadOptions, act: true }, requestOptions);
+  if (tagUid !== undefined) {
+    browserOptions.onUploadProgress?.(tagUid);
+  }
+
+  return await bee.uploadData(batchId, reference.toUint8Array(), { ...uploadOptions, act: true }, requestOptions);
 }
 
 export async function processUploadBrowser(

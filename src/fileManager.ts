@@ -566,13 +566,13 @@ export class FileManagerBase implements FileManager {
       );
 
       results.push(...levelEntries);
-
+      // TODO: throw if publisher is not present
       const publisher = this.publisher;
       if (publisher) {
         const newFileEntries = levelEntries.filter(
           (e) => e.type === NodeType.File && !this.fileInfoList.some((f) => f.topic.toString() === e.topic),
         );
-
+        // TODO: why feedindex / version is not tracked -> expensive lookup
         await awaitAllPromisesBounded(
           newFileEntries.map((e) => async (): Promise<FileRecord> => {
             const feedData = await getFeedData(
@@ -608,6 +608,7 @@ export class FileManagerBase implements FileManager {
 
       await awaitAllPromisesBounded(
         folderEntries.map((e) => async (): Promise<{ host: ManifestHost; basePath: string } | null> => {
+          // TODO: why feedindex / version is not tracked -> expensive lookup
           const { payload, feedIndex, feedIndexNext } = await getFeedData(
             this.bee,
             new Topic(e.topic),
@@ -757,9 +758,7 @@ export class FileManagerBase implements FileManager {
   }
 
   // TODO: maybe use FileUploadOptions contenttype and size or drop it
-  // TODO: now rLevel is derivet from tha parent folder/ drive -> default to it and potentially overwrite it
-  // bee-js comment: Specifies Content-Length for the given data. It is required when uploading with Readable.
-  //
+  // TODO: now rLevel is derived from tha parent folder/ drive -> default to it and potentially overwrite it
   // uploadFile() is strictly for NEW files: it mints a fresh feed topic and adds a new fork to the drive
   // manifest. To re-version (new bytes) or change metadata of an EXISTING file, use updateFile() — it
   // reuses the file's topic, writes a new feed slot, and never touches the manifest.
@@ -1050,6 +1049,7 @@ export class FileManagerBase implements FileManager {
         throw new FileInfoError(`Folder fork missing topic: ${path}`);
       }
 
+      // TODO: why feedindex / version is not tracked -> expensive lookup
       const { payload, feedIndex } = await getFeedData(
         this.bee,
         new Topic(folderTopic),
@@ -1706,6 +1706,7 @@ export class FileManagerBase implements FileManager {
           throw new SignerError('Publisher not found');
         }
 
+        // TODO: why feedindex / version is not tracked -> expensive lookup
         const feedData = await getFeedData(this.bee, new Topic(fileTopic), this.signerAddress);
 
         if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
@@ -1810,7 +1811,7 @@ export class FileManagerBase implements FileManager {
       if (!folderTopic) {
         throw new FileInfoError(`Folder fork missing topic: ${currentPath}`);
       }
-      // TODO: is this call here efficient and indeed necessary - review
+      // TODO: is this call here efficient and indeed necessary + version - review
       const {
         payload: folderPayload,
         feedIndex: folderFeedIndex,
