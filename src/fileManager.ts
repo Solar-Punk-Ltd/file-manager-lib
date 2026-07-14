@@ -19,14 +19,35 @@ import {
   Topic,
 } from '@ethersphere/bee-js';
 
-import { ListDepth, NodeType, StateTopicInfo } from './types/info';
+import { DownloadResource, DownloadResult } from './types/download';
+import { FileManager } from './types/fileManager';
+import {
+  DriveInfo,
+  FileRecord,
+  FileStatus,
+  FolderInfo,
+  ListDepth,
+  ManifestHost,
+  NodeType,
+  ShareItem,
+  StateTopicInfo,
+} from './types/info';
+import {
+  BrowserUploadOptions,
+  FileInfoOptions,
+  NodeUploadOptions,
+  UploadFilesEntry,
+  UploadFilesResult,
+} from './types/upload';
 import { ActReferences, FeedResultWithIndex } from './types/utils';
 import { assertFileRecord, assertReady, assertStateTopicInfo, driveInfoFromMetadata } from './utils/asserts';
 import { fetchStamp, getFeedData } from './utils/bee';
 import { awaitAllPromisesBounded, joinPath, settlePromises, verifyStampUsability } from './utils/common';
 import {
+  ADMIN_STAMP_LABEL,
   DRIVE_FORK_PREFIX,
   FEED_INDEX_ZERO,
+  FILEMANAGER_STATE_TOPIC,
   MANIFEST_METADATA_DRIVE_BATCH_ID,
   MANIFEST_METADATA_DRIVE_ID,
   MANIFEST_METADATA_DRIVE_IS_ADMIN,
@@ -41,39 +62,21 @@ import {
   ROOT_PATH,
 } from './utils/constants';
 import { generateRandomBytes } from './utils/crypto';
-import { DirectoryEntry, getAllNodeEntries, loadMantaray } from './utils/mantaray';
-import { processDownload } from './download';
-import { EventEmitter, EventEmitterBase } from './eventEmitter';
 import {
-  BrowserUploadOptions,
-  DownloadResource,
-  DownloadResult,
-  DriveInfo,
-  FileInfoOptions,
-  FileManager,
-  FileRecord,
-  FileStatus,
-  FolderInfo,
-  ManifestHost,
-  NodeUploadOptions,
-  ShareItem,
-  UploadFilesEntry,
-  UploadFilesResult,
-} from './types';
-import { assertUploadableSource, processUpload } from './upload';
-import {
-  ADMIN_STAMP_LABEL,
-  // BeeVersionError,
+  BeeVersionError,
   DriveError,
   FileInfoError,
-  FILEMANAGER_STATE_TOPIC,
-  FileManagerEvents,
   GranteeError,
   SendShareMessageError,
   SignerError,
   StampError,
   SubscriptionError,
-} from './utils';
+} from './utils/errors';
+import { FileManagerEvents } from './utils/events';
+import { DirectoryEntry, getAllNodeEntries, loadMantaray } from './utils/mantaray';
+import { processDownload } from './download';
+import { EventEmitter, EventEmitterBase } from './eventEmitter';
+import { assertUploadableSource, processUpload } from './upload';
 
 export class FileManagerBase implements FileManager {
   private bee: Bee;
@@ -158,7 +161,7 @@ export class FileManagerBase implements FileManager {
     if (!supportedApi) {
       console.error('Supported bee API version: ', beeVersions.supportedBeeApiVersion);
       console.error('Supported bee version: ', beeVersions.supportedBeeVersion);
-      // throw new BeeVersionError('Bee or Bee API version not supported');
+      throw new BeeVersionError('Bee or Bee API version not supported');
     }
   }
 

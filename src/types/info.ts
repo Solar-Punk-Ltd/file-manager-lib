@@ -1,4 +1,4 @@
-import { PublicKey, RedundancyLevel } from '@ethersphere/bee-js';
+import { RedundancyLevel } from '@ethersphere/bee-js';
 
 import { ActReferences } from './utils';
 
@@ -57,23 +57,6 @@ export interface ShareItem {
   fileInfo: FileRecord;
   timestamp?: number;
   message?: string;
-}
-
-export interface DownloadResource {
-  path: string;
-  reference: string;
-  actHistoryAddress: string;
-  actPublisher: string | PublicKey;
-}
-
-export interface DownloadResult {
-  path: string;
-  result: ReadableStream<Uint8Array>;
-}
-
-export interface UploadFilesResult {
-  succeeded: FileRecord[];
-  failed: { path: string; error: string }[];
 }
 
 export interface StateTopicInfo {

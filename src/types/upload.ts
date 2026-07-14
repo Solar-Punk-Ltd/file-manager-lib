@@ -22,3 +22,8 @@ export interface UploadFilesEntry {
   /** Browser: the File object. Node: absolute filesystem path. */
   source: File | string;
 }
+
+export interface UploadFilesResult {
+  succeeded: FileRecord[];
+  failed: { path: string; error: string }[];
+}

@@ -1,6 +1,6 @@
 import { Bee, BeeRequestOptions, DownloadOptions } from '@ethersphere/bee-js';
 
-import { DownloadResource, DownloadResult } from '../types';
+import { DownloadResource, DownloadResult } from '../types/download';
 import { settlePromises } from '../utils/common';
 
 export async function processDownload(

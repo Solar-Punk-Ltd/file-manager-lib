@@ -1,6 +1,7 @@
 import { BatchId, Bee, BeeRequestOptions, FileUploadOptions, UploadResult } from '@ethersphere/bee-js';
 
-import { DriveInfo, NodeUploadOptions } from '../types';
+import { DriveInfo } from '../types/info';
+import { NodeUploadOptions } from '../types/upload';
 import { ActReferences } from '../types/utils';
 import { FileError } from '../utils/errors';
 

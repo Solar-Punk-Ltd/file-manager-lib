@@ -1,6 +1,6 @@
 import { BatchId, FeedIndex, PrivateKey, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 
-import { DriveInfo, FileRecord } from '../types';
+import { DriveInfo, FileRecord } from '../types/info';
 import { ActReferences } from '../types/utils';
 
 import { getEncodedSize } from './common';

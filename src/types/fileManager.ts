@@ -13,8 +13,9 @@ import {
 import { EventEmitter } from '../eventEmitter';
 import { DirectoryEntry } from '../utils/mantaray';
 
-import { DownloadResult, DriveInfo, FileRecord, FolderInfo, ListDepth, ShareItem, UploadFilesResult } from './info';
-import { FileInfoOptions, UploadFilesEntry } from './upload';
+import { DownloadResult } from './download';
+import { DriveInfo, FileRecord, FolderInfo, ListDepth, ShareItem } from './info';
+import { FileInfoOptions, UploadFilesEntry, UploadFilesResult } from './upload';
 
 /**
  * Interface representing a file manager with various file operations.
