@@ -20,7 +20,7 @@ import {
 } from '@ethersphere/bee-js';
 
 import { ListDepth, NodeType, StateTopicInfo } from './types/info';
-import { FeedResultWithIndex, ReferenceWithHistory } from './types/utils';
+import { ActReferences, FeedResultWithIndex } from './types/utils';
 import { assertFileRecord, assertReady, assertStateTopicInfo, driveInfoFromMetadata } from './utils/asserts';
 import { fetchStamp, getFeedData } from './utils/bee';
 import { awaitAllPromisesBounded, joinPath, settlePromises, verifyStampUsability } from './utils/common';
@@ -87,7 +87,7 @@ export class FileManagerBase implements FileManager {
   private nodeManifestCache: Map<string, MantarayNode> = new Map();
   private nodeFeedIndexCache: Map<string, bigint> = new Map();
   private fileInfoHistoryCache: Map<string, string> = new Map();
-  private adminManifestRef: ReferenceWithHistory | undefined = undefined;
+  private adminManifestRef: ActReferences | undefined = undefined;
   private adminRedundancyLevel: RedundancyLevel = RedundancyLevel.OFF;
 
   readonly driveList: DriveInfo[] = [];
@@ -256,7 +256,7 @@ export class FileManagerBase implements FileManager {
       { act: true, actHistoryAddress: historyRef },
       requestOptions,
     );
-    const adminManifestRef: ReferenceWithHistory = {
+    const adminManifestRef: ActReferences = {
       reference: manifestUpload.reference.toString(),
       historyRef: manifestUpload.historyAddress.getOrThrow().toString(),
     };
@@ -291,7 +291,7 @@ export class FileManagerBase implements FileManager {
 
     this.nodeFeedIndexCache.set(this.stateFeedTopic.toString(), feedIndexNext.toBigInt());
 
-    const adminManifestRef: ReferenceWithHistory = payload.toJSON() as ReferenceWithHistory;
+    const adminManifestRef: ActReferences = payload.toJSON() as ActReferences;
     // TODO: does it make sense to set the sate handling vars only at the end of each function call in case they throw later?
     this.adminManifestRef = adminManifestRef;
 
@@ -317,7 +317,7 @@ export class FileManagerBase implements FileManager {
           payload: drivePayload,
           feedIndex: driveFeedIndex,
           feedIndexNext: driveFeedIndexNext,
-        } = await getFeedData(this.bee, new Topic(driveInfo.driveFeedTopic.toString()), this.signerAddress);
+        } = await getFeedData(this.bee, new Topic(driveInfo.topic.toString()), this.signerAddress);
 
         if (driveFeedIndex.equals(FeedIndex.MINUS_ONE)) {
           console.warn(
@@ -326,7 +326,7 @@ export class FileManagerBase implements FileManager {
           return;
         }
         // TODO: driveInfo.manifestRef is unused
-        driveInfo.manifestRef = drivePayload.toJSON() as ReferenceWithHistory;
+        driveInfo.manifestRef = drivePayload.toJSON() as ActReferences;
 
         if (driveInfo.isAdmin) {
           await this.fetchAndSetAdminStamp(driveInfo.batchId, requestOptions);
@@ -341,7 +341,7 @@ export class FileManagerBase implements FileManager {
           this.adminRedundancyLevel = driveInfo.redundancyLevel;
         }
 
-        this.nodeFeedIndexCache.set(driveInfo.driveFeedTopic.toString(), driveFeedIndexNext.toBigInt());
+        this.nodeFeedIndexCache.set(driveInfo.topic.toString(), driveFeedIndexNext.toBigInt());
 
         return driveInfo;
       }),
@@ -357,8 +357,9 @@ export class FileManagerBase implements FileManager {
 
   private async pruneDriveMetadata(
     driveInfo: DriveInfo,
-    stateTopic: string,
     driveIndex: number,
+    stateTopic: string,
+    publisher: string,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
     if (!this.adminManifestRef) {
@@ -374,10 +375,12 @@ export class FileManagerBase implements FileManager {
     }
 
     const adminHost: ManifestHost = {
+      owner: this.signerAddress,
       topic: stateTopic,
       manifestRef: this.adminManifestRef,
-      batchId: this._adminStamp.batchID,
+      batchId: this._adminStamp.batchID.toString(),
       redundancyLevel: this.adminRedundancyLevel,
+      actPublisher: publisher,
     };
 
     adminMantaray.removeFork(`${DRIVE_FORK_PREFIX}-${driveInfo.id.toString()}`);
@@ -385,8 +388,8 @@ export class FileManagerBase implements FileManager {
     this.adminManifestRef = newAdminManifestRef;
 
     this.driveList.splice(driveIndex, 1);
-    this.nodeFeedIndexCache.delete(driveInfo.driveFeedTopic.toString());
-    this.nodeManifestCache.delete(driveInfo.driveFeedTopic.toString());
+    this.nodeFeedIndexCache.delete(driveInfo.topic.toString());
+    this.nodeManifestCache.delete(driveInfo.topic.toString());
 
     for (let i = this.fileInfoList.length - 1; i >= 0; --i) {
       if (this.fileInfoList[i].driveId === driveInfo.id.toString()) {
@@ -465,8 +468,9 @@ export class FileManagerBase implements FileManager {
       batchId: batchId.toString(),
       owner: this.signerAddress,
       redundancyLevel: redundancyLevel ?? RedundancyLevel.OFF,
-      driveFeedTopic: new Topic(generateRandomBytes(Topic.LENGTH)).toString(),
+      topic: new Topic(generateRandomBytes(Topic.LENGTH)).toString(),
       isAdmin,
+      actPublisher: this.publisher.toCompressedHex(),
     };
     this.driveList.push(driveInfo);
     // TODO: empty mantaray save makes no sense ? drivename at least? -> always creates the same hash ?
@@ -483,17 +487,19 @@ export class FileManagerBase implements FileManager {
       reference: manifestUpload.reference.toString(),
       historyRef: manifestUpload.historyAddress.getOrThrow().toString(),
     };
-    const fw = this.bee.makeFeedWriter(new Topic(driveInfo.driveFeedTopic).toUint8Array(), this.signer);
+    const fw = this.bee.makeFeedWriter(new Topic(driveInfo.topic).toUint8Array(), this.signer);
     await fw.uploadPayload(driveInfo.batchId, JSON.stringify(driveInfo.manifestRef), { index: FEED_INDEX_ZERO });
 
-    this.nodeManifestCache.set(driveInfo.driveFeedTopic.toString(), emptyMantaray);
-    this.nodeFeedIndexCache.set(driveInfo.driveFeedTopic.toString(), 1n);
+    this.nodeManifestCache.set(driveInfo.topic.toString(), emptyMantaray);
+    this.nodeFeedIndexCache.set(driveInfo.topic.toString(), 1n);
 
     const adminHost: ManifestHost = {
+      owner: this.signerAddress,
       topic: stateTopic.toString(),
       manifestRef: this.adminManifestRef,
       batchId: this._adminStamp.batchID.toString(),
       redundancyLevel: this.adminRedundancyLevel,
+      actPublisher: this.publisher.toCompressedHex(),
     };
 
     const adminMantaray = this.nodeManifestCache.get(stateTopic.toString());
@@ -503,9 +509,9 @@ export class FileManagerBase implements FileManager {
 
     adminMantaray.addFork(
       `${DRIVE_FORK_PREFIX}-${driveInfo.id.toString()}`,
-      new Reference(driveInfo.driveFeedTopic.toString()),
+      new Reference(driveInfo.topic.toString()),
       {
-        [MANIFEST_METADATA_NODE_TOPIC]: driveInfo.driveFeedTopic.toString(),
+        [MANIFEST_METADATA_NODE_TOPIC]: driveInfo.topic.toString(),
         [MANIFEST_METADATA_NODE_TYPE]: NodeType.Drive,
         [MANIFEST_METADATA_DRIVE_ID]: driveInfo.id.toString(),
         [MANIFEST_METADATA_DRIVE_NAME]: driveInfo.name,
@@ -536,10 +542,12 @@ export class FileManagerBase implements FileManager {
 
     const startFolder = await this.resolveFolder(driveInfo, path, publisher, requestOptions);
     const startHost: ManifestHost = startFolder ?? {
-      topic: driveInfo.driveFeedTopic.toString(),
+      owner: this.signerAddress,
+      topic: driveInfo.topic.toString(),
       manifestRef: driveInfo.manifestRef,
       batchId: driveInfo.batchId,
       redundancyLevel: driveInfo.redundancyLevel,
+      actPublisher: driveInfo.actPublisher,
     };
     const startBasePath = path.split('/').filter(Boolean).join('/');
 
@@ -621,7 +629,7 @@ export class FileManagerBase implements FileManager {
             return null;
           }
 
-          const manifestRef: ReferenceWithHistory = payload.toJSON() as ReferenceWithHistory;
+          const manifestRef: ActReferences = payload.toJSON() as ActReferences;
           this.nodeFeedIndexCache.set(e.topic, feedIndexNext.toBigInt());
 
           return {
@@ -703,9 +711,9 @@ export class FileManagerBase implements FileManager {
 
     const resources: DownloadResource[] = fileRecords.map((fi) => ({
       path: fi.path,
-      reference: fi.fileRefAndHistory.reference.toString(),
-      actHistoryAddress: fi.fileRefAndHistory.historyRef.toString(),
-      actPublisher: new PublicKey(fi.actPublisher).toCompressedHex(),
+      reference: fi.content.reference.toString(),
+      actHistoryAddress: fi.content.historyRef.toString(),
+      actPublisher: fi.actPublisher,
     }));
 
     return await processDownload(this.bee, resources, options, requestOptions);
@@ -747,10 +755,12 @@ export class FileManagerBase implements FileManager {
 
     const parentFolder = await this.resolveFolder(driveInfo, parentPath, publisher, requestOptions);
     const targetHost: ManifestHost = parentFolder ?? {
-      topic: driveInfo.driveFeedTopic.toString(),
+      owner: this.signerAddress,
+      topic: driveInfo.topic.toString(),
       manifestRef: driveInfo.manifestRef,
       batchId: driveInfo.batchId,
       redundancyLevel: driveInfo.redundancyLevel,
+      actPublisher: publisher,
     };
 
     const owner = this.signerAddress;
@@ -772,7 +782,7 @@ export class FileManagerBase implements FileManager {
       // Persisted value is the relative filename — see FileRecord.path doc comment.
       path: filename,
       actPublisher: publisher,
-      fileRefAndHistory: contentRefAndHistory,
+      content: contentRefAndHistory,
       driveId: driveInfo.id.toString(),
       timestamp: new Date().getTime(),
       shared: false,
@@ -801,7 +811,7 @@ export class FileManagerBase implements FileManager {
 
   // updateFile() re-versions or changes metadata of an EXISTING file the caller already holds as a
   // FileRecord. Everything derives from `record` (topic, actPublisher, redundancyLevel, current
-  // version, and — the single source of truth for ACT-history continuation — fileRefAndHistory).
+  // version, and — the single source of truth for ACT-history continuation — content).
   //
   // `changes.source` present = new bytes (a browser File, or a node filesystem path — mirroring
   // UploadFilesEntry.source); absent = metadata-only (reuse the existing content ref verbatim).
@@ -830,11 +840,11 @@ export class FileManagerBase implements FileManager {
       ? { ...record.customMetadata, ...changes.customMetadata }
       : record.customMetadata;
 
-    let contentRefAndHistory: ReferenceWithHistory;
+    let contentRefAndHistory: ActReferences;
     if (changes.source !== undefined) {
       const contentUploadOptions = {
         ...uploadOptions,
-        actHistoryAddress: record.fileRefAndHistory.historyRef.toString(),
+        actHistoryAddress: record.content.historyRef.toString(),
       };
       const fileOptions: FileInfoOptions =
         typeof changes.source === 'string'
@@ -851,7 +861,7 @@ export class FileManagerBase implements FileManager {
       );
     } else {
       // Metadata-only: reuse the existing content ref verbatim, no bytes uploaded.
-      contentRefAndHistory = record.fileRefAndHistory;
+      contentRefAndHistory = record.content;
     }
 
     const fileInfo: FileRecord = {
@@ -861,8 +871,8 @@ export class FileManagerBase implements FileManager {
       // Copied verbatim — update never renames; the manifest fork key stays authoritative and the
       // walkers re-derive path from it on hydration, so no split/reassembly here.
       path: record.path,
-      actPublisher: new PublicKey(record.actPublisher).toCompressedHex(),
-      fileRefAndHistory: contentRefAndHistory,
+      actPublisher: record.actPublisher,
+      content: contentRefAndHistory,
       driveId: record.driveId,
       timestamp: new Date().getTime(),
       shared: record.shared ?? false,
@@ -913,10 +923,12 @@ export class FileManagerBase implements FileManager {
     const destKey = destSegments.join('/');
     const destFolder = await this.resolveFolder(driveInfo, destinationPath, publisher, requestOptions);
     const destHost: ManifestHost = destFolder ?? {
-      topic: driveInfo.driveFeedTopic.toString(),
+      owner: this.signerAddress,
+      topic: driveInfo.topic.toString(),
       manifestRef: driveInfo.manifestRef,
       batchId: driveInfo.batchId,
       redundancyLevel: driveInfo.redundancyLevel,
+      actPublisher: publisher,
     };
 
     interface PlannedFile {
@@ -1000,12 +1012,14 @@ export class FileManagerBase implements FileManager {
       }
 
       hostMap.set(path, {
+        owner: this.signerAddress,
         topic: folderTopic,
-        manifestRef: payload.toJSON() as ReferenceWithHistory,
+        manifestRef: payload.toJSON() as ActReferences,
         batchId: driveInfo.batchId,
         redundancyLevel: meta[MANIFEST_METADATA_REDUNDANCY_LEVEL]
           ? (parseInt(meta[MANIFEST_METADATA_REDUNDANCY_LEVEL]) as RedundancyLevel)
           : driveInfo.redundancyLevel,
+        actPublisher: publisher,
       });
     }
 
@@ -1031,10 +1045,12 @@ export class FileManagerBase implements FileManager {
       );
 
       hostMap.set(path, {
+        owner: this.signerAddress,
         topic: folderInfo.topic,
         manifestRef: folderInfo.manifestRef,
         batchId: folderInfo.batchId,
         redundancyLevel: folderInfo.redundancyLevel,
+        actPublisher: publisher,
       });
       dirtyHosts.set(parentHost.topic, parentHost);
 
@@ -1079,7 +1095,7 @@ export class FileManagerBase implements FileManager {
           // Persisted value is the relative filename — see FileRecord.path doc comment.
           path: planned.filename,
           actPublisher: publisher,
-          fileRefAndHistory: contentRefAndHistory,
+          content: contentRefAndHistory,
           driveId: driveInfo.id.toString(),
           timestamp: new Date().getTime(),
           shared: false,
@@ -1116,7 +1132,7 @@ export class FileManagerBase implements FileManager {
       const mantaray = await this.getNodeManifest(host, publisher, requestOptions);
       const updatedRef = await this.saveNodeManifest(mantaray, host, requestOptions);
 
-      if (host.topic === driveInfo.driveFeedTopic.toString()) {
+      if (host.topic === driveInfo.topic.toString()) {
         this.driveList[driveIx].manifestRef = updatedRef;
       }
     }
@@ -1182,7 +1198,7 @@ export class FileManagerBase implements FileManager {
       throw new FileInfoError(`File feed not found for topic: ${fi.topic.toString()}`);
     }
 
-    return this.fetchFileInfo(topic.toString(), new PublicKey(fi.actPublisher).toCompressedHex(), feedData);
+    return this.fetchFileInfo(topic.toString(), fi.actPublisher, feedData);
   }
 
   async restoreFileVersion(versionToRestore: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
@@ -1218,9 +1234,9 @@ export class FileManagerBase implements FileManager {
       ...versionToRestore,
       path: cached?.path ?? versionToRestore.path,
       version: feedIndexNext.toString(),
-      fileRefAndHistory: {
-        reference: versionToRestore.fileRefAndHistory.reference,
-        historyRef: versionToRestore.fileRefAndHistory.historyRef,
+      content: {
+        reference: versionToRestore.content.reference,
+        historyRef: versionToRestore.content.historyRef,
       },
       timestamp: Date.now(),
     };
@@ -1232,10 +1248,7 @@ export class FileManagerBase implements FileManager {
     });
   }
 
-  private async uploadFileInfo(
-    fileInfo: FileRecord,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<ReferenceWithHistory> {
+  private async uploadFileInfo(fileInfo: FileRecord, requestOptions?: BeeRequestOptions): Promise<ActReferences> {
     try {
       const topicStr = fileInfo.topic.toString();
       let historyRef = this.fileInfoHistoryCache.get(topicStr);
@@ -1301,7 +1314,7 @@ export class FileManagerBase implements FileManager {
     mantaray: MantarayNode,
     host: ManifestHost,
     requestOptions?: BeeRequestOptions,
-  ): Promise<ReferenceWithHistory> {
+  ): Promise<ActReferences> {
     const saveResult = await mantaray.saveRecursively(this.bee, host.batchId, { act: false }, requestOptions);
     const manifestUpload = await this.bee.uploadData(
       host.batchId,
@@ -1309,7 +1322,7 @@ export class FileManagerBase implements FileManager {
       { act: true, actHistoryAddress: host.manifestRef?.historyRef.toString(), redundancyLevel: host.redundancyLevel },
       requestOptions,
     );
-    const newManifestRef: ReferenceWithHistory = {
+    const newManifestRef: ActReferences = {
       reference: manifestUpload.reference.toString(),
       historyRef: manifestUpload.historyAddress.getOrThrow().toString(),
     };
@@ -1340,7 +1353,7 @@ export class FileManagerBase implements FileManager {
       const fileInfoState = JSON.stringify({
         reference: fileInfoResult.reference.toString(),
         historyRef: fileInfoResult.historyRef.toString(),
-      } as ReferenceWithHistory);
+      } as ActReferences);
 
       const fw = this.bee.makeFeedWriter(new Topic(fi.topic).toUint8Array(), this.signer, requestOptions);
 
@@ -1363,7 +1376,7 @@ export class FileManagerBase implements FileManager {
       throw new FileInfoError(`File info not found for topic: ${topic}`);
     }
 
-    const data = feeData.payload.toJSON() as ReferenceWithHistory;
+    const data = feeData.payload.toJSON() as ActReferences;
 
     const fileBytes = await this.bee.downloadData(
       data.reference.toString(),
@@ -1455,10 +1468,12 @@ export class FileManagerBase implements FileManager {
 
     const parentFolder = await this.resolveFolder(driveInfo, parentPath, publisher, requestOptions);
     const parentHost: ManifestHost = parentFolder ?? {
-      topic: driveInfo.driveFeedTopic.toString(),
+      owner: this.signerAddress,
+      topic: driveInfo.topic.toString(),
       manifestRef: driveInfo.manifestRef,
       batchId: driveInfo.batchId,
       redundancyLevel: driveInfo.redundancyLevel,
+      actPublisher: publisher,
     };
     const parentMantaray = await this.getNodeManifest(parentHost, publisher, requestOptions);
 
@@ -1520,7 +1535,7 @@ export class FileManagerBase implements FileManager {
   }
 
   async destroyDrive(driveInfo: DriveInfo, stamp: PostageBatch): Promise<void> {
-    const { stateFeedTopic } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+    const { publisher, stateFeedTopic } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
 
     const adminStamp = this.adminStamp;
     if (!adminStamp) {
@@ -1540,7 +1555,7 @@ export class FileManagerBase implements FileManager {
     const halvings = Math.floor(Math.log2(ttlDays));
 
     await this.bee.diluteBatch(driveInfo.batchId.toString(), stamp.depth + halvings);
-    await this.pruneDriveMetadata(driveInfo, stateFeedTopic, driveIx);
+    await this.pruneDriveMetadata(driveInfo, driveIx, stateFeedTopic, publisher);
 
     console.debug(`Drive destroyed: ${driveInfo.name}`);
     this.emitter.emit(FileManagerEvents.DRIVE_DESTROYED, { driveInfo });
@@ -1551,10 +1566,10 @@ export class FileManagerBase implements FileManager {
       throw new DriveError('Cannot forget admin drive');
     }
 
-    const { stateFeedTopic } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+    const { publisher, stateFeedTopic } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
     const driveIx = this.findDriveOrThrow(driveInfo);
 
-    await this.pruneDriveMetadata(driveInfo, stateFeedTopic, driveIx);
+    await this.pruneDriveMetadata(driveInfo, driveIx, stateFeedTopic, publisher);
     console.debug(`Drive forgotten (metadata only): ${driveInfo.name}`);
     this.emitter.emit(FileManagerEvents.DRIVE_FORGOTTEN, { driveInfo });
   }
@@ -1624,10 +1639,12 @@ export class FileManagerBase implements FileManager {
 
     const srcParentFolder = await this.resolveFolder(sourceDriveInfo, srcParentPath, publisher, requestOptions);
     const srcParentHost: ManifestHost = srcParentFolder ?? {
-      topic: sourceDriveInfo.driveFeedTopic.toString(),
+      owner: this.signerAddress,
+      topic: sourceDriveInfo.topic.toString(),
       manifestRef: sourceDriveInfo.manifestRef,
       batchId: sourceDriveInfo.batchId,
       redundancyLevel: sourceDriveInfo.redundancyLevel,
+      actPublisher: publisher,
     };
     // TODO: important! drivinfo shall also have a publisher and shall be passed on to each manifest get ! not always the node.address -> fm owner != shared drive publisher
     const sourceMantaray = await this.getNodeManifest(srcParentHost, publisher, requestOptions);
@@ -1642,10 +1659,12 @@ export class FileManagerBase implements FileManager {
 
     const tgtParentFolder = await this.resolveFolder(effectiveTarget, tgtParentPath, publisher, requestOptions);
     const tgtParentHost: ManifestHost = tgtParentFolder ?? {
-      topic: effectiveTarget.driveFeedTopic.toString(),
+      owner: this.signerAddress,
+      topic: effectiveTarget.topic.toString(),
       manifestRef: effectiveTarget.manifestRef,
       batchId: effectiveTarget.batchId,
       redundancyLevel: effectiveTarget.redundancyLevel,
+      actPublisher: publisher,
     };
     const sameParent = srcParentHost.topic === tgtParentHost.topic;
     const targetMantaray = sameParent
@@ -1741,10 +1760,12 @@ export class FileManagerBase implements FileManager {
 
     const segments = path.split('/').filter(Boolean);
     const driveHost: ManifestHost = {
-      topic: driveInfo.driveFeedTopic.toString(),
+      owner: this.signerAddress,
+      topic: driveInfo.topic.toString(),
       manifestRef: driveInfo.manifestRef,
       batchId: driveInfo.batchId,
       redundancyLevel: driveInfo.redundancyLevel,
+      actPublisher: driveInfo.actPublisher,
     };
 
     let currentMantaray = await this.getNodeManifest(driveHost, publisher, requestOptions);
@@ -1776,10 +1797,11 @@ export class FileManagerBase implements FileManager {
       if (folderFeedIndex.equals(FeedIndex.MINUS_ONE)) {
         throw new DriveError(`Folder feed not found for path: ${currentPath}`);
       }
-      const folderManifestRef: ReferenceWithHistory = folderPayload.toJSON() as ReferenceWithHistory;
+      const folderManifestRef: ActReferences = folderPayload.toJSON() as ActReferences;
       this.nodeFeedIndexCache.set(folderTopic, folderFeedIndexNext.toBigInt());
 
       currentFolderInfo = {
+        owner: this.signerAddress,
         topic: folderTopic,
         manifestRef: folderManifestRef,
         batchId: driveInfo.batchId,
@@ -1788,6 +1810,7 @@ export class FileManagerBase implements FileManager {
           : driveInfo.redundancyLevel,
         path: currentPath,
         driveId: driveInfo.id.toString(),
+        actPublisher: publisher,
       };
 
       currentMantaray = await this.getNodeManifest(currentFolderInfo, publisher, requestOptions);
@@ -1822,7 +1845,7 @@ export class FileManagerBase implements FileManager {
       { act: true, redundancyLevel: effectiveRedundancy },
       requestOptions,
     );
-    const newFolderManifestRef: ReferenceWithHistory = {
+    const newFolderManifestRef: ActReferences = {
       reference: manifestUpload.reference.toString(),
       historyRef: manifestUpload.historyAddress.getOrThrow().toString(),
     };
@@ -1831,12 +1854,14 @@ export class FileManagerBase implements FileManager {
     await fw.uploadPayload(driveInfo.batchId, JSON.stringify(newFolderManifestRef), { index: FEED_INDEX_ZERO });
 
     const folderInfo: FolderInfo = {
+      owner: this.signerAddress,
       topic: newFolderTopic,
       manifestRef: newFolderManifestRef,
       batchId: driveInfo.batchId,
       redundancyLevel: effectiveRedundancy,
       path: (parentPath === ROOT_PATH || !parentPath ? '' : parentPath) + '/' + folderName,
       driveId: driveInfo.id.toString(),
+      actPublisher: publisher,
     };
 
     this.nodeManifestCache.set(newFolderTopic, emptyMantaray);
@@ -1870,10 +1895,12 @@ export class FileManagerBase implements FileManager {
 
     const parentFolder = await this.resolveFolder(driveInfo, parentPath, publisher, requestOptions);
     const parentHost: ManifestHost = parentFolder ?? {
-      topic: driveInfo.driveFeedTopic.toString(),
+      owner: this.signerAddress,
+      topic: driveInfo.topic.toString(),
       manifestRef: driveInfo.manifestRef,
       batchId: driveInfo.batchId,
       redundancyLevel: driveInfo.redundancyLevel,
+      actPublisher: publisher,
     };
 
     const folderInfo = await this.createFolderNode(

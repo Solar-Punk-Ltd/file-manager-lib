@@ -4,6 +4,7 @@ import { Types } from 'cafe-utility';
 import { DriveInfo, FileRecord, ShareItem, StateTopicInfo } from '../types/info';
 
 import {
+  MANIFEST_METADATA_DRIVE_ACT_PUBLISHER,
   MANIFEST_METADATA_DRIVE_BATCH_ID,
   MANIFEST_METADATA_DRIVE_ID,
   MANIFEST_METADATA_DRIVE_IS_ADMIN,
@@ -25,9 +26,9 @@ export function assertFileRecord(value: unknown): asserts value is FileRecord {
 
   const fi = value as unknown as FileRecord;
 
-  new Reference(fi.fileRefAndHistory.reference);
+  new Reference(fi.content.reference);
   new Reference(fi.batchId);
-  new Reference(fi.fileRefAndHistory.historyRef);
+  new Reference(fi.content.historyRef);
   new EthAddress(fi.owner);
   new Topic(fi.topic);
   new PublicKey(fi.actPublisher);
@@ -86,8 +87,8 @@ export function assertDriveInfo(value: unknown): asserts value is DriveInfo {
   new EthAddress(di.owner);
   new Identifier(di.id);
 
-  if (di.driveFeedTopic === undefined || typeof di.driveFeedTopic !== 'string' || di.driveFeedTopic.length === 0) {
-    throw new TypeError('driveFeedTopic property of DriveInfo has to be non-empty string!');
+  if (di.topic === undefined || typeof di.topic !== 'string' || di.topic.length === 0) {
+    throw new TypeError('topic property of DriveInfo has to be non-empty string!');
   }
 
   if (di.name === undefined || typeof di.name !== 'string' || di.name.length === 0) {
@@ -109,10 +110,11 @@ export function driveInfoFromMetadata(meta: Record<string, string>): DriveInfo {
   const owner = meta[MANIFEST_METADATA_DRIVE_OWNER];
   const batchId = meta[MANIFEST_METADATA_DRIVE_BATCH_ID];
   const isAdmin = meta[MANIFEST_METADATA_DRIVE_IS_ADMIN] === 'true';
+  const actPublisher = meta[MANIFEST_METADATA_DRIVE_ACT_PUBLISHER];
   const redundancyLevel = parseInt(meta[MANIFEST_METADATA_REDUNDANCY_LEVEL] ?? '0') as RedundancyLevel;
-  const driveFeedTopic = meta[MANIFEST_METADATA_NODE_TOPIC];
+  const topic = meta[MANIFEST_METADATA_NODE_TOPIC];
 
-  if (!id || !name || !owner || !batchId || !driveFeedTopic) {
+  if (!id || !name || !owner || !batchId || !topic || !actPublisher) {
     throw new DriveError(`Invalid drive fork metadata — missing required fields`);
   }
 
@@ -123,7 +125,8 @@ export function driveInfoFromMetadata(meta: Record<string, string>): DriveInfo {
     batchId,
     isAdmin,
     redundancyLevel,
-    driveFeedTopic,
+    topic,
+    actPublisher,
   };
   assertDriveInfo(driveInfo);
   return driveInfo;

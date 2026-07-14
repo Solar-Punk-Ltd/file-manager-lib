@@ -446,9 +446,10 @@ describe('FileManager drive handling', () => {
     await expect(
       fileManager.destroyDrive(
         {
+          actPublisher: signer.publicKey().toCompressedHex(),
           batchId: ownerBatch.batchID.toString(),
           id: 'mockID',
-          driveFeedTopic: 'mockDriveFeedTopic',
+          topic: 'mockDriveFeedTopic',
           name: 'Admin Drive',
           owner: signer.publicKey().address().toString(),
           redundancyLevel: RedundancyLevel.OFF,
@@ -461,9 +462,10 @@ describe('FileManager drive handling', () => {
     await expect(
       fileManager.destroyDrive(
         {
+          actPublisher: signer.publicKey().toCompressedHex(),
           batchId: new BatchId('6789'.repeat(16)).toString(),
           id: 'mockID',
-          driveFeedTopic: 'mockDriveFeedTopic',
+          topic: 'mockDriveFeedTopic',
           name: 'Admin Drive',
           owner: signer.publicKey().address().toString(),
           redundancyLevel: RedundancyLevel.OFF,
@@ -476,9 +478,10 @@ describe('FileManager drive handling', () => {
     await expect(
       fileManager.destroyDrive(
         {
+          actPublisher: signer.publicKey().toCompressedHex(),
           batchId: ownerBatch.batchID.toString(),
           id: 'mockID',
-          driveFeedTopic: 'mockDriveFeedTopic',
+          topic: 'mockDriveFeedTopic',
           name: 'Admin Drive',
           owner: signer.publicKey().address().toString(),
           redundancyLevel: RedundancyLevel.OFF,
@@ -505,7 +508,7 @@ describe('FileManager drive handling', () => {
       topic,
       path: filePath,
       actPublisher: signer.publicKey().toCompressedHex(),
-      fileRefAndHistory: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+      content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
       driveId,
       timestamp: now,
       shared: false,
@@ -726,12 +729,12 @@ describe('FileManager uploadFile', () => {
 
       await fileManager.updateFile(drive, firstInfo, { customMetadata: { tag: 'v1' } });
       const secondInfo = fileManager.fileInfoList.find((fi) => fi.topic.toString() === firstInfo.topic.toString())!;
-      expect(secondInfo.fileRefAndHistory).toEqual(firstInfo.fileRefAndHistory);
+      expect(secondInfo.content).toEqual(firstInfo.content);
       expect(secondInfo.customMetadata).toMatchObject({ tag: 'v1' });
 
       await fileManager.updateFile(drive, secondInfo, { customMetadata: { tag: 'v2' } });
       const thirdInfo = fileManager.fileInfoList.find((fi) => fi.topic.toString() === firstInfo.topic.toString())!;
-      expect(thirdInfo.fileRefAndHistory).toEqual(firstInfo.fileRefAndHistory);
+      expect(thirdInfo.content).toEqual(firstInfo.content);
       expect(thirdInfo.customMetadata).toMatchObject({ tag: 'v2' });
     } finally {
       fs.rmSync(name, { force: true });
@@ -1477,11 +1480,11 @@ describe('FileManager version control', () => {
       const v0 = await fileManager.getFileVersion(v0Fi, FEED_INDEX_ZERO);
       const head = await fileManager.getFileVersion(v0Fi);
 
-      expect(v0.fileRefAndHistory.reference).not.toBe(head.fileRefAndHistory.reference);
+      expect(v0.content.reference).not.toBe(head.content.reference);
 
       const v0Bytes = await retryOnPropagationDelay(async () => {
-        const rawRef = await bee.downloadData(v0.fileRefAndHistory.reference.toString(), {
-          actHistoryAddress: new Reference(v0.fileRefAndHistory.historyRef),
+        const rawRef = await bee.downloadData(v0.content.reference.toString(), {
+          actHistoryAddress: new Reference(v0.content.historyRef),
           actPublisher: new PublicKey(v0.actPublisher).toCompressedHex(),
         });
         const contentRef = new Reference(rawRef.toUint8Array());
@@ -1490,8 +1493,8 @@ describe('FileManager version control', () => {
       expect(Buffer.from(v0Bytes).toString('utf-8')).toBe('Version bytes v0');
 
       const headBytes = await retryOnPropagationDelay(async () => {
-        const rawRef = await bee.downloadData(head.fileRefAndHistory.reference.toString(), {
-          actHistoryAddress: new Reference(head.fileRefAndHistory.historyRef),
+        const rawRef = await bee.downloadData(head.content.reference.toString(), {
+          actHistoryAddress: new Reference(head.content.historyRef),
           actPublisher: new PublicKey(head.actPublisher).toCompressedHex(),
         });
         const contentRef = new Reference(rawRef.toUint8Array());
@@ -1555,7 +1558,7 @@ describe('FileManager version control', () => {
     try {
       const base = await ensureBase(NAME);
       const initialVersion = BigInt(base.version!.toString());
-      const firstRef = base.fileRefAndHistory.reference;
+      const firstRef = base.content.reference;
 
       fs.writeFileSync(NAME, 'second');
       await fileManager.updateFile(drive, base, { source: NAME });
@@ -1572,7 +1575,7 @@ describe('FileManager version control', () => {
 
       const restored = await fileManager.getFileVersion(base, current);
 
-      expect(restored.fileRefAndHistory.reference).toBe(firstRef);
+      expect(restored.content.reference).toBe(firstRef);
       expect(BigInt(restored.version!.toString())).toBe(initialVersion + 2n);
     } finally {
       fs.unlinkSync(NAME);
@@ -1593,7 +1596,7 @@ describe('FileManager version control', () => {
 
       const reHead = await fileManager.getFileVersion(base, base.version!);
       expect(reHead.version).toBe(currentHead.version);
-      expect(reHead.fileRefAndHistory.reference).toBe(currentHead.fileRefAndHistory.reference);
+      expect(reHead.content.reference).toBe(currentHead.content.reference);
     } finally {
       fs.unlinkSync(NAME);
     }
@@ -1610,7 +1613,7 @@ describe('FileManager version control', () => {
 
     const after = await fileManager.getFileVersion(base, headIdx);
     expect(after.version).toBe(before.version);
-    expect(after.fileRefAndHistory.reference).toBe(before.fileRefAndHistory.reference);
+    expect(after.content.reference).toBe(before.content.reference);
   });
 
   it("restoring an old version keeps the current (post-move) location, not the version's recorded path", async () => {
@@ -1683,7 +1686,7 @@ describe('FileManager getGranteesOfFile', () => {
     const fileInfo: FileRecord = {
       batchId: 'dummyBatchId',
       topic: Topic.fromString('nonexistent-topic').toString(),
-      fileRefAndHistory: {
+      content: {
         reference: new Reference('1'.repeat(64)).toString(),
         historyRef: new Reference('0'.repeat(64)).toString(),
       },
@@ -1694,6 +1697,7 @@ describe('FileManager getGranteesOfFile', () => {
       version: FEED_INDEX_ZERO.toString(),
       driveId: 'dummyDriveId',
       actPublisher: 'dummyActPublisher',
+      redundancyLevel: RedundancyLevel.OFF,
     };
     await expect(fileManager.getGrantees(fileInfo)).rejects.toThrow(
       new GranteeError(`Drive not found for file: ${fileInfo.path}`),
@@ -2005,7 +2009,7 @@ describe('FileManager AbortController', () => {
         fileManager.downloadFiles(
           [uploadedFileInfo],
           {
-            actHistoryAddress: uploadedFileInfo.fileRefAndHistory.historyRef,
+            actHistoryAddress: uploadedFileInfo.content.historyRef,
             actPublisher,
           },
           { signal: controller.signal },
@@ -2020,7 +2024,7 @@ describe('FileManager AbortController', () => {
       const downloadPromise = fileManager.downloadFiles(
         [uploadedFileInfo],
         {
-          actHistoryAddress: uploadedFileInfo.fileRefAndHistory.historyRef,
+          actHistoryAddress: uploadedFileInfo.content.historyRef,
           actPublisher,
         },
         { signal: controller.signal },
@@ -2039,7 +2043,7 @@ describe('FileManager AbortController', () => {
       const result = await fileManager.downloadFiles(
         [uploadedFileInfo],
         {
-          actHistoryAddress: uploadedFileInfo.fileRefAndHistory.historyRef,
+          actHistoryAddress: uploadedFileInfo.content.historyRef,
           actPublisher,
         },
         { signal: controller.signal },
@@ -2059,7 +2063,7 @@ describe('FileManager AbortController', () => {
         fileManager.downloadFiles(
           [uploadedFileInfo],
           {
-            actHistoryAddress: uploadedFileInfo.fileRefAndHistory.historyRef,
+            actHistoryAddress: uploadedFileInfo.content.historyRef,
             actPublisher,
           },
           { signal: controller1.signal },
@@ -2070,7 +2074,7 @@ describe('FileManager AbortController', () => {
       const result = await fileManager.downloadFiles(
         [uploadedFileInfo],
         {
-          actHistoryAddress: uploadedFileInfo.fileRefAndHistory.historyRef,
+          actHistoryAddress: uploadedFileInfo.content.historyRef,
           actPublisher,
         },
         { signal: controller2.signal },

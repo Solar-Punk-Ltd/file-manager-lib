@@ -9,7 +9,7 @@ import { isNode } from 'std-env';
 
 import type { DriveInfo } from '../types/info';
 import type { BrowserUploadOptions, FileInfoOptions, NodeUploadOptions } from '../types/upload';
-import type { ReferenceWithHistory } from '../types/utils';
+import type { ActReferences } from '../types/utils';
 import { FileError } from '../utils/errors';
 
 export async function assertUploadableSource(fileOptions: FileInfoOptions): Promise<void> {
@@ -60,7 +60,7 @@ export async function processUpload(
   redundancyLevel: RedundancyLevel,
   uploadOptions?: RedundantUploadOptions | FileUploadOptions,
   requestOptions?: BeeRequestOptions,
-): Promise<ReferenceWithHistory> {
+): Promise<ActReferences> {
   const processedOptions = processOptions(isNode, fileOptions, uploadOptions, redundancyLevel);
 
   if (isNode) {

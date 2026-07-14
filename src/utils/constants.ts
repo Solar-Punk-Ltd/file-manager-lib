@@ -19,3 +19,4 @@ export const MANIFEST_METADATA_DRIVE_NAME = 'swarm-drive-name';
 export const MANIFEST_METADATA_DRIVE_OWNER = 'swarm-drive-owner';
 export const MANIFEST_METADATA_DRIVE_IS_ADMIN = 'swarm-drive-is-admin';
 export const MANIFEST_METADATA_DRIVE_BATCH_ID = 'swarm-drive-batch-id';
+export const MANIFEST_METADATA_DRIVE_ACT_PUBLISHER = 'swarm-drive-act-publisher';

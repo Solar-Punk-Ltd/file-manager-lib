@@ -1,7 +1,7 @@
 import { BatchId, Bee, BeeRequestOptions, RedundantUploadOptions, UploadResult } from '@ethersphere/bee-js';
 
 import { BrowserUploadOptions, DriveInfo } from '../types';
-import { ReferenceWithHistory } from '../types/utils';
+import { ActReferences } from '../types/utils';
 import { FileError } from '../utils/errors';
 
 async function uploadBrowser(
@@ -26,7 +26,7 @@ export async function processUploadBrowser(
   browserOptions: BrowserUploadOptions,
   uploadOptions?: RedundantUploadOptions,
   requestOptions?: BeeRequestOptions,
-): Promise<ReferenceWithHistory> {
+): Promise<ActReferences> {
   if (!browserOptions.file) {
     throw new FileError('File is required.');
   }
@@ -36,5 +36,5 @@ export async function processUploadBrowser(
   return {
     reference: uploadResult.reference.toString(),
     historyRef: uploadResult.historyAddress.getOrThrow().toString(),
-  } as ReferenceWithHistory;
+  } as ActReferences;
 }

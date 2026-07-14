@@ -340,7 +340,11 @@ describe('FileManager', () => {
         topic: Topic.fromString(`dl-${path}`).toString(),
         driveId: drive.id.toString(),
         path,
-        fileRefAndHistory: { reference: ref, historyRef: SWARM_ZERO_ADDRESS.toString() },
+        content: {
+          reference: ref,
+          historyRef: SWARM_ZERO_ADDRESS.toString(),
+        },
+        redundancyLevel: RedundancyLevel.OFF,
       };
     }
 
@@ -384,7 +388,7 @@ describe('FileManager', () => {
     it('downloadFolder does not download files belonging to a different drive', async () => {
       const fm = await createInitializedFileManager();
       const drive = fm.driveList[0];
-      const otherDrive = createMockDriveInfo({ id: Identifier.fromString('other-drive').toString() });
+      const otherDrive = createMockDriveInfo(actPublisher, { id: Identifier.fromString('other-drive').toString() });
       fm.fileInfoList.push(seedFile(drive, 'mine.txt', '1'.repeat(64)));
       fm.fileInfoList.push(seedFile(otherDrive, 'not-mine.txt', '2'.repeat(64)));
 
@@ -407,7 +411,8 @@ describe('FileManager', () => {
         topic: Topic.fromString(`dlf-${path}`).toString(),
         driveId: drive.id.toString(),
         path,
-        fileRefAndHistory: { reference: ref, historyRef: SWARM_ZERO_ADDRESS.toString() },
+        content: { reference: ref, historyRef: SWARM_ZERO_ADDRESS.toString() },
+        redundancyLevel: RedundancyLevel.OFF,
       };
     }
 
@@ -462,10 +467,11 @@ describe('FileManager', () => {
         batchId: MOCK_BATCH_ID,
         owner,
         actPublisher,
+        redundancyLevel: RedundancyLevel.OFF,
         topic: topicB,
         driveId: drive.id.toString(),
         path: 'b.txt',
-        fileRefAndHistory: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
       });
 
       // Clear the calls made by createInitializedFileManager()'s own bootstrap so the count below
@@ -487,7 +493,7 @@ describe('FileManager', () => {
             topic: topicA,
             driveId: drive.id.toString(),
             path: 'a.txt',
-            fileRefAndHistory: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+            content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
           }),
         ),
       );
@@ -548,7 +554,7 @@ describe('FileManager', () => {
       // Fresh topic is minted (not derived from any input).
       expect(entries[0].topic.toString().length).toBeGreaterThan(0);
 
-      const driveMantaray = (fm as any).nodeManifestCache.get(di.driveFeedTopic.toString()) as MantarayNode;
+      const driveMantaray = (fm as any).nodeManifestCache.get(di.topic.toString()) as MantarayNode;
       expect(driveMantaray.find('package.json')).toBeTruthy();
     });
 
@@ -573,7 +579,7 @@ describe('FileManager', () => {
 
       // The file fork lives under the folder's own manifest — the drive root manifest carries the
       // 'tests' folder fork but not the file leaf.
-      const driveMantaray = (fm as any).nodeManifestCache.get(di.driveFeedTopic.toString()) as MantarayNode;
+      const driveMantaray = (fm as any).nodeManifestCache.get(di.topic.toString()) as MantarayNode;
       expect(driveMantaray.find('tests')).toBeTruthy();
       expect(driveMantaray.find('utils.ts')).toBeFalsy();
     });
@@ -614,13 +620,13 @@ describe('FileManager', () => {
       await expect(fm.uploadFile(di, { path: 'tests' } as any)).rejects.toThrow();
 
       expect(fm.fileInfoList.find((fi) => fi.path === 'tests')).toBeUndefined();
-      const driveMantaray = (fm as any).nodeManifestCache.get(di.driveFeedTopic.toString()) as MantarayNode;
+      const driveMantaray = (fm as any).nodeManifestCache.get(di.topic.toString()) as MantarayNode;
       expect(driveMantaray.find('tests')).toBeFalsy();
     });
 
     it('throws when a drive is not found', async () => {
       const fm = await createInitializedFileManager();
-      const ghost = createMockDriveInfo({ id: '7'.repeat(64), name: 'ghost' });
+      const ghost = createMockDriveInfo(actPublisher, { id: '7'.repeat(64), name: 'ghost' });
 
       await expect(fm.uploadFile(ghost, { path: 'package.json' } as any)).rejects.toThrow(
         `Drive ${ghost.name} with id ${ghost.id.toString()} not found`,
@@ -654,7 +660,7 @@ describe('FileManager', () => {
       expect(updated.path).toBe(record.path);
       expect(updated.customMetadata).toMatchObject({ note: 'hello' });
       // Content ref reused verbatim — no bytes uploaded.
-      expect(updated.fileRefAndHistory).toEqual(record.fileRefAndHistory);
+      expect(updated.content).toEqual(record.content);
       expect(handler).toHaveBeenCalled();
     });
 
@@ -666,7 +672,7 @@ describe('FileManager', () => {
       const updated = fm.fileInfoList.find((fi) => fi.topic.toString() === record.topic.toString())!;
       expect(updated.version).toBe(FeedIndex.fromBigInt(1n).toString());
       expect(updated.path).toBe(record.path);
-      expect(updated.fileRefAndHistory).toEqual(record.fileRefAndHistory);
+      expect(updated.content).toEqual(record.content);
     });
 
     it('never touches the drive manifest (no fork add, no manifest save) even when uploading new bytes', async () => {
@@ -693,9 +699,10 @@ describe('FileManager', () => {
         owner,
         actPublisher,
         topic,
+        redundancyLevel: RedundancyLevel.OFF,
         driveId: di.id.toString(),
         path: 'package.json',
-        fileRefAndHistory: { reference: '8'.repeat(64), historyRef: priorHistoryRef },
+        content: { reference: '8'.repeat(64), historyRef: priorHistoryRef },
         version: FEED_INDEX_ZERO.toString(),
       };
       fm.fileInfoList.push(record);
@@ -728,15 +735,16 @@ describe('FileManager', () => {
 
     it('throws when the drive is not found', async () => {
       const fm = await createInitializedFileManager();
-      const ghost = createMockDriveInfo({ id: '7'.repeat(64), name: 'ghost' });
+      const ghost = createMockDriveInfo(actPublisher, { id: '7'.repeat(64), name: 'ghost' });
       const record: FileRecord = {
         batchId: MOCK_BATCH_ID,
         owner,
+        redundancyLevel: RedundancyLevel.OFF,
         actPublisher,
         topic: Topic.fromString('orphan').toString(),
         driveId: ghost.id.toString(),
         path: 'package.json',
-        fileRefAndHistory: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
         version: FEED_INDEX_ZERO.toString(),
       };
 
@@ -759,7 +767,7 @@ describe('FileManager', () => {
       const updatedDrive = fm.driveList.find((d) => d.id.toString() === drive.id.toString())!;
       expect(updatedDrive.manifestRef).toBeDefined();
 
-      const driveMantaray = (fm as any).nodeManifestCache.get(drive.driveFeedTopic.toString()) as MantarayNode;
+      const driveMantaray = (fm as any).nodeManifestCache.get(drive.topic.toString()) as MantarayNode;
       expect(driveMantaray.find('Documents')).toBeTruthy();
     });
 
@@ -777,13 +785,14 @@ describe('FileManager', () => {
     const dummyTopic = Topic.fromString('deadbeef').toString();
     const dummyFi: FileRecord = {
       topic: dummyTopic,
-      fileRefAndHistory: { historyRef: SWARM_ZERO_ADDRESS.toString(), reference: SWARM_ZERO_ADDRESS.toString() },
+      content: { historyRef: SWARM_ZERO_ADDRESS.toString(), reference: SWARM_ZERO_ADDRESS.toString() },
       owner,
       batchId: MOCK_BATCH_ID,
       driveId: Identifier.fromString('version-drive').toString(),
       path: 'x.txt',
       actPublisher,
       version: FeedIndex.fromBigInt(0n).toString(),
+      redundancyLevel: RedundancyLevel.OFF,
     };
 
     beforeEach(async () => {
@@ -879,7 +888,7 @@ describe('FileManager', () => {
       expect(di.batchId.toString()).toBe(MOCK_BATCH_ID.toString());
       expect(di.id.toString()).toHaveLength(64);
       expect(di.owner).toBe(owner);
-      expect(di.driveFeedTopic).toBeDefined();
+      expect(di.topic).toBeDefined();
       expect(di.manifestRef).toBeDefined();
       expect(di.isAdmin).toBe(true);
     });
@@ -893,7 +902,7 @@ describe('FileManager', () => {
       expect(di.batchId.toString()).toBe(otherMockBatchId.toString());
       expect(di.id.toString()).toHaveLength(64);
       expect(di.owner).toBe(owner);
-      expect(di.driveFeedTopic).toBeDefined();
+      expect(di.topic).toBeDefined();
       expect(di.manifestRef).toBeDefined();
     });
 
@@ -966,7 +975,8 @@ describe('FileManager', () => {
           topic: Topic.fromString('forget-x').toString(),
           driveId: target.id.toString(),
           path: 'x.txt',
-          fileRefAndHistory: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+          content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+          redundancyLevel: RedundancyLevel.OFF,
         },
         {
           batchId: target.batchId.toString(),
@@ -975,7 +985,8 @@ describe('FileManager', () => {
           topic: Topic.fromString('forget-y').toString(),
           driveId: target.id.toString(),
           path: 'y.txt',
-          fileRefAndHistory: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+          content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+          redundancyLevel: RedundancyLevel.OFF,
         },
       );
 
@@ -999,7 +1010,7 @@ describe('FileManager', () => {
 
     it('forgetDrive should throw when the drive does not exist', async () => {
       const fm = await createInitializedFileManager();
-      const ghost = createMockDriveInfo({ id: '9'.repeat(64), name: 'ghost', isAdmin: false });
+      const ghost = createMockDriveInfo(actPublisher, { id: '9'.repeat(64), name: 'ghost', isAdmin: false });
 
       await expect(fm.forgetDrive(ghost)).rejects.toThrow(
         new DriveError(`Drive ${ghost.name} with id ${ghost.id} not found`),
@@ -1022,10 +1033,11 @@ describe('FileManager', () => {
         topic: Topic.fromString('lifecycle-target').toString(),
         driveId: drive.id.toString(),
         path: 'notes.txt',
-        fileRefAndHistory: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
         version: FEED_INDEX_ZERO.toString(),
         status: FileStatus.Active,
         timestamp: 0,
+        redundancyLevel: RedundancyLevel.OFF,
       };
       fm.fileInfoList.push(fileRecord);
     });
@@ -1086,7 +1098,7 @@ describe('FileManager', () => {
       expect(fm.fileInfoList.find((f) => f.path === 'package.json')).toBeUndefined();
       expect(handler).toHaveBeenCalledWith({ fileInfo: uploaded, path: 'package.json' });
 
-      const driveMantaray = (fm as any).nodeManifestCache.get(drive.driveFeedTopic.toString()) as MantarayNode;
+      const driveMantaray = (fm as any).nodeManifestCache.get(drive.topic.toString()) as MantarayNode;
       expect(driveMantaray.find('package.json')).toBeFalsy();
     });
 
@@ -1100,7 +1112,8 @@ describe('FileManager', () => {
         topic: Topic.fromString('doc-a').toString(),
         driveId: drive.id.toString(),
         path: 'Docs/a.txt',
-        fileRefAndHistory: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        redundancyLevel: RedundancyLevel.OFF,
       });
 
       const handler = jest.fn();
@@ -1128,7 +1141,7 @@ describe('FileManager', () => {
       expect(moved.path).toBe('renamed.json');
       expect(moved.version).toBe(FeedIndex.fromBigInt(1n).toString());
 
-      const driveMantaray = (fm as any).nodeManifestCache.get(drive.driveFeedTopic.toString()) as MantarayNode;
+      const driveMantaray = (fm as any).nodeManifestCache.get(drive.topic.toString()) as MantarayNode;
       expect(driveMantaray.find('package.json')).toBeFalsy();
       expect(driveMantaray.find('renamed.json')).toBeTruthy();
     });
@@ -1136,7 +1149,7 @@ describe('FileManager', () => {
     it('self-hydrates a file that was never loaded into fileInfoList', async () => {
       const fm = await createInitializedFileManager();
       const drive = fm.driveList[0];
-      const driveMantaray = (fm as any).nodeManifestCache.get(drive.driveFeedTopic.toString()) as MantarayNode;
+      const driveMantaray = (fm as any).nodeManifestCache.get(drive.topic.toString()) as MantarayNode;
 
       const fileTopic = Topic.fromString('cold-file').toString();
       driveMantaray.addFork('cold.txt', new Reference(fileTopic), {
@@ -1152,7 +1165,7 @@ describe('FileManager', () => {
         batchId: MOCK_BATCH_ID,
         owner,
         actPublisher,
-        fileRefAndHistory: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
       };
 
       (getFeedData as jest.Mock).mockResolvedValue({
@@ -1341,7 +1354,7 @@ describe('FileManager', () => {
 
     it('throw if listFolder is called on a non-existent drive', async () => {
       const fm = await createInitializedFileManager();
-      const freshDrive = createMockDriveInfo();
+      const freshDrive = createMockDriveInfo(actPublisher);
 
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
       const { loadMantaray, getAllNodeEntries } = require('@/utils/mantaray');
@@ -1357,7 +1370,7 @@ describe('FileManager', () => {
 
     it('forwards the abort signal to getNodeManifest downloads in listFolder', async () => {
       const fm = await createInitializedFileManager();
-      const freshDrive = createMockDriveInfo();
+      const freshDrive = createMockDriveInfo(actPublisher);
 
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
       const { loadMantaray, getAllNodeEntries } = require('@/utils/mantaray');
@@ -1400,7 +1413,8 @@ describe('FileManager', () => {
         topic: Topic.fromString('signal-file').toString(),
         driveId: drive.id.toString(),
         path: 'a.txt',
-        fileRefAndHistory: { reference: '1'.repeat(64), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        content: { reference: '1'.repeat(64), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        redundancyLevel: RedundancyLevel.OFF,
       };
       fm.fileInfoList.push(rec);
 

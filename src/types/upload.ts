@@ -12,7 +12,7 @@ export interface NodeUploadOptions {
 
 type PartialFileInfoUploadOptions = Omit<
   FileRecord,
-  'owner' | 'actPublisher' | 'fileRefAndHistory' | 'topic' | 'driveId' | 'batchId' | 'redundancyLevel' | 'status'
+  'owner' | 'actPublisher' | 'content' | 'topic' | 'driveId' | 'batchId' | 'redundancyLevel' | 'status'
 >;
 
 export type FileInfoOptions = PartialFileInfoUploadOptions & (BrowserUploadOptions | NodeUploadOptions);

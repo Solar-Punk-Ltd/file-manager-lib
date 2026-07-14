@@ -1,16 +1,17 @@
 import { BatchId, FeedIndex, PrivateKey, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 
 import { DriveInfo, FileRecord } from '../types';
-import { ReferenceWithHistory } from '../types/utils';
+import { ActReferences } from '../types/utils';
 
 import { getEncodedSize } from './common';
 import { SWARM_ZERO_ADDRESS } from './constants';
 
+// TODO: capacity calculation is completely wrong after the mantaray restructure
 const REFERENCE_WRAPPER_SIZE = getEncodedSize(
   JSON.stringify({
     reference: SWARM_ZERO_ADDRESS.toString(),
     historyRef: SWARM_ZERO_ADDRESS.toString(),
-  } as ReferenceWithHistory),
+  } as ActReferences),
 );
 
 const FEED_OVERHEAD_SIZE = FeedIndex.MINUS_ONE.toString().length + Topic.LENGTH;
@@ -27,18 +28,20 @@ const dummyDriveInfo: DriveInfo = {
   batchId: DUMMY_STAMP.toString(),
   owner: DUMMY_SIGNER.publicKey().address().toString(),
   redundancyLevel: RedundancyLevel.OFF,
-  driveFeedTopic: DUMMY_TOPIC.toString(),
+  topic: DUMMY_TOPIC.toString(),
   isAdmin: true,
+  actPublisher: DUMMY_SIGNER.publicKey().toString(),
 };
 const dummyDriveInfoSize = getEncodedSize(JSON.stringify(dummyDriveInfo));
 const dummyFileRecord: FileRecord = {
   batchId: DUMMY_STAMP.toString(),
-  fileRefAndHistory: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+  content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
   path: 'a'.repeat(40),
   owner: DUMMY_SIGNER.publicKey().address().toString(),
   actPublisher: DUMMY_SIGNER.publicKey().toString(),
   topic: SWARM_ZERO_ADDRESS.toString(),
   driveId: dummyId.toString(),
+  redundancyLevel: RedundancyLevel.OFF,
 };
 const dummyFileInfoSize = getEncodedSize(JSON.stringify(dummyFileRecord));
 

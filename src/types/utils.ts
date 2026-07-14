@@ -1,8 +1,8 @@
 import { Bytes, FeedIndex, Reference } from '@ethersphere/bee-js';
 
-export interface ReferenceWithHistory {
-  reference: string | Reference;
-  historyRef: string | Reference;
+export interface ActReferences {
+  reference: string;
+  historyRef: string;
 }
 
 interface FeedUpdateHeaders {

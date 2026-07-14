@@ -1,7 +1,7 @@
 import { BatchId, Bee, BeeRequestOptions, FileUploadOptions, UploadResult } from '@ethersphere/bee-js';
 
 import { DriveInfo, NodeUploadOptions } from '../types';
-import { ReferenceWithHistory } from '../types/utils';
+import { ActReferences } from '../types/utils';
 import { FileError } from '../utils/errors';
 
 async function uploadNode(
@@ -51,7 +51,7 @@ export async function processUploadNode(
   nodeOptions: NodeUploadOptions,
   uploadOptions?: FileUploadOptions,
   requestOptions?: BeeRequestOptions,
-): Promise<ReferenceWithHistory> {
+): Promise<ActReferences> {
   if (!nodeOptions.path) {
     throw new FileError('File path is required.');
   }
@@ -61,5 +61,5 @@ export async function processUploadNode(
   return {
     reference: uploadResult.reference.toString(),
     historyRef: uploadResult.historyAddress.getOrThrow().toString(),
-  } as ReferenceWithHistory;
+  } as ActReferences;
 }

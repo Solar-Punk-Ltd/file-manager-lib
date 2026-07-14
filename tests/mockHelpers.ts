@@ -91,29 +91,31 @@ export async function createMockFileInfo(
     path: '/john doe',
     topic: Topic.fromString('file-1').toString(),
     driveId: Identifier.fromString('123').toString(),
-    owner: owner,
+    owner,
     actPublisher,
-    fileRefAndHistory: {
+    content: {
       reference: ref,
       historyRef: SWARM_ZERO_ADDRESS.toString(),
     },
+    redundancyLevel: RedundancyLevel.OFF,
     ...overrides,
   };
 }
 
-export function createMockDriveInfo(overrides?: Partial<DriveInfo>): DriveInfo {
+export function createMockDriveInfo(actPublisher: string, overrides?: Partial<DriveInfo>): DriveInfo {
   return {
-    id: Identifier.fromString('123'),
+    id: Identifier.fromString('123').toString(),
     batchId: MOCK_BATCH_ID,
     owner: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
     name: 'Test Drive',
-    driveFeedTopic: Topic.fromString('drive-topic-1').toString(),
+    topic: Topic.fromString('drive-topic-1').toString(),
     redundancyLevel: RedundancyLevel.MEDIUM,
     manifestRef: {
       reference: new Reference('1'.repeat(64)).toString(),
       historyRef: new Reference('2'.repeat(64)).toString(),
     },
     isAdmin: false,
+    actPublisher,
     ...overrides,
   };
 }
