@@ -11,7 +11,7 @@ async function uploadNode(
   uploadOptions?: FileUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<UploadResult> {
-  const result = await uploadFile(bee, batchId, nodeOptions.path, { ...uploadOptions, act: true }, requestOptions);
+  const result = await uploadFile(bee, batchId, nodeOptions.path, uploadOptions, requestOptions);
 
   if (result.tagUid !== undefined) {
     nodeOptions.onUploadProgress?.(result.tagUid);
@@ -38,14 +38,7 @@ async function uploadFile(
     const { readFile } = await import('../utils/fs/fs.node');
     const { data } = await readFile(resolvedPath);
 
-    return await bee.uploadData(
-      batchId,
-      data,
-      {
-        ...uploadOptions,
-      },
-      requestOptions,
-    );
+    return await bee.uploadData(batchId, data, uploadOptions, requestOptions);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     throw new FileError(`Failed to upload file ${resolvedPath}: ${error}`);

@@ -11,7 +11,7 @@ async function uploadBrowser(
   uploadOptions?: RedundantUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<UploadResult> {
-  const result = await bee.uploadData(batchId, browserOptions.file, { ...uploadOptions, act: true }, requestOptions);
+  const result = await bee.uploadData(batchId, browserOptions.file, uploadOptions, requestOptions);
 
   if (result.tagUid !== undefined) {
     browserOptions.onUploadProgress?.(result.tagUid);

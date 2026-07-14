@@ -1001,7 +1001,9 @@ describe('FileManager', () => {
       const fm = await createInitializedFileManager();
       const ghost = createMockDriveInfo({ id: '9'.repeat(64), name: 'ghost', isAdmin: false });
 
-      await expect(fm.forgetDrive(ghost)).rejects.toThrow(new DriveError(`Drive ${ghost.name} not found`));
+      await expect(fm.forgetDrive(ghost)).rejects.toThrow(
+        new DriveError(`Drive ${ghost.name} with id ${ghost.id} not found`),
+      );
     });
   });
 
@@ -1198,7 +1200,7 @@ describe('FileManager', () => {
       const fm = await createInitializedFileManager();
       const fileInfo = await createMockFileInfo(owner, actPublisher);
 
-      await expect(fm.getGrantees(fileInfo)).rejects.toThrow(`Drive not found for file: ${fileInfo.path}`);
+      await expect(fm.getGrantees(fileInfo)).rejects.toThrow(`getGrantees: not yet migrated to mantaray model`);
     });
 
     it('getGrantees throws not-yet-migrated for a known drive', async () => {
@@ -1337,6 +1339,22 @@ describe('FileManager', () => {
       ).resolves.not.toThrow();
     });
 
+    it('throw if listFolder is called on a non-existent drive', async () => {
+      const fm = await createInitializedFileManager();
+      const freshDrive = createMockDriveInfo();
+
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      const { loadMantaray, getAllNodeEntries } = require('@/utils/mantaray');
+      loadMantaray.mockResolvedValue(new MantarayNode());
+      getAllNodeEntries.mockReturnValue([]);
+
+      const controller = new AbortController();
+
+      await expect(
+        fm.listFolder(freshDrive, '', ListDepth.Shallow, undefined, { signal: controller.signal }),
+      ).rejects.toThrow(DriveError);
+    });
+
     it('forwards the abort signal to getNodeManifest downloads in listFolder', async () => {
       const fm = await createInitializedFileManager();
       const freshDrive = createMockDriveInfo();
@@ -1345,6 +1363,7 @@ describe('FileManager', () => {
       const { loadMantaray, getAllNodeEntries } = require('@/utils/mantaray');
       loadMantaray.mockResolvedValue(new MantarayNode());
       getAllNodeEntries.mockReturnValue([]);
+      (fm as any).driveList.push(freshDrive);
 
       const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
       const controller = new AbortController();

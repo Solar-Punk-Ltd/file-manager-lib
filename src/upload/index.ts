@@ -45,7 +45,7 @@ const processOptions = (
   uploadOptions: RedundantUploadOptions | FileUploadOptions | undefined,
   redundancyLevel: RedundancyLevel,
 ): ProcessedOptions => {
-  const processedOptions = { ...uploadOptions, redundancyLevel };
+  const processedOptions = { ...uploadOptions, act: true, redundancyLevel };
 
   const options = isNode ? (fileOptions as NodeUploadOptions) : (fileOptions as BrowserUploadOptions);
 

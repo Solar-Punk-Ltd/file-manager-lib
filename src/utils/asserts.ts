@@ -12,7 +12,7 @@ import {
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
 } from './constants';
-import { DriveError } from './errors';
+import { DriveError, SignerError } from './errors';
 
 export function isRecord(value: unknown): value is Record<string, string> {
   return Types.isStrictlyObject(value) && Object.values(value).every((v) => typeof v === 'string');
@@ -138,4 +138,32 @@ export function assertStateTopicInfo(value: unknown): asserts value is StateTopi
 
   new Reference(sti.topicReference);
   new Reference(sti.historyAddress);
+}
+
+interface FMReadyState {
+  publisher: string;
+  isInitialized: boolean;
+  stateFeedTopic: string;
+}
+
+export function assertReady(
+  publisher: PublicKey | undefined,
+  isInitialized: boolean | undefined,
+  stateFeedTopic: Topic | undefined,
+): FMReadyState {
+  if (!isInitialized) {
+    throw new DriveError('FileManager is not initialized');
+  }
+  if (!stateFeedTopic) {
+    throw new DriveError('FileManager state feed topic not found.');
+  }
+  if (!publisher) {
+    throw new SignerError('Publisher not found');
+  }
+
+  return {
+    publisher: publisher.toCompressedHex(),
+    isInitialized,
+    stateFeedTopic: stateFeedTopic.toString(),
+  };
 }
