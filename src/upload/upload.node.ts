@@ -12,7 +12,7 @@ async function uploadNode(
   uploadOptions?: FileUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<UploadResult> {
-  const result = await uploadFile(bee, batchId, nodeOptions.path, uploadOptions, requestOptions);
+  const result = await uploadFile(bee, batchId, nodeOptions.sourcePath, uploadOptions, requestOptions);
 
   if (result.tagUid !== undefined) {
     nodeOptions.onUploadProgress?.(result.tagUid);
@@ -53,8 +53,8 @@ export async function processUploadNode(
   uploadOptions?: FileUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<ActReferences> {
-  if (!nodeOptions.path) {
-    throw new FileError('File path is required.');
+  if (!nodeOptions.sourcePath) {
+    throw new FileError('File source path is required.');
   }
 
   const uploadResult = await uploadNode(bee, driveInfo.batchId, nodeOptions, uploadOptions, requestOptions);

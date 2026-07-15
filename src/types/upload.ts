@@ -6,21 +6,25 @@ export interface BrowserUploadOptions {
 }
 
 export interface NodeUploadOptions {
-  path: string;
+  /** Filesystem path to read the bytes from — the upload source. Distinct from `path`, which is
+   *  the manifest placement (where the file lands in the drive tree). */
+  sourcePath: string;
   onUploadProgress?: (tagUid: number) => void;
 }
 
-type PartialFileInfoUploadOptions = Omit<
+// The bytes source, discriminated by environment: `file` (browser) or `sourcePath` (node).
+export type UploadSource = BrowserUploadOptions | NodeUploadOptions;
+
+type UploadMetadata = Omit<
   FileRecord,
   'owner' | 'actPublisher' | 'content' | 'topic' | 'driveId' | 'batchId' | 'redundancyLevel' | 'status'
 >;
 
-export type FileInfoOptions = PartialFileInfoUploadOptions & (BrowserUploadOptions | NodeUploadOptions);
+export type UploadItem = UploadMetadata & UploadSource;
 
-export interface UploadFilesEntry {
-  relativePath: string;
-  /** Browser: the File object. Node: absolute filesystem path. */
-  source: File | string;
+export interface UpdateItem {
+  item?: Omit<UploadMetadata, 'path'> & UploadSource;
+  customMetadata?: Record<string, string>;
 }
 
 export interface UploadFilesResult {

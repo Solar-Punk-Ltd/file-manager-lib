@@ -159,20 +159,22 @@ describe('FileManager initialization', () => {
       expect(drive).toBeDefined();
 
       const result = await fileManager.uploadFiles(
-        drive,
+        drive.id,
         [
-          { relativePath: 'root.txt', source: rootFile },
-          { relativePath: 'docs/note.txt', source: nestedFile },
+          { path: 'root.txt', sourcePath: rootFile },
+          { path: 'docs/note.txt', sourcePath: nestedFile },
         ],
         '',
       );
       expect(result.failed).toHaveLength(0);
 
-      const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(drive, '', ListDepth.Shallow));
+      const rootEntries = await retryOnPropagationDelay(() =>
+        fileManager.listFolder(new Identifier(drive.id), '', ListDepth.Shallow),
+      );
       expect(rootEntries.some((e) => e.type === NodeType.File && e.path === 'root.txt')).toBe(true);
       expect(rootEntries.some((e) => e.type === NodeType.Folder && e.path.endsWith('docs'))).toBe(true);
 
-      const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(drive));
+      const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(drive.id));
       const downloadedRoot = downloadResults.find((d) => d.path === 'root.txt');
       const downloadedNested = downloadResults.find((d) => d.path === 'docs/note.txt');
       expect(downloadedRoot).toBeDefined();
@@ -443,53 +445,18 @@ describe('FileManager drive handling', () => {
   });
 
   it('should throw an error when trying to destroy the admin drive/ stamp', async () => {
-    await expect(
-      fileManager.destroyDrive(
-        {
-          actPublisher: signer.publicKey().toCompressedHex(),
-          batchId: ownerBatch.batchID.toString(),
-          id: 'mockID',
-          topic: 'mockDriveFeedTopic',
-          name: 'Admin Drive',
-          owner: signer.publicKey().address().toString(),
-          redundancyLevel: RedundancyLevel.OFF,
-          isAdmin: false,
-        },
-        ownerBatch,
-      ),
-    ).rejects.toThrow(new DriveError(`Cannot destroy admin drive / stamp, batchId: ${ownerBatch.batchID.toString()}`));
+    await expect(fileManager.destroyDrive(Identifier.fromString('mockID'))).rejects.toThrow(
+      new DriveError(`Cannot destroy admin drive / stamp, batchId: ${ownerBatch.batchID.toString().slice(0, 6)}`),
+    );
 
-    await expect(
-      fileManager.destroyDrive(
-        {
-          actPublisher: signer.publicKey().toCompressedHex(),
-          batchId: new BatchId('6789'.repeat(16)).toString(),
-          id: 'mockID',
-          topic: 'mockDriveFeedTopic',
-          name: 'Admin Drive',
-          owner: signer.publicKey().address().toString(),
-          redundancyLevel: RedundancyLevel.OFF,
-          isAdmin: true,
-        },
-        ownerBatch,
-      ),
-    ).rejects.toThrow(new StampError(`Stamp does not match drive stamp`));
+    const otherBatchId = new BatchId('6789'.repeat(16)).toString();
+    await expect(fileManager.destroyDrive(Identifier.fromString('mockID'))).rejects.toThrow(
+      new DriveError(`Cannot destroy admin drive / stamp, batchId: ${otherBatchId.slice(0, 6)}`),
+    );
 
-    await expect(
-      fileManager.destroyDrive(
-        {
-          actPublisher: signer.publicKey().toCompressedHex(),
-          batchId: ownerBatch.batchID.toString(),
-          id: 'mockID',
-          topic: 'mockDriveFeedTopic',
-          name: 'Admin Drive',
-          owner: signer.publicKey().address().toString(),
-          redundancyLevel: RedundancyLevel.OFF,
-          isAdmin: true,
-        },
-        ownerBatch,
-      ),
-    ).rejects.toThrow(new DriveError(`Cannot destroy admin drive / stamp, batchId: ${ownerBatch.batchID.toString()}`));
+    await expect(fileManager.destroyDrive(Identifier.fromString('mockID'))).rejects.toThrow(
+      new DriveError(`Cannot destroy admin drive / stamp, batchId: ${ownerBatch.batchID.toString().slice(0, 6)}`),
+    );
   });
 
   it('should forget a user drive: removes the drive, prunes its files, and persists the change', async () => {
@@ -531,7 +498,7 @@ describe('FileManager drive handling', () => {
       };
       fileManager.emitter.on(FileManagerEvents.DRIVE_FORGOTTEN, handler);
     });
-    await fileManager.forgetDrive(created!);
+    await fileManager.forgetDrive(new Identifier(created!.id));
     await eventPromise;
     const afterForgetDrives = fileManager.driveList;
     expect(afterForgetDrives).toHaveLength(initialDriveCount - 1);
@@ -547,21 +514,17 @@ describe('FileManager drive handling', () => {
   it('should throw when trying to forget the admin drive', async () => {
     const adminDrive = fileManager.driveList.find((d) => d.isAdmin);
     expect(adminDrive).toBeDefined();
-    await expect(fileManager.forgetDrive(adminDrive!)).rejects.toThrow(new DriveError('Cannot forget admin drive'));
+    await expect(fileManager.forgetDrive(new Identifier(adminDrive!.id))).rejects.toThrow(
+      new DriveError('Cannot forget admin drive'),
+    );
   });
 
   it('should throw when trying to forget a non-existent drive', async () => {
     const idBytes = new Uint8Array(Identifier.LENGTH);
     idBytes.fill(1);
-    const ghost: any = {
-      id: new Identifier(idBytes).toString(),
-      name: 'ghost',
-      batchId: new BatchId('abcd'.repeat(16)).toString(),
-      owner: signer.publicKey().address().toString(),
-      redundancyLevel: RedundancyLevel.OFF,
-      isAdmin: false,
-    };
-    await expect(fileManager.forgetDrive(ghost)).rejects.toThrow(new DriveError('Drive ghost not found'));
+    await expect(fileManager.forgetDrive(new Identifier(idBytes))).rejects.toThrow(
+      new DriveError(`Drive ghost with id ${new Identifier(idBytes).toString()} not found`),
+    );
   });
 });
 
@@ -601,25 +564,25 @@ describe('FileManager listFolder', () => {
     const fileB = writeTempFile('it-listfolder-b.txt', 'B content');
 
     const result = await fileManager.uploadFiles(
-      drive,
+      new Identifier(drive.id),
       [
-        { relativePath: 'gallery/a.txt', source: fileA },
-        { relativePath: 'gallery/b.txt', source: fileB },
+        { path: 'gallery/a.txt', sourcePath: fileA },
+        { path: 'gallery/b.txt', sourcePath: fileB },
       ],
       '',
     );
     expect(result.failed).toHaveLength(0);
 
-    const entries = await retryOnPropagationDelay(() => fileManager.listFolder(drive, 'gallery', ListDepth.Shallow));
+    const entries = await retryOnPropagationDelay(() => fileManager.listFolder(drive.id, 'gallery', ListDepth.Shallow));
     const fileEntries = entries.filter((e) => e.type === NodeType.File);
     expect(fileEntries.map((e) => e.path).sort()).toEqual(['gallery/a.txt', 'gallery/b.txt']);
   });
 
   it('returns an empty array for an empty folder', async () => {
-    await fileManager.createFolder(drive, ROOT_PATH, 'empty-folder');
+    await fileManager.createFolder(drive.id, ROOT_PATH, 'empty-folder');
 
     const entries = await retryOnPropagationDelay(() =>
-      fileManager.listFolder(drive, 'empty-folder', ListDepth.Shallow),
+      fileManager.listFolder(drive.id, 'empty-folder', ListDepth.Shallow),
     );
     expect(entries).toEqual([]);
   });
@@ -629,32 +592,54 @@ describe('FileManager listFolder', () => {
     const fileB = writeTempFile('it-listfolder-deep-b.txt', 'Deep B content');
 
     const result = await fileManager.uploadFiles(
-      drive,
+      drive.id,
       [
-        { relativePath: 'level1/level2/a.txt', source: fileA },
-        { relativePath: 'level1/level2/level3/b.txt', source: fileB },
+        { path: 'level1/level2/a.txt', sourcePath: fileA },
+        { path: 'level1/level2/level3/b.txt', sourcePath: fileB },
       ],
       '',
     );
     expect(result.failed).toHaveLength(0);
 
-    const entries = await retryOnPropagationDelay(() => fileManager.listFolder(drive, 'level1', ListDepth.Deep));
+    const entries = await retryOnPropagationDelay(() => fileManager.listFolder(drive.id, 'level1', ListDepth.Deep));
     const fileEntries = entries.filter((e) => e.type === NodeType.File);
     expect(fileEntries.map((e) => e.path).sort()).toEqual(['level1/level2/a.txt', 'level1/level2/level3/b.txt']);
   });
 
-  it('rejects an entry with an empty relativePath and leaves the folder listing unaffected', async () => {
+  it('composes destinationPath with a relative item path — placement differs from destination and source', async () => {
+    const srcFile = writeTempFile('it-listfolder-dest-src.txt', 'destination compose content');
+
+    await fileManager.createFolder(drive.id, '', 'inbox');
+
+    // destinationPath ('inbox') + relative item path ('reports/q1.txt') → placed at
+    // 'inbox/reports/q1.txt', which equals neither the destination nor the on-disk source name.
+    const result = await fileManager.uploadFiles(drive.id, [{ path: 'reports/q1.txt', sourcePath: srcFile }], 'inbox');
+    expect(result.failed).toHaveLength(0);
+
+    const entries = await retryOnPropagationDelay(() => fileManager.listFolder(drive.id, 'inbox', ListDepth.Deep));
+    const filePaths = entries.filter((e) => e.type === NodeType.File).map((e) => e.path);
+    expect(filePaths).toContain('inbox/reports/q1.txt');
+    expect(filePaths).not.toContain('reports/q1.txt');
+    expect(filePaths).not.toContain('it-listfolder-dest-src.txt');
+
+    const downloads = await retryOnPropagationDelay(() => fileManager.downloadFolder(drive.id));
+    const got = downloads.find((d) => d.path === 'inbox/reports/q1.txt');
+    expect(got).toBeDefined();
+    expect(Buffer.from(await streamToUint8Array(got!.result)).toString('utf-8')).toBe('destination compose content');
+  });
+
+  it('rejects an entry with an empty path and leaves the folder listing unaffected', async () => {
     const fileGood = writeTempFile('it-listfolder-guard-good.txt', 'Good content');
     const fileBad = writeTempFile('it-listfolder-guard-bad.txt', 'Should not upload');
 
-    const seed = await fileManager.uploadFiles(drive, [{ relativePath: 'guarded/good.txt', source: fileGood }], '');
+    const seed = await fileManager.uploadFiles(drive.id, [{ path: 'guarded/good.txt', sourcePath: fileGood }], '');
     expect(seed.failed).toHaveLength(0);
 
-    await expect(fileManager.uploadFiles(drive, [{ relativePath: '', source: fileBad }], 'guarded')).rejects.toThrow(
-      /Invalid relativePath/,
+    await expect(fileManager.uploadFiles(drive.id, [{ path: '', sourcePath: fileBad }], 'guarded')).rejects.toThrow(
+      /Invalid path/,
     );
 
-    const entries = await retryOnPropagationDelay(() => fileManager.listFolder(drive, 'guarded', ListDepth.Shallow));
+    const entries = await retryOnPropagationDelay(() => fileManager.listFolder(drive.id, 'guarded', ListDepth.Shallow));
     const fileEntries = entries.filter((e) => e.type === NodeType.File);
     expect(fileEntries.map((e) => e.path)).toEqual(['guarded/good.txt']);
   });
@@ -687,7 +672,7 @@ describe('FileManager uploadFile', () => {
     const name = 'it-upload-new.txt';
     fs.writeFileSync(name, 'New Content');
     try {
-      await fileManager.uploadFile(drive, { path: name });
+      await fileManager.uploadFile(drive.id, { path: name, sourcePath: name });
       const info = fileManager.fileInfoList.find((fi) => fi.path === name);
       expect(info).toBeDefined();
       expect(info!.version).toEqual(FEED_INDEX_ZERO.toString());
@@ -700,18 +685,18 @@ describe('FileManager uploadFile', () => {
     const name = 'it-upload-versions.txt';
     fs.writeFileSync(name, 'v0');
     try {
-      await fileManager.uploadFile(drive, { path: name });
+      await fileManager.uploadFile(drive.id, { path: name, sourcePath: name });
       const firstInfo = fileManager.fileInfoList.find((fi) => fi.path === name)!;
       expect(firstInfo).toBeDefined();
 
       fs.writeFileSync(name, 'v1');
-      await fileManager.updateFile(drive, firstInfo, { source: name });
+      await fileManager.updateFile(drive.id, firstInfo, { item: { sourcePath: name } });
       const secondInfo = fileManager.fileInfoList.find((fi) => fi.topic.toString() === firstInfo.topic.toString())!;
       expect(secondInfo.topic.toString()).toEqual(firstInfo.topic.toString());
       expect(secondInfo.version).toEqual(new FeedIndex(firstInfo.version!).next().toString());
 
       fs.writeFileSync(name, 'v2');
-      await fileManager.updateFile(drive, secondInfo, { source: name });
+      await fileManager.updateFile(drive.id, secondInfo, { item: { sourcePath: name } });
       const thirdInfo = fileManager.fileInfoList.find((fi) => fi.topic.toString() === firstInfo.topic.toString())!;
       expect(thirdInfo.version).toEqual(new FeedIndex(secondInfo.version!).next().toString());
     } finally {
@@ -723,16 +708,16 @@ describe('FileManager uploadFile', () => {
     const name = 'it-upload-metadata.txt';
     fs.writeFileSync(name, 'Metadata Content');
     try {
-      await fileManager.uploadFile(drive, { path: name });
+      await fileManager.uploadFile(drive.id, { path: name, sourcePath: name });
       const firstInfo = fileManager.fileInfoList.find((fi) => fi.path === name)!;
       expect(firstInfo).toBeDefined();
 
-      await fileManager.updateFile(drive, firstInfo, { customMetadata: { tag: 'v1' } });
+      await fileManager.updateFile(drive.id, firstInfo, { customMetadata: { tag: 'v1' } });
       const secondInfo = fileManager.fileInfoList.find((fi) => fi.topic.toString() === firstInfo.topic.toString())!;
       expect(secondInfo.content).toEqual(firstInfo.content);
       expect(secondInfo.customMetadata).toMatchObject({ tag: 'v1' });
 
-      await fileManager.updateFile(drive, secondInfo, { customMetadata: { tag: 'v2' } });
+      await fileManager.updateFile(drive.id, secondInfo, { customMetadata: { tag: 'v2' } });
       const thirdInfo = fileManager.fileInfoList.find((fi) => fi.topic.toString() === firstInfo.topic.toString())!;
       expect(thirdInfo.content).toEqual(firstInfo.content);
       expect(thirdInfo.customMetadata).toMatchObject({ tag: 'v2' });
@@ -744,8 +729,9 @@ describe('FileManager uploadFile', () => {
   it('should upload a single file and update the file info list', async () => {
     const tempFile = 'it-upload-single-file.txt';
     fs.writeFileSync(tempFile, 'Single File Content');
-    await fileManager.uploadFile(drive, {
+    await fileManager.uploadFile(drive.id, {
       path: tempFile,
+      sourcePath: tempFile,
     });
     const fileInfoList = fileManager.fileInfoList;
     const uploadedInfo = fileInfoList.find((fi) => fi.path === tempFile);
@@ -757,11 +743,11 @@ describe('FileManager uploadFile', () => {
     const name = 'it-upload-bump.txt';
     fs.writeFileSync(name, 'Bump Content');
     try {
-      await fileManager.uploadFile(drive, { path: name });
+      await fileManager.uploadFile(drive.id, { path: name, sourcePath: name });
       const original = fileManager.fileInfoList.find((fi) => fi.path === name)!;
       expect(original).toBeDefined();
 
-      await fileManager.updateFile(drive, original, { source: name });
+      await fileManager.updateFile(drive.id, original, { item: { sourcePath: name } });
 
       const entries = fileManager.fileInfoList.filter((fi) => fi.topic.toString() === original.topic.toString());
       expect(entries).toHaveLength(1);
@@ -777,7 +763,7 @@ describe('FileManager uploadFile', () => {
     fs.writeFileSync(path.join(dirPath, 'inner.txt'), 'Inner Content');
 
     try {
-      await expect(fileManager.uploadFile(drive, { path: dirPath })).rejects.toThrow(
+      await expect(fileManager.uploadFile(drive.id, { path: dirPath, sourcePath: dirPath })).rejects.toThrow(
         'Cannot upload a directory - use uploadFiles',
       );
       expect(fileManager.fileInfoList.some((fi) => fi.path === dirPath)).toBe(false);
@@ -792,10 +778,10 @@ describe('FileManager uploadFile', () => {
     fs.writeFileSync(name, 'Src Content');
     fs.mkdirSync(dirPath, { recursive: true });
     try {
-      await fileManager.uploadFile(drive, { path: name });
+      await fileManager.uploadFile(drive.id, { path: name, sourcePath: name });
       const info = fileManager.fileInfoList.find((fi) => fi.path === name)!;
 
-      await expect(fileManager.updateFile(drive, info, { source: dirPath })).rejects.toThrow(
+      await expect(fileManager.updateFile(drive.id, info, { item: { sourcePath: dirPath } })).rejects.toThrow(
         'Cannot upload a directory - use uploadFiles',
       );
     } finally {
@@ -842,11 +828,11 @@ describe('FileManager uploadFiles', () => {
     const fileC = writeTempFile('it-uploadmany-c.txt', 'Content C');
 
     const result = await fileManager.uploadFiles(
-      drive,
+      drive.id,
       [
-        { relativePath: 'a.txt', source: fileA },
-        { relativePath: 'b.txt', source: fileB },
-        { relativePath: 'c.txt', source: fileC },
+        { path: 'a.txt', sourcePath: fileA },
+        { path: 'b.txt', sourcePath: fileB },
+        { path: 'c.txt', sourcePath: fileC },
       ],
       '',
     );
@@ -854,7 +840,7 @@ describe('FileManager uploadFiles', () => {
     expect(result.succeeded).toHaveLength(3);
     expect(result.failed).toHaveLength(0);
 
-    const entries = await retryOnPropagationDelay(() => fileManager.listFolder(drive, '', ListDepth.Shallow));
+    const entries = await retryOnPropagationDelay(() => fileManager.listFolder(drive.id, '', ListDepth.Shallow));
     const fileEntries = entries.filter((e) => e.type === NodeType.File);
     expect(fileEntries.map((e) => e.path).sort()).toEqual(['a.txt', 'b.txt', 'c.txt']);
 
@@ -880,11 +866,11 @@ describe('FileManager uploadFiles', () => {
 
     try {
       const result = await fileManager.uploadFiles(
-        drive,
+        drive.id,
         [
-          { relativePath: 'docs/report.pdf', source: reportFile },
-          { relativePath: 'docs/img/logo.png', source: logoFile },
-          { relativePath: 'readme.md', source: readmeFile },
+          { path: 'docs/report.pdf', sourcePath: reportFile },
+          { path: 'docs/img/logo.png', sourcePath: logoFile },
+          { path: 'readme.md', sourcePath: readmeFile },
         ],
         '',
       );
@@ -894,16 +880,18 @@ describe('FileManager uploadFiles', () => {
       expect(folderCreatedEvents).toHaveLength(2);
       expect(filesUploadedEvents).toHaveLength(1);
 
-      const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(drive, '', ListDepth.Shallow));
+      const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(drive.id, '', ListDepth.Shallow));
       expect(rootEntries.some((e) => e.type === NodeType.File && e.path === 'readme.md')).toBe(true);
       expect(rootEntries.some((e) => e.type === NodeType.Folder && e.path.endsWith('docs'))).toBe(true);
 
-      const docsEntries = await retryOnPropagationDelay(() => fileManager.listFolder(drive, 'docs', ListDepth.Shallow));
+      const docsEntries = await retryOnPropagationDelay(() =>
+        fileManager.listFolder(drive.id, 'docs', ListDepth.Shallow),
+      );
       expect(docsEntries.some((e) => e.type === NodeType.File && e.path === 'docs/report.pdf')).toBe(true);
       expect(docsEntries.some((e) => e.type === NodeType.Folder && e.path.endsWith('img'))).toBe(true);
 
       const imgEntries = await retryOnPropagationDelay(() =>
-        fileManager.listFolder(drive, 'docs/img', ListDepth.Shallow),
+        fileManager.listFolder(drive.id, 'docs/img', ListDepth.Shallow),
       );
       expect(imgEntries.some((e) => e.type === NodeType.File && e.path === 'docs/img/logo.png')).toBe(true);
     } finally {
@@ -913,26 +901,26 @@ describe('FileManager uploadFiles', () => {
   });
 
   it('uploads into an existing folder without duplicating it', async () => {
-    await fileManager.createFolder(drive, ROOT_PATH, 'existing');
+    await fileManager.createFolder(drive.id, ROOT_PATH, 'existing');
     const xFile = writeTempFile('it-uploadmany-x.txt', 'x content');
 
-    const result = await fileManager.uploadFiles(drive, [{ relativePath: 'sub/x.txt', source: xFile }], 'existing');
+    const result = await fileManager.uploadFiles(drive.id, [{ path: 'sub/x.txt', sourcePath: xFile }], 'existing');
 
     expect(result.failed).toHaveLength(0);
     expect(result.succeeded).toHaveLength(1);
 
     const existingEntries = await retryOnPropagationDelay(() =>
-      fileManager.listFolder(drive, 'existing', ListDepth.Shallow),
+      fileManager.listFolder(drive.id, 'existing', ListDepth.Shallow),
     );
     const subFolders = existingEntries.filter((e) => e.type === NodeType.Folder && e.path.endsWith('sub'));
     expect(subFolders).toHaveLength(1);
 
     const subEntries = await retryOnPropagationDelay(() =>
-      fileManager.listFolder(drive, 'existing/sub', ListDepth.Shallow),
+      fileManager.listFolder(drive.id, 'existing/sub', ListDepth.Shallow),
     );
     expect(subEntries.some((e) => e.type === NodeType.File && e.path === 'existing/sub/x.txt')).toBe(true);
 
-    const rootEntries = await fileManager.listFolder(drive, '', ListDepth.Shallow);
+    const rootEntries = await fileManager.listFolder(drive.id, '', ListDepth.Shallow);
     expect(rootEntries.filter((e) => e.type === NodeType.Folder && e.path.endsWith('existing'))).toHaveLength(1);
   });
 
@@ -943,10 +931,10 @@ describe('FileManager uploadFiles', () => {
     const fileB = writeTempFile('it-uploadmany-roundtrip-b.txt', contentB);
 
     const result = await fileManager.uploadFiles(
-      drive,
+      drive.id,
       [
-        { relativePath: 'roundtrip-a.txt', source: fileA },
-        { relativePath: 'roundtrip-b.txt', source: fileB },
+        { path: 'roundtrip-a.txt', sourcePath: fileA },
+        { path: 'roundtrip-b.txt', sourcePath: fileB },
       ],
       '',
     );
@@ -973,28 +961,28 @@ describe('FileManager uploadFiles', () => {
   it('fails fast without writing anything when a needed folder path is blocked by an existing file', async () => {
     const blockerPath = 'it-uploadmany-blocker';
     writeTempFile(blockerPath, 'blocker content');
-    await fileManager.uploadFile(drive, { path: blockerPath });
+    await fileManager.uploadFile(drive.id, { path: blockerPath, sourcePath: blockerPath });
 
     const innerFile = writeTempFile('it-uploadmany-inner-src.txt', 'inner content');
 
     await expect(
-      fileManager.uploadFiles(drive, [{ relativePath: `${blockerPath}/inner.txt`, source: innerFile }], ''),
+      fileManager.uploadFiles(drive.id, [{ path: `${blockerPath}/inner.txt`, sourcePath: innerFile }], ''),
     ).rejects.toThrow(/not a folder/i);
 
-    const rootEntries = await fileManager.listFolder(drive, '', ListDepth.Shallow);
+    const rootEntries = await fileManager.listFolder(drive.id, '', ListDepth.Shallow);
     expect(rootEntries.some((e) => e.path === 'inner.txt')).toBe(false);
     expect(rootEntries.some((e) => e.type === NodeType.Folder && e.path.endsWith(blockerPath))).toBe(false);
     expect(fileManager.fileInfoList.some((fi) => fi.path.includes('inner.txt'))).toBe(false);
   });
 
-  it('rejects invalid relativePath and empty entries before doing any work', async () => {
+  it('rejects invalid path and empty entries before doing any work', async () => {
     const srcFile = writeTempFile('it-uploadmany-validation-src.txt', 'validation content');
 
     await expect(
-      fileManager.uploadFiles(drive, [{ relativePath: '../escape.txt', source: srcFile }], ''),
-    ).rejects.toThrow(/Invalid relativePath/);
+      fileManager.uploadFiles(drive.id, [{ path: '../escape.txt', sourcePath: srcFile }], ''),
+    ).rejects.toThrow(/Invalid path/);
 
-    await expect(fileManager.uploadFiles(drive, [], '')).rejects.toThrow(/at least one entry/i);
+    await expect(fileManager.uploadFiles(drive.id, [], '')).rejects.toThrow(/at least one entry/i);
   });
 });
 
@@ -1037,16 +1025,16 @@ describe('FileManager move', () => {
 
   it('renames a file within the drive root, preserving content and bumping the version', async () => {
     const fileA = writeTempFile('it-move-a.txt', 'Move Content A');
-    await fileManager.uploadFile(driveA, { path: fileA });
+    await fileManager.uploadFile(driveA.id, { path: fileA, sourcePath: fileA });
 
     const before = fileManager.fileInfoList.find((fi) => fi.path === fileA)!;
     expect(before).toBeDefined();
     const beforeVersion = BigInt((before.version ?? '0').toString());
     const topic = before.topic.toString();
 
-    await fileManager.move(fileA, 'it-move-b.txt', driveA);
+    await fileManager.move(fileA, 'it-move-b.txt', driveA.id);
 
-    const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA, '', ListDepth.Shallow));
+    const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA.id, '', ListDepth.Shallow));
     expect(rootEntries.some((e) => e.path === fileA)).toBe(false);
     expect(rootEntries.some((e) => e.type === NodeType.File && e.path === 'it-move-b.txt')).toBe(true);
 
@@ -1055,7 +1043,7 @@ describe('FileManager move', () => {
     expect(moved.path).toBe('it-move-b.txt');
     expect(BigInt(moved.version!.toString())).toBe(beforeVersion + 1n);
 
-    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveA));
+    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveA.id));
     const downloaded = downloadResults.find((d) => d.path === 'it-move-b.txt');
     expect(downloaded).toBeDefined();
     expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Move Content A');
@@ -1063,20 +1051,20 @@ describe('FileManager move', () => {
 
   it('moves a root file into a newly created folder', async () => {
     const docFile = writeTempFile('it-move-doc.txt', 'Archive Me');
-    await fileManager.uploadFile(driveA, { path: docFile });
-    await fileManager.createFolder(driveA, ROOT_PATH, 'archive');
+    await fileManager.uploadFile(driveA.id, { path: docFile, sourcePath: docFile });
+    await fileManager.createFolder(driveA.id, ROOT_PATH, 'archive');
 
-    await fileManager.move(docFile, 'archive/doc.txt', driveA);
+    await fileManager.move(docFile, 'archive/doc.txt', driveA.id);
 
-    const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA, '', ListDepth.Shallow));
+    const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA.id, '', ListDepth.Shallow));
     expect(rootEntries.some((e) => e.path === docFile)).toBe(false);
 
     const archiveEntries = await retryOnPropagationDelay(() =>
-      fileManager.listFolder(driveA, 'archive', ListDepth.Shallow),
+      fileManager.listFolder(driveA.id, 'archive', ListDepth.Shallow),
     );
     expect(archiveEntries.some((e) => e.type === NodeType.File && e.path === 'archive/doc.txt')).toBe(true);
 
-    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveA, 'archive'));
+    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveA.id, 'archive'));
     const downloaded = downloadResults.find((d) => d.path === 'archive/doc.txt');
     expect(downloaded).toBeDefined();
     expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Archive Me');
@@ -1084,26 +1072,26 @@ describe('FileManager move', () => {
 
   it('moves a nested file back out to the drive root', async () => {
     const folderName = 'it-move-inbox';
-    await fileManager.createFolder(driveA, ROOT_PATH, folderName);
+    await fileManager.createFolder(driveA.id, ROOT_PATH, folderName);
 
     fs.mkdirSync(folderName, { recursive: true });
     cleanupPaths.push(folderName);
     const inboxFilePath = path.join(folderName, 'note.txt');
     fs.writeFileSync(inboxFilePath, 'Inbox Note');
 
-    await fileManager.uploadFile(driveA, { path: inboxFilePath });
+    await fileManager.uploadFile(driveA.id, { path: inboxFilePath, sourcePath: inboxFilePath });
 
-    await fileManager.move(inboxFilePath, 'note.txt', driveA);
+    await fileManager.move(inboxFilePath, 'note.txt', driveA.id);
 
-    const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA, '', ListDepth.Shallow));
+    const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA.id, '', ListDepth.Shallow));
     expect(rootEntries.some((e) => e.type === NodeType.File && e.path === 'note.txt')).toBe(true);
 
     const folderEntries = await retryOnPropagationDelay(() =>
-      fileManager.listFolder(driveA, folderName, ListDepth.Shallow),
+      fileManager.listFolder(driveA.id, folderName, ListDepth.Shallow),
     );
     expect(folderEntries.some((e) => e.path === inboxFilePath)).toBe(false);
 
-    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveA));
+    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveA.id));
     const downloaded = downloadResults.find((d) => d.path === 'note.txt');
     expect(downloaded).toBeDefined();
     expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Inbox Note');
@@ -1112,27 +1100,27 @@ describe('FileManager move', () => {
   it('moves a folder as a unit, composing correct descendant paths at read time', async () => {
     const innerFile = writeTempFile('it-move-src-inner.txt', 'Inner File Content');
     const uploadResult = await fileManager.uploadFiles(
-      driveA,
-      [{ relativePath: 'src/inner.txt', source: innerFile }],
+      driveA.id,
+      [{ path: 'src/inner.txt', sourcePath: innerFile }],
       '',
     );
     expect(uploadResult.failed).toHaveLength(0);
     const originalTopic = uploadResult.succeeded[0].topic.toString();
 
-    await fileManager.createFolder(driveA, ROOT_PATH, 'backup');
+    await fileManager.createFolder(driveA.id, ROOT_PATH, 'backup');
 
-    await fileManager.move('src', 'backup/src', driveA);
+    await fileManager.move('src', 'backup/src', driveA.id);
 
-    const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA, '', ListDepth.Shallow));
+    const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA.id, '', ListDepth.Shallow));
     expect(rootEntries.some((e) => e.type === NodeType.Folder && e.path.replace(/^\//, '') === 'src')).toBe(false);
 
     const backupEntries = await retryOnPropagationDelay(() =>
-      fileManager.listFolder(driveA, 'backup', ListDepth.Shallow),
+      fileManager.listFolder(driveA.id, 'backup', ListDepth.Shallow),
     );
     expect(backupEntries.some((e) => e.type === NodeType.Folder && e.path === 'backup/src')).toBe(true);
 
     const srcEntries = await retryOnPropagationDelay(() =>
-      fileManager.listFolder(driveA, 'backup/src', ListDepth.Shallow),
+      fileManager.listFolder(driveA.id, 'backup/src', ListDepth.Shallow),
     );
     const innerEntry = srcEntries.find((e) => e.type === NodeType.File);
     expect(innerEntry).toBeDefined();
@@ -1147,7 +1135,7 @@ describe('FileManager move', () => {
     // listFolder call was needed to get here.
     expect(movedFi.path).toBe('backup/src/inner.txt');
 
-    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveA, 'backup/src'));
+    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveA.id, 'backup/src'));
     const downloaded = downloadResults.find((d) => d.path === 'backup/src/inner.txt');
     expect(downloaded).toBeDefined();
     expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Inner File Content');
@@ -1155,33 +1143,33 @@ describe('FileManager move', () => {
 
   it('moves a file across drives, updating driveId and remaining downloadable from the target', async () => {
     const xFile = writeTempFile('it-move-x.txt', 'Cross Drive Content');
-    await fileManager.uploadFile(driveA, { path: xFile });
+    await fileManager.uploadFile(driveA.id, { path: xFile, sourcePath: xFile });
 
-    await fileManager.move(xFile, xFile, driveA, driveB);
+    await fileManager.move(xFile, xFile, driveA.id, driveB.id);
 
-    const driveAEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA, '', ListDepth.Shallow));
+    const driveAEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA.id, '', ListDepth.Shallow));
     expect(driveAEntries.some((e) => e.path === xFile)).toBe(false);
 
-    const driveBEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveB, '', ListDepth.Shallow));
+    const driveBEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveB.id, '', ListDepth.Shallow));
     expect(driveBEntries.some((e) => e.type === NodeType.File && e.path === xFile)).toBe(true);
 
     const moved = fileManager.fileInfoList.find((fi) => fi.path === xFile && fi.driveId === driveB.id.toString());
     expect(moved).toBeDefined();
 
-    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveB));
+    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveB.id));
     const downloaded = downloadResults.find((d) => d.path === xFile);
     expect(downloaded).toBeDefined();
     expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Cross Drive Content');
   });
 
   it('rejects invalid move calls', async () => {
-    await expect(fileManager.move('it-move-nonexistent.txt', 'dest.txt', driveA)).rejects.toThrow(/not found/i);
+    await expect(fileManager.move('it-move-nonexistent.txt', 'dest.txt', driveA.id)).rejects.toThrow(/not found/i);
 
     const sameFile = writeTempFile('it-move-same.txt', 'Same Path Content');
-    await fileManager.uploadFile(driveA, { path: sameFile });
-    await expect(fileManager.move(sameFile, sameFile, driveA)).rejects.toThrow(/identical/i);
+    await fileManager.uploadFile(driveA.id, { path: sameFile, sourcePath: sameFile });
+    await expect(fileManager.move(sameFile, sameFile, driveA.id)).rejects.toThrow(/identical/i);
 
-    await expect(fileManager.move(sameFile, 'nosuchfolder/dest.txt', driveA)).rejects.toThrow(/not found/i);
+    await expect(fileManager.move(sameFile, 'nosuchfolder/dest.txt', driveA.id)).rejects.toThrow(/not found/i);
   });
 });
 
@@ -1221,16 +1209,16 @@ describe('FileManager download family', () => {
     const fileB = writeTempFile('it-download-all-b.txt', 'Download All B');
 
     const result = await fileManager.uploadFiles(
-      drive,
+      drive.id,
       [
-        { relativePath: 'all-a.txt', source: fileA },
-        { relativePath: 'all-b.txt', source: fileB },
+        { path: 'all-a.txt', sourcePath: fileA },
+        { path: 'all-b.txt', sourcePath: fileB },
       ],
       '',
     );
     expect(result.failed).toHaveLength(0);
 
-    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(drive));
+    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(drive.id));
     expect(downloadResults.map((d) => d.path).sort()).toEqual(['all-a.txt', 'all-b.txt']);
 
     const downloadedA = downloadResults.find((d) => d.path === 'all-a.txt');
@@ -1244,10 +1232,10 @@ describe('FileManager download family', () => {
     const fileD = writeTempFile('it-download-only-d.txt', 'Download Only D');
 
     const result = await fileManager.uploadFiles(
-      drive,
+      drive.id,
       [
-        { relativePath: 'only-c.txt', source: fileC },
-        { relativePath: 'only-d.txt', source: fileD },
+        { path: 'only-c.txt', sourcePath: fileC },
+        { path: 'only-d.txt', sourcePath: fileD },
       ],
       '',
     );
@@ -1265,7 +1253,7 @@ describe('FileManager download family', () => {
     const emptyDrive = fileManager.driveList.find((d) => d.name === 'download-empty-drive')!;
     expect(emptyDrive).toBeDefined();
 
-    const downloadResults = await fileManager.downloadFolder(emptyDrive);
+    const downloadResults = await fileManager.downloadFolder(emptyDrive.id);
     expect(downloadResults).toEqual([]);
   });
 });
@@ -1274,6 +1262,7 @@ describe('FileManager file operations', () => {
   let bee: Bee;
   let fileManager: FileManagerBase;
   let batchId: BatchId;
+  let otherBatchId: BatchId;
   let testFi: FileRecord;
   let drive: DriveInfo;
   let testFilePath: string;
@@ -1283,6 +1272,7 @@ describe('FileManager file operations', () => {
     const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
     bee = beeDev;
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'fileOpsIntegration');
+    otherBatchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'otherFileOpsIntegration');
     fileManager = await createInitializedFileManager(bee, ownerStamp);
 
     await fileManager.createDrive(batchId, 'fileoperations', false);
@@ -1294,7 +1284,7 @@ describe('FileManager file operations', () => {
     // top-level drive manifest fork name, so it must resolve with zero intermediate segments.
     testFilePath = TEST_NAME;
     fs.writeFileSync(testFilePath, 'file ops content');
-    await fileManager.uploadFile(drive, { path: testFilePath });
+    await fileManager.uploadFile(drive.id, { path: testFilePath, sourcePath: testFilePath });
 
     testFi = fileManager.fileInfoList.find((fi) => fi.path === TEST_NAME)!;
     expect(testFi).toBeDefined();
@@ -1314,7 +1304,9 @@ describe('FileManager file operations', () => {
 
     const fm2 = new FileManagerBase(bee);
     await fm2.initialize();
-    await fm2.listFolder(drive, ROOT_PATH);
+    await fm2.createDrive(otherBatchId, ADMIN_STAMP_LABEL, true);
+    await fm2.createDrive(new BatchId(drive.batchId), drive.name, false);
+    await fm2.listFolder(new Identifier(drive.id), ROOT_PATH);
 
     const fi2 = fm2.fileInfoList.find((fi) => fi.path === TEST_NAME)!;
     expect(fi2.status).toBe(FileStatus.Trashed);
@@ -1334,7 +1326,9 @@ describe('FileManager file operations', () => {
 
     const fm2 = new FileManagerBase(bee);
     await fm2.initialize();
-    await fm2.listFolder(drive, ROOT_PATH);
+    await fm2.createDrive(batchId, ADMIN_STAMP_LABEL, true);
+    await fm2.createDrive(drive.batchId, drive.name, false);
+    await fm2.listFolder(drive.id, ROOT_PATH);
 
     const fi2 = fm2.fileInfoList.find((fi) => fi.path === TEST_NAME)!;
     expect(fi2.status).toBe(FileStatus.Active);
@@ -1342,7 +1336,7 @@ describe('FileManager file operations', () => {
   });
 
   it('should forget (hard-delete) a file', async () => {
-    await fileManager.forget(drive, TEST_NAME);
+    await fileManager.forget(drive.id, TEST_NAME);
     expect(fileManager.fileInfoList.find((fi) => fi.path === TEST_NAME)).toBeUndefined();
 
     const fm2 = new FileManagerBase(bee);
@@ -1352,7 +1346,7 @@ describe('FileManager file operations', () => {
   });
 
   it('should never duplicate FileRecord entries when trashing/recovering', async () => {
-    await fileManager.uploadFile(drive, { path: TEST_NAME });
+    await fileManager.uploadFile(drive.id, { path: TEST_NAME, sourcePath: TEST_NAME });
 
     const freshFi = fileManager.fileInfoList.find((fi) => fi.path === TEST_NAME)!;
     const topic = freshFi.topic.toString();
@@ -1372,22 +1366,21 @@ describe('FileManager file operations', () => {
   });
 
   it('fileInfoList should never gain duplicate topics when trash/restoring', async () => {
-    const fm = new FileManagerBase(bee);
-    await fm.initialize();
-    await fm.listFolder(drive, ROOT_PATH);
+    await fileManager.listFolder(drive.id, ROOT_PATH);
 
-    const fi0 = fm.fileInfoList.find((fi) => fi.path === TEST_NAME)!;
+    const fi0 = fileManager.fileInfoList.find((fi) => fi.path === TEST_NAME)!;
     const topic = fi0.topic.toString();
     const beforeVer = BigInt(fi0.version!.toString());
 
     if (fi0.status !== FileStatus.Trashed) {
-      await fm.trashFile(fi0);
+      await fileManager.trashFile(fi0);
     }
-    await fm.recoverFile(fi0);
+    await fileManager.recoverFile(fi0);
 
     const fm2 = new FileManagerBase(bee);
     await fm2.initialize();
-    await fm2.listFolder(drive, ROOT_PATH);
+    await fm2.createDrive(otherBatchId, ADMIN_STAMP_LABEL, true);
+    await fm2.listFolder(drive.id, ROOT_PATH);
     const fi2 = fm2.fileInfoList.find((fi) => fi.topic.toString() === topic)!;
 
     expect(BigInt(fi2.version!.toString())).toBe(beforeVer + 2n);
@@ -1409,7 +1402,7 @@ describe('FileManager version control', () => {
     if (existing) return existing;
     fs.writeFileSync(name, 'seed');
     try {
-      await fileManager.uploadFile(di, { path: name });
+      await fileManager.uploadFile(di.id, { path: name, sourcePath: name });
     } finally {
       fs.unlinkSync(name);
     }
@@ -1440,14 +1433,14 @@ describe('FileManager version control', () => {
     const name = `parallel-${Date.now()}`;
     try {
       fs.writeFileSync(name, 'v0');
-      await fileManager.uploadFile(drive, { path: name });
+      await fileManager.uploadFile(drive.id, { path: name, sourcePath: name });
       const base = fileManager.fileInfoList.at(-1)!;
 
       let latestVersion = BigInt(base.version!.toString());
 
       for (const i of [1, 2, 3]) {
         fs.writeFileSync(name, `v${i}`);
-        await fileManager.updateFile(drive, base, { source: name });
+        await fileManager.updateFile(drive.id, base, { item: { sourcePath: name } });
 
         latestVersion = BigInt(i);
       }
@@ -1471,11 +1464,11 @@ describe('FileManager version control', () => {
     const NAME = `version-bytes-${Date.now()}`;
     try {
       fs.writeFileSync(NAME, 'Version bytes v0');
-      await fileManager.uploadFile(drive, { path: NAME });
+      await fileManager.uploadFile(drive.id, { path: NAME, sourcePath: NAME });
       const v0Fi = fileManager.fileInfoList.at(-1)!;
 
       fs.writeFileSync(NAME, 'Version bytes v1');
-      await fileManager.updateFile(drive, v0Fi, { source: NAME });
+      await fileManager.updateFile(drive.id, v0Fi, { item: { sourcePath: NAME } });
 
       const v0 = await fileManager.getFileVersion(v0Fi, FEED_INDEX_ZERO);
       const head = await fileManager.getFileVersion(v0Fi);
@@ -1483,22 +1476,12 @@ describe('FileManager version control', () => {
       expect(v0.content.reference).not.toBe(head.content.reference);
 
       const v0Bytes = await retryOnPropagationDelay(async () => {
-        const rawRef = await bee.downloadData(v0.content.reference.toString(), {
-          actHistoryAddress: new Reference(v0.content.historyRef),
-          actPublisher: new PublicKey(v0.actPublisher).toCompressedHex(),
-        });
-        const contentRef = new Reference(rawRef.toUint8Array());
-        return streamToUint8Array(await bee.downloadReadableData(contentRef.toString()));
+        return streamToUint8Array(await bee.downloadReadableData(v0.content.reference));
       });
       expect(Buffer.from(v0Bytes).toString('utf-8')).toBe('Version bytes v0');
 
       const headBytes = await retryOnPropagationDelay(async () => {
-        const rawRef = await bee.downloadData(head.content.reference.toString(), {
-          actHistoryAddress: new Reference(head.content.historyRef),
-          actPublisher: new PublicKey(head.actPublisher).toCompressedHex(),
-        });
-        const contentRef = new Reference(rawRef.toUint8Array());
-        return streamToUint8Array(await bee.downloadReadableData(contentRef.toString()));
+        return streamToUint8Array(await bee.downloadReadableData(head.content.reference));
       });
       expect(Buffer.from(headBytes).toString('utf-8')).toBe('Version bytes v1');
     } finally {
@@ -1530,16 +1513,16 @@ describe('FileManager version control', () => {
     try {
       const content = 'Version 0 content';
       fs.writeFileSync(NAME, content);
-      await fileManager.uploadFile(drive, { path: NAME });
+      await fileManager.uploadFile(drive.id, { path: NAME, sourcePath: NAME });
       const v0Fi = fileManager.fileInfoList.at(-1)!;
 
       fs.writeFileSync(NAME, 'Version 1 content');
-      await fileManager.updateFile(drive, v0Fi, { source: NAME });
+      await fileManager.updateFile(drive.id, v0Fi, { item: { sourcePath: NAME } });
 
       const countAfterV1 = await getFeedData(bee, new Topic(v0Fi.topic), signer.publicKey().address().toString());
       const latestFi = await fileManager.getFileVersion(v0Fi, countAfterV1.feedIndex);
       fs.writeFileSync(NAME, 'Version 2 content');
-      await fileManager.updateFile(drive, latestFi, { source: NAME });
+      await fileManager.updateFile(drive.id, latestFi, { item: { sourcePath: NAME } });
 
       const count = await getFeedData(bee, new Topic(v0Fi.topic), signer.publicKey().address().toString());
       expect(count.feedIndexNext.toBigInt()).toBeGreaterThanOrEqual(3n);
@@ -1561,7 +1544,7 @@ describe('FileManager version control', () => {
       const firstRef = base.content.reference;
 
       fs.writeFileSync(NAME, 'second');
-      await fileManager.updateFile(drive, base, { source: NAME });
+      await fileManager.updateFile(drive.id, base, { item: { sourcePath: NAME } });
 
       await fileManager.restoreFileVersion(base);
 
@@ -1588,7 +1571,7 @@ describe('FileManager version control', () => {
     try {
       const base = await ensureBase(NAME);
       fs.writeFileSync(NAME, 'B');
-      await fileManager.updateFile(drive, base, { source: NAME });
+      await fileManager.updateFile(drive.id, base, { item: { sourcePath: NAME } });
 
       const currentHead = await fileManager.getFileVersion(base, base.version);
 
@@ -1620,16 +1603,16 @@ describe('FileManager version control', () => {
     const NAME = 'restore-move-file.txt';
     try {
       fs.writeFileSync(NAME, 'Restore Move V0 Content');
-      await fileManager.uploadFile(drive, { path: NAME });
+      await fileManager.uploadFile(drive.id, { path: NAME, sourcePath: NAME });
       const base = fileManager.fileInfoList.at(-1)!;
       const topic = base.topic.toString();
 
       fs.writeFileSync(NAME, 'Restore Move V1 Content');
-      await fileManager.updateFile(drive, base, { source: NAME });
+      await fileManager.updateFile(drive.id, base, { item: { sourcePath: NAME } });
 
-      await fileManager.createFolder(drive, ROOT_PATH, 'restore-move-dest');
+      await fileManager.createFolder(drive.id, ROOT_PATH, 'restore-move-dest');
       const destPath = 'restore-move-dest/restore-move-file.txt';
-      await fileManager.move(NAME, destPath, drive);
+      await fileManager.move(NAME, destPath, drive.id);
 
       const v0 = await fileManager.getFileVersion(base, FEED_INDEX_ZERO);
       expect(v0.version).toBe(FEED_INDEX_ZERO.toString());
@@ -1657,7 +1640,7 @@ describe('FileManager version control', () => {
       expect(headAfterRestore.toBigInt()).toBeGreaterThan(headBeforeRestore.toBigInt());
 
       const downloadResults = await retryOnPropagationDelay(() =>
-        fileManager.downloadFolder(drive, 'restore-move-dest'),
+        fileManager.downloadFolder(drive.id, 'restore-move-dest'),
       );
       const downloaded = downloadResults.find((d) => d.path === destPath);
       expect(downloaded).toBeDefined();
@@ -1700,7 +1683,7 @@ describe('FileManager getGranteesOfFile', () => {
       redundancyLevel: RedundancyLevel.OFF,
     };
     await expect(fileManager.getGrantees(fileInfo)).rejects.toThrow(
-      new GranteeError(`Drive not found for file: ${fileInfo.path}`),
+      new GranteeError(`getGrantees: not yet migrated to mantaray model`),
     );
   });
 });
@@ -1741,10 +1724,10 @@ describe('FileManager End-to-End User Workflow', () => {
     const noteFileFlat = writeTempFile('it-e2e-inplace-note-src.txt', 'Note V1');
 
     const initial = await fileManager.uploadFiles(
-      drive,
+      drive.id,
       [
-        { relativePath: 'it-e2e-project/report.txt', source: reportFileFlat },
-        { relativePath: 'it-e2e-project/note.txt', source: noteFileFlat },
+        { path: 'it-e2e-project/report.txt', sourcePath: reportFileFlat },
+        { path: 'it-e2e-project/note.txt', sourcePath: noteFileFlat },
       ],
       '',
     );
@@ -1761,15 +1744,15 @@ describe('FileManager End-to-End User Workflow', () => {
     cleanupPaths.push(projectDir);
     fs.writeFileSync(path.join(projectDir, 'report.txt'), 'Report V2');
 
-    await fileManager.updateFile(drive, reportFi, { source: 'it-e2e-project/report.txt' });
+    await fileManager.updateFile(drive.id, reportFi, { item: { sourcePath: 'it-e2e-project/report.txt' } });
 
     const projectEntries = await retryOnPropagationDelay(() =>
-      fileManager.listFolder(drive, 'it-e2e-project', ListDepth.Shallow),
+      fileManager.listFolder(drive.id, 'it-e2e-project', ListDepth.Shallow),
     );
     expect(projectEntries.filter((e) => e.type === NodeType.File)).toHaveLength(2);
 
     const downloadResults = await retryOnPropagationDelay(async () => {
-      const results = await fileManager.downloadFolder(drive, 'it-e2e-project');
+      const results = await fileManager.downloadFolder(drive.id, 'it-e2e-project');
       if (results.length < 2) {
         throw new Error(`Expected 2 download results, got ${results.length}`);
       }
@@ -1788,24 +1771,26 @@ describe('FileManager End-to-End User Workflow', () => {
     const v1FileB = writeTempFile('it-e2e-newversion-v1-b.txt', 'V1 File B');
 
     const v1Result = await fileManager.uploadFiles(
-      drive,
+      drive.id,
       [
-        { relativePath: 'gallery-v2/a.txt', source: v1FileA },
-        { relativePath: 'gallery-v2/b.txt', source: v1FileB },
+        { path: 'gallery-v2/a.txt', sourcePath: v1FileA },
+        { path: 'gallery-v2/b.txt', sourcePath: v1FileB },
       ],
       '',
     );
     expect(v1Result.failed).toHaveLength(0);
 
     const v2FileC = writeTempFile('it-e2e-newversion-v2-c.txt', 'V2 File C');
-    const v2Result = await fileManager.uploadFiles(drive, [{ relativePath: 'c.txt', source: v2FileC }], 'gallery-v2');
+    const v2Result = await fileManager.uploadFiles(drive.id, [{ path: 'c.txt', sourcePath: v2FileC }], 'gallery-v2');
     expect(v2Result.failed).toHaveLength(0);
 
-    const entries = await retryOnPropagationDelay(() => fileManager.listFolder(drive, 'gallery-v2', ListDepth.Shallow));
+    const entries = await retryOnPropagationDelay(() =>
+      fileManager.listFolder(drive.id, 'gallery-v2', ListDepth.Shallow),
+    );
     const fileEntries = entries.filter((e) => e.type === NodeType.File);
     expect(fileEntries.map((e) => e.path).sort()).toEqual(['gallery-v2/a.txt', 'gallery-v2/b.txt', 'gallery-v2/c.txt']);
 
-    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(drive, 'gallery-v2'));
+    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(drive.id, 'gallery-v2'));
     expect(downloadResults).toHaveLength(3);
     const contents = Object.fromEntries(
       await Promise.all(
@@ -1824,18 +1809,18 @@ describe('FileManager End-to-End User Workflow', () => {
     const asset = writeTempFile('it-e2e-structure-asset.txt', 'Asset');
 
     const result = await fileManager.uploadFiles(
-      drive,
+      drive.id,
       [
-        { relativePath: 'structure/readme.txt', source: readme },
-        { relativePath: 'structure/specs/a.txt', source: specA },
-        { relativePath: 'structure/specs/b.txt', source: specB },
-        { relativePath: 'structure/assets/images/asset.txt', source: asset },
+        { path: 'structure/readme.txt', sourcePath: readme },
+        { path: 'structure/specs/a.txt', sourcePath: specA },
+        { path: 'structure/specs/b.txt', sourcePath: specB },
+        { path: 'structure/assets/images/asset.txt', sourcePath: asset },
       ],
       '',
     );
     expect(result.failed).toHaveLength(0);
 
-    const entries = await retryOnPropagationDelay(() => fileManager.listFolder(drive, 'structure', ListDepth.Deep));
+    const entries = await retryOnPropagationDelay(() => fileManager.listFolder(drive.id, 'structure', ListDepth.Deep));
     const filePaths = entries
       .filter((e) => e.type === NodeType.File)
       .map((e) => e.path)
@@ -1904,9 +1889,14 @@ describe('FileManager AbortController', () => {
       const controller = new AbortController();
       controller.abort(); // Pre-abort
 
-      const uploadPromise = fileManager.uploadFile(drive, { path: preAbortFile }, undefined, {
-        signal: controller.signal,
-      });
+      const uploadPromise = fileManager.uploadFile(
+        drive.id,
+        { path: preAbortFile, sourcePath: preAbortFile },
+        undefined,
+        {
+          signal: controller.signal,
+        },
+      );
 
       await expect(uploadPromise).rejects.toThrow();
 
@@ -1921,9 +1911,14 @@ describe('FileManager AbortController', () => {
       const controller = new AbortController();
 
       // Start upload and abort after a short delay
-      const uploadPromise = fileManager.uploadFile(drive, { path: midAbortFile }, undefined, {
-        signal: controller.signal,
-      });
+      const uploadPromise = fileManager.uploadFile(
+        drive.id,
+        { path: midAbortFile, sourcePath: midAbortFile },
+        undefined,
+        {
+          signal: controller.signal,
+        },
+      );
 
       setTimeout(() => {
         controller.abort();
@@ -1943,7 +1938,7 @@ describe('FileManager AbortController', () => {
       const controller = new AbortController();
 
       // Upload with signal that is NOT aborted
-      await fileManager.uploadFile(drive, { path: successFile }, undefined, {
+      await fileManager.uploadFile(drive.id, { path: successFile, sourcePath: successFile }, undefined, {
         signal: controller.signal,
       });
 
@@ -1959,9 +1954,14 @@ describe('FileManager AbortController', () => {
       controller1.abort(); // Pre-abort first one
 
       // First upload should fail (aborted)
-      const firstUploadPromise = fileManager.uploadFile(drive, { path: multi1File }, undefined, {
-        signal: controller1.signal,
-      });
+      const firstUploadPromise = fileManager.uploadFile(
+        drive.id,
+        { path: multi1File, sourcePath: multi1File },
+        undefined,
+        {
+          signal: controller1.signal,
+        },
+      );
 
       await expect(firstUploadPromise).rejects.toThrow();
 
@@ -1972,7 +1972,7 @@ describe('FileManager AbortController', () => {
       }
 
       // Second upload should succeed (not aborted)
-      await fileManager.uploadFile(drive, { path: multi2File }, undefined, {
+      await fileManager.uploadFile(drive.id, { path: multi2File, sourcePath: multi2File }, undefined, {
         signal: controller2.signal,
       });
 
@@ -1989,7 +1989,7 @@ describe('FileManager AbortController', () => {
     beforeAll(async () => {
       // Upload a 1MB file to download later (large enough for reliable abort timing)
       fs.writeFileSync(downloadTestFile, Buffer.alloc(1 * 1024 * 1024, 'x'));
-      await fileManager.uploadFile(drive, { path: downloadTestFile });
+      await fileManager.uploadFile(drive.id, { path: downloadTestFile, sourcePath: downloadTestFile });
       const fileInfo = fileManager.fileInfoList.find((fi) => fi.path === downloadTestFile);
       expect(fileInfo).toBeDefined();
       uploadedFileInfo = fileInfo!;
@@ -2091,11 +2091,11 @@ describe('FileManager AbortController', () => {
     let folderInfo: FolderInfo;
 
     beforeAll(async () => {
-      folderInfo = await fileManager.createFolder(drive, ROOT_PATH, folderName);
+      folderInfo = await fileManager.createFolder(drive.id, ROOT_PATH, folderName);
 
       fs.mkdirSync(folderName, { recursive: true });
       fs.writeFileSync(fileInFolder, 'listFolder abort test content');
-      await fileManager.uploadFile(drive, { path: fileInFolder });
+      await fileManager.uploadFile(drive.id, { path: fileInFolder, sourcePath: fileInFolder });
     });
 
     afterAll(() => {
@@ -2107,14 +2107,14 @@ describe('FileManager AbortController', () => {
       controller.abort(); // Pre-abort
 
       await expect(
-        fileManager.listFolder(drive, folderInfo.path, ListDepth.Shallow, undefined, { signal: controller.signal }),
+        fileManager.listFolder(drive.id, folderInfo.path, ListDepth.Shallow, undefined, { signal: controller.signal }),
       ).rejects.toThrow();
     });
 
     it('should throw error when listFolder is cancelled mid-flight', async () => {
       const controller = new AbortController();
 
-      const listPromise = fileManager.listFolder(drive, folderInfo.path, ListDepth.Shallow, undefined, {
+      const listPromise = fileManager.listFolder(drive.id, folderInfo.path, ListDepth.Shallow, undefined, {
         signal: controller.signal,
       });
 
@@ -2128,7 +2128,7 @@ describe('FileManager AbortController', () => {
     it('should complete listFolder successfully when signal is not aborted', async () => {
       const controller = new AbortController();
 
-      const result = await fileManager.listFolder(drive, folderInfo.path, ListDepth.Shallow, undefined, {
+      const result = await fileManager.listFolder(drive.id, folderInfo.path, ListDepth.Shallow, undefined, {
         signal: controller.signal,
       });
 
@@ -2143,11 +2143,11 @@ describe('FileManager AbortController', () => {
 
       // First call should fail (aborted)
       await expect(
-        fileManager.listFolder(drive, folderInfo.path, ListDepth.Shallow, undefined, { signal: controller1.signal }),
+        fileManager.listFolder(drive.id, folderInfo.path, ListDepth.Shallow, undefined, { signal: controller1.signal }),
       ).rejects.toThrow();
 
       // Second call should succeed (not aborted)
-      const result = await fileManager.listFolder(drive, folderInfo.path, ListDepth.Shallow, undefined, {
+      const result = await fileManager.listFolder(drive.id, folderInfo.path, ListDepth.Shallow, undefined, {
         signal: controller2.signal,
       });
 

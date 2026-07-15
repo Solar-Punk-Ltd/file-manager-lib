@@ -5,6 +5,7 @@ import {
   FeedIndex,
   FileUploadOptions,
   GetGranteesResult,
+  Identifier,
   PostageBatch,
   RedundancyLevel,
   RedundantUploadOptions,
@@ -15,7 +16,7 @@ import { DirectoryEntry } from '../utils/mantaray';
 
 import { DownloadResult } from './download';
 import { DriveInfo, FileRecord, FolderInfo, ListDepth, ShareItem } from './info';
-import { FileInfoOptions, UploadFilesEntry, UploadFilesResult } from './upload';
+import { UpdateItem, UploadFilesResult, UploadItem } from './upload';
 
 /**
  * Interface representing a file manager with various file operations.
@@ -56,48 +57,28 @@ export interface FileManager {
    *
    * For multi-file/folder uploads use uploadFiles — passing multiple files here produces a
    * single opaque collection without per-file versioning, ACT, or listing.
-   * @param infoOptions - The options for the file info upload (new content: path/file; no topic).
+   * @param driveId - The ID of the drive to upload into
+   * @param item - The options for the file info upload (new content: path/file; no topic).
    * @param uploadOptions - File and collection related upload options.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FILE_UPLOADED
    * @returns A promise that resolves when the upload is complete.
    */
   uploadFile(
-    driveInfo: DriveInfo,
-    infoOptions: FileInfoOptions,
+    driveId: string | Identifier,
+    item: UploadItem,
     uploadOptions?: RedundantUploadOptions | FileUploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<void>;
 
-  /**
-   * Re-versions or changes metadata of an EXISTING file. Reuses the file's feed topic, writes a
-   * new feed slot, and never touches the drive manifest (no rename — use move() to relocate).
-   * Everything derives from `record`, including the ACT-history continuation reference.
-   * @param driveInfo - The drive the file belongs to.
-   * @param record - The existing file's FileRecord (the single source of truth).
-   * @param changes - `source` present = new bytes (browser File or node filesystem path); absent =
-   *                  metadata-only. `customMetadata` is merged over the record's existing metadata.
-   * @param uploadOptions - File-related upload options (actHistoryAddress is derived from record).
-   * @param requestOptions - Additional Bee request options.
-   * @emits FileManagerEvents.FILE_UPLOADED
-   * @returns A promise that resolves when the update is complete.
-   */
-  updateFile(
-    driveInfo: DriveInfo,
-    record: FileRecord,
-    changes: { source?: File | string; customMetadata?: Record<string, string> },
-    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<void>;
-  // TODO: UploadFilesEntry source -> maybe use the same node vs browser options as in uploadFile and derive the correct params
   /**
    * Uploads multiple files, recreating their folder hierarchy as real folder-nodes under
    * destinationPath. Each file becomes its own node with per-file versioning and ACT, unlike a
    * single opaque collection upload via uploadFile(). Missing folders are created as needed; each
    * touched parent manifest is saved once at the end. Tolerates partial failure: per-file errors
    * are collected rather than aborting the whole batch.
-   * @param driveInfo - The drive to upload into.
-   * @param entries - The files to upload, each with a path relative to destinationPath.
+   * @param driveId - The ID of the drive to upload into.
+   * @param items - The files to upload, each with a path relative to destinationPath.
    * @param destinationPath - Absolute path of the destination folder, or '' / '/' for the drive root.
    * @param uploadOptions - File-related upload options.
    * @param requestOptions - Additional Bee request options.
@@ -107,23 +88,44 @@ export interface FileManager {
    * @returns The succeeded FileRecords and any per-file failures.
    */
   uploadFiles(
-    driveInfo: DriveInfo,
-    entries: UploadFilesEntry[],
+    driveId: string | Identifier,
+    items: UploadItem[],
     destinationPath?: string,
     uploadOptions?: RedundantUploadOptions | FileUploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<UploadFilesResult>;
 
   /**
+   * Re-versions or changes metadata of an EXISTING file. Reuses the file's feed topic, writes a
+   * new feed slot, and never touches the drive manifest (no rename — use move() to relocate).
+   * Everything derives from `record`, including the ACT-history continuation reference.
+   * @param driveId - The ID of the drive the file belongs to.
+   * @param record - The existing file's FileRecord (the single source of truth).
+   * @param changes - `item` present = new bytes (browser File or node filesystem path); absent =
+   *                  metadata-only. `customMetadata` is merged over the record's existing metadata.
+   * @param uploadOptions - File-related upload options (actHistoryAddress is derived from record).
+   * @param requestOptions - Additional Bee request options.
+   * @emits FileManagerEvents.FILE_UPLOADED
+   * @returns A promise that resolves when the update is complete.
+   */
+  updateFile(
+    driveId: string | Identifier,
+    record: FileRecord,
+    changes: UpdateItem,
+    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void>;
+
+  /**
    * Downloads every file in a folder subtree of a drive (resolved fresh via listFolder).
-   * @param driveInfo - The drive to download from.
+   * @param driveId - The ID of drive to download from.
    * @param path - Absolute path of the folder; '' / omitted = the whole drive.
    * @param options - Optional download options.
    * @param requestOptions - Additional Bee request options.
    * @returns A promise that resolves to an array of DownloadResult, one per file in the subtree.
    */
   downloadFolder(
-    driveInfo: DriveInfo,
+    driveId: string | Identifier,
     path?: string,
     options?: DownloadOptions,
     requestOptions?: BeeRequestOptions,
@@ -160,7 +162,7 @@ export interface FileManager {
   /**
    * Lists entries in a folder (or drive root) in the drive manifest.
    * Also populates the fileInfoList cache for any file entries encountered.
-   * @param driveInfo - The drive containing the folder.
+   * @param driveId - The ID of the drive containing the folder.
    * @param path - Absolute path of the folder, or '' / '/' for the drive root.
    * @param depth - Shallow (one level) or Deep (full BFS). Defaults to Shallow.
    * @param maxDepth - Maximum BFS levels when depth is Deep; unlimited if omitted.
@@ -168,7 +170,7 @@ export interface FileManager {
    * @returns Array of DirectoryEntry objects for every node found at or below the given path.
    */
   listFolder(
-    driveInfo: DriveInfo,
+    driveId: string | Identifier,
     path: string,
     depth?: ListDepth,
     maxDepth?: number,
@@ -194,30 +196,30 @@ export interface FileManager {
   /**
    * Hard-delete a file or folder at the given path from the drive manifest and in-memory state.
    * For folders, all descendant FileRecords are also purged from fileInfoList.
-   * @param driveInfo - The drive containing the path.
+   * @param driveId - The ID of the drive containing the path.
    * @param path - Absolute path of the file or folder to remove.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FILE_FORGOTTEN (file) or FileManagerEvents.FOLDER_FORGOTTEN (folder)
    */
-  forget(driveInfo: DriveInfo, path: string, requestOptions?: BeeRequestOptions): Promise<void>;
+  forget(driveId: string | Identifier, path: string, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
-   * Destroys a drive identified by the given batch ID.
-   * Dilutes the stamp and shortens its duration (min. 24, max 47 hours) depending on the original TTL.
-   * @param driveInfo - The drive to destroy.
+   * Destroys a drive identified by the given drive ID.
+   * Dilutes the drive stamp and shortens its duration (min. 24, max 47 hours) depending on the original TTL.
+   * @param driveId - The ID of the drive to destroy.
    * @emits FileManagerEvents.DRIVE_DESTROYED
    * @returns A promise that resolves when the drive is destroyed.
    */
-  destroyDrive(driveInfo: DriveInfo, stamp: PostageBatch): Promise<void>;
+  destroyDrive(driveId: string | Identifier): Promise<void>;
 
   /**
    * Removes the drive and all of its file metadata from local state and persists the updated drive list.
    * Does NOT touch the underlying Swarm batch (no dilution).
-   * @param driveInfo - The drive to forget.
+   * @param driveId - The ID of the drive to forget.
    * @emits FileManagerEvents.DRIVE_FORGOTTEN
    * @returns A promise that resolves when the drive is forgotten.
    */
-  forgetDrive(driveInfo: DriveInfo): Promise<void>;
+  forgetDrive(driveId: string | Identifier): Promise<void>;
 
   /**
    * Shares a file with the specified recipients.
@@ -274,22 +276,22 @@ export interface FileManager {
    *
    * @param fromPath - Absolute path of the entry within the drive manifest.
    * @param toPath - Destination path within the drive manifest.
-   * @param sourceDriveInfo - The drive containing the source path.
-   * @param targetDriveInfo - Optional target drive for cross-drive moves; defaults to sourceDriveInfo.
+   * @param sourceDriveId - The ID of the drive containing the source path.
+   * @param targetDriveId - Optional target ID drive for cross-drive moves; defaults to sourceDriveInfo.
    * @param requestOptions - Optional BeeRequestOptions for upload operations.
    * @emits FileManagerEvents.FILE_MOVED
    */
   move(
     fromPath: string,
     toPath: string,
-    sourceDriveInfo: DriveInfo,
-    targetDriveInfo?: DriveInfo,
+    sourceDriveId: string | Identifier,
+    targetDriveId?: string | Identifier,
     requestOptions?: BeeRequestOptions,
   ): Promise<void>;
 
   /**
    * Creates a new empty folder within a drive.
-   * @param driveInfo - The drive to create the folder in.
+   * @param driveId - The ID of the drive to create the folder in.
    * @param parentPath - Absolute path of the parent directory, or '' / '/' for the drive root.
    * @param folderName - Name of the new folder (must not contain '/').
    * @param redundancyLevel - Optional redundancy level; inherits from parent or drive if omitted.
@@ -297,7 +299,7 @@ export interface FileManager {
    * @returns The FolderInfo for the newly created folder.
    */
   createFolder(
-    driveInfo: DriveInfo,
+    driveId: string | Identifier,
     parentPath: string,
     folderName: string,
     redundancyLevel?: RedundancyLevel,
@@ -308,28 +310,30 @@ export interface FileManager {
    * Admin postage batch used for drive management operations.
    * @returns The admin postage batch, or undefined if not set.
    */
-  adminStamp: PostageBatch | undefined;
+  readonly adminStamp: PostageBatch | undefined;
 
+  // TODO: consider using: Readonly<DriveInfo>
   /**
    * Retrieves a list of drive information.
    * @returns An array of drive information objects.
    */
-  driveList: DriveInfo[];
+  readonly driveList: DriveInfo[];
 
+  // TODO: consider using: Readonly<FileRecord>
   /**
    * Retrieves a list of file records.
    * @returns An array of FileRecord objects.
    */
-  fileInfoList: FileRecord[];
+  readonly fileInfoList: FileRecord[];
 
   /**
    * Retrieves a list of items shared with the user.
    * @returns An array of shared items.
    */
-  sharedWithMe: ShareItem[];
+  readonly sharedWithMe: ShareItem[];
 
   /**
    * Event emitter for handling file manager events.
    */
-  emitter: EventEmitter;
+  readonly emitter: EventEmitter;
 }
