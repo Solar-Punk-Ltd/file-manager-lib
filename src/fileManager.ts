@@ -58,7 +58,7 @@ import {
 } from './utils/constants';
 import { generateRandomBytes } from './utils/crypto';
 import {
-  BeeVersionError,
+  // BeeVersionError,
   DriveError,
   FileInfoError,
   GranteeError,
@@ -68,7 +68,7 @@ import {
   SubscriptionError,
 } from './utils/errors';
 import { FileManagerEvents } from './utils/events';
-import { DirectoryEntry, getAllNodeEntries, loadMantaray } from './utils/mantaray';
+import { addFileToManifest, DirectoryEntry, getAllNodeEntries, loadMantaray, saveNodeManifest } from './utils/mantaray';
 import { processDownload } from './download';
 import { EventEmitter, EventEmitterBase } from './eventEmitter';
 import { assertUploadableSource, processUpload } from './upload';
@@ -108,7 +108,7 @@ export class FileManagerBase implements FileManager {
     this.signerAddress = this.signer.publicKey().address().toString();
   }
 
-  async initialize(): Promise<void> {
+  async initialize(requestOptions?: BeeRequestOptions): Promise<void> {
     if (this.isInitialized) {
       console.debug('FileManager is already initialized');
 
@@ -124,15 +124,15 @@ export class FileManagerBase implements FileManager {
     this.isInitializing = true;
 
     try {
-      await this.verifySupportedVersions();
-      await this.initPublisher();
+      await this.verifySupportedVersions(requestOptions);
+      await this.initPublisher(requestOptions);
 
       console.debug('Trying to load state from Swarm.');
 
       // File records are loaded lazily via listFolder / download / move as the user navigates — no eager full-drive load at init.
-      const success = await this.tryToFetchAdminState();
+      const success = await this.tryToFetchAdminState(requestOptions);
       if (success) {
-        await this.initDriveList();
+        await this.initDriveList(requestOptions);
       }
 
       this.isInitialized = true;
@@ -147,29 +147,35 @@ export class FileManagerBase implements FileManager {
     }
   }
 
-  private async verifySupportedVersions(): Promise<void> {
-    const beeVersions = await this.bee.getVersions();
+  private async verifySupportedVersions(requestOptions?: BeeRequestOptions): Promise<void> {
+    const beeVersions = await this.bee.getVersions(requestOptions);
     console.debug(`Bee version: ${beeVersions.beeVersion}`);
     console.debug(`Bee API version: ${beeVersions.beeApiVersion}`);
-    const supportedApi = await this.bee.isSupportedApiVersion();
+    const supportedApi = await this.bee.isSupportedApiVersion(requestOptions);
 
     if (!supportedApi) {
       console.error('Supported bee API version: ', beeVersions.supportedBeeApiVersion);
       console.error('Supported bee version: ', beeVersions.supportedBeeVersion);
-      throw new BeeVersionError('Bee or Bee API version not supported');
+      // throw new BeeVersionError('Bee or Bee API version not supported');
     }
   }
 
-  private async initPublisher(): Promise<void> {
-    this.publisher = (await this.bee.getNodeAddresses()).publicKey;
+  private async initPublisher(requestOptions?: BeeRequestOptions): Promise<void> {
+    this.publisher = (await this.bee.getNodeAddresses(requestOptions)).publicKey;
   }
 
-  private async tryToFetchAdminState(): Promise<boolean> {
+  private async tryToFetchAdminState(requestOptions?: BeeRequestOptions): Promise<boolean> {
     if (!this.publisher) {
       throw new SignerError('Publisher not found');
     }
 
-    const { payload, feedIndex } = await getFeedData(this.bee, FILEMANAGER_STATE_TOPIC, this.signerAddress);
+    const { payload, feedIndex } = await getFeedData(
+      this.bee,
+      FILEMANAGER_STATE_TOPIC,
+      this.signerAddress,
+      undefined,
+      requestOptions,
+    );
 
     if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
       console.debug('State not found.');
@@ -192,10 +198,14 @@ export class FileManagerBase implements FileManager {
 
     let topicBytes: Bytes;
     try {
-      topicBytes = await this.bee.downloadData(stateTopicRef, {
-        actHistoryAddress: topicHistoryRef,
-        actPublisher: this.publisher,
-      });
+      topicBytes = await this.bee.downloadData(
+        stateTopicRef,
+        {
+          actHistoryAddress: topicHistoryRef,
+          actPublisher: this.publisher,
+        },
+        requestOptions,
+      );
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       console.error(`Failed to decrypt admin state: ${error.message || error}`);
@@ -217,7 +227,13 @@ export class FileManagerBase implements FileManager {
     // Re-fetch feed data every time — the admin stamp may expire while state is cached.
     // Deliberately write to the fetched feedIndexNext so a stale cache can't clobber a slot;
     // ideally this is index 0 on a fresh account.
-    const { feedIndexNext } = await getFeedData(this.bee, FILEMANAGER_STATE_TOPIC, this.signerAddress);
+    const { feedIndexNext } = await getFeedData(
+      this.bee,
+      FILEMANAGER_STATE_TOPIC,
+      this.signerAddress,
+      undefined,
+      requestOptions,
+    );
     const isStateExisting = !feedIndexNext.equals(FEED_INDEX_ZERO);
     // TODO: verify that this.adminManifestRef is undefined unless resetState:
     // if (this.adminManifestRef && !resetState) {
@@ -240,7 +256,7 @@ export class FileManagerBase implements FileManager {
       topicReference: topicUploadRes.reference.toString(),
       historyAddress: historyRef,
     };
-    const statefw = this.bee.makeFeedWriter(FILEMANAGER_STATE_TOPIC.toUint8Array(), this.signer);
+    const statefw = this.bee.makeFeedWriter(FILEMANAGER_STATE_TOPIC.toUint8Array(), this.signer, requestOptions);
     await statefw.uploadPayload(batchId, JSON.stringify(topicState), { index: feedIndexNext });
 
     this.stateFeedTopic = newStateFeedTopic;
@@ -260,7 +276,7 @@ export class FileManagerBase implements FileManager {
     };
     this.adminManifestRef = adminManifestRef;
 
-    const adminfw = this.bee.makeFeedWriter(this.stateFeedTopic.toUint8Array(), this.signer);
+    const adminfw = this.bee.makeFeedWriter(this.stateFeedTopic.toUint8Array(), this.signer, requestOptions);
     await adminfw.uploadPayload(batchId, JSON.stringify(adminManifestRef), {
       index: FEED_INDEX_ZERO,
     });
@@ -280,7 +296,13 @@ export class FileManagerBase implements FileManager {
       throw new SignerError('Publisher not found');
     }
 
-    const { payload, feedIndex, feedIndexNext } = await getFeedData(this.bee, this.stateFeedTopic, this.signerAddress);
+    const { payload, feedIndex, feedIndexNext } = await getFeedData(
+      this.bee,
+      this.stateFeedTopic,
+      this.signerAddress,
+      undefined,
+      requestOptions,
+    );
 
     if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
       console.debug('Admin manifest feed empty — no drives to load');
@@ -293,10 +315,14 @@ export class FileManagerBase implements FileManager {
     // TODO: does it make sense to set the sate handling vars only at the end of each function call in case they throw later?
     this.adminManifestRef = adminManifestRef;
 
-    const adminManifestRaw = await this.bee.downloadData(adminManifestRef.reference, {
-      actHistoryAddress: adminManifestRef.historyRef,
-      actPublisher: this.publisher,
-    });
+    const adminManifestRaw = await this.bee.downloadData(
+      adminManifestRef.reference,
+      {
+        actHistoryAddress: adminManifestRef.historyRef,
+        actPublisher: this.publisher,
+      },
+      requestOptions,
+    );
     const adminMantaray = await loadMantaray(this.bee, new Reference(adminManifestRaw), undefined, requestOptions);
     this.nodeManifestCache.set(this.stateFeedTopic.toString(), adminMantaray);
 
@@ -310,7 +336,7 @@ export class FileManagerBase implements FileManager {
           payload: drivePayload,
           feedIndex: driveFeedIndex,
           feedIndexNext: driveFeedIndexNext,
-        } = await getFeedData(this.bee, new Topic(driveInfo.topic), this.signerAddress);
+        } = await getFeedData(this.bee, new Topic(driveInfo.topic), this.signerAddress, undefined, requestOptions);
 
         if (driveFeedIndex.equals(FeedIndex.MINUS_ONE)) {
           console.warn(
@@ -377,7 +403,7 @@ export class FileManagerBase implements FileManager {
     };
 
     adminMantaray.removeFork(`${DRIVE_FORK_PREFIX}-${driveInfo.id}`);
-    const newAdminManifestRef = await this.saveNodeManifest(adminMantaray, adminHost, requestOptions);
+    const newAdminManifestRef = await this.saveMantarayNode(adminMantaray, adminHost, requestOptions);
     this.adminManifestRef = newAdminManifestRef;
 
     this.driveList.splice(driveIndex, 1);
@@ -398,7 +424,7 @@ export class FileManagerBase implements FileManager {
     redundancyLevel?: RedundancyLevel,
     resetState?: boolean,
     requestOptions?: BeeRequestOptions,
-  ): Promise<void> {
+  ): Promise<DriveInfo> {
     requestOptions?.signal?.throwIfAborted();
 
     if (!this.isInitialized) {
@@ -481,7 +507,7 @@ export class FileManagerBase implements FileManager {
       reference: manifestUpload.reference.toString(),
       historyRef: manifestUpload.historyAddress.getOrThrow().toString(),
     };
-    const fw = this.bee.makeFeedWriter(new Topic(newDrive.topic).toUint8Array(), this.signer);
+    const fw = this.bee.makeFeedWriter(new Topic(newDrive.topic).toUint8Array(), this.signer, requestOptions);
     await fw.uploadPayload(newDrive.batchId, JSON.stringify(newDrive.manifestRef), { index: FEED_INDEX_ZERO });
 
     this.nodeManifestCache.set(newDrive.topic, emptyMantaray);
@@ -513,10 +539,12 @@ export class FileManagerBase implements FileManager {
       [MANIFEST_METADATA_REDUNDANCY_LEVEL]: newDrive.redundancyLevel.toString(),
     });
 
-    const newAdminManifestRef = await this.saveNodeManifest(adminMantaray, adminHost, requestOptions);
+    const newAdminManifestRef = await this.saveMantarayNode(adminMantaray, adminHost, requestOptions);
     this.adminManifestRef = newAdminManifestRef;
 
     this.emitter.emit(FileManagerEvents.DRIVE_CREATED, { driveInfo: newDrive });
+
+    return newDrive;
   }
 
   async listFolder(
@@ -556,7 +584,7 @@ export class FileManagerBase implements FileManager {
 
       await awaitAllPromisesBounded(
         frontier.map((item) => async (): Promise<DirectoryEntry[]> => {
-          const mantaray = await this.getNodeManifest(item.host, publisher, requestOptions);
+          const mantaray = await this.getMantarayNode(item.host, publisher, requestOptions);
 
           return getAllNodeEntries(mantaray).map((e) => ({ ...e, path: joinPath(item.basePath, e.path) }));
         }),
@@ -583,16 +611,16 @@ export class FileManagerBase implements FileManager {
             requestOptions,
           );
 
-          const fi = await this.fetchFileInfo(e.topic, publisher, feedData, requestOptions);
+          const fr = await this.fetchFileInfo(e.topic, publisher, feedData, requestOptions);
 
           // In-memory copy is stamped with the path composed while walking — mirrors the
           // existing version stamp in fetchFileInfo.
-          fi.path = e.path;
+          fr.path = e.path;
 
-          return fi;
+          return fr;
         }),
         MAX_CONCURRENT_FEED_FETCHES,
-        (fi) => this.fileInfoList.push(fi),
+        (fr) => this.fileInfoList.push(fr),
         (reason, ix) => {
           if (requestOptions?.signal?.aborted) return;
 
@@ -700,25 +728,14 @@ export class FileManagerBase implements FileManager {
 
     if (fileRecords.length === 0) return [];
 
-    const resources: DownloadResource[] = fileRecords.map((fi) => ({
-      path: fi.path,
-      reference: fi.content.reference,
-      actHistoryAddress: fi.content.historyRef,
-      actPublisher: fi.actPublisher,
+    const resources: DownloadResource[] = fileRecords.map((fr) => ({
+      path: fr.path,
+      reference: fr.content.reference,
+      actHistoryAddress: fr.content.historyRef,
+      actPublisher: fr.actPublisher,
     }));
 
     return await processDownload(this.bee, resources, options, requestOptions);
-  }
-
-  // In-memory only: add a file fork to a mantaray with the standard file metadata keys.
-  // Does NOT save the manifest — save orchestration stays with each caller (inline for upload,
-  // batched in uploadFiles Phase 4).
-  private addFileToManifest(mantaray: MantarayNode, filename: string, fileTopic: string): void {
-    mantaray.addFork(filename, new Reference(fileTopic), {
-      [MANIFEST_METADATA_FILE_TOPIC]: fileTopic,
-      [MANIFEST_METADATA_NODE_TOPIC]: fileTopic,
-      [MANIFEST_METADATA_NODE_TYPE]: NodeType.File,
-    });
   }
 
   // TODO: now rLevel is derived from tha parent folder/ drive -> default to it and potentially overwrite it
@@ -727,7 +744,7 @@ export class FileManagerBase implements FileManager {
     item: UploadItem,
     uploadOptions?: RedundantUploadOptions | FileUploadOptions,
     requestOptions?: BeeRequestOptions,
-  ): Promise<void> {
+  ): Promise<FileRecord> {
     requestOptions?.signal?.throwIfAborted();
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
     const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
@@ -751,7 +768,7 @@ export class FileManagerBase implements FileManager {
 
     const owner = this.signerAddress;
     // No topic arg → fresh topic + version 0.
-    const { topic, version } = await this.getTopicAndVersion(owner);
+    const { topic, version } = await this.getTopicAndVersion(owner, undefined, undefined, requestOptions);
 
     const contentRefAndHistory = await processUpload(
       this.bee,
@@ -761,7 +778,7 @@ export class FileManagerBase implements FileManager {
       uploadOptions,
       requestOptions,
     );
-    const fileInfo: FileRecord = {
+    const record: FileRecord = {
       batchId: cachedDrive.batchId,
       owner,
       topic,
@@ -778,21 +795,23 @@ export class FileManagerBase implements FileManager {
       status: FileStatus.Active,
     };
 
-    await this.saveFileInfoFeed(fileInfo, requestOptions);
+    await this.saveFileInfoFeed(record, requestOptions);
     // In-memory copy is stamped with the caller-known absolute path — no walk needed here.
-    fileInfo.path = item.path;
+    record.path = item.path;
 
-    const mantaray = await this.getNodeManifest(targetHost, publisher, requestOptions);
+    const mantaray = await this.getMantarayNode(targetHost, publisher, requestOptions);
 
-    this.addFileToManifest(mantaray, filename, topic);
+    addFileToManifest(mantaray, filename, topic);
 
-    const newManifestRef = await this.saveNodeManifest(mantaray, targetHost, requestOptions);
+    const newManifestRef = await this.saveMantarayNode(mantaray, targetHost, requestOptions);
 
     if (!parentFolder) {
       this.driveList[driveIx].manifestRef = newManifestRef;
     }
 
-    this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
+    this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { record });
+
+    return record;
   }
 
   async uploadFiles(
@@ -885,7 +904,7 @@ export class FileManagerBase implements FileManager {
         throw new DriveError(`Internal error: parent folder not resolved for path: ${path}`);
       }
 
-      const parentMantaray = await this.getNodeManifest(parentHost, publisher, requestOptions);
+      const parentMantaray = await this.getMantarayNode(parentHost, publisher, requestOptions);
       const fork = parentMantaray.find(folderName);
 
       if (!fork) {
@@ -977,7 +996,7 @@ export class FileManagerBase implements FileManager {
           throw new FileInfoError(`Internal error: parent folder not resolved for path: ${planned.fullPath}`);
         }
 
-        const { topic, version } = await this.getTopicAndVersion(owner);
+        const { topic, version } = await this.getTopicAndVersion(owner, undefined, undefined, requestOptions);
 
         const contentRefAndHistory = await processUpload(
           this.bee,
@@ -988,7 +1007,7 @@ export class FileManagerBase implements FileManager {
           requestOptions,
         );
 
-        const fileInfo: FileRecord = {
+        const record: FileRecord = {
           batchId: cachedDrive.batchId,
           owner,
           topic,
@@ -1004,20 +1023,20 @@ export class FileManagerBase implements FileManager {
           status: FileStatus.Active,
         };
 
-        await this.saveFileInfoFeed(fileInfo, requestOptions);
+        await this.saveFileInfoFeed(record, requestOptions);
         // In-memory copy is stamped with the already-planned absolute path — no walk needed here.
-        fileInfo.path = planned.fullPath;
+        record.path = planned.fullPath;
 
-        const parentMantaray = await this.getNodeManifest(parentHost, publisher, requestOptions);
-        this.addFileToManifest(parentMantaray, planned.filename, topic);
+        const parentMantaray = await this.getMantarayNode(parentHost, publisher, requestOptions);
+        addFileToManifest(parentMantaray, planned.filename, topic);
         dirtyHosts.set(parentHost.topic, parentHost);
 
-        this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
+        this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { record });
 
-        return fileInfo;
+        return record;
       }),
       MAX_CONCURRENT_UPLOADS,
-      (fileInfo) => succeeded.push(fileInfo),
+      (record) => succeeded.push(record),
       (reason, ix) => {
         if (requestOptions?.signal?.aborted) return;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1029,8 +1048,8 @@ export class FileManagerBase implements FileManager {
     requestOptions?.signal?.throwIfAborted();
 
     for (const host of dirtyHosts.values()) {
-      const mantaray = await this.getNodeManifest(host, publisher, requestOptions);
-      const updatedRef = await this.saveNodeManifest(mantaray, host, requestOptions);
+      const mantaray = await this.getMantarayNode(host, publisher, requestOptions);
+      const updatedRef = await this.saveMantarayNode(mantaray, host, requestOptions);
 
       if (host.topic === cachedDrive.topic) {
         this.driveList[driveIx].manifestRef = updatedRef;
@@ -1049,7 +1068,7 @@ export class FileManagerBase implements FileManager {
     changes: UpdateItem,
     uploadOptions?: RedundantUploadOptions | FileUploadOptions,
     requestOptions?: BeeRequestOptions,
-  ): Promise<void> {
+  ): Promise<FileRecord> {
     requestOptions?.signal?.throwIfAborted();
     assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
     const { cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
@@ -1063,7 +1082,7 @@ export class FileManagerBase implements FileManager {
     // Topic arg + no version → bump to the next feed slot (same increment path upload's re-version
     // branch used)
     // TODO: track versions for better performance
-    const { topic, version } = await this.getTopicAndVersion(owner, record.topic);
+    const { topic, version } = await this.getTopicAndVersion(owner, record.topic, undefined, requestOptions);
 
     const mergedMetadata = changes.customMetadata
       ? { ...record.customMetadata, ...changes.customMetadata }
@@ -1090,7 +1109,7 @@ export class FileManagerBase implements FileManager {
 
     // TODO: update never renames; the manifest fork key stays authoritative and the
     // walkers re-derive path from it on hydration, so no split/reassembly here. -> is correct and intended?
-    const fileInfo: FileRecord = {
+    const fr: FileRecord = {
       batchId: record.batchId,
       owner,
       topic,
@@ -1106,18 +1125,21 @@ export class FileManagerBase implements FileManager {
       status: record.status ?? FileStatus.Active,
     };
 
-    await this.saveFileInfoFeed(fileInfo, requestOptions);
+    await this.saveFileInfoFeed(fr, requestOptions);
     //TODO: verify, I think this is unnecessary Location is unchanged — restamp the caller-known absolute path (saveFileInfoFeed already
     // upserted the in-memory fileInfoList entry via uploadFileInfo).
-    fileInfo.path = record.path;
+    fr.path = record.path;
 
-    this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { fileInfo });
+    this.emitter.emit(FileManagerEvents.FILE_UPDATED, { record: fr });
+
+    return fr;
   }
 
   private async getTopicAndVersion(
     address: string | EthAddress,
     currentTopic?: string | Topic,
     currentVersion?: string,
+    requestOptions?: BeeRequestOptions,
   ): Promise<{ topic: string; version: string }> {
     let version: string | undefined;
     let topic: string;
@@ -1137,7 +1159,13 @@ export class FileManagerBase implements FileManager {
       if (cached?.version !== undefined) {
         version = new FeedIndex(cached.version).next().toString();
       } else {
-        const { feedIndex, feedIndexNext } = await getFeedData(this.bee, new Topic(topic), address);
+        const { feedIndex, feedIndexNext } = await getFeedData(
+          this.bee,
+          new Topic(topic),
+          address,
+          undefined,
+          requestOptions,
+        );
 
         if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
           return { topic, version: FEED_INDEX_ZERO.toString() };
@@ -1149,10 +1177,14 @@ export class FileManagerBase implements FileManager {
     return { topic, version: version ? version : FEED_INDEX_ZERO.toString() };
   }
 
-  async getFileVersion(fi: FileRecord, version?: string | FeedIndex): Promise<FileRecord> {
+  async getFileVersion(
+    fr: FileRecord,
+    version?: string | FeedIndex,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<FileRecord> {
     assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
 
-    const localHead = this.fileInfoList.find((f) => f.topic === fi.topic);
+    const localHead = this.fileInfoList.find((f) => f.topic === fr.topic);
 
     if (localHead && localHead.version && version) {
       const requested = new FeedIndex(version);
@@ -1162,14 +1194,14 @@ export class FileManagerBase implements FileManager {
       }
     }
 
-    const topic = new Topic(fi.topic);
+    const topic = new Topic(fr.topic);
     const index = version !== undefined ? new FeedIndex(version).toBigInt() : undefined;
-    const feedData = await getFeedData(this.bee, topic, fi.owner, index);
+    const feedData = await getFeedData(this.bee, topic, fr.owner, index, requestOptions);
     if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
-      throw new FileInfoError(`File feed not found for topic: ${fi.topic.slice(0, 6)}`);
+      throw new FileInfoError(`File feed not found for topic: ${fr.topic.slice(0, 6)}`);
     }
 
-    return this.fetchFileInfo(topic.toString(), fi.actPublisher, feedData);
+    return this.fetchFileInfo(topic.toString(), fr.actPublisher, feedData, requestOptions);
   }
 
   async restoreFileVersion(versionToRestore: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
@@ -1181,7 +1213,7 @@ export class FileManagerBase implements FileManager {
       versionToRestore.owner,
     );
     if (feedIndex.equals(FeedIndex.MINUS_ONE.toString())) {
-      throw new FileInfoError('FileInfo feed not found');
+      throw new FileInfoError('Record feed not found');
     }
 
     if (!versionToRestore.version) {
@@ -1219,18 +1251,18 @@ export class FileManagerBase implements FileManager {
     });
   }
 
-  private async uploadFileInfo(fileInfo: FileRecord, requestOptions?: BeeRequestOptions): Promise<ActReferences> {
+  private async uploadFileInfo(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<ActReferences> {
     try {
-      const topicStr = fileInfo.topic;
+      const topicStr = record.topic;
       let historyRef = this.fileInfoHistoryCache.get(topicStr);
 
       const uploadInfoRes = await this.bee.uploadData(
-        fileInfo.batchId,
-        JSON.stringify(fileInfo),
+        record.batchId,
+        JSON.stringify(record),
         {
           act: true,
           actHistoryAddress: historyRef,
-          redundancyLevel: fileInfo.redundancyLevel,
+          redundancyLevel: record.redundancyLevel,
         },
         requestOptions,
       );
@@ -1239,9 +1271,9 @@ export class FileManagerBase implements FileManager {
 
       const existingIx = this.fileInfoList.findIndex((f) => f.topic === topicStr);
       if (existingIx !== -1) {
-        this.fileInfoList[existingIx] = fileInfo;
+        this.fileInfoList[existingIx] = record;
       } else {
-        this.fileInfoList.push(fileInfo);
+        this.fileInfoList.push(record);
       }
 
       return {
@@ -1250,11 +1282,11 @@ export class FileManagerBase implements FileManager {
       };
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
-      throw new FileInfoError(`Failed to save fileinfo: ${error.message || error}`);
+      throw new FileInfoError(`Failed to save record: ${error.message || error}`);
     }
   }
 
-  private async getNodeManifest(
+  private async getMantarayNode(
     host: ManifestHost,
     publisher: string,
     requestOptions?: BeeRequestOptions,
@@ -1265,10 +1297,7 @@ export class FileManagerBase implements FileManager {
     if (!host.manifestRef) {
       throw new DriveError(`Node ${host.topic} has no manifestRef — cannot load manifest`);
     }
-    if (!this.publisher) {
-      throw new SignerError('Publisher not found');
-    }
-    // TODO: always fetch manifest??
+
     const raw = await this.bee.downloadData(
       host.manifestRef.reference,
       { actHistoryAddress: host.manifestRef.historyRef, actPublisher: publisher },
@@ -1280,45 +1309,29 @@ export class FileManagerBase implements FileManager {
 
     return mantaray;
   }
-  // TODO: as mantaray util
-  private async saveNodeManifest(
+
+  private async saveMantarayNode(
     mantaray: MantarayNode,
     host: ManifestHost,
     requestOptions?: BeeRequestOptions,
   ): Promise<ActReferences> {
-    const saveResult = await mantaray.saveRecursively(this.bee, host.batchId, { act: false }, requestOptions);
-    const manifestUpload = await this.bee.uploadData(
-      host.batchId,
-      saveResult.reference.toUint8Array(),
-      { act: true, actHistoryAddress: host.manifestRef?.historyRef, redundancyLevel: host.redundancyLevel },
+    const cachedIx = this.nodeFeedIndexCache.get(host.topic);
+
+    const { contentRefs, newIndex } = await saveNodeManifest(
+      this.bee,
+      this.signer,
+      mantaray,
+      host,
+      cachedIx,
       requestOptions,
     );
-    const newManifestRef: ActReferences = {
-      reference: manifestUpload.reference.toString(),
-      historyRef: manifestUpload.historyAddress.getOrThrow().toString(),
-    };
+    this.nodeFeedIndexCache.set(host.topic, newIndex);
 
-    const writeIndex = await this.getNextFeedIndex(host.topic);
-    const fw = this.bee.makeFeedWriter(new Topic(host.topic).toUint8Array(), this.signer);
-    await fw.uploadPayload(host.batchId, JSON.stringify(newManifestRef), { index: FeedIndex.fromBigInt(writeIndex) });
-    this.nodeFeedIndexCache.set(host.topic, writeIndex + 1n);
-
-    return newManifestRef;
+    return contentRefs;
   }
 
-  private async getNextFeedIndex(topic: string): Promise<bigint> {
-    const cached = this.nodeFeedIndexCache.get(topic);
-    if (cached !== undefined) return cached;
-
-    const { feedIndexNext } = await getFeedData(this.bee, new Topic(topic), this.signerAddress);
-    const next = feedIndexNext.toBigInt();
-    this.nodeFeedIndexCache.set(topic, next);
-
-    return next;
-  }
-
-  private async saveFileInfoFeed(fi: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
-    const fileInfoResult = await this.uploadFileInfo(fi, requestOptions);
+  private async saveFileInfoFeed(fr: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
+    const fileInfoResult = await this.uploadFileInfo(fr, requestOptions);
 
     try {
       const fileInfoState = JSON.stringify({
@@ -1326,14 +1339,14 @@ export class FileManagerBase implements FileManager {
         historyRef: fileInfoResult.historyRef,
       } as ActReferences);
 
-      const fw = this.bee.makeFeedWriter(new Topic(fi.topic).toUint8Array(), this.signer, requestOptions);
+      const fw = this.bee.makeFeedWriter(new Topic(fr.topic).toUint8Array(), this.signer, requestOptions);
 
-      await fw.uploadPayload(fi.batchId, fileInfoState, {
-        index: fi.version !== undefined ? new FeedIndex(fi.version) : undefined,
+      await fw.uploadPayload(fr.batchId, fileInfoState, {
+        index: fr.version !== undefined ? new FeedIndex(fr.version) : undefined,
       });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
-      throw new FileInfoError(`Failed to save wrapped fileInfo feed: ${error.message || error}`);
+      throw new FileInfoError(`Failed to save wrapped record feed: ${error.message || error}`);
     }
   }
 
@@ -1344,7 +1357,7 @@ export class FileManagerBase implements FileManager {
     requestOptions?: BeeRequestOptions,
   ): Promise<FileRecord> {
     if (feeData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
-      throw new FileInfoError(`File info not found for topic: ${topic.slice(0, 6)}`);
+      throw new FileInfoError(`File record not found for topic: ${topic.slice(0, 6)}`);
     }
 
     const data = feeData.payload.toJSON() as ActReferences;
@@ -1358,70 +1371,73 @@ export class FileManagerBase implements FileManager {
       requestOptions,
     );
 
-    const fileInfo = fileBytes.toJSON() as FileRecord;
-    assertFileRecord(fileInfo);
-    if (topic !== fileInfo.topic) {
+    const record = fileBytes.toJSON() as FileRecord;
+    assertFileRecord(record);
+
+    if (topic !== record.topic) {
       throw new FileInfoError(
-        `Feed topic ${topic.slice(0, 6)} != fi.topic ${fileInfo.topic.slice(0, 6)} for info: ${fileInfo.path}`,
+        `Feed topic ${topic.slice(0, 6)} != record.topic ${record.topic.slice(0, 6)} for: ${record.path}`,
       );
     }
 
     // make sure that version tracks the actual feed index
-    fileInfo.version = feeData.feedIndex.toString();
+    record.version = feeData.feedIndex.toString();
     this.fileInfoHistoryCache.set(topic, data.historyRef);
 
-    return fileInfo;
+    return record;
   }
 
   private async setFileStatus(
-    fileInfo: FileRecord,
+    record: FileRecord,
     expectedStatus: FileStatus | undefined,
     newStatus: FileStatus,
     invalidStateMessage: string,
   ): Promise<FileRecord> {
-    const fi = this.fileInfoList.find((f) => f.topic === fileInfo.topic);
+    const fr = this.fileInfoList.find((f) => f.topic === record.topic);
 
-    if (!fi) {
-      throw new FileInfoError(`Corresponding File Info does not exist: ${fileInfo.path}`);
+    if (!fr) {
+      throw new FileInfoError(`Corresponding File record does not exist: ${record.path}`);
     }
 
-    if (expectedStatus !== undefined && fi.status !== expectedStatus) {
-      throw new FileInfoError(`${invalidStateMessage}: ${fileInfo.path}`);
+    if (expectedStatus !== undefined && fr.status !== expectedStatus) {
+      throw new FileInfoError(`${invalidStateMessage}: ${record.path}`);
     }
 
-    if (expectedStatus === undefined && fi.status === newStatus) {
-      throw new FileInfoError(`${invalidStateMessage}: ${fileInfo.path}`);
+    if (expectedStatus === undefined && fr.status === newStatus) {
+      throw new FileInfoError(`${invalidStateMessage}: ${record.path}`);
     }
 
-    if (fi.version === undefined) {
-      throw new FileInfoError(`File version is undefined: ${fileInfo.path}`);
+    if (fr.version === undefined) {
+      throw new FileInfoError(`File version is undefined: ${record.path}`);
     }
 
-    fi.version = new FeedIndex(fi.version).next().toString();
-    fi.status = newStatus;
-    fi.timestamp = new Date().getTime();
-    fi.customMetadata = { ...(fi.customMetadata ?? {}), ...(fileInfo.customMetadata ?? {}) };
+    fr.version = new FeedIndex(fr.version).next().toString();
+    fr.status = newStatus;
+    fr.timestamp = new Date().getTime();
+    fr.customMetadata = { ...(fr.customMetadata ?? {}), ...(record.customMetadata ?? {}) };
 
-    await this.saveFileInfoFeed(fi);
+    await this.saveFileInfoFeed(fr);
 
-    return fi;
+    return fr;
   }
 
-  async trashFile(fileInfo: FileRecord): Promise<void> {
+  async trashFile(record: FileRecord): Promise<void> {
     assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
 
-    const fi = await this.setFileStatus(fileInfo, undefined, FileStatus.Trashed, 'File already Trashed');
-    this.emitter.emit(FileManagerEvents.FILE_TRASHED, { fileInfo: fi });
+    const fr = await this.setFileStatus(record, undefined, FileStatus.Trashed, 'File already Trashed');
+    this.emitter.emit(FileManagerEvents.FILE_TRASHED, { record: fr });
   }
 
-  async recoverFile(fileInfo: FileRecord): Promise<void> {
-    const fi = await this.setFileStatus(
-      fileInfo,
+  async recoverFile(record: FileRecord): Promise<void> {
+    assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+
+    const fr = await this.setFileStatus(
+      record,
       FileStatus.Trashed,
       FileStatus.Active,
       'Non-Trashed files cannot be restored',
     );
-    this.emitter.emit(FileManagerEvents.FILE_RECOVERED, { fileInfo: fi });
+    this.emitter.emit(FileManagerEvents.FILE_RECOVERED, { record: fr });
   }
 
   async forget(driveId: string | Identifier, path: string, requestOptions?: BeeRequestOptions): Promise<void> {
@@ -1446,7 +1462,7 @@ export class FileManagerBase implements FileManager {
       redundancyLevel: cachedDrive.redundancyLevel,
       actPublisher: publisher,
     };
-    const parentMantaray = await this.getNodeManifest(parentHost, publisher, requestOptions);
+    const parentMantaray = await this.getMantarayNode(parentHost, publisher, requestOptions);
 
     const fork = parentMantaray.find(name);
     if (!fork) {
@@ -1458,7 +1474,7 @@ export class FileManagerBase implements FileManager {
     const nodeTopic = meta[MANIFEST_METADATA_NODE_TOPIC];
 
     parentMantaray.removeFork(name);
-    const newManifestRef = await this.saveNodeManifest(parentMantaray, parentHost, requestOptions);
+    const newManifestRef = await this.saveMantarayNode(parentMantaray, parentHost, requestOptions);
 
     if (!parentFolder) {
       this.driveList[driveIx].manifestRef = newManifestRef;
@@ -1483,7 +1499,7 @@ export class FileManagerBase implements FileManager {
         this.fileInfoList.splice(fiIndex, 1);
       }
 
-      this.emitter.emit(FileManagerEvents.FILE_FORGOTTEN, { fileInfo: forgotten, path });
+      this.emitter.emit(FileManagerEvents.FILE_FORGOTTEN, { record: forgotten, path });
     }
   }
 
@@ -1531,14 +1547,14 @@ export class FileManagerBase implements FileManager {
     const ttlDays = validStamp.duration.toDays();
     const halvings = Math.floor(Math.log2(ttlDays));
 
-    await this.bee.diluteBatch(cachedDrive.batchId, validStamp.depth + halvings);
-    await this.pruneDriveMetadata(cachedDrive, driveIx, stateFeedTopic, publisher);
+    await this.bee.diluteBatch(cachedDrive.batchId, validStamp.depth + halvings, requestOptions);
+    await this.pruneDriveMetadata(cachedDrive, driveIx, stateFeedTopic, publisher, requestOptions);
 
     console.debug(`Drive destroyed: ${cachedDrive.name}`);
     this.emitter.emit(FileManagerEvents.DRIVE_DESTROYED, { driveInfo: cachedDrive });
   }
 
-  async forgetDrive(driveId: string | Identifier): Promise<void> {
+  async forgetDrive(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<void> {
     const { publisher, stateFeedTopic } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
     const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
 
@@ -1546,23 +1562,23 @@ export class FileManagerBase implements FileManager {
       throw new DriveError('Cannot forget admin drive');
     }
 
-    await this.pruneDriveMetadata(cachedDrive, driveIx, stateFeedTopic, publisher);
+    await this.pruneDriveMetadata(cachedDrive, driveIx, stateFeedTopic, publisher, requestOptions);
     console.debug(`Drive forgotten (metadata only): ${cachedDrive.name}`);
     this.emitter.emit(FileManagerEvents.DRIVE_FORGOTTEN, { driveInfo: cachedDrive });
   }
 
   // eslint-disable-next-line require-await
   async getGrantees(_: FileRecord): Promise<GetGranteesResult> {
-    throw new GranteeError('getGrantees: not yet migrated to mantaray model');
+    throw new GranteeError('getGrantees: not yet implemented');
   }
 
   // eslint-disable-next-line require-await
   async subscribeToSharedInbox(_topic: string, _callback?: (_data: ShareItem) => void): Promise<void> {
-    throw new SubscriptionError('subscribeToSharedInbox: not yet implemented in the node-based model');
+    throw new SubscriptionError('subscribeToSharedInbox: not yet implemented');
   }
 
   unsubscribeFromSharedInbox(): void {
-    throw new SubscriptionError('unsubscribeFromSharedInbox: not yet implemented in the node-based model');
+    throw new SubscriptionError('unsubscribeFromSharedInbox: not yet implemented');
   }
 
   // eslint-disable-next-line require-await
@@ -1572,7 +1588,7 @@ export class FileManagerBase implements FileManager {
     _recipients: string[],
     _message?: string,
   ): Promise<void> {
-    throw new SendShareMessageError('share: not yet implemented in the node-based model');
+    throw new SendShareMessageError('share: not yet implemented');
   }
 
   async move(
@@ -1627,7 +1643,7 @@ export class FileManagerBase implements FileManager {
       actPublisher: publisher,
     };
     // TODO: important! drivinfo shall also have a publisher and shall be passed on to each manifest get ! not always the node.address -> fm owner != shared drive publisher
-    const sourceMantaray = await this.getNodeManifest(srcParentHost, publisher, requestOptions);
+    const sourceMantaray = await this.getMantarayNode(srcParentHost, publisher, requestOptions);
 
     const sourceFork = sourceMantaray.find(srcName);
     if (!sourceFork) {
@@ -1649,7 +1665,7 @@ export class FileManagerBase implements FileManager {
     const sameParent = srcParentHost.topic === tgtParentHost.topic;
     const targetMantaray = sameParent
       ? sourceMantaray
-      : await this.getNodeManifest(tgtParentHost, publisher, requestOptions);
+      : await this.getMantarayNode(tgtParentHost, publisher, requestOptions);
 
     if (isFile) {
       const fileTopic = forkMetadata[MANIFEST_METADATA_FILE_TOPIC];
@@ -1657,11 +1673,17 @@ export class FileManagerBase implements FileManager {
         throw new FileInfoError(`Fork at ${fromPath} has no file topic — cannot move`);
       }
 
-      let fi = this.fileInfoList.find((f) => f.topic === fileTopic);
+      let fr = this.fileInfoList.find((f) => f.topic === fileTopic);
       // Lazy init - fetch it on demand.
-      if (!fi) {
+      if (!fr) {
         // TODO: why feedindex / version is not tracked -> expensive lookup
-        const feedData = await getFeedData(this.bee, new Topic(fileTopic), this.signerAddress);
+        const feedData = await getFeedData(
+          this.bee,
+          new Topic(fileTopic),
+          this.signerAddress,
+          undefined,
+          requestOptions,
+        );
 
         if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
           throw new FileInfoError(`File feed not found for topic: ${fileTopic.slice(0, 6)}`);
@@ -1669,23 +1691,23 @@ export class FileManagerBase implements FileManager {
 
         this.nodeFeedIndexCache.set(fileTopic, feedData.feedIndexNext.toBigInt());
 
-        fi = await this.fetchFileInfo(fileTopic, publisher, feedData);
+        fr = await this.fetchFileInfo(fileTopic, publisher, feedData, requestOptions);
 
-        this.fileInfoList.push(fi);
+        this.fileInfoList.push(fr);
       }
 
       // Persisted value is the relative filename — see FileRecord.path doc comment.
-      fi.path = tgtName;
+      fr.path = tgtName;
       if (isCrossDrive) {
-        fi.driveId = effectiveTargetId;
+        fr.driveId = effectiveTargetId;
       }
 
-      const newVersion = fi.version !== undefined ? new FeedIndex(fi.version) : FEED_INDEX_ZERO;
-      fi.version = newVersion.next().toString();
+      const newVersion = fr.version !== undefined ? new FeedIndex(fr.version) : FEED_INDEX_ZERO;
+      fr.version = newVersion.next().toString();
 
-      await this.saveFileInfoFeed(fi, requestOptions);
+      await this.saveFileInfoFeed(fr, requestOptions);
       // In-memory copy is stamped with the caller-known absolute destination — no walk needed here.
-      fi.path = toPath;
+      fr.path = toPath;
     }
 
     const updatedMetadata: Record<string, string> = { ...forkMetadata };
@@ -1697,14 +1719,14 @@ export class FileManagerBase implements FileManager {
       targetMantaray.addFork(tgtName, sourceFork.targetAddress, updatedMetadata);
     }
 
-    const newSrcManifestRef = await this.saveNodeManifest(sourceMantaray, srcParentHost, requestOptions);
+    const newSrcManifestRef = await this.saveMantarayNode(sourceMantaray, srcParentHost, requestOptions);
 
     if (!srcParentFolder) {
       this.driveList[targetDriveIx].manifestRef = newSrcManifestRef;
     }
 
     if (!sameParent && targetDriveIx) {
-      const newTgtManifestRef = await this.saveNodeManifest(targetMantaray, tgtParentHost, requestOptions);
+      const newTgtManifestRef = await this.saveMantarayNode(targetMantaray, tgtParentHost, requestOptions);
 
       if (!tgtParentFolder) {
         this.driveList[targetDriveIx].manifestRef = newTgtManifestRef;
@@ -1748,7 +1770,7 @@ export class FileManagerBase implements FileManager {
       actPublisher: driveInfo.actPublisher,
     };
 
-    let currentMantaray = await this.getNodeManifest(driveHost, publisher, requestOptions);
+    let currentMantaray = await this.getMantarayNode(driveHost, publisher, requestOptions);
     let currentPath = '';
     let currentFolderInfo: FolderInfo | null = null;
 
@@ -1793,17 +1815,12 @@ export class FileManagerBase implements FileManager {
         actPublisher: publisher,
       };
 
-      currentMantaray = await this.getNodeManifest(currentFolderInfo, publisher, requestOptions);
+      currentMantaray = await this.getMantarayNode(currentFolderInfo, publisher, requestOptions);
     }
 
     return currentFolderInfo;
   }
 
-  // Per-folder part only: creates the folder's own node (topic, empty manifest published at feed
-  // slot 0) and adds its fork to the PARENT's in-memory mantaray — but does not save the parent's
-  // manifest or update the drive list. Callers that need the parent persisted immediately
-  // (createFolder) do that themselves right after; callers batching many changes onto one parent
-  // (uploadFiles) defer it and save once at the end.
   private async createFolderNode(
     driveInfo: DriveInfo,
     parentHost: ManifestHost,
@@ -1830,7 +1847,7 @@ export class FileManagerBase implements FileManager {
       historyRef: manifestUpload.historyAddress.getOrThrow().toString(),
     };
 
-    const fw = this.bee.makeFeedWriter(new Topic(newFolderTopic).toUint8Array(), this.signer);
+    const fw = this.bee.makeFeedWriter(new Topic(newFolderTopic).toUint8Array(), this.signer, requestOptions);
     await fw.uploadPayload(driveInfo.batchId, JSON.stringify(newFolderManifestRef), { index: FEED_INDEX_ZERO });
 
     const folderInfo: FolderInfo = {
@@ -1847,7 +1864,7 @@ export class FileManagerBase implements FileManager {
     this.nodeManifestCache.set(newFolderTopic, emptyMantaray);
     this.nodeFeedIndexCache.set(newFolderTopic, 1n);
 
-    const parentMantaray = await this.getNodeManifest(parentHost, publisher, requestOptions);
+    const parentMantaray = await this.getMantarayNode(parentHost, publisher, requestOptions);
 
     parentMantaray.addFork(folderName, new Reference(newFolderTopic), {
       [MANIFEST_METADATA_NODE_TOPIC]: newFolderTopic,
@@ -1893,8 +1910,8 @@ export class FileManagerBase implements FileManager {
       requestOptions,
     );
 
-    const parentMantaray = await this.getNodeManifest(parentHost, publisher, requestOptions);
-    const updatedParentManifestRef = await this.saveNodeManifest(parentMantaray, parentHost, requestOptions);
+    const parentMantaray = await this.getMantarayNode(parentHost, publisher, requestOptions);
+    const updatedParentManifestRef = await this.saveMantarayNode(parentMantaray, parentHost, requestOptions);
 
     if (!parentFolder) {
       this.driveList[driveIx].manifestRef = updatedParentManifestRef;

@@ -62,7 +62,7 @@ export function estimateDriveListMetadataSize(drives: DriveInfo[]): number {
 }
 
 /**
- * Estimates the total metadata size for saving a single FileInfo.
+ * Estimates the total metadata size for saving a single FileRecord.
  *
  * @returns Estimated size in bytes  accounted for the json representaion
  */

@@ -1,5 +1,6 @@
 export enum FileManagerEvents {
   FILE_UPLOADED = 'file-uploaded',
+  FILE_UPDATED = 'file-updated',
   FILE_DOWNLOADED = 'file-downloaded',
   FILE_TRASHED = 'file-trashed',
   FILE_RECOVERED = 'file-recovered',

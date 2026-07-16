@@ -15,7 +15,6 @@ import {
   createInitializedFileManager,
   createInitMocks,
   createMockDriveInfo,
-  createMockFileInfo,
   createMockNodeAddresses,
   MOCK_BATCH_ID,
   mockPostageBatch,
@@ -47,7 +46,11 @@ jest.mock('@/utils/bee', () => ({
 jest.mock('@/utils/crypto', () => ({
   generateRandomBytes: jest.fn(),
 }));
-jest.mock('@/utils/mantaray');
+jest.mock('@/utils/mantaray', () => ({
+  ...jest.requireActual('@/utils/mantaray'),
+  loadMantaray: jest.fn(),
+  getAllNodeEntries: jest.fn(),
+}));
 
 describe('FileManager', () => {
   const otherMockBatchId = new BatchId('4'.repeat(64));
@@ -338,7 +341,7 @@ describe('FileManager', () => {
         owner,
         actPublisher,
         topic: Topic.fromString(`dl-${path}`).toString(),
-        driveId: drive.id.toString(),
+        driveId: drive.id,
         path,
         content: {
           reference: ref,
@@ -409,7 +412,7 @@ describe('FileManager', () => {
         owner,
         actPublisher,
         topic: Topic.fromString(`dlf-${path}`).toString(),
-        driveId: drive.id.toString(),
+        driveId: drive.id,
         path,
         content: { reference: ref, historyRef: SWARM_ZERO_ADDRESS.toString() },
         redundancyLevel: RedundancyLevel.OFF,
@@ -469,7 +472,7 @@ describe('FileManager', () => {
         actPublisher,
         redundancyLevel: RedundancyLevel.OFF,
         topic: topicB,
-        driveId: drive.id.toString(),
+        driveId: drive.id,
         path: 'b.txt',
         content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
       });
@@ -491,7 +494,7 @@ describe('FileManager', () => {
             owner,
             actPublisher,
             topic: topicA,
-            driveId: drive.id.toString(),
+            driveId: drive.id,
             path: 'a.txt',
             content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
           }),
@@ -545,16 +548,16 @@ describe('FileManager', () => {
 
       await fm.uploadFile(di.id, { path: 'package.json', sourcePath: 'package.json' });
 
-      const entries = fm.fileInfoList.filter((fi) => fi.path === 'package.json');
+      const entries = fm.fileInfoList.filter((fr) => fr.path === 'package.json');
       expect(entries).toHaveLength(1);
       expect(entries[0].version).toBe(FEED_INDEX_ZERO.toString());
-      expect(entries[0].driveId).toBe(di.id.toString());
+      expect(entries[0].driveId).toBe(di.id);
       expect(entries[0].status).toBe(FileStatus.Active);
 
       // Fresh topic is minted (not derived from any input).
-      expect(entries[0].topic.toString().length).toBeGreaterThan(0);
+      expect(entries[0].topic.length).toBeGreaterThan(0);
 
-      const driveMantaray = (fm as any).nodeManifestCache.get(di.topic.toString()) as MantarayNode;
+      const driveMantaray = (fm as any).nodeManifestCache.get(di.topic) as MantarayNode;
       expect(driveMantaray.find('package.json')).toBeTruthy();
     });
 
@@ -565,10 +568,10 @@ describe('FileManager', () => {
 
       await fm.uploadFile(di.id, { path: 'renamed.json', sourcePath: 'package.json' });
 
-      expect(fm.fileInfoList.find((fi) => fi.path === 'renamed.json')).toBeDefined();
-      expect(fm.fileInfoList.find((fi) => fi.path === 'package.json')).toBeUndefined();
+      expect(fm.fileInfoList.find((fr) => fr.path === 'renamed.json')).toBeDefined();
+      expect(fm.fileInfoList.find((fr) => fr.path === 'package.json')).toBeUndefined();
 
-      const driveMantaray = (fm as any).nodeManifestCache.get(di.topic.toString()) as MantarayNode;
+      const driveMantaray = (fm as any).nodeManifestCache.get(di.topic) as MantarayNode;
       expect(driveMantaray.find('renamed.json')).toBeTruthy();
       expect(driveMantaray.find('package.json')).toBeFalsy();
     });
@@ -590,11 +593,11 @@ describe('FileManager', () => {
 
       await fm.uploadFile(di.id, { path: 'tests/utils.ts', sourcePath: 'tests/utils.ts' });
 
-      expect(fm.fileInfoList.find((fi) => fi.path === 'tests/utils.ts')).toBeDefined();
+      expect(fm.fileInfoList.find((fr) => fr.path === 'tests/utils.ts')).toBeDefined();
 
       // The file fork lives under the folder's own manifest — the drive root manifest carries the
       // 'tests' folder fork but not the file leaf.
-      const driveMantaray = (fm as any).nodeManifestCache.get(di.topic.toString()) as MantarayNode;
+      const driveMantaray = (fm as any).nodeManifestCache.get(di.topic) as MantarayNode;
       expect(driveMantaray.find('tests')).toBeTruthy();
       expect(driveMantaray.find('utils.ts')).toBeFalsy();
     });
@@ -634,8 +637,8 @@ describe('FileManager', () => {
 
       await expect(fm.uploadFile(di.id, { path: 'tests', sourcePath: 'tests' })).rejects.toThrow();
 
-      expect(fm.fileInfoList.find((fi) => fi.path === 'tests')).toBeUndefined();
-      const driveMantaray = (fm as any).nodeManifestCache.get(di.topic.toString()) as MantarayNode;
+      expect(fm.fileInfoList.find((fr) => fr.path === 'tests')).toBeUndefined();
+      const driveMantaray = (fm as any).nodeManifestCache.get(di.topic) as MantarayNode;
       expect(driveMantaray.find('tests')).toBeFalsy();
     });
 
@@ -644,7 +647,7 @@ describe('FileManager', () => {
       const ghost = createMockDriveInfo(actPublisher, { id: '7'.repeat(64), name: 'ghost' });
 
       await expect(fm.uploadFile(ghost.id, { path: 'package.json', sourcePath: 'package.json' })).rejects.toThrow(
-        `Drive with id ${ghost.id.toString().slice(0, 6)} not found`,
+        `Drive with id ${ghost.id.slice(0, 6)} not found`,
       );
     });
   });
@@ -656,7 +659,7 @@ describe('FileManager', () => {
       await fm.createDrive(otherMockBatchId, 'Test Drive', false);
       const di = fm.driveList[1];
       await fm.uploadFile(di.id, { path: 'package.json', sourcePath: 'package.json' });
-      const record = fm.fileInfoList.find((fi) => fi.path === 'package.json')!;
+      const record = fm.fileInfoList.find((fr) => fr.path === 'package.json')!;
       return { fm, di, record };
     }
 
@@ -664,11 +667,11 @@ describe('FileManager', () => {
       const { fm, di, record } = await seedUploadedFile();
 
       const handler = jest.fn();
-      fm.emitter.on(FileManagerEvents.FILE_UPLOADED, handler);
+      fm.emitter.on(FileManagerEvents.FILE_UPDATED, handler);
 
       await fm.updateFile(di.id, record, { customMetadata: { note: 'hello' } });
 
-      const entries = fm.fileInfoList.filter((fi) => fi.topic.toString() === record.topic.toString());
+      const entries = fm.fileInfoList.filter((fr) => fr.topic === record.topic);
       expect(entries).toHaveLength(1);
       const updated = entries[0];
       expect(updated.version).toBe(FeedIndex.fromBigInt(1n).toString());
@@ -686,7 +689,7 @@ describe('FileManager', () => {
         new FileInfoError('Neither a file/path nor customMetadata is provided'),
       );
 
-      const updated = fm.fileInfoList.find((fi) => fi.topic.toString() === record.topic.toString())!;
+      const updated = fm.fileInfoList.find((fr) => fr.topic === record.topic)!;
       expect(updated.version).toBe(FEED_INDEX_ZERO.toString());
       expect(updated.path).toBe(record.path);
       expect(updated.content).toEqual(record.content);
@@ -694,14 +697,10 @@ describe('FileManager', () => {
 
     it('never touches the drive manifest (no fork add, no manifest save) even when uploading new bytes', async () => {
       const { fm, di, record } = await seedUploadedFile();
-
-      const saveManifestSpy = jest.spyOn(fm as any, 'saveNodeManifest');
-      const addForkSpy = jest.spyOn(fm as any, 'addFileToManifest');
-
+      const saveManifestSpy = jest.spyOn(fm as any, 'saveMantarayNode');
       await fm.updateFile(di.id, record, { item: { sourcePath: 'package.json' } });
 
       expect(saveManifestSpy).not.toHaveBeenCalled();
-      expect(addForkSpy).not.toHaveBeenCalled();
     });
 
     it('uploads new bytes: derives actHistoryAddress from the record and bumps the version', async () => {
@@ -717,7 +716,7 @@ describe('FileManager', () => {
         actPublisher,
         topic,
         redundancyLevel: RedundancyLevel.OFF,
-        driveId: di.id.toString(),
+        driveId: di.id,
         path: 'package.json',
         content: { reference: '8'.repeat(64), historyRef: priorHistoryRef },
         version: FEED_INDEX_ZERO.toString(),
@@ -729,7 +728,7 @@ describe('FileManager', () => {
       // TODO: called 21 times ? -> mantaray saveRecursively
       expect(uploadDataSpy).toHaveBeenCalledTimes(21);
 
-      const updated = fm.fileInfoList.find((fi) => fi.topic.toString() === topic)!;
+      const updated = fm.fileInfoList.find((fr) => fr.topic === topic)!;
       expect(updated.version).toBe(FeedIndex.fromBigInt(1n).toString());
       expect(updated.path).toBe('package.json');
     });
@@ -739,7 +738,7 @@ describe('FileManager', () => {
 
       await fm.updateFile(di.id, record, { item: { sourcePath: 'package.json' } });
 
-      expect(fm.fileInfoList.filter((fi) => fi.topic.toString() === record.topic.toString())).toHaveLength(1);
+      expect(fm.fileInfoList.filter((fr) => fr.topic === record.topic)).toHaveLength(1);
     });
 
     it('throws when uploading a directory as the new content source', async () => {
@@ -759,14 +758,14 @@ describe('FileManager', () => {
         redundancyLevel: RedundancyLevel.OFF,
         actPublisher,
         topic: Topic.fromString('orphan').toString(),
-        driveId: ghost.id.toString(),
+        driveId: ghost.id,
         path: 'package.json',
         content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
         version: FEED_INDEX_ZERO.toString(),
       };
 
       await expect(fm.updateFile(ghost.id, record, {})).rejects.toThrow(
-        `Drive with id ${ghost.id.toString().slice(0, 6)} not found`,
+        `Drive with id ${ghost.id.slice(0, 6)} not found`,
       );
     });
   });
@@ -779,12 +778,12 @@ describe('FileManager', () => {
       const folderInfo = await fm.createFolder(drive.id, '', 'Documents');
 
       expect(folderInfo.path).toBe('/Documents');
-      expect(folderInfo.driveId).toBe(drive.id.toString());
+      expect(folderInfo.driveId).toBe(drive.id);
 
-      const updatedDrive = fm.driveList.find((d) => d.id.toString() === drive.id.toString())!;
+      const updatedDrive = fm.driveList.find((d) => d.id === drive.id)!;
       expect(updatedDrive.manifestRef).toBeDefined();
 
-      const driveMantaray = (fm as any).nodeManifestCache.get(drive.topic.toString()) as MantarayNode;
+      const driveMantaray = (fm as any).nodeManifestCache.get(drive.topic) as MantarayNode;
       expect(driveMantaray.find('Documents')).toBeTruthy();
     });
 
@@ -831,9 +830,10 @@ describe('FileManager', () => {
       const got = await fm.getFileVersion(dummyFi, FeedIndex.fromBigInt(1n));
 
       expect(spyFetch).toHaveBeenCalledWith(
-        dummyFi.topic.toString(),
+        dummyFi.topic,
         new PublicKey(actPublisher).toCompressedHex(),
         rawMock,
+        undefined,
       );
       expect(got).toBe(fakeFi);
 
@@ -894,7 +894,7 @@ describe('FileManager', () => {
         payload: SWARM_ZERO_ADDRESS,
       });
 
-      await expect(fm.restoreFileVersion({ ...dummyFi, version: '2' })).rejects.toThrow('FileInfo feed not found');
+      await expect(fm.restoreFileVersion({ ...dummyFi, version: '2' })).rejects.toThrow('Record feed not found');
     });
   });
 
@@ -904,8 +904,8 @@ describe('FileManager', () => {
       const di = fm.driveList[0];
       expect(di).toBeDefined();
       expect(di.name).toBe(ADMIN_STAMP_LABEL);
-      expect(di.batchId.toString()).toBe(MOCK_BATCH_ID.toString());
-      expect(di.id.toString()).toHaveLength(64);
+      expect(di.batchId).toBe(MOCK_BATCH_ID.toString());
+      expect(di.id).toHaveLength(64);
       expect(di.owner).toBe(owner);
       expect(di.topic).toBeDefined();
       expect(di.manifestRef).toBeDefined();
@@ -918,8 +918,8 @@ describe('FileManager', () => {
       const di = fm.driveList[1];
       expect(di).toBeDefined();
       expect(di.name).toBe('Test Drive');
-      expect(di.batchId.toString()).toBe(otherMockBatchId.toString());
-      expect(di.id.toString()).toHaveLength(64);
+      expect(di.batchId).toBe(otherMockBatchId.toString());
+      expect(di.id).toHaveLength(64);
       expect(di.owner).toBe(owner);
       expect(di.topic).toBeDefined();
       expect(di.manifestRef).toBeDefined();
@@ -957,7 +957,7 @@ describe('FileManager', () => {
 
       const ttlDays = mockPostageBatch.duration.toDays();
       const halvings = Math.floor(Math.log2(ttlDays));
-      expect(diluteSpy).toHaveBeenCalledWith(di.batchId, mockPostageBatch.depth + halvings);
+      expect(diluteSpy).toHaveBeenCalledWith(di.batchId, mockPostageBatch.depth + halvings, undefined);
     });
 
     it('destroyDrive should throw error if trying to destroy Admin drive / stamp', async () => {
@@ -967,7 +967,7 @@ describe('FileManager', () => {
       di.isAdmin = false;
       await expect(async () => {
         await fm.destroyDrive(di.id);
-      }).rejects.toThrow(`Cannot destroy admin drive / stamp, batchId: ${MOCK_BATCH_ID.toString().slice(0, 6)}`);
+      }).rejects.toThrow(`Cannot destroy admin drive / stamp, batchId: ${MOCK_BATCH_ID.slice(0, 6)}`);
     });
 
     it('forgetDrive should remove a user drive, prune its files, and emit DRIVE_FORGOTTEN', async () => {
@@ -978,21 +978,21 @@ describe('FileManager', () => {
 
       fm.fileInfoList.push(
         {
-          batchId: target.batchId.toString(),
+          batchId: target.batchId,
           owner,
           actPublisher,
           topic: Topic.fromString('forget-x').toString(),
-          driveId: target.id.toString(),
+          driveId: target.id,
           path: 'x.txt',
           content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
           redundancyLevel: RedundancyLevel.OFF,
         },
         {
-          batchId: target.batchId.toString(),
+          batchId: target.batchId,
           owner,
           actPublisher,
           topic: Topic.fromString('forget-y').toString(),
-          driveId: target.id.toString(),
+          driveId: target.id,
           path: 'y.txt',
           content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
           redundancyLevel: RedundancyLevel.OFF,
@@ -1003,7 +1003,7 @@ describe('FileManager', () => {
 
       const eventPromise = new Promise<void>((resolve) => {
         const handler = ({ driveInfo }: { driveInfo: DriveInfo }): void => {
-          expect(driveInfo.id.toString()).toBe(target.id.toString());
+          expect(driveInfo.id).toBe(target.id);
           resolve();
         };
         fm.emitter.on(FileManagerEvents.DRIVE_FORGOTTEN, handler);
@@ -1012,8 +1012,8 @@ describe('FileManager', () => {
       await fm.forgetDrive(new Identifier(target.id));
       await eventPromise;
 
-      expect(fm.driveList.find((d) => d.id.toString() === target.id.toString())).toBeUndefined();
-      expect(fm.fileInfoList.some((fi) => fi.driveId === target.id.toString())).toBe(false);
+      expect(fm.driveList.find((d) => d.id === target.id)).toBeUndefined();
+      expect(fm.fileInfoList.some((fr) => fr.driveId === target.id)).toBe(false);
       expect(diluteSpy).not.toHaveBeenCalled();
     });
 
@@ -1040,7 +1040,7 @@ describe('FileManager', () => {
         owner,
         actPublisher,
         topic: Topic.fromString('lifecycle-target').toString(),
-        driveId: drive.id.toString(),
+        driveId: drive.id,
         path: 'notes.txt',
         content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
         version: FEED_INDEX_ZERO.toString(),
@@ -1059,7 +1059,7 @@ describe('FileManager', () => {
 
       expect(fileRecord.status).toBe(FileStatus.Trashed);
       expect(fileRecord.version).toBe(FeedIndex.fromBigInt(1n).toString());
-      expect(handler).toHaveBeenCalledWith({ fileInfo: fileRecord });
+      expect(handler).toHaveBeenCalledWith({ record: fileRecord });
     });
 
     it('trashFile throws if the file is already trashed', async () => {
@@ -1075,7 +1075,7 @@ describe('FileManager', () => {
       await fm.recoverFile(fileRecord);
 
       expect(fileRecord.status).toBe(FileStatus.Active);
-      expect(handler).toHaveBeenCalledWith({ fileInfo: fileRecord });
+      expect(handler).toHaveBeenCalledWith({ record: fileRecord });
     });
 
     it('recoverFile throws if the file was never trashed', async () => {
@@ -1086,7 +1086,7 @@ describe('FileManager', () => {
 
     it('throws when the target FileRecord is not tracked in fileInfoList', async () => {
       const ghost: FileRecord = { ...fileRecord, topic: Topic.fromString('ghost-file').toString() };
-      await expect(fm.trashFile(ghost)).rejects.toThrow(`Corresponding File Info does not exist: ${ghost.path}`);
+      await expect(fm.trashFile(ghost)).rejects.toThrow(`Corresponding File record does not exist: ${ghost.path}`);
     });
 
     it('throws when attempting to forget the drive root', async () => {
@@ -1105,9 +1105,9 @@ describe('FileManager', () => {
       await fm.forget(drive.id, 'package.json');
 
       expect(fm.fileInfoList.find((f) => f.path === 'package.json')).toBeUndefined();
-      expect(handler).toHaveBeenCalledWith({ fileInfo: uploaded, path: 'package.json' });
+      expect(handler).toHaveBeenCalledWith({ record: uploaded, path: 'package.json' });
 
-      const driveMantaray = (fm as any).nodeManifestCache.get(drive.topic.toString()) as MantarayNode;
+      const driveMantaray = (fm as any).nodeManifestCache.get(drive.topic) as MantarayNode;
       expect(driveMantaray.find('package.json')).toBeFalsy();
     });
 
@@ -1119,7 +1119,7 @@ describe('FileManager', () => {
         owner,
         actPublisher,
         topic: Topic.fromString('doc-a').toString(),
-        driveId: drive.id.toString(),
+        driveId: drive.id,
         path: 'Docs/a.txt',
         content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
         redundancyLevel: RedundancyLevel.OFF,
@@ -1142,15 +1142,15 @@ describe('FileManager', () => {
       const drive = fm.driveList[1];
 
       await fm.uploadFile(drive.id, { path: 'package.json', sourcePath: 'package.json' });
-      const original = fm.fileInfoList.find((fi) => fi.path === 'package.json')!;
+      const original = fm.fileInfoList.find((fr) => fr.path === 'package.json')!;
 
       await fm.move('package.json', 'renamed.json', drive.id);
 
-      const moved = fm.fileInfoList.find((fi) => fi.topic.toString() === original.topic.toString())!;
+      const moved = fm.fileInfoList.find((fr) => fr.topic === original.topic)!;
       expect(moved.path).toBe('renamed.json');
       expect(moved.version).toBe(FeedIndex.fromBigInt(1n).toString());
 
-      const driveMantaray = (fm as any).nodeManifestCache.get(drive.topic.toString()) as MantarayNode;
+      const driveMantaray = (fm as any).nodeManifestCache.get(drive.topic) as MantarayNode;
       expect(driveMantaray.find('package.json')).toBeFalsy();
       expect(driveMantaray.find('renamed.json')).toBeTruthy();
     });
@@ -1158,7 +1158,7 @@ describe('FileManager', () => {
     it('self-hydrates a file that was never loaded into fileInfoList', async () => {
       const fm = await createInitializedFileManager();
       const drive = fm.driveList[0];
-      const driveMantaray = (fm as any).nodeManifestCache.get(drive.topic.toString()) as MantarayNode;
+      const driveMantaray = (fm as any).nodeManifestCache.get(drive.topic) as MantarayNode;
 
       const fileTopic = Topic.fromString('cold-file').toString();
       driveMantaray.addFork('cold.txt', new Reference(fileTopic), {
@@ -1169,7 +1169,7 @@ describe('FileManager', () => {
 
       const coldFileRecord = {
         topic: fileTopic,
-        driveId: drive.id.toString(),
+        driveId: drive.id,
         path: 'cold.txt',
         batchId: MOCK_BATCH_ID,
         owner,
@@ -1186,11 +1186,11 @@ describe('FileManager', () => {
       });
       jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(Bytes.fromUtf8(JSON.stringify(coldFileRecord)));
 
-      expect(fm.fileInfoList.find((f) => f.topic.toString() === fileTopic)).toBeUndefined();
+      expect(fm.fileInfoList.find((f) => f.topic === fileTopic)).toBeUndefined();
 
       await fm.move('cold.txt', 'warm.txt', drive.id);
 
-      const moved = fm.fileInfoList.find((f) => f.topic.toString() === fileTopic);
+      const moved = fm.fileInfoList.find((f) => f.topic === fileTopic);
       expect(moved).toBeDefined();
       expect(moved?.path).toBe('warm.txt');
     });
@@ -1217,46 +1217,6 @@ describe('FileManager', () => {
     });
   });
 
-  describe('not-yet-implemented surface', () => {
-    it('getGrantees throws when the drive is unknown', async () => {
-      const fm = await createInitializedFileManager();
-      const fileInfo = await createMockFileInfo(owner, actPublisher);
-
-      await expect(fm.getGrantees(fileInfo)).rejects.toThrow(`getGrantees: not yet migrated to mantaray model`);
-    });
-
-    it('getGrantees throws not-yet-migrated for a known drive', async () => {
-      const fm = await createInitializedFileManager();
-      const drive = fm.driveList[0];
-      const fileInfo = await createMockFileInfo(owner, actPublisher, undefined, { driveId: drive.id.toString() });
-
-      await expect(fm.getGrantees(fileInfo)).rejects.toThrow('getGrantees: not yet migrated to mantaray model');
-    });
-
-    it('share throws not-yet-implemented', async () => {
-      const fm = await createInitializedFileManager();
-      const fileInfo = await createMockFileInfo(owner, actPublisher);
-
-      await expect(fm.share(fileInfo, [], [])).rejects.toThrow('share: not yet implemented in the node-based model');
-    });
-
-    it('subscribeToSharedInbox throws not-yet-implemented', async () => {
-      const fm = await createInitializedFileManager();
-
-      await expect(fm.subscribeToSharedInbox('topic')).rejects.toThrow(
-        'subscribeToSharedInbox: not yet implemented in the node-based model',
-      );
-    });
-
-    it('unsubscribeFromSharedInbox throws not-yet-implemented', async () => {
-      const fm = await createInitializedFileManager();
-
-      expect(() => fm.unsubscribeFromSharedInbox()).toThrow(
-        'unsubscribeFromSharedInbox: not yet implemented in the node-based model',
-      );
-    });
-  });
-
   describe('eventEmitter', () => {
     it('emits FILE_UPLOADED with the persisted FileRecord', async () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
@@ -1277,9 +1237,9 @@ describe('FileManager', () => {
       fm.emitter.off(FileManagerEvents.FILE_UPLOADED, uploadHandler);
 
       expect(uploadHandler).toHaveBeenCalledWith({
-        fileInfo: expect.objectContaining({
+        record: expect.objectContaining({
           batchId: otherMockBatchId.toString(),
-          driveId: di.id.toString(),
+          driveId: di.id,
           path: 'package.json',
           owner,
           redundancyLevel: redundancy,
@@ -1383,7 +1343,7 @@ describe('FileManager', () => {
       ).rejects.toThrow(DriveError);
     });
 
-    it('forwards the abort signal to getNodeManifest downloads in listFolder', async () => {
+    it('forwards the abort signal to getMantarayNode downloads in listFolder', async () => {
       const fm = await createInitializedFileManager();
       const freshDrive = createMockDriveInfo(actPublisher);
 
@@ -1428,7 +1388,7 @@ describe('FileManager', () => {
         owner,
         actPublisher,
         topic: Topic.fromString('signal-file').toString(),
-        driveId: drive.id.toString(),
+        driveId: drive.id,
         path: 'a.txt',
         content: { reference: '1'.repeat(64), historyRef: SWARM_ZERO_ADDRESS.toString() },
         redundancyLevel: RedundancyLevel.OFF,

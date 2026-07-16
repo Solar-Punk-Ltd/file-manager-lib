@@ -24,36 +24,36 @@ export function assertFileRecord(value: unknown): asserts value is FileRecord {
     throw new TypeError('FileRecord has to be object!');
   }
 
-  const fi = value as unknown as FileRecord;
+  const fr = value as unknown as FileRecord;
 
-  new Reference(fi.content.reference);
-  new Reference(fi.batchId);
-  new Reference(fi.content.historyRef);
-  new EthAddress(fi.owner);
-  new Topic(fi.topic);
-  new PublicKey(fi.actPublisher);
+  new Reference(fr.content.reference);
+  new Reference(fr.batchId);
+  new Reference(fr.content.historyRef);
+  new EthAddress(fr.owner);
+  new Topic(fr.topic);
+  new PublicKey(fr.actPublisher);
 
-  if (typeof fi.path !== 'string' || fi.path.length === 0) {
+  if (typeof fr.path !== 'string' || fr.path.length === 0) {
     throw new TypeError('path property of FileRecord has to be a non-empty string!');
   }
 
-  if (fi.customMetadata !== undefined && !isRecord(fi.customMetadata)) {
+  if (fr.customMetadata !== undefined && !isRecord(fr.customMetadata)) {
     throw new TypeError('FileRecord customMetadata has to be object!');
   }
 
-  if (fi.timestamp !== undefined && typeof fi.timestamp !== 'number') {
+  if (fr.timestamp !== undefined && typeof fr.timestamp !== 'number') {
     throw new TypeError('timestamp property of FileRecord has to be number!');
   }
 
-  if (fi.shared !== undefined && typeof fi.shared !== 'boolean') {
+  if (fr.shared !== undefined && typeof fr.shared !== 'boolean') {
     throw new TypeError('shared property of FileRecord has to be boolean!');
   }
 
-  if (fi.redundancyLevel !== undefined && typeof fi.redundancyLevel !== 'number') {
+  if (fr.redundancyLevel !== undefined && typeof fr.redundancyLevel !== 'number') {
     throw new TypeError('redundancyLevel property of FileRecord has to be number!');
   }
 
-  if (fi.status !== undefined && typeof fi.status !== 'string') {
+  if (fr.status !== undefined && typeof fr.status !== 'string') {
     throw new TypeError('status property of FileRecord has to be string!');
   }
 }
@@ -65,7 +65,7 @@ export function assertShareItem(value: unknown): asserts value is ShareItem {
 
   const item = value as unknown as ShareItem;
 
-  assertFileRecord(item.fileInfo);
+  assertFileRecord(item.record);
 
   if (item.timestamp !== undefined && typeof item.timestamp !== 'number') {
     throw new TypeError('timestamp property of ShareItem has to be number!');

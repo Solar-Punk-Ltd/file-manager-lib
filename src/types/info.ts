@@ -54,7 +54,7 @@ export interface FolderInfo extends ManifestHost {
 }
 
 export interface ShareItem {
-  fileInfo: FileRecord;
+  record: FileRecord;
   timestamp?: number;
   message?: string;
 }
