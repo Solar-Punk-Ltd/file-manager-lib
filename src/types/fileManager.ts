@@ -14,7 +14,7 @@ import {
 import { EventEmitter } from '../eventEmitter';
 
 import { DownloadResult } from './download';
-import { DirectoryEntry, DriveInfo, FileRecord, FolderInfo, ListDepth, ShareItem } from './info';
+import { DriveInfo, FileRecord, FolderInfo, ListDepth, NodeEntry, ShareItem } from './info';
 import { UpdateItem, UploadFilesResult, UploadItem } from './upload';
 
 /**
@@ -87,7 +87,7 @@ export interface FileManager {
    * are collected rather than aborting the whole batch.
    * @param driveId - The ID of the drive to upload into.
    * @param items - The files to upload, each with a path relative to destinationPath.
-   * @param destinationPath - Absolute path of the destination folder, or '' / '/' for the drive root.
+   * @param destinationPath - Absolute path of the destination folder, or '/' for the drive root.
    * @param uploadOptions - File-related upload options.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FOLDER_CREATED (per folder created)
@@ -135,7 +135,7 @@ export interface FileManager {
   /**
    * Downloads every file in a folder subtree of a drive (resolved fresh via  {@link listFolder}).
    * @param driveId - The ID of drive to download from.
-   * @param path - Absolute path of the folder; '' / omitted = the whole drive.
+   * @param path - Absolute path of the folder; omitted = the whole drive.
    * @param options - Optional download options.
    * @param requestOptions - Additional Bee request options.
    * @returns A promise that resolves to an array of DownloadResult, one per file in the subtree.
@@ -189,11 +189,11 @@ export interface FileManager {
    * Lists entries in a folder (or drive root) in the drive manifest.
    * Also populates the fileInfoList cache for any file entries encountered.
    * @param driveId - The ID of the drive containing the folder.
-   * @param path - Absolute path of the folder, or '' / '/' for the drive root.
+   * @param path - Absolute path of the folder, or '/' for the drive root.
    * @param depth - Shallow (one level) or Deep (full BFS). Defaults to Shallow.
    * @param maxDepth - Maximum BFS levels when depth is Deep; unlimited if omitted.
    * @param requestOptions - Additional Bee request options.
-   * @returns Array of DirectoryEntry objects for every node found at or below the given path.
+   * @returns Array of {@link NodeEntry} (FileRecord | FolderInfo) for every node found at or below the given path.
    * @throws {DriveError} If not initialized, driveId is not found, or a path segment does not exist.
    * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileInfoError} If a folder feed is missing.
@@ -204,7 +204,7 @@ export interface FileManager {
     depth?: ListDepth,
     maxDepth?: number,
     requestOptions?: BeeRequestOptions,
-  ): Promise<DirectoryEntry[]>;
+  ): Promise<NodeEntry[]>;
 
   /**
    * Soft-delete: move a file to "trash" (it stays in Swarm but is hidden from your live list).
@@ -358,7 +358,7 @@ export interface FileManager {
   /**
    * Creates a new empty folder within a drive.
    * @param driveId - The ID of the drive to create the folder in.
-   * @param parentPath - Absolute path of the parent directory, or '' / '/' for the drive root.
+   * @param parentPath - Absolute path of the parent directory, or '/' for the drive root.
    * @param folderName - Name of the new folder (must not contain '/').
    * @param redundancyLevel - Optional redundancy level; inherits from parent or drive if omitted.
    * @param requestOptions - Additional Bee request options.
@@ -389,6 +389,7 @@ export interface FileManager {
   readonly driveList: DriveInfo[];
 
   // TODO: consider using: Readonly<FileRecord>
+  // TODO: consider renaming to fileList and also maybe use folderlist
   /**
    * Retrieves a list of file records.
    * @returns An array of FileRecord objects.

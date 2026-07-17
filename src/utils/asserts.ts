@@ -1,7 +1,7 @@
 import { BatchId, EthAddress, Identifier, PublicKey, RedundancyLevel, Reference, Topic } from '@ethersphere/bee-js';
 import { Types } from 'cafe-utility';
 
-import { DriveInfo, FileRecord, FileStatus, FolderInfo, NodeResource, ShareItem } from '../types/info';
+import { DriveInfo, FileRecord, FileStatus, FolderInfo, NodeResource, NodeType, ShareItem } from '../types/info';
 import { ActReferences } from '../types/utils';
 
 import {
@@ -52,6 +52,10 @@ export function assertFileRecord(value: unknown): asserts value is FileRecord {
   assertNodeResource(value);
 
   const fr = value as unknown as FileRecord;
+
+  if (fr.type !== NodeType.File) {
+    throw new TypeError('type property of FileRecord has to be NodeType.File!');
+  }
 
   new Identifier(fr.driveId);
   assertActReferences(fr.content);
@@ -108,6 +112,10 @@ export function assertDriveInfo(value: unknown): asserts value is DriveInfo {
 
   const di = value as unknown as DriveInfo;
 
+  if (di.type !== NodeType.Drive) {
+    throw new TypeError('type property of DriveInfo has to be NodeType.Drive!');
+  }
+
   new Identifier(di.id);
 
   if (typeof di.name !== 'string' || di.name.length === 0) {
@@ -127,6 +135,10 @@ export function assertFolderInfo(value: unknown): asserts value is FolderInfo {
   assertNodeResource(value);
 
   const fi = value as unknown as FolderInfo;
+
+  if (fi.type !== NodeType.Folder) {
+    throw new TypeError('type property of FolderInfo has to be NodeType.Folder!');
+  }
 
   new Identifier(fi.driveId);
 
@@ -154,6 +166,7 @@ export function assertDriveInfoFromMetadata(meta: Record<string, string>): Drive
   }
 
   const driveInfo: DriveInfo = {
+    type: NodeType.Drive,
     id,
     name,
     owner,

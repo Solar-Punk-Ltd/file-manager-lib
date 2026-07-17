@@ -167,7 +167,7 @@ describe('FileManager initialization', () => {
       expect(rootEntries.some((e) => e.type === NodeType.File && e.path === 'root.txt')).toBe(true);
       expect(rootEntries.some((e) => e.type === NodeType.Folder && e.path.endsWith('docs'))).toBe(true);
 
-      const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(drive.id));
+      const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(drive.id, '/'));
       const downloadedRoot = downloadResults.find((d) => d.path === 'root.txt');
       const downloadedNested = downloadResults.find((d) => d.path === 'docs/note.txt');
       expect(downloadedRoot).toBeDefined();
@@ -463,6 +463,7 @@ describe('FileManager drive handling', () => {
 
     const now = Date.now();
     const fakeFile = (topic: string, filePath: string): FileRecord => ({
+      type: NodeType.File,
       batchId: created!.batchId,
       owner: signer.publicKey().address().toString(),
       topic,
@@ -615,7 +616,7 @@ describe('FileManager listFolder', () => {
     expect(filePaths).not.toContain('reports/q1.txt');
     expect(filePaths).not.toContain('it-listfolder-dest-src.txt');
 
-    const downloads = await retryOnPropagationDelay(() => fileManager.downloadFolder(drive.id));
+    const downloads = await retryOnPropagationDelay(() => fileManager.downloadFolder(drive.id, '/'));
     const got = downloads.find((d) => d.path === 'inbox/reports/q1.txt');
     expect(got).toBeDefined();
     expect(Buffer.from(await streamToUint8Array(got!.result)).toString('utf-8')).toBe('destination compose content');
@@ -1036,7 +1037,7 @@ describe('FileManager move', () => {
     expect(moved.path).toBe('it-move-b.txt');
     expect(BigInt(moved.version!.toString())).toBe(beforeVersion + 1n);
 
-    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveA.id));
+    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveA.id, '/'));
     const downloaded = downloadResults.find((d) => d.path === 'it-move-b.txt');
     expect(downloaded).toBeDefined();
     expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Move Content A');
@@ -1084,7 +1085,7 @@ describe('FileManager move', () => {
     );
     expect(folderEntries.some((e) => e.path === inboxFilePath)).toBe(false);
 
-    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveA.id));
+    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveA.id, '/'));
     const downloaded = downloadResults.find((d) => d.path === 'note.txt');
     expect(downloaded).toBeDefined();
     expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Inbox Note');
@@ -1149,7 +1150,7 @@ describe('FileManager move', () => {
     const moved = fileManager.fileInfoList.find((fr) => fr.path === xFile && fr.driveId === driveB.id.toString());
     expect(moved).toBeDefined();
 
-    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveB.id));
+    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveB.id, '/'));
     const downloaded = downloadResults.find((d) => d.path === xFile);
     expect(downloaded).toBeDefined();
     expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Cross Drive Content');
@@ -1211,7 +1212,7 @@ describe('FileManager download family', () => {
     );
     expect(result.failed).toHaveLength(0);
 
-    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(drive.id));
+    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(drive.id, '/'));
     expect(downloadResults.map((d) => d.path).sort()).toEqual(['all-a.txt', 'all-b.txt']);
 
     const downloadedA = downloadResults.find((d) => d.path === 'all-a.txt');
@@ -1246,7 +1247,7 @@ describe('FileManager download family', () => {
     const emptyDrive = fileManager.driveList.find((d) => d.name === 'download-empty-drive')!;
     expect(emptyDrive).toBeDefined();
 
-    const downloadResults = await fileManager.downloadFolder(emptyDrive.id);
+    const downloadResults = await fileManager.downloadFolder(emptyDrive.id, '/');
     expect(downloadResults).toEqual([]);
   });
 });

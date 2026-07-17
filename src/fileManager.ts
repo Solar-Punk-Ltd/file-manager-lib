@@ -21,13 +21,14 @@ import {
 import { DownloadResource, DownloadResult } from './types/download';
 import { FileManager } from './types/fileManager';
 import {
-  DirectoryEntry,
   DriveInfo,
   FileRecord,
   FileStatus,
   FolderInfo,
   ListDepth,
   ManifestHost,
+  NodeEntry,
+  NodeHeader,
   NodeType,
   ShareItem,
 } from './types/info';
@@ -48,8 +49,11 @@ import {
   MANIFEST_METADATA_DRIVE_NAME,
   MANIFEST_METADATA_DRIVE_OWNER,
   MANIFEST_METADATA_FILE_TOPIC,
+  MANIFEST_METADATA_NODE_ACT_PUBLISHER,
+  MANIFEST_METADATA_NODE_OWNER,
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
+  MANIFEST_METADATA_NODE_VERSION,
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
   MAX_CONCURRENT_FEED_FETCHES,
   MAX_CONCURRENT_UPLOADS,
@@ -477,6 +481,7 @@ export class FileManagerBase implements FileManager {
 
     const randomId = generateRandomBytes(Identifier.LENGTH);
     const newDrive: DriveInfo = {
+      type: NodeType.Drive,
       id: new Identifier(randomId).toString(),
       name: driveName,
       batchId: batchIdStr,
@@ -548,7 +553,7 @@ export class FileManagerBase implements FileManager {
     depth: ListDepth = ListDepth.Shallow,
     maxDepth?: number,
     requestOptions?: BeeRequestOptions,
-  ): Promise<DirectoryEntry[]> {
+  ): Promise<NodeEntry[]> {
     requestOptions?.signal?.throwIfAborted();
 
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
@@ -565,7 +570,7 @@ export class FileManagerBase implements FileManager {
     };
     const startBasePath = path.split('/').filter(Boolean).join('/');
 
-    const results: DirectoryEntry[] = [];
+    const results: NodeEntry[] = [];
     let visitedNodes: { host: ManifestHost; basePath: string }[] = [{ host: startHost, basePath: startBasePath }];
     let currentDepth = 0;
     const depthLimit = depth === ListDepth.Deep ? (maxDepth ?? Number.MAX_SAFE_INTEGER) : 1;
@@ -573,66 +578,66 @@ export class FileManagerBase implements FileManager {
     while (visitedNodes.length > 0 && currentDepth < depthLimit) {
       requestOptions?.signal?.throwIfAborted();
 
-      const currentDepthEntries: DirectoryEntry[] = [];
-
+      // Phase 1 — expand each manifest into lean fork headers
+      const headers: NodeHeader[] = [];
       await awaitAllPromisesBounded(
-        visitedNodes.map((item) => async (): Promise<DirectoryEntry[]> => {
+        visitedNodes.map((item) => async (): Promise<NodeHeader[]> => {
           const mantaray = await this.getMantarayNode(item.host, publisher, requestOptions);
 
           return getAllNodeEntries(mantaray).map((e) => ({ ...e, path: joinPath(item.basePath, e.path) }));
         }),
         MAX_CONCURRENT_FEED_FETCHES,
-        (entries) => currentDepthEntries.push(...entries),
+        (entries) => headers.push(...entries),
         (reason) => {
           if (requestOptions?.signal?.aborted) return;
           console.error(`listFolder: failed to expand manifest: ${reason}`);
         },
       );
 
-      results.push(...currentDepthEntries);
-      const newFileEntries = currentDepthEntries.filter(
-        (e) => e.type === NodeType.File && !this.fileInfoList.some((f) => f.topic === e.topic),
-      );
-      // TODO: why feedindex / version is not tracked -> expensive lookup
+      // Phase 2 — hydrate file headers into FileRecords (cache-first).
+      const fileHeaders = headers.filter((e) => e.type === NodeType.File);
       await awaitAllPromisesBounded(
-        newFileEntries.map((e) => async (): Promise<FileRecord> => {
+        fileHeaders.map((e) => async (): Promise<FileRecord> => {
+          const cached = this.fileInfoList.find((f) => f.topic === e.topic);
+          if (cached) {
+            cached.path = e.path;
+            return cached;
+          }
+
+          const owner = e.owner ?? this.signerAddress;
+          const actPublisher = e.actPublisher ?? publisher;
           const feedData = await getFeedData(
             this.bee,
             new Topic(e.topic),
-            this.signerAddress,
-            undefined,
+            owner,
+            e.version ? BigInt(e.version) : undefined,
             requestOptions,
           );
-
-          const fr = await this.fetchFileInfo(e.topic, publisher, feedData, requestOptions);
-
-          // In-memory copy is stamped with the path composed while walking — mirrors the
-          // existing version stamp in fetchFileInfo.
+          const fr = await this.fetchFileInfo(e.topic, actPublisher, feedData, requestOptions);
           fr.path = e.path;
-
           return fr;
         }),
         MAX_CONCURRENT_FEED_FETCHES,
-        (fr) => this.fileInfoList.push(fr),
+        (fr) => {
+          if (!this.fileInfoList.some((f) => f.topic === fr.topic)) this.fileInfoList.push(fr);
+          results.push(fr);
+        },
         (reason, ix) => {
           if (requestOptions?.signal?.aborted) return;
-
-          console.error(`listFolder: failed to load file ${newFileEntries[ix].topic}: ${reason}`);
+          console.error(`listFolder: failed to load file ${fileHeaders[ix].topic}: ${reason}`);
         },
       );
 
-      if (depth === ListDepth.Shallow) break;
-
-      const folderEntries = currentDepthEntries.filter((e) => e.type === NodeType.Folder);
+      // Phase 3 — resolve folder headers into FolderInfos (and the next BFS frontier).
+      const folderHeaders = headers.filter((e) => e.type === NodeType.Folder);
       const nextFrontier: { host: ManifestHost; basePath: string }[] = [];
-
       await awaitAllPromisesBounded(
-        folderEntries.map((e) => async (): Promise<{ host: ManifestHost; basePath: string } | null> => {
-          // TODO: why feedindex / version is not tracked -> expensive lookup
+        folderHeaders.map((e) => async (): Promise<FolderInfo | null> => {
+          const owner = e.owner ?? this.signerAddress;
           const { payload, feedIndex, feedIndexNext } = await getFeedData(
             this.bee,
             new Topic(e.topic),
-            this.signerAddress,
+            owner,
             undefined,
             requestOptions,
           );
@@ -643,32 +648,39 @@ export class FileManagerBase implements FileManager {
 
           const manifestRef: ActReferences = payload.toJSON() as ActReferences;
           assertActReferences(manifestRef);
-
           this.nodeFeedIndexCache.set(e.topic, feedIndexNext.toBigInt());
 
-          // TOOD: why as ManifestHost --> don't we need owner- the whole type?
+          const redundancyLevel = e.rawMetadata[MANIFEST_METADATA_REDUNDANCY_LEVEL]
+            ? (parseInt(e.rawMetadata[MANIFEST_METADATA_REDUNDANCY_LEVEL]) as RedundancyLevel)
+            : cachedDrive.redundancyLevel;
+
           return {
-            host: {
-              topic: e.topic,
-              manifestRef,
-              batchId: cachedDrive.batchId,
-              redundancyLevel: cachedDrive.redundancyLevel,
-            } as ManifestHost,
-            basePath: e.path,
+            type: NodeType.Folder,
+            owner,
+            topic: e.topic,
+            manifestRef,
+            batchId: cachedDrive.batchId,
+            redundancyLevel,
+            actPublisher: e.actPublisher ?? publisher,
+            path: e.path,
+            driveId: cachedDrive.id,
+            version: feedIndex.toString(),
           };
         }),
         MAX_CONCURRENT_FEED_FETCHES,
-        (item) => {
-          if (item) {
-            nextFrontier.push(item);
+        (folder) => {
+          if (folder) {
+            results.push(folder);
+            nextFrontier.push({ host: folder, basePath: folder.path });
           }
         },
         (reason, ix) => {
           if (requestOptions?.signal?.aborted) return;
-          console.error(`listFolder: failed to resolve folder ${folderEntries[ix].path}: ${reason}`);
+          console.error(`listFolder: failed to resolve folder ${folderHeaders[ix].path}: ${reason}`);
         },
       );
 
+      // Shallow lists one level: depthLimit is 1, so the loop exits before descending into nextFrontier.
       visitedNodes = nextFrontier;
       currentDepth++;
     }
@@ -679,10 +691,10 @@ export class FileManagerBase implements FileManager {
   }
 
   // Download an entire folder subtree of a drive: resolves the subtree's records fresh (hydrating
-  // via listFolder), then fetches them. path '' (default) = the whole drive.
+  // via listFolder), then fetches them. path '/' the whole drive.
   async downloadFolder(
     driveId: string | Identifier,
-    path: string = '',
+    path: string,
     options?: DownloadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<DownloadResult[]> {
@@ -749,7 +761,7 @@ export class FileManagerBase implements FileManager {
 
     // Resolve the parent folder up front so the new fork inherits the parent's redundancy level.
     const lastSlash = item.path.lastIndexOf('/');
-    const parentPath = lastSlash > 0 ? item.path.substring(0, lastSlash) : '';
+    const parentPath = lastSlash > 0 ? item.path.substring(0, lastSlash) : ROOT_PATH;
     const filename = lastSlash >= 0 ? item.path.substring(lastSlash + 1) : item.path;
 
     const parentFolder = await this.resolveFolder(cachedDrive, parentPath, publisher, requestOptions);
@@ -763,14 +775,7 @@ export class FileManagerBase implements FileManager {
     };
 
     const owner = this.signerAddress;
-    const { topic, version } = await getTopicAndVersion(
-      this.bee,
-      owner,
-      undefined,
-      undefined,
-      undefined,
-      requestOptions,
-    );
+    const { topic, version } = await getTopicAndVersion(this.bee, owner, undefined, undefined, requestOptions);
 
     const contentRefAndHistory = await processUpload(
       this.bee,
@@ -781,6 +786,7 @@ export class FileManagerBase implements FileManager {
       requestOptions,
     );
     const record: FileRecord = {
+      type: NodeType.File,
       batchId: cachedDrive.batchId,
       owner,
       topic,
@@ -803,7 +809,7 @@ export class FileManagerBase implements FileManager {
 
     const mantaray = await this.getMantarayNode(targetHost, publisher, requestOptions);
 
-    addFileToManifest(mantaray, filename, topic);
+    addFileToManifest(mantaray, filename, record);
 
     const newManifestRef = await this.saveMantarayNode(mantaray, targetHost, requestOptions);
 
@@ -819,7 +825,7 @@ export class FileManagerBase implements FileManager {
   async uploadFiles(
     driveId: string | Identifier,
     items: UploadItem[],
-    destinationPath: string = '',
+    destinationPath: string,
     uploadOptions?: RedundantUploadOptions | FileUploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<UploadFilesResult> {
@@ -1001,14 +1007,7 @@ export class FileManagerBase implements FileManager {
           throw new FileInfoError(`Internal error: parent folder not resolved for path: ${planned.fullPath}`);
         }
 
-        const { topic, version } = await getTopicAndVersion(
-          this.bee,
-          owner,
-          undefined,
-          undefined,
-          undefined,
-          requestOptions,
-        );
+        const { topic, version } = await getTopicAndVersion(this.bee, owner, undefined, undefined, requestOptions);
 
         const contentRefAndHistory = await processUpload(
           this.bee,
@@ -1020,6 +1019,7 @@ export class FileManagerBase implements FileManager {
         );
 
         const record: FileRecord = {
+          type: NodeType.File,
           batchId: cachedDrive.batchId,
           owner,
           topic,
@@ -1040,7 +1040,7 @@ export class FileManagerBase implements FileManager {
         record.path = planned.fullPath;
 
         const parentMantaray = await this.getMantarayNode(parentHost, publisher, requestOptions);
-        addFileToManifest(parentMantaray, planned.filename, topic);
+        addFileToManifest(parentMantaray, planned.filename, record);
         dirtyHosts.set(parentHost.topic, parentHost);
 
         this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { record });
@@ -1074,6 +1074,7 @@ export class FileManagerBase implements FileManager {
     return result;
   }
 
+  // TODO: define and verify what we shall allow for update records-> actpublisher, shared etc..
   async updateFile(
     driveId: string | Identifier,
     record: FileRecord,
@@ -1082,8 +1083,8 @@ export class FileManagerBase implements FileManager {
     requestOptions?: BeeRequestOptions,
   ): Promise<FileRecord> {
     requestOptions?.signal?.throwIfAborted();
-    assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const { cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+    const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
 
     const noMeta = !changes.customMetadata || Object.keys(changes.customMetadata).length === 0;
     if (noMeta && !changes.item) {
@@ -1091,16 +1092,11 @@ export class FileManagerBase implements FileManager {
     }
 
     const owner = this.signerAddress;
-    // TODO: track versions for better performance
     const cached = this.fileInfoList.find((f) => f.topic === record.topic);
-    const { topic, version } = await getTopicAndVersion(
-      this.bee,
-      owner,
-      cached,
-      record.topic,
-      undefined,
-      requestOptions,
-    );
+    const { topic, version } = await getTopicAndVersion(this.bee, owner, cached, record.topic, requestOptions);
+
+    const lastSlash = record.path.lastIndexOf('/');
+    const filename = lastSlash >= 0 ? record.path.substring(lastSlash + 1) : record.path;
 
     const mergedMetadata = changes.customMetadata
       ? { ...record.customMetadata, ...changes.customMetadata }
@@ -1125,13 +1121,12 @@ export class FileManagerBase implements FileManager {
       contentRefAndHistory = record.content;
     }
 
-    // TODO: update never renames; the manifest fork key stays authoritative and the
-    // walkers re-derive path from it on hydration, so no split/reassembly here. -> is correct and intended?
     const fr: FileRecord = {
+      type: NodeType.File,
       batchId: record.batchId,
       owner,
       topic,
-      path: record.path,
+      path: filename,
       actPublisher: record.actPublisher,
       content: contentRefAndHistory,
       driveId: record.driveId,
@@ -1144,8 +1139,8 @@ export class FileManagerBase implements FileManager {
     };
 
     await this.saveFileInfoFeed(fr, requestOptions);
-    //TODO: verify, I think this is unnecessary Location is unchanged — restamp the caller-known absolute path (saveFileInfoFeed already
-    // upserted the in-memory fileInfoList entry via uploadFileInfo.
+    await this.syncForkVersion(cachedDrive, driveIx, record.path, version, publisher, requestOptions);
+
     fr.path = record.path;
 
     this.emitter.emit(FileManagerEvents.FILE_UPDATED, { record: fr });
@@ -1181,12 +1176,15 @@ export class FileManagerBase implements FileManager {
   }
 
   async restoreFileVersion(versionToRestore: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
-    assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+    const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(versionToRestore.driveId).toString());
 
     const { feedIndex, feedIndexNext } = await getFeedData(
       this.bee,
       new Topic(versionToRestore.topic),
       versionToRestore.owner,
+      undefined,
+      requestOptions,
     );
     if (feedIndex.equals(FeedIndex.MINUS_ONE.toString())) {
       throw new FileInfoError('Record feed not found');
@@ -1203,16 +1201,14 @@ export class FileManagerBase implements FileManager {
       );
     }
 
-    // Restoring a version restores content, not location — keep the current tree position.
-    // versionToRestore may come raw from getFileVersion (relative, unstamped path); the cached
-    // entry carries the walk-derived absolute path.
     // TODO: if cached is not found -> split full path versionToRestore and only use the relative path/name
     const cached = this.fileInfoList.find((f) => f.topic === versionToRestore.topic);
 
+    const newVersion = feedIndexNext.toString();
     const restored: FileRecord = {
       ...versionToRestore,
       path: cached?.path ?? versionToRestore.path,
-      version: feedIndexNext.toString(),
+      version: newVersion,
       content: {
         reference: versionToRestore.content.reference,
         historyRef: versionToRestore.content.historyRef,
@@ -1221,6 +1217,7 @@ export class FileManagerBase implements FileManager {
     };
 
     await this.saveFileInfoFeed(restored, requestOptions);
+    await this.syncForkVersion(cachedDrive, driveIx, restored.path, newVersion, publisher, requestOptions);
 
     this.emitter.emit(FileManagerEvents.FILE_VERSION_RESTORED, {
       restored,
@@ -1261,7 +1258,7 @@ export class FileManagerBase implements FileManager {
       throw new FileInfoError(`Failed to save record: ${error.message || error}`);
     }
   }
-
+  // TODO: refator, no need for a full host object
   private async getMantarayNode(
     host: ManifestHost,
     publisher: string,
@@ -1304,6 +1301,52 @@ export class FileManagerBase implements FileManager {
     this.nodeFeedIndexCache.set(host.topic, newIndex);
 
     return contentRefs;
+  }
+
+  /**
+   * Keep a file fork's cached head version ({@link MANIFEST_METADATA_NODE_VERSION}) in sync with the
+   * feed after a version-advancing op, and persist the parent manifest. This is what makes
+   * listFolder's fetch-by-index fast path correct — every op that advances a file feed must call it.
+   * The fork key never changes here (no rename); this is a same-location version bump only.
+   * @throws {DriveError} If the fork is not found at the given path.
+   */
+  private async syncForkVersion(
+    drive: DriveInfo,
+    driveIx: number,
+    absolutePath: string,
+    newVersion: string,
+    publisher: string,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void> {
+    const lastSlash = absolutePath.lastIndexOf('/');
+    const parentPath = lastSlash > 0 ? absolutePath.substring(0, lastSlash) : ROOT_PATH;
+    const filename = lastSlash >= 0 ? absolutePath.substring(lastSlash + 1) : absolutePath;
+
+    const parentFolder = await this.resolveFolder(drive, parentPath, publisher, requestOptions);
+    const parentHost: ManifestHost = parentFolder ?? {
+      owner: this.signerAddress,
+      topic: drive.topic,
+      manifestRef: drive.manifestRef,
+      batchId: drive.batchId,
+      redundancyLevel: drive.redundancyLevel,
+      actPublisher: publisher,
+    };
+
+    const parentMantaray = await this.getMantarayNode(parentHost, publisher, requestOptions);
+    const fileFork = parentMantaray.find(filename);
+    if (!fileFork) {
+      throw new DriveError(`Path not found: ${absolutePath}`);
+    }
+
+    const forkMetadata = { ...(fileFork.metadata ?? {}) };
+    forkMetadata[MANIFEST_METADATA_NODE_VERSION] = newVersion;
+    parentMantaray.removeFork(filename);
+    parentMantaray.addFork(filename, fileFork.targetAddress, forkMetadata);
+
+    const newManifestRef = await this.saveMantarayNode(parentMantaray, parentHost, requestOptions);
+    if (!parentFolder) {
+      this.driveList[driveIx].manifestRef = newManifestRef;
+    }
   }
 
   private async saveFileInfoFeed(fr: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
@@ -1360,7 +1403,7 @@ export class FileManagerBase implements FileManager {
     // make sure that version tracks the actual feed index
     record.version = feeData.feedIndex.toString();
     this.fileInfoHistoryCache.set(topic, contentRefs.historyRef);
-
+    // TODO: this.nodeFeedIndexCache.set(topic, record.verison) can simply be set here
     return record;
   }
 
@@ -1370,6 +1413,8 @@ export class FileManagerBase implements FileManager {
     newStatus: FileStatus,
     invalidStateMessage: string,
   ): Promise<FileRecord> {
+    const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(record.driveId).toString());
     const fr = this.fileInfoList.find((f) => f.topic === record.topic);
 
     if (!fr) {
@@ -1395,19 +1440,17 @@ export class FileManagerBase implements FileManager {
 
     await this.saveFileInfoFeed(fr);
 
+    await this.syncForkVersion(cachedDrive, driveIx, fr.path, fr.version, publisher);
+
     return fr;
   }
 
   async trashFile(record: FileRecord): Promise<void> {
-    assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-
     const fr = await this.setFileStatus(record, undefined, FileStatus.Trashed, 'File already Trashed');
     this.emitter.emit(FileManagerEvents.FILE_TRASHED, { record: fr });
   }
 
   async recoverFile(record: FileRecord): Promise<void> {
-    assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-
     const fr = await this.setFileStatus(
       record,
       FileStatus.Trashed,
@@ -1427,7 +1470,7 @@ export class FileManagerBase implements FileManager {
     }
 
     const lastSlash = path.lastIndexOf('/');
-    const parentPath = lastSlash > 0 ? path.substring(0, lastSlash) : '';
+    const parentPath = lastSlash > 0 ? path.substring(0, lastSlash) : ROOT_PATH;
     const name = lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
 
     const parentFolder = await this.resolveFolder(cachedDrive, parentPath, publisher, requestOptions);
@@ -1603,11 +1646,11 @@ export class FileManagerBase implements FileManager {
     }
 
     const srcLastSlash = fromPath.lastIndexOf('/');
-    const srcParentPath = srcLastSlash > 0 ? fromPath.substring(0, srcLastSlash) : '';
+    const srcParentPath = srcLastSlash > 0 ? fromPath.substring(0, srcLastSlash) : ROOT_PATH;
     const srcName = srcLastSlash >= 0 ? fromPath.substring(srcLastSlash + 1) : fromPath;
 
     const tgtLastSlash = toPath.lastIndexOf('/');
-    const tgtParentPath = tgtLastSlash > 0 ? toPath.substring(0, tgtLastSlash) : '';
+    const tgtParentPath = tgtLastSlash > 0 ? toPath.substring(0, tgtLastSlash) : ROOT_PATH;
     const tgtName = tgtLastSlash >= 0 ? toPath.substring(tgtLastSlash + 1) : toPath;
 
     const srcParentFolder = await this.resolveFolder(cachedSource, srcParentPath, publisher, requestOptions);
@@ -1628,7 +1671,7 @@ export class FileManagerBase implements FileManager {
     }
 
     const forkMetadata = sourceFork.metadata ?? {};
-    const isFile = !!forkMetadata[MANIFEST_METADATA_FILE_TOPIC];
+    const isFile = forkMetadata[MANIFEST_METADATA_NODE_TYPE] === NodeType.File;
 
     const tgtParentFolder = await this.resolveFolder(cachedTargetDrive, tgtParentPath, publisher, requestOptions);
     const tgtParentHost: ManifestHost = tgtParentFolder ?? {
@@ -1638,6 +1681,7 @@ export class FileManagerBase implements FileManager {
       batchId: cachedTargetDrive.batchId,
       redundancyLevel: cachedTargetDrive.redundancyLevel,
       actPublisher: publisher,
+      version: forkMetadata[MANIFEST_METADATA_NODE_VERSION] ?? undefined,
     };
     const sameParent = srcParentHost.topic === tgtParentHost.topic;
     const targetMantaray = sameParent
@@ -1653,7 +1697,6 @@ export class FileManagerBase implements FileManager {
       let fr = this.fileInfoList.find((f) => f.topic === fileTopic);
       // Lazy init - fetch it on demand.
       if (!fr) {
-        // TODO: why feedindex / version is not tracked -> expensive lookup
         const feedData = await getFeedData(
           this.bee,
           new Topic(fileTopic),
@@ -1666,10 +1709,9 @@ export class FileManagerBase implements FileManager {
           throw new FileInfoError(`File feed not found for topic: ${fileTopic.slice(0, 6)}`);
         }
 
-        this.nodeFeedIndexCache.set(fileTopic, feedData.feedIndexNext.toBigInt());
-
         fr = await this.fetchFileInfo(fileTopic, publisher, feedData, requestOptions);
 
+        this.nodeFeedIndexCache.set(fileTopic, feedData.feedIndexNext.toBigInt());
         this.fileInfoList.push(fr);
       }
 
@@ -1685,24 +1727,23 @@ export class FileManagerBase implements FileManager {
       await this.saveFileInfoFeed(fr, requestOptions);
       // In-memory copy is stamped with the caller-known absolute destination — no walk needed here.
       fr.path = toPath;
+      forkMetadata[MANIFEST_METADATA_NODE_VERSION] = fr.version;
     }
-
-    const updatedMetadata: Record<string, string> = { ...forkMetadata };
 
     sourceMantaray.removeFork(srcName);
     if (sameParent) {
-      sourceMantaray.addFork(tgtName, sourceFork.targetAddress, updatedMetadata);
+      sourceMantaray.addFork(tgtName, sourceFork.targetAddress, forkMetadata);
     } else {
-      targetMantaray.addFork(tgtName, sourceFork.targetAddress, updatedMetadata);
+      targetMantaray.addFork(tgtName, sourceFork.targetAddress, forkMetadata);
     }
 
     const newSrcManifestRef = await this.saveMantarayNode(sourceMantaray, srcParentHost, requestOptions);
-
+    // TODO: is the right drive save below - check target and source mantarays
     if (!srcParentFolder) {
       this.driveList[targetDriveIx].manifestRef = newSrcManifestRef;
     }
 
-    if (!sameParent && targetDriveIx) {
+    if (!sameParent) {
       const newTgtManifestRef = await this.saveMantarayNode(targetMantaray, tgtParentHost, requestOptions);
 
       if (!tgtParentFolder) {
@@ -1782,6 +1823,7 @@ export class FileManagerBase implements FileManager {
       this.nodeFeedIndexCache.set(folderTopic, folderFeedIndexNext.toBigInt());
 
       currentFolderInfo = {
+        type: NodeType.Folder,
         owner: this.signerAddress,
         topic: folderTopic,
         manifestRef: folderManifestRef,
@@ -1830,6 +1872,7 @@ export class FileManagerBase implements FileManager {
     await fw.uploadPayload(driveInfo.batchId, JSON.stringify(newFolderManifestRef), { index: FEED_INDEX_ZERO });
 
     const folderInfo: FolderInfo = {
+      type: NodeType.Folder,
       owner: this.signerAddress,
       topic: newFolderTopic,
       manifestRef: newFolderManifestRef,
@@ -1844,11 +1887,13 @@ export class FileManagerBase implements FileManager {
     this.nodeFeedIndexCache.set(newFolderTopic, 1n);
 
     const parentMantaray = await this.getMantarayNode(parentHost, publisher, requestOptions);
-
+    // TODO: use the addFileToManifest helper and refactor if possible
     parentMantaray.addFork(folderName, new Reference(newFolderTopic), {
       [MANIFEST_METADATA_NODE_TOPIC]: newFolderTopic,
       [MANIFEST_METADATA_NODE_TYPE]: NodeType.Folder,
       [MANIFEST_METADATA_REDUNDANCY_LEVEL]: effectiveRedundancy.toString(),
+      [MANIFEST_METADATA_NODE_OWNER]: folderInfo.owner,
+      [MANIFEST_METADATA_NODE_ACT_PUBLISHER]: folderInfo.actPublisher,
     });
 
     return folderInfo;

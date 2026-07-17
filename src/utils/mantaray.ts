@@ -9,11 +9,18 @@ import {
   Topic,
 } from '@ethersphere/bee-js';
 
-import { DirectoryEntry, ManifestHost, NodeType } from '../types/info';
+import { FileRecord, ManifestHost, NodeHeader, NodeType } from '../types/info';
 import { ActReferences } from '../types/utils';
 
 import { getFeedData } from './bee';
-import { MANIFEST_METADATA_FILE_TOPIC, MANIFEST_METADATA_NODE_TOPIC, MANIFEST_METADATA_NODE_TYPE } from './constants';
+import {
+  MANIFEST_METADATA_FILE_TOPIC,
+  MANIFEST_METADATA_NODE_ACT_PUBLISHER,
+  MANIFEST_METADATA_NODE_OWNER,
+  MANIFEST_METADATA_NODE_TOPIC,
+  MANIFEST_METADATA_NODE_TYPE,
+  MANIFEST_METADATA_NODE_VERSION,
+} from './constants';
 
 export async function loadMantaray(
   bee: Bee,
@@ -26,11 +33,11 @@ export async function loadMantaray(
   return mantaray;
 }
 
-export function getAllNodeEntries(root: MantarayNode): DirectoryEntry[] {
+export function getAllNodeEntries(root: MantarayNode): NodeHeader[] {
   const nodes = root.collect();
 
   return nodes
-    .map((node): DirectoryEntry | null => {
+    .map((node): NodeHeader | null => {
       const meta = node.metadata ?? {};
       const nodeType = meta[MANIFEST_METADATA_NODE_TYPE] as NodeType | undefined;
       const nodeTopic = meta[MANIFEST_METADATA_NODE_TOPIC];
@@ -41,11 +48,13 @@ export function getAllNodeEntries(root: MantarayNode): DirectoryEntry[] {
         path: node.fullPathString,
         type: nodeType,
         topic: nodeTopic,
-        fileTopic: nodeType === NodeType.File ? meta[MANIFEST_METADATA_FILE_TOPIC] : undefined,
+        owner: meta[MANIFEST_METADATA_NODE_OWNER],
+        actPublisher: meta[MANIFEST_METADATA_NODE_ACT_PUBLISHER],
+        version: meta[MANIFEST_METADATA_NODE_VERSION],
         rawMetadata: { ...meta },
       };
     })
-    .filter((e): e is DirectoryEntry => e !== null);
+    .filter((e): e is NodeHeader => e !== null);
 }
 
 export interface SavedManifest {
@@ -91,10 +100,14 @@ export async function saveNodeManifest(
   return { contentRefs: newManifestRef, newIndex: writeIndex + 1n };
 }
 
-export function addFileToManifest(mantaray: MantarayNode, filename: string, fileTopic: string): void {
-  mantaray.addFork(filename, new Reference(fileTopic), {
-    [MANIFEST_METADATA_FILE_TOPIC]: fileTopic,
-    [MANIFEST_METADATA_NODE_TOPIC]: fileTopic,
+export function addFileToManifest(mantaray: MantarayNode, filename: string, record: FileRecord): void {
+  // Non-confidential fields only — see the fork-metadata INVARIANT in constants.ts.
+  mantaray.addFork(filename, new Reference(record.topic), {
+    [MANIFEST_METADATA_FILE_TOPIC]: record.topic,
+    [MANIFEST_METADATA_NODE_TOPIC]: record.topic,
     [MANIFEST_METADATA_NODE_TYPE]: NodeType.File,
+    [MANIFEST_METADATA_NODE_OWNER]: record.owner,
+    [MANIFEST_METADATA_NODE_ACT_PUBLISHER]: record.actPublisher,
+    ...(record.version !== undefined ? { [MANIFEST_METADATA_NODE_VERSION]: record.version } : {}),
   });
 }

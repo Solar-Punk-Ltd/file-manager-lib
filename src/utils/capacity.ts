@@ -1,6 +1,6 @@
 import { BatchId, FeedIndex, PrivateKey, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 
-import { DriveInfo, FileRecord } from '../types/info';
+import { DriveInfo, FileRecord, NodeType } from '../types/info';
 import { ActReferences } from '../types/utils';
 
 import { getEncodedSize } from './common';
@@ -23,6 +23,7 @@ const ACT_OVERHEAD_SIZE = 250;
 // shall be about 304 bytes with an upper limit of 40 on the name length
 const dummyId = SWARM_ZERO_ADDRESS;
 const dummyDriveInfo: DriveInfo = {
+  type: NodeType.Drive,
   id: dummyId.toString(),
   name: 'a'.repeat(40),
   batchId: DUMMY_STAMP.toString(),
@@ -34,6 +35,7 @@ const dummyDriveInfo: DriveInfo = {
 };
 const dummyDriveInfoSize = getEncodedSize(JSON.stringify(dummyDriveInfo));
 const dummyFileRecord: FileRecord = {
+  type: NodeType.File,
   batchId: DUMMY_STAMP.toString(),
   content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
   path: 'a'.repeat(40),

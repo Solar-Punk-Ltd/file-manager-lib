@@ -24,13 +24,14 @@ export interface NodeResource {
   owner: string;
   redundancyLevel: RedundancyLevel;
   actPublisher: string;
+  version?: string;
 }
 
 export interface FileRecord extends NodeResource {
+  type: NodeType.File;
   driveId: string;
   path: string;
   content: ActReferences;
-  version?: string;
   timestamp?: number;
   shared?: boolean;
   status?: FileStatus;
@@ -43,21 +44,34 @@ export interface ManifestHost extends NodeResource {
 }
 
 export interface DriveInfo extends ManifestHost {
+  type: NodeType.Drive;
   id: string;
   name: string;
   isAdmin: boolean;
 }
 
 export interface FolderInfo extends ManifestHost {
+  type: NodeType.Folder;
   path: string;
   driveId: string;
 }
 
-export interface DirectoryEntry {
+export type NodeEntry = FileRecord | FolderInfo;
+
+/**
+ * Lean projection of a manifest fork, produced from fork metadata alone (no feed fetch).
+ * {@link FileManager.listFolder} hydrates these into full {@link NodeEntry} objects.
+ * `head`/`version`/`owner`/`actPublisher` come from enriched fork metadata and enable a future
+ * hydration that skips the feed lookup — the fork head-pointer fast path.
+ */
+export interface NodeHeader {
   path: string;
   type: NodeType;
   topic: string;
-  fileTopic?: string;
+  owner?: string;
+  actPublisher?: string;
+  version?: string;
+  head?: ActReferences;
   rawMetadata: Record<string, string>;
 }
 

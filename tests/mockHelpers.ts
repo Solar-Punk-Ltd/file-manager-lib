@@ -26,7 +26,7 @@ import { BEE_URL, DEFAULT_MOCK_SIGNER } from './utils';
 
 import { EventEmitter } from '@/eventEmitter/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
-import { DriveInfo, FileRecord } from '@/types';
+import { DriveInfo, FileRecord, NodeType } from '@/types';
 import { FileManagerEvents } from '@/utils';
 import { ADMIN_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
@@ -87,6 +87,7 @@ export async function createMockFileInfo(
   overrides?: Partial<FileRecord>,
 ): Promise<FileRecord> {
   return {
+    type: NodeType.File,
     batchId: MOCK_BATCH_ID,
     path: '/john doe',
     topic: Topic.fromString('file-1').toString(),
@@ -104,6 +105,7 @@ export async function createMockFileInfo(
 
 export function createMockDriveInfo(actPublisher: string, overrides?: Partial<DriveInfo>): DriveInfo {
   return {
+    type: NodeType.Drive,
     id: Identifier.fromString('123').toString(),
     batchId: MOCK_BATCH_ID,
     owner: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),

@@ -1,4 +1,4 @@
-export type { DriveInfo, DirectoryEntry, FileRecord, FolderInfo, ManifestHost, ShareItem } from './info';
+export type { DriveInfo, FileRecord, FolderInfo, ManifestHost, NodeEntry, NodeHeader, ShareItem } from './info';
 export { ListDepth, NodeType, FileStatus } from './info';
 export type { BrowserUploadOptions, NodeUploadOptions, UploadItem, UpdateItem, UploadFilesResult } from './upload';
 export type { DownloadResource, DownloadResult } from './download';

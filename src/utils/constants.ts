@@ -14,6 +14,11 @@ export const MANIFEST_METADATA_FILE_TOPIC = 'swarm-file-topic';
 export const MANIFEST_METADATA_NODE_TOPIC = 'swarm-node-topic';
 export const MANIFEST_METADATA_NODE_TYPE = 'swarm-node-type';
 export const MANIFEST_METADATA_REDUNDANCY_LEVEL = 'swarm-redundancy-level';
+// Per-node (file/folder) fork metadata. INVARIANT: visible to anyone with list/manifest ACT —
+// non-confidential fields only. Sensitive metadata (customMetadata, …) stays in the ACT-encrypted record.
+export const MANIFEST_METADATA_NODE_OWNER = 'swarm-node-owner';
+export const MANIFEST_METADATA_NODE_ACT_PUBLISHER = 'swarm-node-act-publisher';
+export const MANIFEST_METADATA_NODE_VERSION = 'swarm-node-version';
 export const MANIFEST_METADATA_DRIVE_ID = 'swarm-drive-id';
 export const MANIFEST_METADATA_DRIVE_NAME = 'swarm-drive-name';
 export const MANIFEST_METADATA_DRIVE_OWNER = 'swarm-drive-owner';

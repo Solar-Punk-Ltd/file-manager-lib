@@ -45,7 +45,6 @@ export async function getTopicAndVersion(
   address: string | EthAddress,
   record?: FileRecord,
   currentTopic?: string | Topic,
-  currentVersion?: string,
   requestOptions?: BeeRequestOptions,
 ): Promise<{ topic: string; version: string }> {
   let version: string | undefined;
@@ -56,7 +55,6 @@ export async function getTopicAndVersion(
     version = FEED_INDEX_ZERO.toString();
     topic = new Topic(randomTopic).toString();
   } else {
-    version = currentVersion;
     topic = currentTopic.toString();
   }
 

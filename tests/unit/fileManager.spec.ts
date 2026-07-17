@@ -23,7 +23,7 @@ import { BEE_URL, DEFAULT_MOCK_SIGNER } from '../utils';
 
 import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
-import { DirectoryEntry, DriveInfo, FileRecord, FileStatus, ListDepth, NodeType } from '@/types';
+import { DriveInfo, FileRecord, FileStatus, ListDepth, NodeHeader, NodeType } from '@/types';
 import { FeedResultWithIndex } from '@/types/utils';
 import { DriveError, FileError, FileInfoError, FileManagerEvents, SignerError } from '@/utils';
 import { fetchStamp, getFeedData } from '@/utils/bee';
@@ -336,6 +336,7 @@ describe('FileManager', () => {
   describe('downloadFolder & downloadFile', () => {
     function seedFile(drive: DriveInfo, path: string, ref: string): FileRecord {
       return {
+        type: NodeType.File,
         batchId: MOCK_BATCH_ID,
         owner,
         actPublisher,
@@ -357,7 +358,7 @@ describe('FileManager', () => {
 
       const downloadReadableDataSpy = jest.spyOn(Bee.prototype, 'downloadReadableData');
 
-      const results = await fm.downloadFolder(drive.id);
+      const results = await fm.downloadFolder(drive.id, '/');
 
       expect(downloadReadableDataSpy).toHaveBeenCalledWith(
         '1'.repeat(64),
@@ -396,7 +397,7 @@ describe('FileManager', () => {
 
       const downloadReadableDataSpy = jest.spyOn(Bee.prototype, 'downloadReadableData');
 
-      const results = await fm.downloadFolder(drive.id);
+      const results = await fm.downloadFolder(drive.id, '/');
 
       expect(downloadReadableDataSpy).toHaveBeenCalledTimes(1);
       expect(results).toHaveLength(1);
@@ -407,6 +408,7 @@ describe('FileManager', () => {
   describe('downloadFiles', () => {
     function makeRecord(drive: DriveInfo, path: string, ref: string): FileRecord {
       return {
+        type: NodeType.File,
         batchId: MOCK_BATCH_ID,
         owner,
         actPublisher,
@@ -457,8 +459,8 @@ describe('FileManager', () => {
 
       const topicA = Topic.fromString('list-a').toString();
       const topicB = Topic.fromString('list-b').toString();
-      const entryA: DirectoryEntry = { path: 'a.txt', type: NodeType.File, topic: topicA, rawMetadata: {} };
-      const entryB: DirectoryEntry = { path: 'b.txt', type: NodeType.File, topic: topicB, rawMetadata: {} };
+      const entryA: NodeHeader = { path: 'a.txt', type: NodeType.File, topic: topicA, rawMetadata: {} };
+      const entryB: NodeHeader = { path: 'b.txt', type: NodeType.File, topic: topicB, rawMetadata: {} };
 
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
       const { getAllNodeEntries } = require('@/utils/mantaray');
@@ -466,6 +468,7 @@ describe('FileManager', () => {
 
       // b.txt is already hydrated -> must be skipped during this call
       fm.fileInfoList.push({
+        type: NodeType.File,
         batchId: MOCK_BATCH_ID,
         owner,
         actPublisher,
@@ -489,6 +492,7 @@ describe('FileManager', () => {
       jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(
         Bytes.fromUtf8(
           JSON.stringify({
+            type: NodeType.File,
             batchId: MOCK_BATCH_ID,
             owner,
             actPublisher,
@@ -501,11 +505,17 @@ describe('FileManager', () => {
         ),
       );
 
+      // listFolder now returns hydrated FileRecords (not raw headers): a.txt fetched, b.txt from cache.
       const results = await fm.listFolder(drive.id, '');
 
-      expect(results).toEqual([entryA, entryB]);
+      expect(results).toHaveLength(2);
+      const byTopic = Object.fromEntries(results.map((r) => [r.topic, r]));
+      expect(byTopic[topicA].type).toBe(NodeType.File);
+      expect(byTopic[topicA].path).toBe('a.txt');
+      expect(byTopic[topicB].path).toBe('b.txt');
       expect(fm.fileInfoList.filter((f) => f.topic === topicA)).toHaveLength(1);
       expect(fm.fileInfoList.filter((f) => f.topic === topicB)).toHaveLength(1);
+      // Only a.txt triggers a feed lookup; b.txt is served from the cache.
       expect(getFeedData).toHaveBeenCalledTimes(1);
     });
 
@@ -520,7 +530,7 @@ describe('FileManager', () => {
       const fm = await createInitializedFileManager();
       const drive = fm.driveList[0];
       const folderTopic = Topic.fromString('sub-folder').toString();
-      const folderEntry: DirectoryEntry = { path: 'sub', type: NodeType.Folder, topic: folderTopic, rawMetadata: {} };
+      const folderEntry: NodeHeader = { path: 'sub', type: NodeType.Folder, topic: folderTopic, rawMetadata: {} };
 
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
       const { getAllNodeEntries } = require('@/utils/mantaray');
@@ -536,7 +546,11 @@ describe('FileManager', () => {
 
       const results = await fm.listFolder(drive.id, '', ListDepth.Deep, 1);
 
-      expect(results).toEqual([folderEntry]);
+      // Resolved into a hydrated FolderInfo; maxDepth=1 stops before recursing into it.
+      expect(results).toHaveLength(1);
+      expect(results[0].type).toBe(NodeType.Folder);
+      expect(results[0].topic).toBe(folderTopic);
+      expect(results[0].path).toBe('sub');
     });
   });
 
@@ -695,40 +709,25 @@ describe('FileManager', () => {
       expect(updated.content).toEqual(record.content);
     });
 
-    it('never touches the drive manifest (no fork add, no manifest save) even when uploading new bytes', async () => {
+    it('re-saves the parent manifest to sync the fork version when re-versioning', async () => {
       const { fm, di, record } = await seedUploadedFile();
       const saveManifestSpy = jest.spyOn(fm as any, 'saveMantarayNode');
       await fm.updateFile(di.id, record, { item: { sourcePath: 'package.json' } });
 
-      expect(saveManifestSpy).not.toHaveBeenCalled();
+      // The fork's cached NODE_VERSION must track the feed head, so update now persists the manifest.
+      expect(saveManifestSpy).toHaveBeenCalledTimes(1);
     });
 
-    it('uploads new bytes: derives actHistoryAddress from the record and bumps the version', async () => {
-      const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
-      const di = fm.driveList[1];
-      const topic = Topic.fromString('update-new-bytes').toString();
-      const priorHistoryRef = '9'.repeat(64);
-
-      const record: FileRecord = {
-        batchId: MOCK_BATCH_ID,
-        owner,
-        actPublisher,
-        topic,
-        redundancyLevel: RedundancyLevel.OFF,
-        driveId: di.id,
-        path: 'package.json',
-        content: { reference: '8'.repeat(64), historyRef: priorHistoryRef },
-        version: FEED_INDEX_ZERO.toString(),
-      };
-      fm.fileInfoList.push(record);
+    it('uploads new bytes: re-versions an existing file and derives ACT history from the record', async () => {
+      // A real upload seeds the fork; update now syncs that fork's version, so the fork must exist.
+      const { fm, di, record } = await seedUploadedFile();
       const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
 
       await fm.updateFile(di.id, record, { item: { sourcePath: 'package.json' } });
-      // TODO: called 21 times ? -> mantaray saveRecursively
-      expect(uploadDataSpy).toHaveBeenCalledTimes(21);
+      // New content bytes are uploaded; updateFile derives actHistoryAddress from record.content.
+      expect(uploadDataSpy).toHaveBeenCalled();
 
-      const updated = fm.fileInfoList.find((fr) => fr.topic === topic)!;
+      const updated = fm.fileInfoList.find((fr) => fr.topic === record.topic)!;
       expect(updated.version).toBe(FeedIndex.fromBigInt(1n).toString());
       expect(updated.path).toBe('package.json');
     });
@@ -753,6 +752,7 @@ describe('FileManager', () => {
       const fm = await createInitializedFileManager();
       const ghost = createMockDriveInfo(actPublisher, { id: '7'.repeat(64), name: 'ghost' });
       const record: FileRecord = {
+        type: NodeType.File,
         batchId: MOCK_BATCH_ID,
         owner,
         redundancyLevel: RedundancyLevel.OFF,
@@ -800,6 +800,7 @@ describe('FileManager', () => {
 
     const dummyTopic = Topic.fromString('deadbeef').toString();
     const dummyFi: FileRecord = {
+      type: NodeType.File,
       topic: dummyTopic,
       content: { historyRef: SWARM_ZERO_ADDRESS.toString(), reference: SWARM_ZERO_ADDRESS.toString() },
       owner,
@@ -870,7 +871,7 @@ describe('FileManager', () => {
 
     it('restoring the current head is a no-op and throws', async () => {
       const head = FeedIndex.fromBigInt(5n);
-      const headFi = { ...dummyFi, version: head.toString() };
+      const headFi = { ...dummyFi, driveId: fm.driveList[0].id, version: head.toString() };
 
       (getFeedData as jest.Mock).mockResolvedValue({
         feedIndex: head,
@@ -894,7 +895,19 @@ describe('FileManager', () => {
         payload: SWARM_ZERO_ADDRESS,
       });
 
-      await expect(fm.restoreFileVersion({ ...dummyFi, version: '2' })).rejects.toThrow('Record feed not found');
+      await expect(fm.restoreFileVersion({ ...dummyFi, driveId: fm.driveList[0].id, version: '2' })).rejects.toThrow(
+        'Record feed not found',
+      );
+    });
+
+    it('restoreFileVersion fails fast when the drive is not found, without touching the feed', async () => {
+      (getFeedData as jest.Mock).mockClear();
+
+      await expect(fm.restoreFileVersion({ ...dummyFi, version: '2' })).rejects.toThrow(
+        `Drive with id ${dummyFi.driveId.slice(0, 6)} not found`,
+      );
+
+      expect(getFeedData).not.toHaveBeenCalled();
     });
   });
 
@@ -978,6 +991,7 @@ describe('FileManager', () => {
 
       fm.fileInfoList.push(
         {
+          type: NodeType.File,
           batchId: target.batchId,
           owner,
           actPublisher,
@@ -988,6 +1002,7 @@ describe('FileManager', () => {
           redundancyLevel: RedundancyLevel.OFF,
         },
         {
+          type: NodeType.File,
           batchId: target.batchId,
           owner,
           actPublisher,
@@ -1035,20 +1050,10 @@ describe('FileManager', () => {
     beforeEach(async () => {
       fm = await createInitializedFileManager();
       drive = fm.driveList[0];
-      fileRecord = {
-        batchId: MOCK_BATCH_ID,
-        owner,
-        actPublisher,
-        topic: Topic.fromString('lifecycle-target').toString(),
-        driveId: drive.id,
-        path: 'notes.txt',
-        content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
-        version: FEED_INDEX_ZERO.toString(),
-        status: FileStatus.Active,
-        timestamp: 0,
-        redundancyLevel: RedundancyLevel.OFF,
-      };
-      fm.fileInfoList.push(fileRecord);
+      // Upload a real file so the drive manifest carries its fork — trash/recover now sync the
+      // fork's cached version, which requires the fork to actually exist.
+      await fm.uploadFile(drive.id, { path: 'notes.txt', sourcePath: 'package.json' });
+      fileRecord = fm.fileInfoList.find((f) => f.path === 'notes.txt')!;
     });
 
     it('trashFile marks the file trashed, bumps version, and emits FILE_TRASHED', async () => {
@@ -1115,6 +1120,7 @@ describe('FileManager', () => {
       await fm.createFolder(drive.id, '', 'Docs');
 
       fm.fileInfoList.push({
+        type: NodeType.File,
         batchId: MOCK_BATCH_ID,
         owner,
         actPublisher,
@@ -1171,6 +1177,7 @@ describe('FileManager', () => {
         topic: fileTopic,
         driveId: drive.id,
         path: 'cold.txt',
+        type: NodeType.File,
         batchId: MOCK_BATCH_ID,
         owner,
         actPublisher,
@@ -1385,6 +1392,7 @@ describe('FileManager', () => {
       const fm = await createInitializedFileManager();
       const drive = fm.driveList[0];
       const rec: FileRecord = {
+        type: NodeType.File,
         batchId: MOCK_BATCH_ID,
         owner,
         actPublisher,
@@ -1413,9 +1421,7 @@ describe('FileManager', () => {
       const drive = fm.driveList[0];
       const controller = new AbortController();
 
-      await expect(
-        fm.downloadFolder(drive.id, undefined, undefined, { signal: controller.signal }),
-      ).resolves.not.toThrow();
+      await expect(fm.downloadFolder(drive.id, '/', undefined, { signal: controller.signal })).resolves.not.toThrow();
     });
   });
 });
