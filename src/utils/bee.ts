@@ -4,6 +4,10 @@ import { FeedResultWithIndex } from '../types/utils';
 
 import { isNotFoundError } from './common';
 import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from './constants';
+import { generateRandomBytes } from './crypto';
+import { StampError } from './errors';
+
+import { FileRecord } from '@/types';
 
 export async function getFeedData(
   bee: Bee,
@@ -34,6 +38,42 @@ export async function getFeedData(
 
     throw error;
   }
+}
+
+export async function getTopicAndVersion(
+  bee: Bee,
+  address: string | EthAddress,
+  record?: FileRecord,
+  currentTopic?: string | Topic,
+  currentVersion?: string,
+  requestOptions?: BeeRequestOptions,
+): Promise<{ topic: string; version: string }> {
+  let version: string | undefined;
+  let topic: string;
+
+  if (!currentTopic) {
+    const randomTopic = generateRandomBytes(Topic.LENGTH);
+    version = FEED_INDEX_ZERO.toString();
+    topic = new Topic(randomTopic).toString();
+  } else {
+    version = currentVersion;
+    topic = currentTopic.toString();
+  }
+
+  if (version) {
+    return { topic, version };
+  }
+
+  if (record?.version !== undefined) {
+    return { topic, version: new FeedIndex(record.version).next().toString() };
+  }
+
+  const { feedIndex, feedIndexNext } = await getFeedData(bee, new Topic(topic), address, undefined, requestOptions);
+  if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
+    return { topic, version: FEED_INDEX_ZERO.toString() };
+  }
+
+  return { topic, version: feedIndexNext.toString() };
 }
 
 export async function buyStamp(
@@ -67,3 +107,16 @@ export async function fetchStamp(
     return;
   }
 }
+
+export const verifyStampUsability = (
+  s: PostageBatch | undefined,
+  requestedBatchId?: string,
+  mustBeUsable: boolean = true,
+): PostageBatch => {
+  if (!s || (mustBeUsable && !s.usable)) {
+    const batchIdStr = s ? s.batchID.toString().slice(0, 6) : (requestedBatchId?.slice(0, 6) ?? 'unknown');
+    throw new StampError(`Stamp with batchId: ${batchIdStr}... not found OR not usable`);
+  }
+
+  return s;
+};

@@ -23,7 +23,7 @@ import { BEE_URL, DEFAULT_MOCK_SIGNER } from '../utils';
 
 import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
-import { DriveInfo, FileRecord, FileStatus, ListDepth, NodeType } from '@/types';
+import { DirectoryEntry, DriveInfo, FileRecord, FileStatus, ListDepth, NodeType } from '@/types';
 import { FeedResultWithIndex } from '@/types/utils';
 import { DriveError, FileError, FileInfoError, FileManagerEvents, SignerError } from '@/utils';
 import { fetchStamp, getFeedData } from '@/utils/bee';
@@ -36,7 +36,6 @@ import {
   SWARM_ZERO_ADDRESS,
 } from '@/utils/constants';
 import { generateRandomBytes } from '@/utils/crypto';
-import type { DirectoryEntry } from '@/utils/mantaray';
 
 jest.mock('@/utils/bee', () => ({
   ...jest.requireActual('@/utils/bee'),
@@ -69,8 +68,8 @@ describe('FileManager', () => {
       payload: {
         toUint8Array: () => SWARM_ZERO_ADDRESS.toUint8Array(),
         toJSON: () => ({
-          topicReference: SWARM_ZERO_ADDRESS.toString(),
-          historyAddress: SWARM_ZERO_ADDRESS.toString(),
+          reference: SWARM_ZERO_ADDRESS.toString(),
+          historyRef: SWARM_ZERO_ADDRESS.toString(),
         }),
       },
     });
@@ -496,6 +495,7 @@ describe('FileManager', () => {
             topic: topicA,
             driveId: drive.id,
             path: 'a.txt',
+            redundancyLevel: RedundancyLevel.OFF,
             content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
           }),
         ),
@@ -1174,6 +1174,7 @@ describe('FileManager', () => {
         batchId: MOCK_BATCH_ID,
         owner,
         actPublisher,
+        redundancyLevel: RedundancyLevel.OFF,
         content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
       };
 

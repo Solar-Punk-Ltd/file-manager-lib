@@ -1,7 +1,8 @@
 import { BatchId, EthAddress, Identifier, PublicKey, RedundancyLevel, Reference, Topic } from '@ethersphere/bee-js';
 import { Types } from 'cafe-utility';
 
-import { DriveInfo, FileRecord, ShareItem, StateTopicInfo } from '../types/info';
+import { DriveInfo, FileRecord, FileStatus, FolderInfo, NodeResource, ShareItem } from '../types/info';
+import { ActReferences } from '../types/utils';
 
 import {
   MANIFEST_METADATA_DRIVE_ACT_PUBLISHER,
@@ -19,22 +20,48 @@ export function isRecord(value: unknown): value is Record<string, string> {
   return Types.isStrictlyObject(value) && Object.values(value).every((v) => typeof v === 'string');
 }
 
-export function assertFileRecord(value: unknown): asserts value is FileRecord {
+export function assertActReferences(value: unknown): asserts value is ActReferences {
   if (!Types.isStrictlyObject(value)) {
-    throw new TypeError('FileRecord has to be object!');
+    throw new TypeError('ActReferences has to be object!');
   }
+
+  const ar = value as unknown as ActReferences;
+
+  new Reference(ar.reference);
+  new Reference(ar.historyRef);
+}
+
+export function assertNodeResource(value: unknown): asserts value is NodeResource {
+  if (!Types.isStrictlyObject(value)) {
+    throw new TypeError('NodeResource has to be object!');
+  }
+
+  const nr = value as unknown as NodeResource;
+
+  new BatchId(nr.batchId);
+  new Topic(nr.topic);
+  new EthAddress(nr.owner);
+  new PublicKey(nr.actPublisher);
+
+  if (typeof nr.redundancyLevel !== 'number') {
+    throw new TypeError('redundancyLevel property of NodeResource has to be number!');
+  }
+}
+
+export function assertFileRecord(value: unknown): asserts value is FileRecord {
+  assertNodeResource(value);
 
   const fr = value as unknown as FileRecord;
 
-  new Reference(fr.content.reference);
-  new Reference(fr.batchId);
-  new Reference(fr.content.historyRef);
-  new EthAddress(fr.owner);
-  new Topic(fr.topic);
-  new PublicKey(fr.actPublisher);
+  new Identifier(fr.driveId);
+  assertActReferences(fr.content);
 
   if (typeof fr.path !== 'string' || fr.path.length === 0) {
     throw new TypeError('path property of FileRecord has to be a non-empty string!');
+  }
+
+  if (fr.version !== undefined && typeof fr.version !== 'string') {
+    throw new TypeError('version property of FileRecord has to be string!');
   }
 
   if (fr.customMetadata !== undefined && !isRecord(fr.customMetadata)) {
@@ -49,12 +76,12 @@ export function assertFileRecord(value: unknown): asserts value is FileRecord {
     throw new TypeError('shared property of FileRecord has to be boolean!');
   }
 
-  if (fr.redundancyLevel !== undefined && typeof fr.redundancyLevel !== 'number') {
-    throw new TypeError('redundancyLevel property of FileRecord has to be number!');
+  if (fr.status !== undefined && !Object.values(FileStatus).includes(fr.status)) {
+    throw new TypeError('status property of FileRecord has to be a valid FileStatus!');
   }
 
-  if (fr.status !== undefined && typeof fr.status !== 'string') {
-    throw new TypeError('status property of FileRecord has to be string!');
+  if (fr.granteeListRef !== undefined) {
+    new Reference(fr.granteeListRef);
   }
 }
 
@@ -77,34 +104,42 @@ export function assertShareItem(value: unknown): asserts value is ShareItem {
 }
 
 export function assertDriveInfo(value: unknown): asserts value is DriveInfo {
-  if (!Types.isStrictlyObject(value)) {
-    throw new TypeError('DriveInfo has to be object!');
-  }
+  assertNodeResource(value);
 
   const di = value as unknown as DriveInfo;
 
-  new BatchId(di.batchId);
-  new EthAddress(di.owner);
   new Identifier(di.id);
 
-  if (di.topic === undefined || typeof di.topic !== 'string' || di.topic.length === 0) {
-    throw new TypeError('topic property of DriveInfo has to be non-empty string!');
+  if (typeof di.name !== 'string' || di.name.length === 0) {
+    throw new TypeError('name property of DriveInfo has to be non-empty string!');
   }
 
-  if (di.name === undefined || typeof di.name !== 'string' || di.name.length === 0) {
-    throw new TypeError('name property of DriveInfo has to be string!');
-  }
-
-  if (di.redundancyLevel === undefined || typeof di.redundancyLevel !== 'number') {
-    throw new TypeError('redundancyLevel property of DriveInfo has to be number!');
-  }
-
-  if (di.isAdmin === undefined || typeof di.isAdmin !== 'boolean') {
+  if (typeof di.isAdmin !== 'boolean') {
     throw new TypeError('isAdmin property of DriveInfo has to be boolean!');
+  }
+
+  if (di.manifestRef !== undefined) {
+    assertActReferences(di.manifestRef);
   }
 }
 
-export function driveInfoFromMetadata(meta: Record<string, string>): DriveInfo {
+export function assertFolderInfo(value: unknown): asserts value is FolderInfo {
+  assertNodeResource(value);
+
+  const fi = value as unknown as FolderInfo;
+
+  new Identifier(fi.driveId);
+
+  if (typeof fi.path !== 'string' || fi.path.length === 0) {
+    throw new TypeError('path property of FolderInfo has to be a non-empty string!');
+  }
+
+  if (fi.manifestRef !== undefined) {
+    assertActReferences(fi.manifestRef);
+  }
+}
+
+export function assertDriveInfoFromMetadata(meta: Record<string, string>): DriveInfo {
   const id = meta[MANIFEST_METADATA_DRIVE_ID];
   const name = meta[MANIFEST_METADATA_DRIVE_NAME];
   const owner = meta[MANIFEST_METADATA_DRIVE_OWNER];
@@ -129,18 +164,8 @@ export function driveInfoFromMetadata(meta: Record<string, string>): DriveInfo {
     actPublisher,
   };
   assertDriveInfo(driveInfo);
+
   return driveInfo;
-}
-
-export function assertStateTopicInfo(value: unknown): asserts value is StateTopicInfo {
-  if (!Types.isStrictlyObject(value)) {
-    throw new TypeError('StateTopicInfo has to be object!');
-  }
-
-  const sti = value as unknown as StateTopicInfo;
-
-  new Reference(sti.topicReference);
-  new Reference(sti.historyAddress);
 }
 
 interface FMReadyState {

@@ -9,7 +9,7 @@ import {
   Topic,
 } from '@ethersphere/bee-js';
 
-import { ManifestHost, NodeType } from '../types/info';
+import { DirectoryEntry, ManifestHost, NodeType } from '../types/info';
 import { ActReferences } from '../types/utils';
 
 import { getFeedData } from './bee';
@@ -24,14 +24,6 @@ export async function loadMantaray(
   const mantaray = await MantarayNode.unmarshal(bee, mantarayRef, options, requestOptions);
   await mantaray.loadRecursively(bee, options, requestOptions);
   return mantaray;
-}
-
-export interface DirectoryEntry {
-  path: string;
-  type: NodeType;
-  topic: string;
-  fileTopic?: string;
-  rawMetadata: Record<string, string>;
 }
 
 export function getAllNodeEntries(root: MantarayNode): DirectoryEntry[] {

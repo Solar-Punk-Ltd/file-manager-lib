@@ -28,9 +28,9 @@ import {
 import { ensureUniqueSignerWithStamp } from './testSetupHelpers';
 
 import { FileManagerBase } from '@/fileManager';
-import { DriveInfo, FileRecord, FileStatus, FolderInfo, ListDepth, NodeType, StateTopicInfo } from '@/types';
+import { ActReferences, DriveInfo, FileRecord, FileStatus, FolderInfo, ListDepth, NodeType } from '@/types';
 import { ADMIN_STAMP_LABEL, DriveError, FILEMANAGER_STATE_TOPIC, FileManagerEvents, StampError } from '@/utils';
-import { assertStateTopicInfo } from '@/utils/asserts';
+import { assertActReferences } from '@/utils/asserts';
 import { buyStamp, getFeedData } from '@/utils/bee';
 import { FEED_INDEX_ZERO, ROOT_PATH, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 import { generateRandomBytes } from '@/utils/crypto';
@@ -89,17 +89,17 @@ describe('FileManager initialization', () => {
     const { payload } = await retryOnPropagationDelay(() =>
       getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 0n),
     );
-    const feedTopicState = payload.toJSON() as StateTopicInfo;
-    assertStateTopicInfo(feedTopicState);
-    const topicHex = await bee.downloadData(new Reference(feedTopicState.topicReference), {
-      actHistoryAddress: new Reference(feedTopicState.historyAddress),
+    const feedTopicState = payload.toJSON() as ActReferences;
+    assertActReferences(feedTopicState);
+    const topicHex = await bee.downloadData(new Reference(feedTopicState.reference), {
+      actHistoryAddress: new Reference(feedTopicState.historyRef),
       actPublisher,
     });
     expect(topicHex).not.toEqual(SWARM_ZERO_ADDRESS);
 
     await fileManager.initialize();
-    const reinitTopicHex = await bee.downloadData(new Reference(feedTopicState.topicReference), {
-      actHistoryAddress: new Reference(feedTopicState.historyAddress),
+    const reinitTopicHex = await bee.downloadData(new Reference(feedTopicState.reference), {
+      actHistoryAddress: new Reference(feedTopicState.historyRef),
       actPublisher,
     });
     expect(topicHex).toEqual(reinitTopicHex);
@@ -111,11 +111,11 @@ describe('FileManager initialization', () => {
     const { payload } = await retryOnPropagationDelay(() =>
       getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 0n),
     );
-    const feedTopicState = payload.toJSON() as StateTopicInfo;
+    const feedTopicState = payload.toJSON() as ActReferences;
 
     try {
-      await bee.downloadData(new Reference(feedTopicState.topicReference), {
-        actHistoryAddress: new Reference(feedTopicState.historyAddress),
+      await bee.downloadData(new Reference(feedTopicState.reference), {
+        actHistoryAddress: new Reference(feedTopicState.historyRef),
         actPublisher: OTHER_MOCK_SIGNER.publicKey(),
       });
     } catch (error) {
@@ -125,8 +125,8 @@ describe('FileManager initialization', () => {
 
     try {
       await retryOnPropagationDelay(() =>
-        otherBee.downloadData(new Reference(feedTopicState.topicReference), {
-          actHistoryAddress: new Reference(feedTopicState.historyAddress),
+        otherBee.downloadData(new Reference(feedTopicState.reference), {
+          actHistoryAddress: new Reference(feedTopicState.historyRef),
           actPublisher,
         }),
       );

@@ -53,13 +53,16 @@ export interface FolderInfo extends ManifestHost {
   driveId: string;
 }
 
+export interface DirectoryEntry {
+  path: string;
+  type: NodeType;
+  topic: string;
+  fileTopic?: string;
+  rawMetadata: Record<string, string>;
+}
+
 export interface ShareItem {
   record: FileRecord;
   timestamp?: number;
   message?: string;
-}
-
-export interface StateTopicInfo {
-  topicReference: string;
-  historyAddress: string;
 }

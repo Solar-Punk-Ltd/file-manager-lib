@@ -12,10 +12,9 @@ import {
 } from '@ethersphere/bee-js';
 
 import { EventEmitter } from '../eventEmitter';
-import { DirectoryEntry } from '../utils/mantaray';
 
 import { DownloadResult } from './download';
-import { DriveInfo, FileRecord, FolderInfo, ListDepth, ShareItem } from './info';
+import { DirectoryEntry, DriveInfo, FileRecord, FolderInfo, ListDepth, ShareItem } from './info';
 import { UpdateItem, UploadFilesResult, UploadItem } from './upload';
 
 /**
@@ -58,9 +57,9 @@ export interface FileManager {
 
   /**
    * Uploads a NEW file with the given options — mints a fresh feed topic and adds a new fork to
-   * the drive manifest. To re-version or change metadata of an existing file, use updateFile().
+   * the drive manifest. To re-version or change metadata of an existing file, use {@link updateFile}.
    *
-   * For multi-file/folder uploads use uploadFiles — passing multiple files here produces a
+   * For multi-file/folder uploads use  {@link uploadFiles} — passing multiple files here produces a
    * single opaque collection without per-file versioning, ACT, or listing.
    * @param driveId - The ID of the drive to upload into
    * @param item - The options for the file info upload (new content: path/file; no topic).
@@ -83,7 +82,7 @@ export interface FileManager {
   /**
    * Uploads multiple files, recreating their folder hierarchy as real folder-nodes under
    * destinationPath. Each file becomes its own node with per-file versioning and ACT, unlike a
-   * single opaque collection upload via uploadFile(). Missing folders are created as needed; each
+   * single opaque collection upload via  {@link uploadFile}. Missing folders are created as needed; each
    * touched parent manifest is saved once at the end. Tolerates partial failure: per-file errors
    * are collected rather than aborting the whole batch.
    * @param driveId - The ID of the drive to upload into.
@@ -110,7 +109,7 @@ export interface FileManager {
 
   /**
    * Re-versions or changes metadata of an EXISTING file. Reuses the file's feed topic, writes a
-   * new feed slot, and never touches the drive manifest (no rename — use move() to relocate).
+   * new feed slot, and never touches the drive manifest (no rename — use  {@link move()} to relocate).
    * Everything derives from `record`, including the ACT-history continuation reference.
    * @param driveId - The ID of the drive the file belongs to.
    * @param record - The existing file's FileRecord (the single source of truth).
@@ -134,7 +133,7 @@ export interface FileManager {
   ): Promise<FileRecord>;
 
   /**
-   * Downloads every file in a folder subtree of a drive (resolved fresh via listFolder).
+   * Downloads every file in a folder subtree of a drive (resolved fresh via  {@link listFolder}).
    * @param driveId - The ID of drive to download from.
    * @param path - Absolute path of the folder; '' / omitted = the whole drive.
    * @param options - Optional download options.
