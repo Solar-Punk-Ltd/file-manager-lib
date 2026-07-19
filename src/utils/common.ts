@@ -1,3 +1,5 @@
+import { DriveInfo, FileStatus } from '../types/info';
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function isNotFoundError(error: any): boolean {
   return error.stack?.includes('404') || error.message?.includes('Not Found') || error.message?.includes('404');
@@ -21,6 +23,7 @@ export async function settlePromises<T>(
     }
   });
 }
+
 export async function awaitAllPromisesBounded<T>(
   tasks: (() => Promise<T>)[],
   limit: number,
@@ -53,4 +56,9 @@ export const getEncodedSize = (input: string): number => {
 
 export const joinPath = (base: string, name: string): string => {
   return base ? `${base}/${name}` : name;
+};
+
+export const getRecordStatus = (drive: DriveInfo, topic: string): FileStatus => {
+  const isFoundInTrash = !!drive.trashedNodes?.some((n) => n.topic === topic);
+  return isFoundInTrash ? FileStatus.Trashed : FileStatus.Active;
 };

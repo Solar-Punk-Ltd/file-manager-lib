@@ -1,7 +1,7 @@
 import { RedundancyLevel } from '@ethersphere/bee-js';
 
 import { ActReferences } from './utils';
-
+// TODO: rename to NodeStatus during merge
 export enum FileStatus {
   Active = 'active',
   Trashed = 'trashed',
@@ -25,6 +25,7 @@ export interface NodeResource {
   redundancyLevel: RedundancyLevel;
   actPublisher: string;
   version?: string;
+  status?: FileStatus;
 }
 
 export interface FileRecord extends NodeResource {
@@ -34,7 +35,6 @@ export interface FileRecord extends NodeResource {
   content: ActReferences;
   timestamp?: number;
   shared?: boolean;
-  status?: FileStatus;
   customMetadata?: Record<string, string>;
   granteeListRef?: string;
 }
@@ -42,12 +42,19 @@ export interface FileRecord extends NodeResource {
 export interface ManifestHost extends NodeResource {
   manifestRef?: ActReferences;
 }
+// TODO: consider storing version for better performance
+export interface TrashEntry {
+  topic: string;
+  type: NodeType;
+  path: string;
+}
 
 export interface DriveInfo extends ManifestHost {
   type: NodeType.Drive;
   id: string;
   name: string;
   isAdmin: boolean;
+  trashedNodes?: TrashEntry[];
 }
 
 export interface FolderInfo extends ManifestHost {

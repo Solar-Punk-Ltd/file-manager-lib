@@ -438,17 +438,12 @@ describe('FileManager drive handling', () => {
   });
 
   it('should throw an error when trying to destroy the admin drive/ stamp', async () => {
-    await expect(fileManager.destroyDrive(Identifier.fromString('mockID'))).rejects.toThrow(
-      new DriveError(`Cannot destroy admin drive / stamp, batchId: ${ownerBatch.batchID.toString().slice(0, 6)}`),
-    );
+    const adminDrive = fileManager.driveList.find((d) => d.isAdmin);
+    expect(adminDrive).toBeDefined();
+    expect(adminDrive!.batchId).toBe(ownerBatch.batchID.toString());
 
-    const otherBatchId = new BatchId('6789'.repeat(16)).toString();
-    await expect(fileManager.destroyDrive(Identifier.fromString('mockID'))).rejects.toThrow(
-      new DriveError(`Cannot destroy admin drive / stamp, batchId: ${otherBatchId.slice(0, 6)}`),
-    );
-
-    await expect(fileManager.destroyDrive(Identifier.fromString('mockID'))).rejects.toThrow(
-      new DriveError(`Cannot destroy admin drive / stamp, batchId: ${ownerBatch.batchID.toString().slice(0, 6)}`),
+    await expect(fileManager.destroyDrive(new Identifier(adminDrive!.id))).rejects.toThrow(
+      new DriveError(`Cannot destroy admin drive / stamp, batchId: ${adminDrive!.batchId.slice(0, 6)}`),
     );
   });
 
@@ -517,7 +512,7 @@ describe('FileManager drive handling', () => {
     const idBytes = new Uint8Array(Identifier.LENGTH);
     idBytes.fill(1);
     await expect(fileManager.forgetDrive(new Identifier(idBytes))).rejects.toThrow(
-      new DriveError(`Drive ghost with id ${new Identifier(idBytes).toString()} not found`),
+      new DriveError(`Drive with id ${new Identifier(idBytes).toString().slice(0, 6)} not found`),
     );
   });
 });
@@ -1256,7 +1251,7 @@ describe('FileManager file operations', () => {
   let bee: Bee;
   let fileManager: FileManagerBase;
   let batchId: BatchId;
-  let otherBatchId: BatchId;
+  let adminBatch: string | BatchId;
   let testFi: FileRecord;
   let drive: DriveInfo;
   let testFilePath: string;
@@ -1265,8 +1260,8 @@ describe('FileManager file operations', () => {
   beforeAll(async () => {
     const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
     bee = beeDev;
+    adminBatch = ownerStamp;
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'fileOpsIntegration');
-    otherBatchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'otherFileOpsIntegration');
     fileManager = await createInitializedFileManager(bee, ownerStamp);
 
     await fileManager.createDrive(batchId, 'fileoperations', false);
@@ -1296,15 +1291,14 @@ describe('FileManager file operations', () => {
     await fileManager.trashFile(initial);
     expect(initial.status).toBe(FileStatus.Trashed);
 
-    const fm2 = new FileManagerBase(bee);
-    await fm2.initialize();
-    await fm2.createDrive(otherBatchId, ADMIN_STAMP_LABEL, true);
-    await fm2.createDrive(new BatchId(drive.batchId), drive.name, false);
+    const fm2 = await createInitializedFileManager(bee, adminBatch);
     await fm2.listFolder(new Identifier(drive.id), ROOT_PATH);
 
     const fi2 = fm2.fileInfoList.find((fr) => fr.path === TEST_NAME)!;
+    // Trash state round-trips through the owner-private admin overlay, so a fresh instance derives
+    // it on listFolder. It is overlay-only: the file's own feed/version is never touched.
     expect(fi2.status).toBe(FileStatus.Trashed);
-    expect(BigInt(fi2.version!.toString())).toBe(beforeVersion + 1n);
+    expect(BigInt(fi2.version!.toString())).toBe(beforeVersion);
   });
 
   it('should recover a previously trashed file', async () => {
@@ -1318,15 +1312,13 @@ describe('FileManager file operations', () => {
 
     await fileManager.recoverFile(testFi);
 
-    const fm2 = new FileManagerBase(bee);
-    await fm2.initialize();
-    await fm2.createDrive(batchId, ADMIN_STAMP_LABEL, true);
-    await fm2.createDrive(drive.batchId, drive.name, false);
+    const fm2 = await createInitializedFileManager(bee, adminBatch);
     await fm2.listFolder(drive.id, ROOT_PATH);
 
     const fi2 = fm2.fileInfoList.find((fr) => fr.path === TEST_NAME)!;
+    // Recover is overlay-only too: status flips back to Active without a version bump.
     expect(fi2.status).toBe(FileStatus.Active);
-    expect(BigInt(fi2.version!.toString())).toBe(beforeVersion + 1n);
+    expect(BigInt(fi2.version!.toString())).toBe(beforeVersion);
   });
 
   it('should forget (hard-delete) a file', async () => {
@@ -1349,12 +1341,12 @@ describe('FileManager file operations', () => {
     await fileManager.trashFile(freshFi);
     expect(freshFi.status).toBe(FileStatus.Trashed);
 
-    await expect(fileManager.trashFile(freshFi)).rejects.toThrow(/File already Trashed/i);
+    await expect(fileManager.trashFile(freshFi)).rejects.toThrow(/Already trashed/i);
 
     await fileManager.recoverFile(freshFi);
     expect(freshFi.status).toBe(FileStatus.Active);
 
-    await expect(fileManager.recoverFile(freshFi)).rejects.toThrow(/Non-Trashed files cannot be restored/i);
+    await expect(fileManager.recoverFile(freshFi)).rejects.toThrow(/Not trashed, cannot recover/i);
 
     expect(fileManager.fileInfoList.filter((fr) => fr.topic.toString() === topic)).toHaveLength(1);
   });
@@ -1371,13 +1363,12 @@ describe('FileManager file operations', () => {
     }
     await fileManager.recoverFile(fi0);
 
-    const fm2 = new FileManagerBase(bee);
-    await fm2.initialize();
-    await fm2.createDrive(otherBatchId, ADMIN_STAMP_LABEL, true);
+    const fm2 = await createInitializedFileManager(bee, adminBatch);
     await fm2.listFolder(drive.id, ROOT_PATH);
     const fi2 = fm2.fileInfoList.find((fr) => fr.topic.toString() === topic)!;
 
-    expect(BigInt(fi2.version!.toString())).toBe(beforeVer + 2n);
+    // Trash + recover are overlay-only round-trips — the file's own version never advances.
+    expect(BigInt(fi2.version!.toString())).toBe(beforeVer);
   });
 });
 

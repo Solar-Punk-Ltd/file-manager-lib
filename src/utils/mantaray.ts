@@ -9,17 +9,26 @@ import {
   Topic,
 } from '@ethersphere/bee-js';
 
-import { FileRecord, ManifestHost, NodeHeader, NodeType } from '../types/info';
+import { DriveInfo, FileRecord, ManifestHost, NodeHeader, NodeType } from '../types/info';
 import { ActReferences } from '../types/utils';
 
 import { getFeedData } from './bee';
 import {
+  DRIVE_FORK_PREFIX,
+  MANIFEST_METADATA_DRIVE_ACT_PUBLISHER,
+  MANIFEST_METADATA_DRIVE_BATCH_ID,
+  MANIFEST_METADATA_DRIVE_ID,
+  MANIFEST_METADATA_DRIVE_IS_ADMIN,
+  MANIFEST_METADATA_DRIVE_NAME,
+  MANIFEST_METADATA_DRIVE_OWNER,
+  MANIFEST_METADATA_DRIVE_TRASHED_NODES,
   MANIFEST_METADATA_FILE_TOPIC,
   MANIFEST_METADATA_NODE_ACT_PUBLISHER,
   MANIFEST_METADATA_NODE_OWNER,
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
   MANIFEST_METADATA_NODE_VERSION,
+  MANIFEST_METADATA_REDUNDANCY_LEVEL,
 } from './constants';
 
 export async function loadMantaray(
@@ -100,9 +109,9 @@ export async function saveNodeManifest(
   return { contentRefs: newManifestRef, newIndex: writeIndex + 1n };
 }
 
-export function addFileToManifest(mantaray: MantarayNode, filename: string, record: FileRecord): void {
+export function addFileToManifest(mantaray: MantarayNode, forkPath: string, record: FileRecord): void {
   // Non-confidential fields only — see the fork-metadata INVARIANT in constants.ts.
-  mantaray.addFork(filename, new Reference(record.topic), {
+  mantaray.addFork(forkPath, new Reference(record.topic), {
     [MANIFEST_METADATA_FILE_TOPIC]: record.topic,
     [MANIFEST_METADATA_NODE_TOPIC]: record.topic,
     [MANIFEST_METADATA_NODE_TYPE]: NodeType.File,
@@ -110,4 +119,23 @@ export function addFileToManifest(mantaray: MantarayNode, filename: string, reco
     [MANIFEST_METADATA_NODE_ACT_PUBLISHER]: record.actPublisher,
     ...(record.version !== undefined ? { [MANIFEST_METADATA_NODE_VERSION]: record.version } : {}),
   });
+}
+
+export function driveForkMetadata(drive: DriveInfo): Record<string, string> {
+  return {
+    [MANIFEST_METADATA_NODE_TOPIC]: drive.topic,
+    [MANIFEST_METADATA_NODE_TYPE]: NodeType.Drive,
+    [MANIFEST_METADATA_DRIVE_ID]: drive.id,
+    [MANIFEST_METADATA_DRIVE_NAME]: drive.name,
+    [MANIFEST_METADATA_DRIVE_OWNER]: drive.owner,
+    [MANIFEST_METADATA_DRIVE_IS_ADMIN]: String(drive.isAdmin),
+    [MANIFEST_METADATA_DRIVE_BATCH_ID]: drive.batchId,
+    [MANIFEST_METADATA_DRIVE_ACT_PUBLISHER]: drive.actPublisher,
+    [MANIFEST_METADATA_REDUNDANCY_LEVEL]: drive.redundancyLevel.toString(),
+    [MANIFEST_METADATA_DRIVE_TRASHED_NODES]: JSON.stringify(drive.trashedNodes ?? []),
+  };
+}
+
+export function getDriveForkPath(driveId: string): string {
+  return `${DRIVE_FORK_PREFIX}-${driveId}`;
 }

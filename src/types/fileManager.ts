@@ -184,7 +184,6 @@ export interface FileManager {
     requestOptions?: BeeRequestOptions,
   ): Promise<DownloadResult[]>;
 
-  // TODO: Folder manifests key forks by plaintext filename (Model A). Anyone granted a folder's ACT root can enumerate all names within it (names only — not content or per-file access). Acceptable under single-owner; revisit in the sharing epic if per-grantee-group name confidentiality is required. Fix-direction: key forks by opaque topic, move names into the per-file ACT-encrypted FileRecord (loses cheap listing + the name-based hierarchy walk).
   /**
    * Lists entries in a folder (or drive root) in the drive manifest.
    * Also populates the fileInfoList cache for any file entries encountered.
@@ -207,26 +206,62 @@ export interface FileManager {
   ): Promise<NodeEntry[]>;
 
   /**
-   * Soft-delete: move a file to "trash" (it stays in Swarm but is hidden from your live list).
+   * Soft-delete: record a file in the drive's owner-private trash overlay so it is hidden from the
+   * active list. This is metadata-only — it does not touch the file's own feed or content, and the
+   * trash state is never visible to grantees. Recover with {@link recoverFile}.
    * @param record - The file record describing the file to trash.
    * @emits FileManagerEvents.FILE_TRASHED
-   * @returns A promise that resolves when the file has been trashed.
-   * @throws {DriveError} If the FileManager is not initialized.
+   * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
    * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {FileInfoError} If the file is not in the list or is already trashed.
+   * @throws {FileInfoError} If the file is already trashed.
    */
   trashFile(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
-   * Recover a previously trashed file back into your live list.
+   * Recover a previously trashed file back into the active list (removes it from the trash overlay).
    * @param record - The file record describing the file to recover.
    * @emits FileManagerEvents.FILE_RECOVERED
-   * @returns A promise that resolves when the file has been recovered.
-   * @throws {DriveError} If the FileManager is not initialized.
+   * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
    * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {FileInfoError} If the file is not in the list or is not currently trashed.
+   * @throws {FileInfoError} If the file is not currently trashed.
    */
   recoverFile(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<void>;
+
+  /**
+   * Soft-delete a folder: record only the folder's own topic in the drive's owner-private trash
+   * overlay. NO propagation — the subtree is untouched and costs a single overlay entry regardless
+   * of depth. The active {@link listFolder} hides the folder and stops descending into it; its
+   * contents reappear on {@link recoverFolder}.
+   * @param folder - The folder to trash (e.g. from {@link listFolder}).
+   * @emits FileManagerEvents.FOLDER_TRASHED
+   * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   * @throws {FileInfoError} If the folder is already trashed.
+   */
+  trashFolder(folder: FolderInfo, requestOptions?: BeeRequestOptions): Promise<void>;
+
+  /**
+   * Recover a previously trashed folder (removes its topic from the trash overlay). Its subtree,
+   * which was never modified, becomes visible again.
+   * @param folder - The folder to recover (e.g. from {@link listTrash}).
+   * @emits FileManagerEvents.FOLDER_RECOVERED
+   * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   * @throws {FileInfoError} If the folder is not currently trashed.
+   */
+  recoverFolder(folder: FolderInfo, requestOptions?: BeeRequestOptions): Promise<void>;
+
+  /**
+   * List a drive's trashed nodes (files and folders), hydrated into full {@link NodeEntry} objects
+   * with `status` = trashed. Reads straight from the owner-private overlay with no tree walk, so the
+   * cost is proportional to the number of trashed roots, not the drive size.
+   * Recovery is honored per topic so visibility also requires ancestors to be recovered.
+   * @param driveId - The drive whose trash to list.
+   * @returns The trashed files and folders; pass one back to {@link recoverFile}/{@link recoverFolder}.
+   * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   */
+  listTrash(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<NodeEntry[]>;
 
   /**
    * Hard-delete a file or folder at the given path from the drive manifest and in-memory state.

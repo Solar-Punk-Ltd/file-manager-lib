@@ -5,7 +5,7 @@ import { FeedResultWithIndex } from '../types/utils';
 import { isNotFoundError } from './common';
 import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from './constants';
 import { generateRandomBytes } from './crypto';
-import { StampError } from './errors';
+import { BeeVersionError, StampError } from './errors';
 
 import { FileRecord } from '@/types';
 
@@ -118,3 +118,16 @@ export const verifyStampUsability = (
 
   return s;
 };
+
+export async function verifySupportedBeeVersions(bee: Bee, requestOptions?: BeeRequestOptions): Promise<void> {
+  const beeVersions = await bee.getVersions(requestOptions);
+  console.debug(`Bee version: ${beeVersions.beeVersion}`);
+  console.debug(`Bee API version: ${beeVersions.beeApiVersion}`);
+  const supportedApi = await bee.isSupportedApiVersion(requestOptions);
+
+  if (!supportedApi) {
+    console.error('Supported bee API version: ', beeVersions.supportedBeeApiVersion);
+    console.error('Supported bee version: ', beeVersions.supportedBeeVersion);
+    throw new BeeVersionError('Bee or Bee API version not supported');
+  }
+}

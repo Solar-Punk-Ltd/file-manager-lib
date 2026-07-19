@@ -23,7 +23,7 @@ import { BEE_URL, DEFAULT_MOCK_SIGNER } from '../utils';
 
 import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
-import { DriveInfo, FileRecord, FileStatus, ListDepth, NodeHeader, NodeType } from '@/types';
+import { DriveInfo, FileRecord, FileStatus, FolderInfo, ListDepth, NodeHeader, NodeType } from '@/types';
 import { FeedResultWithIndex } from '@/types/utils';
 import { DriveError, FileError, FileInfoError, FileManagerEvents, SignerError } from '@/utils';
 import { fetchStamp, getFeedData } from '@/utils/bee';
@@ -1050,29 +1050,32 @@ describe('FileManager', () => {
     beforeEach(async () => {
       fm = await createInitializedFileManager();
       drive = fm.driveList[0];
-      // Upload a real file so the drive manifest carries its fork — trash/recover now sync the
-      // fork's cached version, which requires the fork to actually exist.
+      // Upload a real file so we operate on a genuine FileRecord (the forget tests below also need
+      // the fork to exist). Trash/recover themselves are pure overlay ops, keyed by driveId + topic.
       await fm.uploadFile(drive.id, { path: 'notes.txt', sourcePath: 'package.json' });
       fileRecord = fm.fileInfoList.find((f) => f.path === 'notes.txt')!;
     });
 
-    it('trashFile marks the file trashed, bumps version, and emits FILE_TRASHED', async () => {
+    it('trashFile records the file in the drive trash overlay without a version bump, and emits FILE_TRASHED', async () => {
       const handler = jest.fn();
       fm.emitter.on(FileManagerEvents.FILE_TRASHED, handler);
+      const versionBefore = fileRecord.version;
 
       await fm.trashFile(fileRecord);
 
       expect(fileRecord.status).toBe(FileStatus.Trashed);
-      expect(fileRecord.version).toBe(FeedIndex.fromBigInt(1n).toString());
+      // Overlay-only: no feed write, so the file's own version is untouched.
+      expect(fileRecord.version).toBe(versionBefore);
+      expect(drive.trashedNodes).toEqual([{ topic: fileRecord.topic, type: NodeType.File, path: fileRecord.path }]);
       expect(handler).toHaveBeenCalledWith({ record: fileRecord });
     });
 
     it('trashFile throws if the file is already trashed', async () => {
       await fm.trashFile(fileRecord);
-      await expect(fm.trashFile(fileRecord)).rejects.toThrow(`File already Trashed: ${fileRecord.path}`);
+      await expect(fm.trashFile(fileRecord)).rejects.toThrow(`Already trashed: ${fileRecord.path}`);
     });
 
-    it('recoverFile restores active status and emits FILE_RECOVERED', async () => {
+    it('recoverFile removes the file from the overlay and emits FILE_RECOVERED', async () => {
       await fm.trashFile(fileRecord);
       const handler = jest.fn();
       fm.emitter.on(FileManagerEvents.FILE_RECOVERED, handler);
@@ -1080,18 +1083,60 @@ describe('FileManager', () => {
       await fm.recoverFile(fileRecord);
 
       expect(fileRecord.status).toBe(FileStatus.Active);
+      expect(drive.trashedNodes).toEqual([]);
       expect(handler).toHaveBeenCalledWith({ record: fileRecord });
     });
 
     it('recoverFile throws if the file was never trashed', async () => {
-      await expect(fm.recoverFile(fileRecord)).rejects.toThrow(
-        `Non-Trashed files cannot be restored: ${fileRecord.path}`,
-      );
+      await expect(fm.recoverFile(fileRecord)).rejects.toThrow(`Not trashed, cannot recover: ${fileRecord.path}`);
     });
 
-    it('throws when the target FileRecord is not tracked in fileInfoList', async () => {
-      const ghost: FileRecord = { ...fileRecord, topic: Topic.fromString('ghost-file').toString() };
-      await expect(fm.trashFile(ghost)).rejects.toThrow(`Corresponding File record does not exist: ${ghost.path}`);
+    it('trashFile throws when the drive is not found', async () => {
+      const ghost: FileRecord = { ...fileRecord, driveId: Identifier.fromString('ghost-drive').toString() };
+      await expect(fm.trashFile(ghost)).rejects.toThrow(`Drive with id ${ghost.driveId.slice(0, 6)} not found`);
+    });
+
+    it('trashFolder records a folder in the overlay and emits FOLDER_TRASHED', async () => {
+      const folder: FolderInfo = {
+        type: NodeType.Folder,
+        owner,
+        actPublisher,
+        topic: Topic.fromString('docs-folder').toString(),
+        driveId: drive.id,
+        path: 'Docs',
+        batchId: MOCK_BATCH_ID,
+        redundancyLevel: RedundancyLevel.OFF,
+      };
+      const handler = jest.fn();
+      fm.emitter.on(FileManagerEvents.FOLDER_TRASHED, handler);
+
+      await fm.trashFolder(folder);
+
+      expect(folder.status).toBe(FileStatus.Trashed);
+      expect(drive.trashedNodes).toContainEqual({ topic: folder.topic, type: NodeType.Folder, path: folder.path });
+      expect(handler).toHaveBeenCalledWith({ folder });
+    });
+
+    it('listTrash hydrates the overlay into trashed NodeEntries', async () => {
+      await fm.trashFile(fileRecord);
+
+      (getFeedData as jest.Mock).mockResolvedValue({
+        feedIndex: FeedIndex.fromBigInt(0n),
+        feedIndexNext: FeedIndex.fromBigInt(1n),
+        payload: new Bytes(SWARM_ZERO_ADDRESS.toUint8Array()),
+      });
+      const spyFetch = jest
+        .spyOn(FileManagerBase.prototype as any, 'fetchFileInfo')
+        .mockResolvedValue({ ...fileRecord, status: undefined });
+
+      const trashed = await fm.listTrash(drive.id);
+
+      expect(trashed).toHaveLength(1);
+      expect(trashed[0].topic).toBe(fileRecord.topic);
+      expect(trashed[0].status).toBe(FileStatus.Trashed);
+      expect(trashed[0].path).toBe(fileRecord.path);
+
+      spyFetch.mockRestore();
     });
 
     it('throws when attempting to forget the drive root', async () => {
@@ -1159,6 +1204,58 @@ describe('FileManager', () => {
       const driveMantaray = (fm as any).nodeManifestCache.get(drive.topic) as MantarayNode;
       expect(driveMantaray.find('package.json')).toBeFalsy();
       expect(driveMantaray.find('renamed.json')).toBeTruthy();
+    });
+
+    it('refuses to move a trashed node until it is recovered', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
+      const drive = fm.driveList[1];
+
+      await fm.uploadFile(drive.id, { path: 'package.json', sourcePath: 'package.json' });
+      const original = fm.fileInfoList.find((fr) => fr.path === 'package.json')!;
+      await fm.trashFile(original);
+
+      await expect(fm.move('package.json', 'renamed.json', drive.id)).rejects.toThrow(
+        'Cannot move a trashed file/folder; recover it first',
+      );
+
+      // The guard fires before any manifest mutation — the fork stays put.
+      const driveMantaray = (fm as any).nodeManifestCache.get(drive.topic) as MantarayNode;
+      expect(driveMantaray.find('package.json')).toBeTruthy();
+      expect(driveMantaray.find('renamed.json')).toBeFalsy();
+    });
+
+    it('refreshes trashed descendants overlay paths on a same-drive folder move', async () => {
+      const fm = await createInitializedFileManager();
+      const drive = fm.driveList[0];
+      await fm.createFolder(drive.id, '', 'Docs');
+
+      const descendantTopic = Topic.fromString('doc-a').toString();
+      drive.trashedNodes = [{ topic: descendantTopic, type: NodeType.File, path: 'Docs/a.txt' }];
+
+      await fm.move('Docs', 'Archive', drive.id);
+
+      expect(drive.trashedNodes).toEqual([{ topic: descendantTopic, type: NodeType.File, path: 'Archive/a.txt' }]);
+    });
+
+    it('relocates trashed descendants to the target drive on a cross-drive folder move', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Target Drive', false);
+      const source = fm.driveList[0];
+      const target = fm.driveList[1];
+      await fm.createFolder(source.id, '', 'Docs');
+
+      const descendantTopic = Topic.fromString('doc-a').toString();
+      source.trashedNodes = [{ topic: descendantTopic, type: NodeType.File, path: 'Docs/a.txt' }];
+
+      await fm.move('Docs', 'Archive', source.id, target.id);
+
+      expect(source.trashedNodes).toEqual([]);
+      expect(target.trashedNodes).toContainEqual({
+        topic: descendantTopic,
+        type: NodeType.File,
+        path: 'Archive/a.txt',
+      });
     });
 
     it('self-hydrates a file that was never loaded into fileInfoList', async () => {
