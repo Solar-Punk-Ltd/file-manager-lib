@@ -1020,6 +1020,7 @@ export class FileManagerBase implements FileManager {
           timestamp: new Date().getTime(),
           shared: false,
           version,
+          customMetadata: planned.item.customMetadata,
           redundancyLevel: parentHost.redundancyLevel,
           status: FileStatus.Active,
         };
@@ -1250,7 +1251,6 @@ export class FileManagerBase implements FileManager {
       throw new FileInfoError(`Failed to save record: ${error.message || error}`);
     }
   }
-  // TODO: refator, no need for a full host object --> hoist out as a mantaray util ?
   // TODO: can resolveFolder + getMantarayNode calls be merged as a util ?
   private async getMantarayNode(
     host: ManifestHost,
