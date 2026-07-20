@@ -397,6 +397,7 @@ export interface FileManager {
    * @param folderName - Name of the new folder (must not contain '/').
    * @param redundancyLevel - Optional redundancy level; inherits from parent or drive if omitted.
    * @param requestOptions - Additional Bee request options.
+   * @emits FileManagerEvents.FOLDER_CREATED
    * @returns The FolderInfo for the newly created folder.
    * @throws {DriveError} If not initialized, driveId is not found, the folder name is invalid, or the parent path does not exist.
    * @throws {SignerError} If the publisher/signer is unavailable.

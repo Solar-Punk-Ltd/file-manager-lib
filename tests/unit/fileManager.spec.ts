@@ -777,7 +777,7 @@ describe('FileManager', () => {
 
       const folderInfo = await fm.createFolder(drive.id, '', 'Documents');
 
-      expect(folderInfo.path).toBe('/Documents');
+      expect(folderInfo.path).toBe('Documents');
       expect(folderInfo.driveId).toBe(drive.id);
 
       const updatedDrive = fm.driveList.find((d) => d.id === drive.id)!;
@@ -785,6 +785,38 @@ describe('FileManager', () => {
 
       const driveMantaray = (fm as any).nodeManifestCache.get(drive.topic) as MantarayNode;
       expect(driveMantaray.find('Documents')).toBeTruthy();
+    });
+
+    it('builds a nested folder path without a leading slash', async () => {
+      const fm = await createInitializedFileManager();
+      const drive = fm.driveList[0];
+
+      await fm.createFolder(drive.id, '', 'Documents');
+
+      (getFeedData as jest.Mock).mockResolvedValue({
+        feedIndex: FeedIndex.fromBigInt(0n),
+        feedIndexNext: FeedIndex.fromBigInt(1n),
+        payload: {
+          toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
+        },
+      });
+
+      const nested = await fm.createFolder(drive.id, 'Documents', 'Reports');
+
+      expect(nested.path).toBe('Documents/Reports');
+    });
+
+    it('emits FOLDER_CREATED with the created folder info', async () => {
+      const fm = await createInitializedFileManager();
+      const drive = fm.driveList[0];
+
+      const handler = jest.fn();
+      fm.emitter.on(FileManagerEvents.FOLDER_CREATED, handler);
+
+      const folderInfo = await fm.createFolder(drive.id, '', 'Documents');
+
+      expect(handler).toHaveBeenCalledTimes(1);
+      expect(handler).toHaveBeenCalledWith({ folderInfo });
     });
 
     it('throws on an invalid folder name containing a slash', async () => {

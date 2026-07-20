@@ -562,7 +562,6 @@ export class FileManagerBase implements FileManager {
     while (visitedNodes.length > 0 && currentDepth < depthLimit) {
       requestOptions?.signal?.throwIfAborted();
 
-      // Phase 1 — expand each manifest into lean fork headers
       const headers: NodeHeader[] = [];
       await awaitAllPromisesBounded(
         visitedNodes.map((item) => async (): Promise<NodeHeader[]> => {
@@ -578,7 +577,6 @@ export class FileManagerBase implements FileManager {
         },
       );
 
-      // Phase 2 — hydrate file headers into FileRecords (cache-first).
       const fileHeaders = headers.filter((e) => e.type === NodeType.File);
       await awaitAllPromisesBounded(
         fileHeaders.map((e) => async (): Promise<FileRecord> => {
@@ -614,7 +612,6 @@ export class FileManagerBase implements FileManager {
         },
       );
 
-      // Phase 3 — resolve folder headers into FolderInfos (and the next BFS frontier).
       const folderHeaders = headers.filter((e) => e.type === NodeType.Folder);
       const nextFrontier: { host: ManifestHost; basePath: string }[] = [];
       await awaitAllPromisesBounded(
@@ -818,7 +815,6 @@ export class FileManagerBase implements FileManager {
     uploadOptions?: RedundantUploadOptions | FileUploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<UploadFilesResult> {
-    // Phase 0 — guards. Reject immediately if already aborted before any work starts.
     requestOptions?.signal?.throwIfAborted();
 
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
@@ -835,9 +831,6 @@ export class FileManagerBase implements FileManager {
       }
     }
 
-    // Phase 1 — plan (no writes). Resolve the destination once (throws if invalid — correct
-    // fail-fast), then walk the new hierarchy top-down classifying each needed folder path as
-    // existing / missing / conflict before any write happens.
     const segmentsOf = (p: string): string[] => p.split('/').filter(Boolean);
 
     const destSegments = segmentsOf(destinationPath);
@@ -890,7 +883,6 @@ export class FileManagerBase implements FileManager {
       const parentPath = segments.slice(0, -1).join('/');
 
       if (missingFolderPaths.has(parentPath)) {
-        // Parent doesn't exist yet (queued for Phase 2) — this folder can't exist either.
         missingFolderPaths.add(path);
         missingFolders.push({ path, parentPath, folderName });
         continue;
@@ -947,11 +939,8 @@ export class FileManagerBase implements FileManager {
       });
     }
 
-    // Any host that will receive a fork (folder or file) — saved exactly once in Phase 4.
     const dirtyHosts = new Map<string, ManifestHost>();
 
-    // Phase 2 — create missing folders, shallow-to-deep, sequential (folder count is small and
-    // ordering matters: each folder's parent must already be in hostMap when it's created).
     for (const { path, parentPath, folderName } of missingFolders) {
       const parentHost = hostMap.get(parentPath);
       if (!parentHost) {
@@ -981,7 +970,6 @@ export class FileManagerBase implements FileManager {
       this.emitter.emit(FileManagerEvents.FOLDER_CREATED, { folderInfo });
     }
 
-    // Phase 3 — upload files, bounded concurrency.
     const succeeded: FileRecord[] = [];
     const failed: { path: string; error: string }[] = [];
     const owner = this.signerAddress;
@@ -2016,7 +2004,7 @@ export class FileManagerBase implements FileManager {
       manifestRef: newFolderManifestRef,
       batchId: driveInfo.batchId,
       redundancyLevel: effectiveRedundancy,
-      path: (parentPath === ROOT_PATH || !parentPath ? '' : parentPath) + '/' + folderName,
+      path: parentPath === ROOT_PATH || !parentPath ? folderName : `${parentPath}/${folderName}`,
       driveId: driveInfo.id,
       actPublisher: publisher,
     };
@@ -2078,6 +2066,8 @@ export class FileManagerBase implements FileManager {
     if (!parentFolder) {
       this.driveList[driveIx].manifestRef = updatedParentManifestRef;
     }
+
+    this.emitter.emit(FileManagerEvents.FOLDER_CREATED, { folderInfo });
 
     return folderInfo;
   }
