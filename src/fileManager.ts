@@ -34,8 +34,8 @@ import {
   TrashEntry,
 } from './types/info';
 import { UpdateItem, UploadFilesResult, UploadItem } from './types/upload';
-import { ActReferences, FeedResultWithIndex } from './types/utils';
-import { assertActReferences, assertDriveInfoFromMetadata, assertFileRecord, assertReady } from './utils/asserts';
+import { ActReferences } from './types/utils';
+import { assertActReferences, assertDriveInfoFromMetadata, assertReady } from './utils/asserts';
 import {
   fetchStamp,
   getFeedData,
@@ -91,7 +91,6 @@ export class FileManagerBase implements FileManager {
   private isInitializing: boolean = false;
   private _adminStamp: PostageBatch | undefined = undefined;
   private readonly store: MantarayStore;
-  private fileInfoHistoryCache: Map<string, string> = new Map();
   private adminRedundancyLevel: RedundancyLevel = RedundancyLevel.OFF;
 
   readonly driveList: DriveInfo[] = [];
@@ -262,7 +261,7 @@ export class FileManagerBase implements FileManager {
     if (!this.stateFeedTopic) {
       throw new DriveError('State feed topic not set');
     }
-    if (this.store.getManifestRef(this.stateFeedTopic.toString())) {
+    if (this.store.getNodeRef(this.stateFeedTopic.toString())) {
       throw new DriveError('Admin manifest already set');
     }
     if (!this.publisher) {
@@ -413,7 +412,7 @@ export class FileManagerBase implements FileManager {
       throw new DriveError('Admin state not initialized');
     }
 
-    if (!isAdmin && !this.store.getManifestRef(stateTopic)) {
+    if (!isAdmin && !this.store.getNodeRef(stateTopic)) {
       throw new DriveError('Admin manifest not set');
     }
 
@@ -529,7 +528,7 @@ export class FileManagerBase implements FileManager {
           const version = e.version ? BigInt(e.version) : undefined;
           const feedData = await getFeedData(this.bee, new Topic(e.topic), owner, version, requestOptions);
 
-          const fr = await this.fetchFileInfo(e.topic, actPublisher, feedData, requestOptions);
+          const fr = await this.store.getRecord(e.topic, actPublisher, feedData, requestOptions);
           fr.path = e.path;
           fr.status = getRecordStatus(cachedDrive, e.topic);
           return fr;
@@ -718,7 +717,7 @@ export class FileManagerBase implements FileManager {
       status: FileStatus.Active,
     };
 
-    await this.saveFileInfoFeed(record, requestOptions);
+    await this.persistRecord(record, requestOptions);
     // In-memory copy is the caller-known absolute path — no walk needed here.
     record.path = item.path;
 
@@ -934,7 +933,7 @@ export class FileManagerBase implements FileManager {
           status: FileStatus.Active,
         };
 
-        await this.saveFileInfoFeed(record, requestOptions);
+        await this.persistRecord(record, requestOptions);
         // In-memory copy is stamped with the already-planned absolute path — no walk needed here.
         record.path = planned.fullPath;
 
@@ -1041,7 +1040,7 @@ export class FileManagerBase implements FileManager {
       status: record.status ?? FileStatus.Active,
     };
 
-    await this.saveFileInfoFeed(fr, requestOptions);
+    await this.persistRecord(fr, requestOptions);
     await this.syncForkVersion(cachedDrive, driveIx, record.path, version, publisher, requestOptions);
 
     fr.path = record.path;
@@ -1075,7 +1074,7 @@ export class FileManagerBase implements FileManager {
       throw new FileInfoError(`File feed not found for topic: ${fr.topic.slice(0, 6)}`);
     }
 
-    return this.fetchFileInfo(topic.toString(), fr.actPublisher, feedData, requestOptions);
+    return this.store.getRecord(topic.toString(), fr.actPublisher, feedData, requestOptions);
   }
 
   async restoreFileVersion(versionToRestore: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
@@ -1118,51 +1117,12 @@ export class FileManagerBase implements FileManager {
       timestamp: Date.now(),
     };
 
-    await this.saveFileInfoFeed(restored, requestOptions);
+    await this.persistRecord(restored, requestOptions);
     await this.syncForkVersion(cachedDrive, driveIx, restored.path, newVersion, publisher, requestOptions);
 
     this.emitter.emit(FileManagerEvents.FILE_VERSION_RESTORED, {
       restored,
     });
-  }
-
-  private async uploadFileInfo(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<ActReferences> {
-    try {
-      const topicStr = record.topic;
-      let historyRef = this.fileInfoHistoryCache.get(topicStr);
-
-      // strip status so that trash state never leaks
-      const persistable: FileRecord = { ...record };
-      delete persistable.status;
-
-      const uploadInfoRes = await this.bee.uploadData(
-        record.batchId,
-        JSON.stringify(persistable),
-        {
-          act: true,
-          actHistoryAddress: historyRef,
-          redundancyLevel: record.redundancyLevel,
-        },
-        requestOptions,
-      );
-      historyRef = uploadInfoRes.historyAddress.getOrThrow().toString();
-      this.fileInfoHistoryCache.set(topicStr, historyRef);
-
-      const existingIx = this.fileInfoList.findIndex((f) => f.topic === topicStr);
-      if (existingIx !== -1) {
-        this.fileInfoList[existingIx] = record;
-      } else {
-        this.fileInfoList.push(record);
-      }
-
-      return {
-        reference: uploadInfoRes.reference.toString(),
-        historyRef: historyRef,
-      };
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (error: any) {
-      throw new FileInfoError(`Failed to save record: ${error.message || error}`);
-    }
   }
 
   private adminHost(publisher: string): ManifestHost {
@@ -1212,63 +1172,19 @@ export class FileManagerBase implements FileManager {
     }
   }
 
-  private async saveFileInfoFeed(fr: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
-    const fileInfoResult = await this.uploadFileInfo(fr, requestOptions);
-
+  private async persistRecord(fr: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
     try {
-      const fileInfoState = JSON.stringify({
-        reference: fileInfoResult.reference,
-        historyRef: fileInfoResult.historyRef,
-      } as ActReferences);
-
-      const fw = this.bee.makeFeedWriter(new Topic(fr.topic).toUint8Array(), this.signer, requestOptions);
-
-      await fw.uploadPayload(fr.batchId, fileInfoState, {
-        index: fr.version !== undefined ? new FeedIndex(fr.version) : undefined,
-      });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (error: any) {
-      throw new FileInfoError(`Failed to save wrapped record feed: ${error.message || error}`);
-    }
-  }
-
-  private async fetchFileInfo(
-    topic: string,
-    actPublisher: string,
-    feeData: FeedResultWithIndex,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<FileRecord> {
-    if (feeData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
-      throw new FileInfoError(`File record not found for topic: ${topic.slice(0, 6)}`);
+      await this.store.saveRecord(fr, requestOptions);
+    } catch (error: unknown) {
+      throw new FileInfoError(`Failed to save record: ${error instanceof Error ? error.message : error}`);
     }
 
-    const contentRefs = feeData.payload.toJSON() as ActReferences;
-    assertActReferences(contentRefs);
-
-    const fileBytes = await this.bee.downloadData(
-      contentRefs.reference,
-      {
-        actHistoryAddress: contentRefs.historyRef,
-        actPublisher,
-      },
-      requestOptions,
-    );
-
-    const record = fileBytes.toJSON() as FileRecord;
-    assertFileRecord(record);
-
-    if (topic !== record.topic) {
-      throw new FileInfoError(
-        `Feed topic ${topic.slice(0, 6)} != record.topic ${record.topic.slice(0, 6)} for: ${record.path}`,
-      );
+    const existingIx = this.fileInfoList.findIndex((f) => f.topic === fr.topic);
+    if (existingIx !== -1) {
+      this.fileInfoList[existingIx] = fr;
+    } else {
+      this.fileInfoList.push(fr);
     }
-
-    // make sure that version tracks the actual feed index
-    record.version = feeData.feedIndex.toString();
-    this.fileInfoHistoryCache.set(topic, contentRefs.historyRef);
-    this.store.setNodeFeedIndex(topic, new FeedIndex(record.version).next().toBigInt());
-
-    return record;
   }
 
   private async setTrashState(
@@ -1394,7 +1310,7 @@ export class FileManagerBase implements FileManager {
         }
 
         if (entry.type === NodeType.File) {
-          const fr = await this.fetchFileInfo(entry.topic, publisher, feedData, requestOptions);
+          const fr = await this.store.getRecord(entry.topic, publisher, feedData, requestOptions);
           fr.path = entry.path;
           fr.status = FileStatus.Trashed;
           return fr;
@@ -1673,9 +1589,7 @@ export class FileManagerBase implements FileManager {
           throw new FileInfoError(`File feed not found for topic: ${fileTopic.slice(0, 6)}`);
         }
 
-        fr = await this.fetchFileInfo(fileTopic, publisher, feedData, requestOptions);
-
-        this.store.setNodeFeedIndex(fileTopic, feedData.feedIndexNext.toBigInt());
+        fr = await this.store.getRecord(fileTopic, publisher, feedData, requestOptions);
         this.fileInfoList.push(fr);
       }
 
@@ -1687,7 +1601,7 @@ export class FileManagerBase implements FileManager {
       const newVersion = fr.version !== undefined ? new FeedIndex(fr.version) : FEED_INDEX_ZERO;
       fr.version = newVersion.next().toString();
 
-      await this.saveFileInfoFeed(fr, requestOptions);
+      await this.persistRecord(fr, requestOptions);
 
       fr.path = toPath;
       forkMetadata[MANIFEST_METADATA_NODE_VERSION] = fr.version;

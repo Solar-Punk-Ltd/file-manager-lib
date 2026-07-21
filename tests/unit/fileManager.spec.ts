@@ -848,7 +848,7 @@ describe('FileManager', () => {
       fm = await createInitializedFileManager();
     });
 
-    it('getFileVersion calls fetchFileInfo with the topic and compressed actPublisher', async () => {
+    it('getFileVersion calls store.getRecord with the topic and compressed actPublisher', async () => {
       const fakeFi = { ...dummyFi, version: '1' };
 
       const rawMock: FeedResultWithIndex = {
@@ -858,7 +858,7 @@ describe('FileManager', () => {
       };
       (getFeedData as jest.Mock).mockResolvedValue(rawMock);
 
-      const spyFetch = jest.spyOn(FileManagerBase.prototype as any, 'fetchFileInfo').mockResolvedValue(fakeFi);
+      const spyFetch = jest.spyOn((fm as any).store, 'getRecord').mockResolvedValue(fakeFi);
 
       const got = await fm.getFileVersion(dummyFi, FeedIndex.fromBigInt(1n));
 
@@ -870,9 +870,6 @@ describe('FileManager', () => {
       );
       expect(got).toBe(fakeFi);
 
-      // jest.resetAllMocks() in the outer beforeEach clears this mock's resolved value but does
-      // not restore the original method, leaving fetchFileInfo permanently stubbed for every
-      // later test in the file unless explicitly restored here.
       spyFetch.mockRestore();
     });
 
@@ -1159,7 +1156,7 @@ describe('FileManager', () => {
         payload: new Bytes(SWARM_ZERO_ADDRESS.toUint8Array()),
       });
       const spyFetch = jest
-        .spyOn(FileManagerBase.prototype as any, 'fetchFileInfo')
+        .spyOn((fm as any).store, 'getRecord')
         .mockResolvedValue({ ...fileRecord, status: undefined });
 
       const trashed = await fm.listTrash(drive.id);

@@ -9,10 +9,10 @@ import {
   Topic,
 } from '@ethersphere/bee-js';
 
-import { DriveInfo, FolderInfo, ManifestHost, NodeType } from './types/info';
-import { ActReferences } from './types/utils';
-import { assertActReferences } from './utils/asserts';
-import { getFeedData } from './utils/bee';
+import { DriveInfo, FileRecord, FolderInfo, ManifestHost, NodeType } from './types/info';
+import { ActReferences, FeedResultWithIndex } from './types/utils';
+import { assertActReferences, assertFileRecord } from './utils/asserts';
+import { getFeedData, writeActFeed } from './utils/bee';
 import {
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
@@ -31,7 +31,7 @@ export class MantarayStore {
   private readonly signerAddress: string;
   private readonly nodeManifestCache: Map<string, MantarayNode> = new Map();
   private readonly nodeFeedIndexCache: Map<string, bigint> = new Map();
-  private readonly nodeManifestRefCache: Map<string, ActReferences> = new Map();
+  private readonly nodeRefCache: Map<string, ActReferences> = new Map();
 
   constructor(
     private readonly bee: Bee,
@@ -90,7 +90,7 @@ export class MantarayStore {
     const node = await loadMantaray(this.bee, new Reference(raw), undefined, requestOptions);
 
     this.nodeManifestCache.set(topic, node);
-    this.nodeManifestRefCache.set(topic, manifestRef);
+    this.nodeRefCache.set(topic, manifestRef);
 
     return node;
   }
@@ -101,7 +101,7 @@ export class MantarayStore {
     requestOptions?: BeeRequestOptions,
   ): Promise<ActReferences> {
     const cachedWriteIx = this.nodeFeedIndexCache.get(host.topic);
-    const prevManifestRef = this.nodeManifestRefCache.get(host.topic) ?? host.manifestRef;
+    const prevManifestRef = this.nodeRefCache.get(host.topic) ?? host.manifestRef;
 
     const { contentRefs, newIndex } = await saveNodeManifest(
       this.bee,
@@ -112,13 +112,69 @@ export class MantarayStore {
       requestOptions,
     );
     this.nodeFeedIndexCache.set(host.topic, newIndex);
-    this.nodeManifestRefCache.set(host.topic, contentRefs);
+    this.nodeRefCache.set(host.topic, contentRefs);
 
     return contentRefs;
   }
 
-  getManifestRef(topic: string): ActReferences | undefined {
-    return this.nodeManifestRefCache.get(topic);
+  async saveRecord(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<ActReferences> {
+    const prevRef = this.nodeRefCache.get(record.topic);
+
+    const persistable: FileRecord = { ...record };
+    delete persistable.status;
+
+    const { contentRefs, newIndex } = await writeActFeed(
+      this.bee,
+      this.signer,
+      JSON.stringify(persistable),
+      {
+        batchId: record.batchId,
+        topic: record.topic,
+        redundancyLevel: record.redundancyLevel,
+        actHistoryAddress: prevRef?.historyRef,
+        index: record.version !== undefined ? new FeedIndex(record.version).toBigInt() : undefined,
+      },
+      requestOptions,
+    );
+    this.nodeFeedIndexCache.set(record.topic, newIndex);
+    this.nodeRefCache.set(record.topic, contentRefs);
+
+    return contentRefs;
+  }
+
+  async getRecord(
+    topic: string,
+    actPublisher: string,
+    feedData: FeedResultWithIndex,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<FileRecord> {
+    if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
+      throw new FileInfoError(`File record not found for topic: ${topic.slice(0, 6)}`);
+    }
+
+    const contentRefs = feedData.payload.toJSON() as ActReferences;
+    assertActReferences(contentRefs);
+
+    const fileBytes = await this.bee.downloadData(
+      contentRefs.reference,
+      { actHistoryAddress: contentRefs.historyRef, actPublisher },
+      requestOptions,
+    );
+
+    const record = fileBytes.toJSON() as FileRecord;
+    assertFileRecord(record);
+
+    if (topic !== record.topic) {
+      throw new FileInfoError(
+        `Feed topic ${topic.slice(0, 6)} != record.topic ${record.topic.slice(0, 6)} for: ${record.path}`,
+      );
+    }
+
+    record.version = feedData.feedIndex.toString();
+    this.nodeRefCache.set(topic, contentRefs);
+    this.nodeFeedIndexCache.set(topic, new FeedIndex(record.version).next().toBigInt());
+
+    return record;
   }
 
   // --- Helpers  ---
@@ -215,6 +271,16 @@ export class MantarayStore {
     this.nodeManifestCache.set(topic, node);
   }
 
+  /** The latest ACT ref written to `topic`'s feed — a manifest root or a file record. */
+  getNodeRef(topic: string): ActReferences | undefined {
+    return this.nodeRefCache.get(topic);
+  }
+
+  /** Record the latest ACT ref for `topic`'s feed. Used by feed writes that bypass {@link saveMantarayNode}. */
+  setNodeRef(topic: string, refs: ActReferences): void {
+    this.nodeRefCache.set(topic, refs);
+  }
+
   /** The cached manifest for `topic`, or undefined if it was never loaded/seeded. */
   getManifestCache(topic: string): MantarayNode | undefined {
     return this.nodeManifestCache.get(topic);
@@ -229,13 +295,13 @@ export class MantarayStore {
   evict(topic: string): void {
     this.nodeManifestCache.delete(topic);
     this.nodeFeedIndexCache.delete(topic);
-    this.nodeManifestRefCache.delete(topic);
+    this.nodeRefCache.delete(topic);
   }
 
   /** Drop all cached state */
   clear(): void {
     this.nodeManifestCache.clear();
     this.nodeFeedIndexCache.clear();
-    this.nodeManifestRefCache.clear();
+    this.nodeRefCache.clear();
   }
 }

@@ -1,18 +1,9 @@
-import {
-  Bee,
-  BeeRequestOptions,
-  DownloadOptions,
-  FeedIndex,
-  MantarayNode,
-  PrivateKey,
-  Reference,
-  Topic,
-} from '@ethersphere/bee-js';
+import { Bee, BeeRequestOptions, DownloadOptions, MantarayNode, PrivateKey, Reference } from '@ethersphere/bee-js';
 
 import { DriveInfo, FileRecord, FolderInfo, ManifestHost, NodeHeader, NodeType } from '../types/info';
 import { ActReferences } from '../types/utils';
 
-import { getFeedData } from './bee';
+import { writeActFeed } from './bee';
 import {
   DRIVE_FORK_PREFIX,
   MANIFEST_METADATA_DRIVE_ACT_PUBLISHER,
@@ -79,34 +70,21 @@ export async function saveNodeManifest(
   index?: bigint,
   requestOptions?: BeeRequestOptions,
 ): Promise<SavedManifest> {
-  const saveResult = await node.saveRecursively(bee, host.batchId, { act: false }, requestOptions);
-  const manifestUpload = await bee.uploadData(
-    host.batchId,
+  const saveResult = await node.saveRecursively(bee, host.batchId, undefined, requestOptions);
+
+  return writeActFeed(
+    bee,
+    signer,
     saveResult.reference.toUint8Array(),
-    { act: true, actHistoryAddress: host.manifestRef?.historyRef, redundancyLevel: host.redundancyLevel },
+    {
+      batchId: host.batchId,
+      topic: host.topic,
+      redundancyLevel: host.redundancyLevel,
+      actHistoryAddress: host.manifestRef?.historyRef,
+      index,
+    },
     requestOptions,
   );
-  const newManifestRef: ActReferences = {
-    reference: manifestUpload.reference.toString(),
-    historyRef: manifestUpload.historyAddress.getOrThrow().toString(),
-  };
-
-  let writeIndex = index;
-  if (writeIndex === undefined) {
-    const { feedIndexNext } = await getFeedData(
-      bee,
-      new Topic(host.topic),
-      signer.publicKey().address().toString(),
-      undefined,
-      requestOptions,
-    );
-    writeIndex = feedIndexNext.toBigInt();
-  }
-
-  const fw = bee.makeFeedWriter(new Topic(host.topic).toUint8Array(), signer, requestOptions);
-  await fw.uploadPayload(host.batchId, JSON.stringify(newManifestRef), { index: FeedIndex.fromBigInt(writeIndex) });
-
-  return { contentRefs: newManifestRef, newIndex: writeIndex + 1n };
 }
 
 export function fileForkMetadata(record: FileRecord): Record<string, string> {
