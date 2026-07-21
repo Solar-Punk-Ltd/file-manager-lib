@@ -1096,9 +1096,10 @@ describe('FileManager', () => {
       await fm.trashFile(fileRecord);
 
       expect(fileRecord.status).toBe(FileStatus.Trashed);
-      // Overlay-only: no feed write, so the file's own version is untouched.
       expect(fileRecord.version).toBe(versionBefore);
-      expect(drive.trashedNodes).toEqual([{ topic: fileRecord.topic, type: NodeType.File, path: fileRecord.path }]);
+      expect(drive.trashedNodes).toEqual([
+        { topic: fileRecord.topic, type: NodeType.File, path: fileRecord.path, version: versionBefore },
+      ]);
       expect(handler).toHaveBeenCalledWith({ record: fileRecord });
     });
 

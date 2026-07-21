@@ -9,7 +9,7 @@ import {
   Topic,
 } from '@ethersphere/bee-js';
 
-import { DriveInfo, FileRecord, ManifestHost, NodeHeader, NodeType } from '../types/info';
+import { DriveInfo, FileRecord, FolderInfo, ManifestHost, NodeHeader, NodeType } from '../types/info';
 import { ActReferences } from '../types/utils';
 
 import { getFeedData } from './bee';
@@ -119,6 +119,24 @@ export function addFileToManifest(mantaray: MantarayNode, forkPath: string, reco
     [MANIFEST_METADATA_NODE_ACT_PUBLISHER]: record.actPublisher,
     ...(record.version !== undefined ? { [MANIFEST_METADATA_NODE_VERSION]: record.version } : {}),
   });
+}
+
+export function folderForkMetadata(folder: FolderInfo): Record<string, string> {
+  return {
+    [MANIFEST_METADATA_NODE_TOPIC]: folder.topic,
+    [MANIFEST_METADATA_NODE_TYPE]: NodeType.Folder,
+    [MANIFEST_METADATA_REDUNDANCY_LEVEL]: folder.redundancyLevel.toString(),
+    [MANIFEST_METADATA_NODE_OWNER]: folder.owner,
+    [MANIFEST_METADATA_NODE_ACT_PUBLISHER]: folder.actPublisher,
+  };
+}
+
+export function addFolderToManifest(mantaray: MantarayNode, forkPath: string, folder: FolderInfo): void {
+  mantaray.addFork(forkPath, new Reference(folder.topic), folderForkMetadata(folder));
+}
+
+export function addDriveToManifest(mantaray: MantarayNode, drive: DriveInfo): void {
+  mantaray.addFork(getDriveForkPath(drive.id), new Reference(drive.topic), driveForkMetadata(drive));
 }
 
 export function driveForkMetadata(drive: DriveInfo): Record<string, string> {

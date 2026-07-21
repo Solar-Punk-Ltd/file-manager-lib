@@ -41,12 +41,18 @@ export interface FileRecord extends NodeResource {
 
 export interface ManifestHost extends NodeResource {
   manifestRef?: ActReferences;
+  /**
+   *  Unlike files, containers (folders, drives) are not content-versioned.
+   * Omitted so `NODE_VERSION` is never written for or read from folders/drives.
+   */
+  version?: never;
 }
-// TODO: consider storing version for better performance
+
 export interface TrashEntry {
   topic: string;
   type: NodeType;
   path: string;
+  version?: string;
 }
 
 export interface DriveInfo extends ManifestHost {
@@ -65,12 +71,6 @@ export interface FolderInfo extends ManifestHost {
 
 export type NodeEntry = FileRecord | FolderInfo;
 
-/**
- * Lean projection of a manifest fork, produced from fork metadata alone (no feed fetch).
- * {@link FileManager.listFolder} hydrates these into full {@link NodeEntry} objects.
- * `head`/`version`/`owner`/`actPublisher` come from enriched fork metadata and enable a future
- * hydration that skips the feed lookup — the fork head-pointer fast path.
- */
 export interface NodeHeader {
   path: string;
   type: NodeType;
