@@ -21,6 +21,7 @@ import {
 } from './utils/constants';
 import { DriveError, FileInfoError } from './utils/errors';
 import { loadMantaray, saveNodeManifest } from './utils/mantaray';
+import { pathSegments } from './utils/path';
 
 /**
  * Owns the two per-node caches and the resolve/load/save layer that reads and saves them.
@@ -141,7 +142,7 @@ export class MantarayStore {
   ): Promise<FolderInfo | null> {
     if (!path || path === ROOT_PATH) return null;
 
-    const segments = path.split('/').filter(Boolean);
+    const segments = pathSegments(path);
     const driveRootHost = this.driveRootHost(driveInfo);
     let currentMantaray = await this.getMantarayNode(
       driveRootHost.topic,

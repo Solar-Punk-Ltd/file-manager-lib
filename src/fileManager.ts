@@ -75,6 +75,7 @@ import {
   getAllNodeEntries,
   getDriveForkPath,
 } from './utils/mantaray';
+import { assertValidRelativePath, normalizePath, pathSegments, splitPath } from './utils/path';
 import { processDownload } from './download';
 import { EventEmitter, EventEmitterBase } from './eventEmitter';
 import { MantarayStore } from './mantarayStore';
@@ -483,7 +484,7 @@ export class FileManagerBase implements FileManager {
     const { cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
 
     const { host: startHost } = await this.store.resolveHost(cachedDrive, path, publisher, requestOptions);
-    const startBasePath = path.split('/').filter(Boolean).join('/');
+    const startBasePath = normalizePath(path);
 
     const results: NodeEntry[] = [];
     let visitedNodes: { host: ManifestHost; basePath: string }[] = [{ host: startHost, basePath: startBasePath }];
@@ -622,7 +623,7 @@ export class FileManagerBase implements FileManager {
 
     await this.listFolder(driveId, path, ListDepth.Deep, undefined, requestOptions);
 
-    const normalized = path.split('/').filter(Boolean).join('/');
+    const normalized = normalizePath(path);
     const prefix = normalized ? normalized + '/' : '';
     const files = this.fileInfoList.filter((f) => f.driveId === driveId.toString() && f.path.startsWith(prefix));
 
@@ -679,9 +680,7 @@ export class FileManagerBase implements FileManager {
     await assertUploadableSource(item);
 
     // Resolve the parent folder up front so the new fork inherits the parent's redundancy level.
-    const lastSlash = item.path.lastIndexOf('/');
-    const parentPath = lastSlash > 0 ? item.path.substring(0, lastSlash) : ROOT_PATH;
-    const filename = lastSlash >= 0 ? item.path.substring(lastSlash + 1) : item.path;
+    const { parentPath, name: filename } = splitPath(item.path);
 
     const { host: targetHost, folder: parentFolder } = await this.store.resolveHost(
       cachedDrive,
@@ -760,15 +759,10 @@ export class FileManagerBase implements FileManager {
     }
 
     for (const entry of items) {
-      const rp = entry.path;
-      if (!rp || rp.startsWith('/') || rp.includes('..') || rp.endsWith('/')) {
-        throw new FileInfoError(`Invalid path: "${rp}"`);
-      }
+      assertValidRelativePath(entry.path);
     }
 
-    const segmentsOf = (p: string): string[] => p.split('/').filter(Boolean);
-
-    const destSegments = segmentsOf(destinationPath);
+    const destSegments = pathSegments(destinationPath);
     const destKey = destSegments.join('/');
     const { host: destHost } = await this.store.resolveHost(cachedDrive, destinationPath, publisher, requestOptions);
 
@@ -783,7 +777,7 @@ export class FileManagerBase implements FileManager {
     const neededFolderPaths = new Set<string>();
 
     for (const item of items) {
-      const relSegments = segmentsOf(item.path);
+      const relSegments = pathSegments(item.path);
       const filename = relSegments[relSegments.length - 1];
       const folderSegments = relSegments.slice(0, -1);
       const fullPath = [...destSegments, ...relSegments].join('/');
@@ -796,7 +790,9 @@ export class FileManagerBase implements FileManager {
       }
     }
 
-    const sortedFolderPaths = Array.from(neededFolderPaths).sort((a, b) => segmentsOf(a).length - segmentsOf(b).length);
+    const sortedFolderPaths = Array.from(neededFolderPaths).sort(
+      (a, b) => pathSegments(a).length - pathSegments(b).length,
+    );
 
     const hostMap = new Map<string, ManifestHost>();
     hostMap.set(destKey, destHost);
@@ -805,7 +801,7 @@ export class FileManagerBase implements FileManager {
     const missingFolders: { path: string; parentPath: string; folderName: string }[] = [];
 
     for (const path of sortedFolderPaths) {
-      const segments = segmentsOf(path);
+      const segments = pathSegments(path);
       const folderName = segments[segments.length - 1];
       const parentPath = segments.slice(0, -1).join('/');
 
@@ -1003,8 +999,7 @@ export class FileManagerBase implements FileManager {
     const cached = this.fileInfoList.find((f) => f.topic === record.topic);
     const { topic, version } = await getTopicAndVersion(this.bee, owner, cached, record.topic, requestOptions);
 
-    const lastSlash = record.path.lastIndexOf('/');
-    const filename = lastSlash >= 0 ? record.path.substring(lastSlash + 1) : record.path;
+    const { name: filename } = splitPath(record.path);
 
     const mergedMetadata = changes.customMetadata
       ? { ...record.customMetadata, ...changes.customMetadata }
@@ -1194,9 +1189,7 @@ export class FileManagerBase implements FileManager {
     publisher: string,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
-    const lastSlash = absolutePath.lastIndexOf('/');
-    const parentPath = lastSlash > 0 ? absolutePath.substring(0, lastSlash) : ROOT_PATH;
-    const filename = lastSlash >= 0 ? absolutePath.substring(lastSlash + 1) : absolutePath;
+    const { parentPath, name: filename } = splitPath(absolutePath);
 
     const {
       host: parentHost,
@@ -1445,9 +1438,7 @@ export class FileManagerBase implements FileManager {
       throw new DriveError('Cannot forget drive root');
     }
 
-    const lastSlash = path.lastIndexOf('/');
-    const parentPath = lastSlash > 0 ? path.substring(0, lastSlash) : ROOT_PATH;
-    const name = lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
+    const { parentPath, name } = splitPath(path);
 
     const {
       host: parentHost,
@@ -1625,13 +1616,8 @@ export class FileManagerBase implements FileManager {
       throw new DriveError('Source and destination paths are identical');
     }
 
-    const srcLastSlash = fromPath.lastIndexOf('/');
-    const srcParentPath = srcLastSlash > 0 ? fromPath.substring(0, srcLastSlash) : ROOT_PATH;
-    const srcName = srcLastSlash >= 0 ? fromPath.substring(srcLastSlash + 1) : fromPath;
-
-    const tgtLastSlash = toPath.lastIndexOf('/');
-    const tgtParentPath = tgtLastSlash > 0 ? toPath.substring(0, tgtLastSlash) : ROOT_PATH;
-    const tgtName = tgtLastSlash >= 0 ? toPath.substring(tgtLastSlash + 1) : toPath;
+    const { parentPath: srcParentPath, name: srcName } = splitPath(fromPath);
+    const { parentPath: tgtParentPath, name: tgtName } = splitPath(toPath);
 
     // TODO: important! drivinfo shall also have a publisher and shall be passed on to each manifest get ! not always the node.address -> fm owner != shared drive publisher
     // resolve source node here - throws if not found
