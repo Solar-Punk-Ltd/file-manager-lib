@@ -571,7 +571,7 @@ describe('FileManager', () => {
       // Fresh topic is minted (not derived from any input).
       expect(entries[0].topic.length).toBeGreaterThan(0);
 
-      const driveMantaray = (fm as any).nodeManifestCache.get(di.topic) as MantarayNode;
+      const driveMantaray = (fm as any).store.getCachedManifest(di.topic) as MantarayNode;
       expect(driveMantaray.find('package.json')).toBeTruthy();
     });
 
@@ -585,7 +585,7 @@ describe('FileManager', () => {
       expect(fm.fileInfoList.find((fr) => fr.path === 'renamed.json')).toBeDefined();
       expect(fm.fileInfoList.find((fr) => fr.path === 'package.json')).toBeUndefined();
 
-      const driveMantaray = (fm as any).nodeManifestCache.get(di.topic) as MantarayNode;
+      const driveMantaray = (fm as any).store.getCachedManifest(di.topic) as MantarayNode;
       expect(driveMantaray.find('renamed.json')).toBeTruthy();
       expect(driveMantaray.find('package.json')).toBeFalsy();
     });
@@ -611,7 +611,7 @@ describe('FileManager', () => {
 
       // The file fork lives under the folder's own manifest — the drive root manifest carries the
       // 'tests' folder fork but not the file leaf.
-      const driveMantaray = (fm as any).nodeManifestCache.get(di.topic) as MantarayNode;
+      const driveMantaray = (fm as any).store.getCachedManifest(di.topic) as MantarayNode;
       expect(driveMantaray.find('tests')).toBeTruthy();
       expect(driveMantaray.find('utils.ts')).toBeFalsy();
     });
@@ -652,7 +652,7 @@ describe('FileManager', () => {
       await expect(fm.uploadFile(di.id, { path: 'tests', sourcePath: 'tests' })).rejects.toThrow();
 
       expect(fm.fileInfoList.find((fr) => fr.path === 'tests')).toBeUndefined();
-      const driveMantaray = (fm as any).nodeManifestCache.get(di.topic) as MantarayNode;
+      const driveMantaray = (fm as any).store.getCachedManifest(di.topic) as MantarayNode;
       expect(driveMantaray.find('tests')).toBeFalsy();
     });
 
@@ -711,7 +711,7 @@ describe('FileManager', () => {
 
     it('re-saves the parent manifest to sync the fork version when re-versioning', async () => {
       const { fm, di, record } = await seedUploadedFile();
-      const saveManifestSpy = jest.spyOn(fm as any, 'saveMantarayNode');
+      const saveManifestSpy = jest.spyOn((fm as any).store, 'saveMantarayNode');
       await fm.updateFile(di.id, record, { item: { sourcePath: 'package.json' } });
 
       // The fork's cached NODE_VERSION must track the feed head, so update now persists the manifest.
@@ -783,7 +783,7 @@ describe('FileManager', () => {
       const updatedDrive = fm.driveList.find((d) => d.id === drive.id)!;
       expect(updatedDrive.manifestRef).toBeDefined();
 
-      const driveMantaray = (fm as any).nodeManifestCache.get(drive.topic) as MantarayNode;
+      const driveMantaray = (fm as any).store.getCachedManifest(drive.topic) as MantarayNode;
       expect(driveMantaray.find('Documents')).toBeTruthy();
     });
 
@@ -1190,7 +1190,7 @@ describe('FileManager', () => {
       expect(fm.fileInfoList.find((f) => f.path === 'package.json')).toBeUndefined();
       expect(handler).toHaveBeenCalledWith({ record: uploaded, path: 'package.json' });
 
-      const driveMantaray = (fm as any).nodeManifestCache.get(drive.topic) as MantarayNode;
+      const driveMantaray = (fm as any).store.getCachedManifest(drive.topic) as MantarayNode;
       expect(driveMantaray.find('package.json')).toBeFalsy();
     });
 
@@ -1234,7 +1234,7 @@ describe('FileManager', () => {
       expect(moved.path).toBe('renamed.json');
       expect(moved.version).toBe(FeedIndex.fromBigInt(1n).toString());
 
-      const driveMantaray = (fm as any).nodeManifestCache.get(drive.topic) as MantarayNode;
+      const driveMantaray = (fm as any).store.getCachedManifest(drive.topic) as MantarayNode;
       expect(driveMantaray.find('package.json')).toBeFalsy();
       expect(driveMantaray.find('renamed.json')).toBeTruthy();
     });
@@ -1253,7 +1253,7 @@ describe('FileManager', () => {
       );
 
       // The guard fires before any manifest mutation — the fork stays put.
-      const driveMantaray = (fm as any).nodeManifestCache.get(drive.topic) as MantarayNode;
+      const driveMantaray = (fm as any).store.getCachedManifest(drive.topic) as MantarayNode;
       expect(driveMantaray.find('package.json')).toBeTruthy();
       expect(driveMantaray.find('renamed.json')).toBeFalsy();
     });
@@ -1294,7 +1294,7 @@ describe('FileManager', () => {
     it('self-hydrates a file that was never loaded into fileInfoList', async () => {
       const fm = await createInitializedFileManager();
       const drive = fm.driveList[0];
-      const driveMantaray = (fm as any).nodeManifestCache.get(drive.topic) as MantarayNode;
+      const driveMantaray = (fm as any).store.getCachedManifest(drive.topic) as MantarayNode;
 
       const fileTopic = Topic.fromString('cold-file').toString();
       driveMantaray.addFork('cold.txt', new Reference(fileTopic), {

@@ -109,16 +109,15 @@ export async function saveNodeManifest(
   return { contentRefs: newManifestRef, newIndex: writeIndex + 1n };
 }
 
-export function addFileToManifest(mantaray: MantarayNode, forkPath: string, record: FileRecord): void {
-  // Non-confidential fields only — see the fork-metadata INVARIANT in constants.ts.
-  mantaray.addFork(forkPath, new Reference(record.topic), {
+export function fileForkMetadata(record: FileRecord): Record<string, string> {
+  return {
     [MANIFEST_METADATA_FILE_TOPIC]: record.topic,
     [MANIFEST_METADATA_NODE_TOPIC]: record.topic,
     [MANIFEST_METADATA_NODE_TYPE]: NodeType.File,
     [MANIFEST_METADATA_NODE_OWNER]: record.owner,
     [MANIFEST_METADATA_NODE_ACT_PUBLISHER]: record.actPublisher,
     ...(record.version !== undefined ? { [MANIFEST_METADATA_NODE_VERSION]: record.version } : {}),
-  });
+  };
 }
 
 export function folderForkMetadata(folder: FolderInfo): Record<string, string> {
@@ -129,14 +128,6 @@ export function folderForkMetadata(folder: FolderInfo): Record<string, string> {
     [MANIFEST_METADATA_NODE_OWNER]: folder.owner,
     [MANIFEST_METADATA_NODE_ACT_PUBLISHER]: folder.actPublisher,
   };
-}
-
-export function addFolderToManifest(mantaray: MantarayNode, forkPath: string, folder: FolderInfo): void {
-  mantaray.addFork(forkPath, new Reference(folder.topic), folderForkMetadata(folder));
-}
-
-export function addDriveToManifest(mantaray: MantarayNode, drive: DriveInfo): void {
-  mantaray.addFork(getDriveForkPath(drive.id), new Reference(drive.topic), driveForkMetadata(drive));
 }
 
 export function driveForkMetadata(drive: DriveInfo): Record<string, string> {

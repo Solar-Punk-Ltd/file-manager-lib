@@ -41,10 +41,6 @@ export interface FileRecord extends NodeResource {
 
 export interface ManifestHost extends NodeResource {
   manifestRef?: ActReferences;
-  /**
-   *  Unlike files, containers (folders, drives) are not content-versioned.
-   * Omitted so `NODE_VERSION` is never written for or read from folders/drives.
-   */
   version?: never;
 }
 
