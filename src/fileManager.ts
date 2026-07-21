@@ -23,12 +23,12 @@ import { FileManager } from './types/fileManager';
 import {
   DriveInfo,
   FileRecord,
-  FileStatus,
   FolderInfo,
   ListDepth,
   ManifestHost,
   NodeEntry,
   NodeHeader,
+  NodeStatus,
   NodeType,
   ShareItem,
   TrashEntry,
@@ -588,7 +588,7 @@ export class FileManagerBase implements FileManager {
         (folder) => {
           if (folder) {
             results.push(folder);
-            if (folder.status !== FileStatus.Trashed) {
+            if (folder.status !== NodeStatus.Trashed) {
               nextFrontier.push({ host: folder, basePath: folder.path });
             }
           }
@@ -714,7 +714,7 @@ export class FileManagerBase implements FileManager {
       version,
       customMetadata: item.customMetadata,
       redundancyLevel: targetHost.redundancyLevel,
-      status: FileStatus.Active,
+      status: NodeStatus.Active,
     };
 
     await this.persistRecord(record, requestOptions);
@@ -930,7 +930,7 @@ export class FileManagerBase implements FileManager {
           version,
           customMetadata: planned.item.customMetadata,
           redundancyLevel: parentHost.redundancyLevel,
-          status: FileStatus.Active,
+          status: NodeStatus.Active,
         };
 
         await this.persistRecord(record, requestOptions);
@@ -1037,7 +1037,7 @@ export class FileManagerBase implements FileManager {
       version,
       customMetadata: mergedMetadata,
       redundancyLevel: record.redundancyLevel,
-      status: record.status ?? FileStatus.Active,
+      status: record.status ?? NodeStatus.Active,
     };
 
     await this.persistRecord(fr, requestOptions);
@@ -1194,7 +1194,7 @@ export class FileManagerBase implements FileManager {
     requestOptions?: BeeRequestOptions,
   ): Promise<DriveInfo> {
     const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
-    const isAlreadyTrashed = getRecordStatus(cachedDrive, entry.topic) == FileStatus.Trashed;
+    const isAlreadyTrashed = getRecordStatus(cachedDrive, entry.topic) == NodeStatus.Trashed;
 
     if (isTrashed && isAlreadyTrashed) {
       throw new FileInfoError(`Already trashed: ${entry.path}`);
@@ -1251,7 +1251,7 @@ export class FileManagerBase implements FileManager {
       true,
       requestOptions,
     );
-    record.status = FileStatus.Trashed;
+    record.status = NodeStatus.Trashed;
     this.emitter.emit(FileManagerEvents.FILE_TRASHED, { record });
   }
 
@@ -1262,7 +1262,7 @@ export class FileManagerBase implements FileManager {
       false,
       requestOptions,
     );
-    record.status = FileStatus.Active;
+    record.status = NodeStatus.Active;
     this.emitter.emit(FileManagerEvents.FILE_RECOVERED, { record });
   }
 
@@ -1273,7 +1273,7 @@ export class FileManagerBase implements FileManager {
       true,
       requestOptions,
     );
-    folder.status = FileStatus.Trashed;
+    folder.status = NodeStatus.Trashed;
     this.emitter.emit(FileManagerEvents.FOLDER_TRASHED, { folder });
   }
 
@@ -1284,7 +1284,7 @@ export class FileManagerBase implements FileManager {
       false,
       requestOptions,
     );
-    folder.status = FileStatus.Active;
+    folder.status = NodeStatus.Active;
     this.emitter.emit(FileManagerEvents.FOLDER_RECOVERED, { folder });
   }
 
@@ -1312,7 +1312,7 @@ export class FileManagerBase implements FileManager {
         if (entry.type === NodeType.File) {
           const fr = await this.store.getRecord(entry.topic, publisher, feedData, requestOptions);
           fr.path = entry.path;
-          fr.status = FileStatus.Trashed;
+          fr.status = NodeStatus.Trashed;
           return fr;
         }
 
@@ -1329,7 +1329,7 @@ export class FileManagerBase implements FileManager {
           actPublisher: publisher,
           path: entry.path,
           driveId: cachedDrive.id,
-          status: FileStatus.Trashed,
+          status: NodeStatus.Trashed,
         };
       }),
       MAX_CONCURRENT_FEED_FETCHES,
@@ -1552,7 +1552,7 @@ export class FileManagerBase implements FileManager {
     const isFile = forkMetadata[MANIFEST_METADATA_NODE_TYPE] === NodeType.File;
 
     const movedTopic = forkMetadata[MANIFEST_METADATA_NODE_TOPIC];
-    if (movedTopic && getRecordStatus(cachedSource, movedTopic) === FileStatus.Trashed) {
+    if (movedTopic && getRecordStatus(cachedSource, movedTopic) === NodeStatus.Trashed) {
       throw new FileInfoError('Cannot move a trashed file/folder; recover it first');
     }
 

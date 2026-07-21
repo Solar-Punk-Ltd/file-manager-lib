@@ -1,4 +1,4 @@
-import { DriveInfo, FileStatus } from '../types/info';
+import { DriveInfo, NodeStatus } from '../types/info';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function isNotFoundError(error: any): boolean {
@@ -58,7 +58,7 @@ export const joinPath = (base: string, name: string): string => {
   return base ? `${base}/${name}` : name;
 };
 
-export const getRecordStatus = (drive: DriveInfo, topic: string): FileStatus => {
+export const getRecordStatus = (drive: DriveInfo, topic: string): NodeStatus => {
   const isFoundInTrash = !!drive.trashedNodes?.some((n) => n.topic === topic);
-  return isFoundInTrash ? FileStatus.Trashed : FileStatus.Active;
+  return isFoundInTrash ? NodeStatus.Trashed : NodeStatus.Active;
 };

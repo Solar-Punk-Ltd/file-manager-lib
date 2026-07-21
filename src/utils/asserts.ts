@@ -4,9 +4,9 @@ import { Types } from 'cafe-utility';
 import {
   DriveInfo,
   FileRecord,
-  FileStatus,
   FolderInfo,
   NodeResource,
+  NodeStatus,
   NodeType,
   ShareItem,
   TrashEntry,
@@ -90,8 +90,8 @@ export function assertFileRecord(value: unknown): asserts value is FileRecord {
     throw new TypeError('shared property of FileRecord has to be boolean!');
   }
 
-  if (fr.status !== undefined && !Object.values(FileStatus).includes(fr.status)) {
-    throw new TypeError('status property of FileRecord has to be a valid FileStatus!');
+  if (fr.status !== undefined && !Object.values(NodeStatus).includes(fr.status)) {
+    throw new TypeError('status property of FileRecord has to be a valid NodeStatus!');
   }
 
   if (fr.granteeListRef !== undefined) {

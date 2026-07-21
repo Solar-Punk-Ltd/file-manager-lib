@@ -28,7 +28,7 @@ import {
 import { ensureUniqueSignerWithStamp } from './testSetupHelpers';
 
 import { FileManagerBase } from '@/fileManager';
-import { ActReferences, DriveInfo, FileRecord, FileStatus, FolderInfo, ListDepth, NodeType } from '@/types';
+import { ActReferences, DriveInfo, FileRecord, FolderInfo, ListDepth, NodeStatus, NodeType } from '@/types';
 import { ADMIN_STAMP_LABEL, DriveError, FILEMANAGER_STATE_TOPIC, FileManagerEvents, StampError } from '@/utils';
 import { assertActReferences } from '@/utils/asserts';
 import { buyStamp, getFeedData } from '@/utils/bee';
@@ -470,7 +470,7 @@ describe('FileManager drive handling', () => {
       shared: false,
       version: FEED_INDEX_ZERO.toString(),
       redundancyLevel: RedundancyLevel.OFF,
-      status: FileStatus.Active,
+      status: NodeStatus.Active,
     });
 
     fileManager.fileInfoList.push(fakeFile('topic-1', 'a.txt'));
@@ -1277,7 +1277,7 @@ describe('FileManager file operations', () => {
 
     testFi = fileManager.fileInfoList.find((fr) => fr.path === TEST_NAME)!;
     expect(testFi).toBeDefined();
-    expect(testFi.status).toBe(FileStatus.Active);
+    expect(testFi.status).toBe(NodeStatus.Active);
   });
 
   afterAll(() => {
@@ -1289,7 +1289,7 @@ describe('FileManager file operations', () => {
     const beforeVersion = BigInt((initial.version ?? '0').toString());
 
     await fileManager.trashFile(initial);
-    expect(initial.status).toBe(FileStatus.Trashed);
+    expect(initial.status).toBe(NodeStatus.Trashed);
 
     const fm2 = await createInitializedFileManager(bee, adminBatch);
     await fm2.listFolder(new Identifier(drive.id), ROOT_PATH);
@@ -1297,16 +1297,16 @@ describe('FileManager file operations', () => {
     const fi2 = fm2.fileInfoList.find((fr) => fr.path === TEST_NAME)!;
     // Trash state round-trips through the owner-private admin overlay, so a fresh instance derives
     // it on listFolder. It is overlay-only: the file's own feed/version is never touched.
-    expect(fi2.status).toBe(FileStatus.Trashed);
+    expect(fi2.status).toBe(NodeStatus.Trashed);
     expect(BigInt(fi2.version!.toString())).toBe(beforeVersion);
   });
 
   it('should recover a previously trashed file', async () => {
-    if (testFi.status !== FileStatus.Trashed) {
+    if (testFi.status !== NodeStatus.Trashed) {
       await fileManager.trashFile(testFi);
-      expect(testFi.status).toBe(FileStatus.Trashed);
+      expect(testFi.status).toBe(NodeStatus.Trashed);
     } else {
-      expect(testFi.status).toBe(FileStatus.Trashed);
+      expect(testFi.status).toBe(NodeStatus.Trashed);
     }
     const beforeVersion = BigInt(testFi.version!.toString());
 
@@ -1317,7 +1317,7 @@ describe('FileManager file operations', () => {
 
     const fi2 = fm2.fileInfoList.find((fr) => fr.path === TEST_NAME)!;
     // Recover is overlay-only too: status flips back to Active without a version bump.
-    expect(fi2.status).toBe(FileStatus.Active);
+    expect(fi2.status).toBe(NodeStatus.Active);
     expect(BigInt(fi2.version!.toString())).toBe(beforeVersion);
   });
 
@@ -1339,12 +1339,12 @@ describe('FileManager file operations', () => {
     expect(fileManager.fileInfoList.filter((fr) => fr.topic.toString() === topic)).toHaveLength(1);
 
     await fileManager.trashFile(freshFi);
-    expect(freshFi.status).toBe(FileStatus.Trashed);
+    expect(freshFi.status).toBe(NodeStatus.Trashed);
 
     await expect(fileManager.trashFile(freshFi)).rejects.toThrow(/Already trashed/i);
 
     await fileManager.recoverFile(freshFi);
-    expect(freshFi.status).toBe(FileStatus.Active);
+    expect(freshFi.status).toBe(NodeStatus.Active);
 
     await expect(fileManager.recoverFile(freshFi)).rejects.toThrow(/Not trashed, cannot recover/i);
 
@@ -1358,7 +1358,7 @@ describe('FileManager file operations', () => {
     const topic = fi0.topic.toString();
     const beforeVer = BigInt(fi0.version!.toString());
 
-    if (fi0.status !== FileStatus.Trashed) {
+    if (fi0.status !== NodeStatus.Trashed) {
       await fileManager.trashFile(fi0);
     }
     await fileManager.recoverFile(fi0);

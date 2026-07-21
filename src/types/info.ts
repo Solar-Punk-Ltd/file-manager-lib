@@ -1,8 +1,8 @@
 import { RedundancyLevel } from '@ethersphere/bee-js';
 
 import { ActReferences } from './utils';
-// TODO: rename to NodeStatus during merge
-export enum FileStatus {
+
+export enum NodeStatus {
   Active = 'active',
   Trashed = 'trashed',
 }
@@ -25,7 +25,7 @@ export interface NodeResource {
   redundancyLevel: RedundancyLevel;
   actPublisher: string;
   version?: string;
-  status?: FileStatus;
+  status?: NodeStatus;
 }
 
 export interface FileRecord extends NodeResource {

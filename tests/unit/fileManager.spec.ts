@@ -23,7 +23,7 @@ import { BEE_URL, DEFAULT_MOCK_SIGNER } from '../utils';
 
 import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
-import { DriveInfo, FileRecord, FileStatus, FolderInfo, ListDepth, NodeHeader, NodeType } from '@/types';
+import { DriveInfo, FileRecord, FolderInfo, ListDepth, NodeHeader, NodeStatus, NodeType } from '@/types';
 import { FeedResultWithIndex } from '@/types/utils';
 import { DriveError, FileError, FileInfoError, FileManagerEvents, SignerError } from '@/utils';
 import { fetchStamp, getFeedData } from '@/utils/bee';
@@ -566,7 +566,7 @@ describe('FileManager', () => {
       expect(entries).toHaveLength(1);
       expect(entries[0].version).toBe(FEED_INDEX_ZERO.toString());
       expect(entries[0].driveId).toBe(di.id);
-      expect(entries[0].status).toBe(FileStatus.Active);
+      expect(entries[0].status).toBe(NodeStatus.Active);
 
       // Fresh topic is minted (not derived from any input).
       expect(entries[0].topic.length).toBeGreaterThan(0);
@@ -1092,7 +1092,7 @@ describe('FileManager', () => {
 
       await fm.trashFile(fileRecord);
 
-      expect(fileRecord.status).toBe(FileStatus.Trashed);
+      expect(fileRecord.status).toBe(NodeStatus.Trashed);
       expect(fileRecord.version).toBe(versionBefore);
       expect(drive.trashedNodes).toEqual([
         { topic: fileRecord.topic, type: NodeType.File, path: fileRecord.path, version: versionBefore },
@@ -1112,7 +1112,7 @@ describe('FileManager', () => {
 
       await fm.recoverFile(fileRecord);
 
-      expect(fileRecord.status).toBe(FileStatus.Active);
+      expect(fileRecord.status).toBe(NodeStatus.Active);
       expect(drive.trashedNodes).toEqual([]);
       expect(handler).toHaveBeenCalledWith({ record: fileRecord });
     });
@@ -1142,7 +1142,7 @@ describe('FileManager', () => {
 
       await fm.trashFolder(folder);
 
-      expect(folder.status).toBe(FileStatus.Trashed);
+      expect(folder.status).toBe(NodeStatus.Trashed);
       expect(drive.trashedNodes).toContainEqual({ topic: folder.topic, type: NodeType.Folder, path: folder.path });
       expect(handler).toHaveBeenCalledWith({ folder });
     });
@@ -1163,7 +1163,7 @@ describe('FileManager', () => {
 
       expect(trashed).toHaveLength(1);
       expect(trashed[0].topic).toBe(fileRecord.topic);
-      expect(trashed[0].status).toBe(FileStatus.Trashed);
+      expect(trashed[0].status).toBe(NodeStatus.Trashed);
       expect(trashed[0].path).toBe(fileRecord.path);
 
       spyFetch.mockRestore();
@@ -1379,7 +1379,7 @@ describe('FileManager', () => {
           owner,
           redundancyLevel: redundancy,
           shared: false,
-          status: FileStatus.Active,
+          status: NodeStatus.Active,
           timestamp: fixedNow,
           topic: expect.any(String),
         }),
