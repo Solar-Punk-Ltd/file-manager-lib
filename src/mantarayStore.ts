@@ -33,6 +33,8 @@ export class MantarayStore {
   private readonly nodeFeedIndexCache: Map<string, bigint> = new Map();
   private readonly nodeRefCache: Map<string, ActReferences> = new Map();
 
+  // --- Initialization ---
+
   constructor(
     private readonly bee: Bee,
     private readonly signer: PrivateKey,
@@ -177,7 +179,48 @@ export class MantarayStore {
     return record;
   }
 
-  // --- Helpers  ---
+  // --- Cache management  ---
+
+  /** Cache a freshly loaded manifest under `topic` without touching its feed index. */
+  setManifestCache(topic: string, node: MantarayNode): void {
+    this.nodeManifestCache.set(topic, node);
+  }
+
+  /** The latest ACT ref written to `topic`'s feed — a manifest root or a file record. */
+  getNodeRef(topic: string): ActReferences | undefined {
+    return this.nodeRefCache.get(topic);
+  }
+
+  /** Record the latest ACT ref for `topic`'s feed. Used by feed writes that bypass {@link saveMantarayNode}. */
+  setNodeRef(topic: string, refs: ActReferences): void {
+    this.nodeRefCache.set(topic, refs);
+  }
+
+  /** The cached manifest for `topic`, or undefined if it was never loaded/seeded. */
+  getManifestCache(topic: string): MantarayNode | undefined {
+    return this.nodeManifestCache.get(topic);
+  }
+
+  /** Prime the next feed-write index for `topic` (typically a probed `feedIndexNext`). */
+  setNodeFeedIndex(topic: string, nextIndex: bigint): void {
+    this.nodeFeedIndexCache.set(topic, nextIndex);
+  }
+
+  /** Clear all cached state */
+  evict(topic: string): void {
+    this.nodeManifestCache.delete(topic);
+    this.nodeFeedIndexCache.delete(topic);
+    this.nodeRefCache.delete(topic);
+  }
+
+  /** Drop all cached state */
+  clear(): void {
+    this.nodeManifestCache.clear();
+    this.nodeFeedIndexCache.clear();
+    this.nodeRefCache.clear();
+  }
+
+  // --- Private helpers  ---
 
   private driveRootHost(drive: DriveInfo): ManifestHost {
     return {
@@ -262,46 +305,5 @@ export class MantarayStore {
     }
 
     return currentFolderInfo;
-  }
-
-  // --- Cache management  ---
-
-  /** Cache a freshly loaded manifest under `topic` without touching its feed index. */
-  setManifestCache(topic: string, node: MantarayNode): void {
-    this.nodeManifestCache.set(topic, node);
-  }
-
-  /** The latest ACT ref written to `topic`'s feed — a manifest root or a file record. */
-  getNodeRef(topic: string): ActReferences | undefined {
-    return this.nodeRefCache.get(topic);
-  }
-
-  /** Record the latest ACT ref for `topic`'s feed. Used by feed writes that bypass {@link saveMantarayNode}. */
-  setNodeRef(topic: string, refs: ActReferences): void {
-    this.nodeRefCache.set(topic, refs);
-  }
-
-  /** The cached manifest for `topic`, or undefined if it was never loaded/seeded. */
-  getManifestCache(topic: string): MantarayNode | undefined {
-    return this.nodeManifestCache.get(topic);
-  }
-
-  /** Prime the next feed-write index for `topic` (typically a probed `feedIndexNext`). */
-  setNodeFeedIndex(topic: string, nextIndex: bigint): void {
-    this.nodeFeedIndexCache.set(topic, nextIndex);
-  }
-
-  /** Clear all cached state */
-  evict(topic: string): void {
-    this.nodeManifestCache.delete(topic);
-    this.nodeFeedIndexCache.delete(topic);
-    this.nodeRefCache.delete(topic);
-  }
-
-  /** Drop all cached state */
-  clear(): void {
-    this.nodeManifestCache.clear();
-    this.nodeFeedIndexCache.clear();
-    this.nodeRefCache.clear();
   }
 }

@@ -442,4 +442,9 @@ export interface FileManager {
    * Event emitter for handling file manager events.
    */
   readonly emitter: EventEmitter;
+
+  /**
+   * Indicates whether or not the FileManager instance is initialized.
+   */
+  readonly isInitialized: boolean;
 }

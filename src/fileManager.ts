@@ -87,11 +87,13 @@ export class FileManagerBase implements FileManager {
   private signerAddress: string;
   private publisher: PublicKey | undefined = undefined;
   private stateFeedTopic: Topic | undefined = undefined;
-  private isInitialized: boolean = false; // TODO: provide getter
+  private _isInitialized: boolean = false;
   private isInitializing: boolean = false;
   private _adminStamp: PostageBatch | undefined = undefined;
   private readonly store: MantarayStore;
   private adminRedundancyLevel: RedundancyLevel = RedundancyLevel.OFF;
+
+  // --- Public member getters ---
 
   readonly driveList: DriveInfo[] = [];
   readonly fileInfoList: FileRecord[] = [];
@@ -101,6 +103,13 @@ export class FileManagerBase implements FileManager {
   get adminStamp(): PostageBatch | undefined {
     return this._adminStamp;
   }
+
+  get isInitialized(): boolean {
+    return this._isInitialized;
+  }
+
+  // --- Initialization ---
+
   // TODO: improve logging -> pass as ctor arg like emitter
   constructor(bee: Bee, emitter: EventEmitter = new EventEmitterBase()) {
     this.bee = bee;
@@ -141,239 +150,19 @@ export class FileManagerBase implements FileManager {
         await this.initDriveList(requestOptions);
       }
 
-      this.isInitialized = true;
+      this._isInitialized = true;
       this.emitter.emit(FileManagerEvents.INITIALIZED, true);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (error: any) {
       console.error(`Failed to initialize FileManager: ${error.message || error}`);
-      this.isInitialized = false;
+      this._isInitialized = false;
       this.emitter.emit(FileManagerEvents.INITIALIZED, false);
     } finally {
       this.isInitializing = false;
     }
   }
 
-  private async initPublisher(requestOptions?: BeeRequestOptions): Promise<void> {
-    this.publisher = (await this.bee.getNodeAddresses(requestOptions)).publicKey;
-  }
-
-  private async tryToFetchAdminState(requestOptions?: BeeRequestOptions): Promise<boolean> {
-    if (!this.publisher) {
-      throw new SignerError('Publisher not found');
-    }
-
-    const { payload, feedIndex } = await getFeedData(
-      this.bee,
-      FILEMANAGER_STATE_TOPIC,
-      this.signerAddress,
-      undefined,
-      requestOptions,
-    );
-
-    if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
-      console.debug('State not found.');
-      return false;
-    }
-
-    let stateTopicInfo: ActReferences;
-    try {
-      stateTopicInfo = payload.toJSON() as ActReferences;
-      assertActReferences(stateTopicInfo);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (error: any) {
-      console.error(`Failed to fetch admin state: ${error.message || error}`);
-      this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
-      return false;
-    }
-
-    const stateTopicRef = new Reference(stateTopicInfo.reference);
-    const topicHistoryRef = new Reference(stateTopicInfo.historyRef);
-
-    let topicBytes: Bytes;
-    try {
-      topicBytes = await this.bee.downloadData(
-        stateTopicRef,
-        {
-          actHistoryAddress: topicHistoryRef,
-          actPublisher: this.publisher,
-        },
-        requestOptions,
-      );
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (error: any) {
-      console.error(`Failed to decrypt admin state: ${error.message || error}`);
-      this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
-      return false;
-    }
-
-    this.stateFeedTopic = new Topic(topicBytes.toUint8Array());
-    console.debug('Drive list feed successfully fetched');
-
-    return true;
-  }
-
-  private async createAdminManifest(
-    batchId: string,
-    redundancyLevel: RedundancyLevel,
-    resetState?: boolean,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<void> {
-    const { feedIndexNext } = await getFeedData(
-      this.bee,
-      FILEMANAGER_STATE_TOPIC,
-      this.signerAddress,
-      undefined,
-      requestOptions,
-    );
-    const isStateExisting = !feedIndexNext.equals(FEED_INDEX_ZERO);
-    if (!resetState && isStateExisting) {
-      throw new DriveError('Admin state already exists. Pass resetState=true to overwrite.');
-    }
-
-    if (resetState) {
-      this.driveList.length = 0;
-      this.store.clear();
-    }
-
-    const randomTopic = generateRandomBytes(Topic.LENGTH);
-    const newStateFeedTopic = new Topic(randomTopic);
-    const topicUploadRes = await this.bee.uploadData(
-      batchId,
-      newStateFeedTopic.toUint8Array(),
-      { act: true, redundancyLevel },
-      requestOptions,
-    );
-    const historyRef = topicUploadRes.historyAddress.getOrThrow().toString();
-    const topicState: ActReferences = {
-      reference: topicUploadRes.reference.toString(),
-      historyRef: historyRef,
-    };
-
-    const statefw = this.bee.makeFeedWriter(FILEMANAGER_STATE_TOPIC.toUint8Array(), this.signer, requestOptions);
-    await statefw.uploadPayload(batchId, JSON.stringify(topicState), { index: feedIndexNext });
-
-    this.stateFeedTopic = newStateFeedTopic;
-    this.store.setManifestCache(newStateFeedTopic.toString(), new MantarayNode());
-    this.store.setNodeFeedIndex(newStateFeedTopic.toString(), 0n);
-  }
-
-  private async initDriveList(requestOptions?: BeeRequestOptions): Promise<void> {
-    if (!this.stateFeedTopic) {
-      throw new DriveError('State feed topic not set');
-    }
-    if (this.store.getNodeRef(this.stateFeedTopic.toString())) {
-      throw new DriveError('Admin manifest already set');
-    }
-    if (!this.publisher) {
-      throw new SignerError('Publisher not found');
-    }
-    // TODO: possible performance improvement: store version next to stateFeedTopic
-    const { payload, feedIndex, feedIndexNext } = await getFeedData(
-      this.bee,
-      this.stateFeedTopic,
-      this.signerAddress,
-      undefined,
-      requestOptions,
-    );
-
-    if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
-      console.debug('Admin manifest feed empty — no drives to load');
-      return;
-    }
-
-    const adminManifestRef: ActReferences = payload.toJSON() as ActReferences;
-    assertActReferences(adminManifestRef);
-
-    const adminMantaray = await this.store.getMantarayNode(
-      this.stateFeedTopic.toString(),
-      this.publisher.toCompressedHex(),
-      adminManifestRef,
-      requestOptions,
-    );
-
-    const entries = getAllNodeEntries(adminMantaray).filter((e) => e.type === NodeType.Drive);
-
-    this.store.setNodeFeedIndex(this.stateFeedTopic.toString(), feedIndexNext.toBigInt());
-
-    await settlePromises(
-      entries.map(async (entry) => {
-        const driveInfo = assertDriveInfoFromMetadata(entry.rawMetadata);
-
-        // Probe the drive feed head. A drive is a container and carries no stored version
-        const {
-          payload: drivePayload,
-          feedIndex: driveFeedIndex,
-          feedIndexNext: driveFeedIndexNext,
-        } = await getFeedData(this.bee, new Topic(driveInfo.topic), this.signerAddress, undefined, requestOptions);
-
-        if (driveFeedIndex.equals(FeedIndex.MINUS_ONE)) {
-          console.warn(
-            `initDriveList: drive ${driveInfo.name} (${driveInfo.id}) has no manifest feed — skipping corrupt/incomplete drive`,
-          );
-          return;
-        }
-
-        driveInfo.manifestRef = drivePayload.toJSON() as ActReferences;
-        assertActReferences(driveInfo.manifestRef);
-
-        if (driveInfo.isAdmin) {
-          await this.fetchAndSetAdminStamp(driveInfo.batchId, requestOptions);
-          // TODO: I think we can work still if admin stamp is not usable, reconsider it
-          try {
-            verifyStampUsability(this.adminStamp, driveInfo.batchId, false);
-          } catch (err) {
-            this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
-            console.error(err);
-            throw err;
-          }
-
-          this.adminRedundancyLevel = driveInfo.redundancyLevel;
-        }
-
-        this.store.setNodeFeedIndex(driveInfo.topic, driveFeedIndexNext.toBigInt());
-
-        return driveInfo;
-      }),
-      (driveInfo) => {
-        if (driveInfo) {
-          this.driveList.push(driveInfo);
-        }
-      },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (reason) => console.error(`initDriveList: failed to load drive from fork: ${(reason as any)?.message || reason}`),
-    );
-  }
-
-  private async pruneDriveMetadata(
-    driveInfo: DriveInfo,
-    driveIndex: number,
-    stateTopic: string,
-    publisher: string,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<void> {
-    if (!this.adminStamp) {
-      throw new DriveError('Admin stamp not found');
-    }
-
-    const adminMantaray = this.store.getManifestCache(stateTopic);
-    if (!adminMantaray) {
-      throw new DriveError('Admin manifest not loaded — initialize first.');
-    }
-
-    const adminHost = this.adminHost(publisher);
-
-    adminMantaray.removeFork(getDriveForkPath(driveInfo.id));
-    await this.store.saveMantarayNode(adminMantaray, adminHost, requestOptions);
-
-    this.driveList.splice(driveIndex, 1);
-    this.store.evict(driveInfo.topic);
-
-    for (let i = this.fileInfoList.length - 1; i >= 0; --i) {
-      if (this.fileInfoList[i].driveId === driveInfo.id) {
-        this.fileInfoList.splice(i, 1);
-      }
-    }
-  }
+  // --- Drive operations ---
 
   async createDrive(
     batchId: string | BatchId,
@@ -468,6 +257,54 @@ export class FileManagerBase implements FileManager {
 
     return newDrive;
   }
+
+  async destroyDrive(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<void> {
+    const { publisher, stateFeedTopic } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+
+    const adminStamp = this.adminStamp;
+    if (!adminStamp) {
+      throw new StampError('Admin stamp not found');
+    }
+
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+
+    if (cachedDrive.isAdmin || cachedDrive.batchId === adminStamp.batchID.toString()) {
+      throw new DriveError(`Cannot destroy admin drive / stamp, batchId: ${cachedDrive.batchId.slice(0, 6)}`);
+    }
+
+    const fetchedStamp = await fetchStamp(this.bee, cachedDrive.batchId, requestOptions);
+    const validStamp = verifyStampUsability(fetchedStamp, undefined, false);
+
+    if (cachedDrive.batchId !== validStamp.batchID.toString()) {
+      throw new StampError(
+        `Stamp ${validStamp.batchID.toString().slice(0, 6)} does not match drive stamp ${cachedDrive.batchId.toString().slice(0, 6)}`,
+      );
+    }
+
+    const ttlDays = validStamp.duration.toDays();
+    const halvings = Math.floor(Math.log2(ttlDays));
+
+    await this.bee.diluteBatch(cachedDrive.batchId, validStamp.depth + halvings, requestOptions);
+    await this.pruneDriveMetadata(cachedDrive, driveIx, stateFeedTopic, publisher, requestOptions);
+
+    console.debug(`Drive destroyed: ${cachedDrive.name}`);
+    this.emitter.emit(FileManagerEvents.DRIVE_DESTROYED, { driveInfo: cachedDrive });
+  }
+
+  async forgetDrive(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<void> {
+    const { publisher, stateFeedTopic } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+
+    if (cachedDrive.isAdmin) {
+      throw new DriveError('Cannot forget admin drive');
+    }
+
+    await this.pruneDriveMetadata(cachedDrive, driveIx, stateFeedTopic, publisher, requestOptions);
+    console.debug(`Drive forgotten (metadata only): ${cachedDrive.name}`);
+    this.emitter.emit(FileManagerEvents.DRIVE_FORGOTTEN, { driveInfo: cachedDrive });
+  }
+
+  // --- Folder operations ---
 
   // Per BFS walk: (1) expand current manifest node, (2) load file feeds found, (3) resolve folder feeds into next node. Each phase is concurrency-bounded.
   async listFolder(
@@ -628,6 +465,73 @@ export class FileManagerBase implements FileManager {
 
     return this.downloadFiles(files, options, requestOptions);
   }
+
+  async trashFolder(folder: FolderInfo, requestOptions?: BeeRequestOptions): Promise<void> {
+    await this.setTrashState(
+      folder.driveId,
+      { topic: folder.topic, type: NodeType.Folder, path: folder.path },
+      true,
+      requestOptions,
+    );
+    folder.status = NodeStatus.Trashed;
+    this.emitter.emit(FileManagerEvents.FOLDER_TRASHED, { folder });
+  }
+
+  async recoverFolder(folder: FolderInfo, requestOptions?: BeeRequestOptions): Promise<void> {
+    await this.setTrashState(
+      folder.driveId,
+      { topic: folder.topic, type: NodeType.Folder, path: folder.path },
+      false,
+      requestOptions,
+    );
+    folder.status = NodeStatus.Active;
+    this.emitter.emit(FileManagerEvents.FOLDER_RECOVERED, { folder });
+  }
+
+  async createFolder(
+    driveId: string | Identifier,
+    parentPath: string,
+    folderName: string,
+    redundancyLevel?: RedundancyLevel,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<FolderInfo> {
+    requestOptions?.signal?.throwIfAborted();
+    const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+
+    if (!folderName || folderName.includes('/')) {
+      throw new DriveError(`Invalid folder name ${folderName}`);
+    }
+
+    const { host: parentHost, folder: parentFolder } = await this.store.resolveHost(
+      cachedDrive,
+      parentPath,
+      publisher,
+      requestOptions,
+    );
+
+    const { folder, node: parentNode } = await this.createFolderNode(
+      cachedDrive,
+      parentHost,
+      parentPath,
+      folderName,
+      publisher,
+      redundancyLevel,
+      requestOptions,
+    );
+
+    const updatedParentManifestRef = await this.store.saveMantarayNode(parentNode, parentHost, requestOptions);
+
+    if (!parentFolder) {
+      this.driveList[driveIx].manifestRef = updatedParentManifestRef;
+    }
+
+    this.emitter.emit(FileManagerEvents.FOLDER_CREATED, { folderInfo: folder });
+
+    return folder;
+  }
+
+  // --- File operations ---
 
   // Download a single file the caller already holds as a FileRecord — convenience wrapper over
   // downloadFiles(). Does not re-resolve against drive state (see downloadFiles).
@@ -1125,125 +1029,6 @@ export class FileManagerBase implements FileManager {
     });
   }
 
-  private adminHost(publisher: string): ManifestHost {
-    const { stateFeedTopic } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    if (!this.adminStamp) {
-      throw new DriveError('Admin stamp not found');
-    }
-
-    return {
-      owner: this.signerAddress,
-      topic: stateFeedTopic,
-      batchId: this.adminStamp.batchID.toString(),
-      redundancyLevel: this.adminRedundancyLevel,
-      actPublisher: publisher,
-    };
-  }
-
-  // Keep a file fork's cached head version MANIFEST_METADATA_NODE_VERSION in sync with the head, feed after a version-advancing op, and persist the parent manifest
-  private async syncForkVersion(
-    drive: DriveInfo,
-    driveIx: number,
-    absolutePath: string,
-    newVersion: string,
-    publisher: string,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<void> {
-    const { parentPath, name: filename } = splitPath(absolutePath);
-
-    const {
-      host: parentHost,
-      folder: parentFolder,
-      node: parentNode,
-    } = await this.store.resolveHostMantaray(drive, parentPath, publisher, requestOptions);
-    const fileFork = parentNode.find(filename);
-    if (!fileFork) {
-      throw new DriveError(`Path not found: ${absolutePath}`);
-    }
-
-    const forkMetadata = { ...(fileFork.metadata ?? {}) };
-    forkMetadata[MANIFEST_METADATA_NODE_VERSION] = newVersion;
-    parentNode.removeFork(filename);
-    parentNode.addFork(filename, fileFork.targetAddress, forkMetadata);
-
-    const newManifestRef = await this.store.saveMantarayNode(parentNode, parentHost, requestOptions);
-    if (!parentFolder) {
-      this.driveList[driveIx].manifestRef = newManifestRef;
-    }
-  }
-
-  private async persistRecord(fr: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
-    try {
-      await this.store.saveRecord(fr, requestOptions);
-    } catch (error: unknown) {
-      throw new FileInfoError(`Failed to save record: ${error instanceof Error ? error.message : error}`);
-    }
-
-    const existingIx = this.fileInfoList.findIndex((f) => f.topic === fr.topic);
-    if (existingIx !== -1) {
-      this.fileInfoList[existingIx] = fr;
-    } else {
-      this.fileInfoList.push(fr);
-    }
-  }
-
-  private async setTrashState(
-    driveId: string,
-    entry: TrashEntry,
-    isTrashed: boolean,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<DriveInfo> {
-    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
-    const isAlreadyTrashed = getRecordStatus(cachedDrive, entry.topic) == NodeStatus.Trashed;
-
-    if (isTrashed && isAlreadyTrashed) {
-      throw new FileInfoError(`Already trashed: ${entry.path}`);
-    }
-    if (!isTrashed && !isAlreadyTrashed) {
-      throw new FileInfoError(`Not trashed, cannot recover: ${entry.path}`);
-    }
-
-    await this.persistAdminDriveFork(driveIx, requestOptions);
-
-    const current = cachedDrive.trashedNodes ?? [];
-    const withoutEntry = current.filter((n) => n.topic !== entry.topic);
-    cachedDrive.trashedNodes = isTrashed ? [...withoutEntry, entry] : withoutEntry;
-    return cachedDrive;
-  }
-
-  private async persistAdminDriveFork(driveIx: number, requestOptions?: BeeRequestOptions): Promise<void> {
-    const { publisher, stateFeedTopic } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-
-    const adminMantaray = this.store.getManifestCache(stateFeedTopic);
-    if (!adminMantaray) {
-      throw new DriveError('Admin manifest not loaded — initialize first.');
-    }
-
-    const drive = this.driveList[driveIx];
-    const adminHost = this.adminHost(publisher);
-
-    adminMantaray.removeFork(getDriveForkPath(drive.id));
-    adminMantaray.addFork(getDriveForkPath(drive.id), new Reference(drive.topic), driveForkMetadata(drive));
-
-    await this.store.saveMantarayNode(adminMantaray, adminHost, requestOptions);
-  }
-
-  private async pruneTrashOverlay(
-    driveIx: number,
-    predicate: (entry: TrashEntry) => boolean,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<void> {
-    const drive = this.driveList[driveIx];
-    const current = drive.trashedNodes ?? [];
-    const remaining = current.filter((e) => !predicate(e));
-    if (remaining.length === current.length) {
-      return;
-    }
-
-    drive.trashedNodes = remaining;
-    await this.persistAdminDriveFork(driveIx, requestOptions);
-  }
-
   async trashFile(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
     await this.setTrashState(
       record.driveId,
@@ -1264,28 +1049,6 @@ export class FileManagerBase implements FileManager {
     );
     record.status = NodeStatus.Active;
     this.emitter.emit(FileManagerEvents.FILE_RECOVERED, { record });
-  }
-
-  async trashFolder(folder: FolderInfo, requestOptions?: BeeRequestOptions): Promise<void> {
-    await this.setTrashState(
-      folder.driveId,
-      { topic: folder.topic, type: NodeType.Folder, path: folder.path },
-      true,
-      requestOptions,
-    );
-    folder.status = NodeStatus.Trashed;
-    this.emitter.emit(FileManagerEvents.FOLDER_TRASHED, { folder });
-  }
-
-  async recoverFolder(folder: FolderInfo, requestOptions?: BeeRequestOptions): Promise<void> {
-    await this.setTrashState(
-      folder.driveId,
-      { topic: folder.topic, type: NodeType.Folder, path: folder.path },
-      false,
-      requestOptions,
-    );
-    folder.status = NodeStatus.Active;
-    this.emitter.emit(FileManagerEvents.FOLDER_RECOVERED, { folder });
   }
 
   async listTrash(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<NodeEntry[]> {
@@ -1408,94 +1171,7 @@ export class FileManagerBase implements FileManager {
     this.emitter.emit(FileManagerEvents.FILE_FORGOTTEN, { record: forgotten, path });
   }
 
-  private async fetchAndSetAdminStamp(batchId: string | BatchId, requestOptions?: BeeRequestOptions): Promise<void> {
-    const adminStamp = await fetchStamp(this.bee, batchId, requestOptions);
-    const logText = `Admin stamp with batchId: ${batchId.toString().slice(0, 6)}...`;
-
-    if (!adminStamp) {
-      this._adminStamp = undefined;
-      console.warn(`${logText} not found.`);
-      return;
-    }
-    if (adminStamp.usable) {
-      console.debug(`${logText} found and set.`);
-    } else {
-      console.warn(`${logText} is unusable.`);
-    }
-
-    this._adminStamp = adminStamp;
-  }
-
-  async destroyDrive(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<void> {
-    const { publisher, stateFeedTopic } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-
-    const adminStamp = this.adminStamp;
-    if (!adminStamp) {
-      throw new StampError('Admin stamp not found');
-    }
-
-    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
-
-    if (cachedDrive.isAdmin || cachedDrive.batchId === adminStamp.batchID.toString()) {
-      throw new DriveError(`Cannot destroy admin drive / stamp, batchId: ${cachedDrive.batchId.slice(0, 6)}`);
-    }
-
-    const fetchedStamp = await fetchStamp(this.bee, cachedDrive.batchId, requestOptions);
-    const validStamp = verifyStampUsability(fetchedStamp, undefined, false);
-
-    if (cachedDrive.batchId !== validStamp.batchID.toString()) {
-      throw new StampError(
-        `Stamp ${validStamp.batchID.toString().slice(0, 6)} does not match drive stamp ${cachedDrive.batchId.toString().slice(0, 6)}`,
-      );
-    }
-
-    const ttlDays = validStamp.duration.toDays();
-    const halvings = Math.floor(Math.log2(ttlDays));
-
-    await this.bee.diluteBatch(cachedDrive.batchId, validStamp.depth + halvings, requestOptions);
-    await this.pruneDriveMetadata(cachedDrive, driveIx, stateFeedTopic, publisher, requestOptions);
-
-    console.debug(`Drive destroyed: ${cachedDrive.name}`);
-    this.emitter.emit(FileManagerEvents.DRIVE_DESTROYED, { driveInfo: cachedDrive });
-  }
-
-  async forgetDrive(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<void> {
-    const { publisher, stateFeedTopic } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
-
-    if (cachedDrive.isAdmin) {
-      throw new DriveError('Cannot forget admin drive');
-    }
-
-    await this.pruneDriveMetadata(cachedDrive, driveIx, stateFeedTopic, publisher, requestOptions);
-    console.debug(`Drive forgotten (metadata only): ${cachedDrive.name}`);
-    this.emitter.emit(FileManagerEvents.DRIVE_FORGOTTEN, { driveInfo: cachedDrive });
-  }
-
-  // eslint-disable-next-line require-await
-  async getGrantees(_: FileRecord): Promise<GetGranteesResult> {
-    throw new GranteeError('getGrantees: not yet implemented');
-  }
-
-  // eslint-disable-next-line require-await
-  async subscribeToSharedInbox(_topic: string, _callback?: (_data: ShareItem) => void): Promise<void> {
-    throw new SubscriptionError('subscribeToSharedInbox: not yet implemented');
-  }
-
-  unsubscribeFromSharedInbox(): void {
-    throw new SubscriptionError('unsubscribeFromSharedInbox: not yet implemented');
-  }
-
-  // eslint-disable-next-line require-await
-  async share(
-    _fileInfo: FileRecord,
-    _targetOverlays: string[],
-    _recipients: string[],
-    _message?: string,
-  ): Promise<void> {
-    throw new SendShareMessageError('share: not yet implemented');
-  }
-
+  // TODO: disable drive move
   async move(
     fromPath: string,
     toPath: string,
@@ -1664,6 +1340,256 @@ export class FileManagerBase implements FileManager {
     this.emitter.emit(FileManagerEvents.FILE_MOVED, { fromPath, toPath });
   }
 
+  // --- Sharing and grantee management ---
+
+  // eslint-disable-next-line require-await
+  async getGrantees(_: FileRecord): Promise<GetGranteesResult> {
+    throw new GranteeError('getGrantees: not yet implemented');
+  }
+
+  // eslint-disable-next-line require-await
+  async subscribeToSharedInbox(_topic: string, _callback?: (_data: ShareItem) => void): Promise<void> {
+    throw new SubscriptionError('subscribeToSharedInbox: not yet implemented');
+  }
+
+  unsubscribeFromSharedInbox(): void {
+    throw new SubscriptionError('unsubscribeFromSharedInbox: not yet implemented');
+  }
+
+  // eslint-disable-next-line require-await
+  async share(
+    _fileInfo: FileRecord,
+    _targetOverlays: string[],
+    _recipients: string[],
+    _message?: string,
+  ): Promise<void> {
+    throw new SendShareMessageError('share: not yet implemented');
+  }
+
+  // --- Private helpers ---
+
+  private async initPublisher(requestOptions?: BeeRequestOptions): Promise<void> {
+    this.publisher = (await this.bee.getNodeAddresses(requestOptions)).publicKey;
+  }
+
+  private async tryToFetchAdminState(requestOptions?: BeeRequestOptions): Promise<boolean> {
+    if (!this.publisher) {
+      throw new SignerError('Publisher not found');
+    }
+
+    const { payload, feedIndex } = await getFeedData(
+      this.bee,
+      FILEMANAGER_STATE_TOPIC,
+      this.signerAddress,
+      undefined,
+      requestOptions,
+    );
+
+    if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
+      console.debug('State not found.');
+      return false;
+    }
+
+    let stateTopicInfo: ActReferences;
+    try {
+      stateTopicInfo = payload.toJSON() as ActReferences;
+      assertActReferences(stateTopicInfo);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (error: any) {
+      console.error(`Failed to fetch admin state: ${error.message || error}`);
+      this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
+      return false;
+    }
+
+    const stateTopicRef = new Reference(stateTopicInfo.reference);
+    const topicHistoryRef = new Reference(stateTopicInfo.historyRef);
+
+    let topicBytes: Bytes;
+    try {
+      topicBytes = await this.bee.downloadData(
+        stateTopicRef,
+        {
+          actHistoryAddress: topicHistoryRef,
+          actPublisher: this.publisher,
+        },
+        requestOptions,
+      );
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (error: any) {
+      console.error(`Failed to decrypt admin state: ${error.message || error}`);
+      this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
+      return false;
+    }
+
+    this.stateFeedTopic = new Topic(topicBytes.toUint8Array());
+    console.debug('Drive list feed successfully fetched');
+
+    return true;
+  }
+
+  private async createAdminManifest(
+    batchId: string,
+    redundancyLevel: RedundancyLevel,
+    resetState?: boolean,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void> {
+    const { feedIndexNext } = await getFeedData(
+      this.bee,
+      FILEMANAGER_STATE_TOPIC,
+      this.signerAddress,
+      undefined,
+      requestOptions,
+    );
+    const isStateExisting = !feedIndexNext.equals(FEED_INDEX_ZERO);
+    if (!resetState && isStateExisting) {
+      throw new DriveError('Admin state already exists. Pass resetState=true to overwrite.');
+    }
+
+    if (resetState) {
+      this.driveList.length = 0;
+      this.store.clear();
+    }
+
+    const randomTopic = generateRandomBytes(Topic.LENGTH);
+    const newStateFeedTopic = new Topic(randomTopic);
+    const topicUploadRes = await this.bee.uploadData(
+      batchId,
+      newStateFeedTopic.toUint8Array(),
+      { act: true, redundancyLevel },
+      requestOptions,
+    );
+    const historyRef = topicUploadRes.historyAddress.getOrThrow().toString();
+    const topicState: ActReferences = {
+      reference: topicUploadRes.reference.toString(),
+      historyRef: historyRef,
+    };
+
+    const statefw = this.bee.makeFeedWriter(FILEMANAGER_STATE_TOPIC.toUint8Array(), this.signer, requestOptions);
+    await statefw.uploadPayload(batchId, JSON.stringify(topicState), { index: feedIndexNext });
+
+    this.stateFeedTopic = newStateFeedTopic;
+    this.store.setManifestCache(newStateFeedTopic.toString(), new MantarayNode());
+    this.store.setNodeFeedIndex(newStateFeedTopic.toString(), 0n);
+  }
+
+  private async initDriveList(requestOptions?: BeeRequestOptions): Promise<void> {
+    if (!this.stateFeedTopic) {
+      throw new DriveError('State feed topic not set');
+    }
+    if (this.store.getNodeRef(this.stateFeedTopic.toString())) {
+      throw new DriveError('Admin manifest already set');
+    }
+    if (!this.publisher) {
+      throw new SignerError('Publisher not found');
+    }
+    // TODO: possible performance improvement: store version next to stateFeedTopic
+    const { payload, feedIndex, feedIndexNext } = await getFeedData(
+      this.bee,
+      this.stateFeedTopic,
+      this.signerAddress,
+      undefined,
+      requestOptions,
+    );
+
+    if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
+      console.debug('Admin manifest feed empty — no drives to load');
+      return;
+    }
+
+    const adminManifestRef: ActReferences = payload.toJSON() as ActReferences;
+    assertActReferences(adminManifestRef);
+
+    const adminMantaray = await this.store.getMantarayNode(
+      this.stateFeedTopic.toString(),
+      this.publisher.toCompressedHex(),
+      adminManifestRef,
+      requestOptions,
+    );
+
+    const entries = getAllNodeEntries(adminMantaray).filter((e) => e.type === NodeType.Drive);
+
+    this.store.setNodeFeedIndex(this.stateFeedTopic.toString(), feedIndexNext.toBigInt());
+
+    await settlePromises(
+      entries.map(async (entry) => {
+        const driveInfo = assertDriveInfoFromMetadata(entry.rawMetadata);
+
+        // Probe the drive feed head. A drive is a container and carries no stored version
+        const {
+          payload: drivePayload,
+          feedIndex: driveFeedIndex,
+          feedIndexNext: driveFeedIndexNext,
+        } = await getFeedData(this.bee, new Topic(driveInfo.topic), this.signerAddress, undefined, requestOptions);
+
+        if (driveFeedIndex.equals(FeedIndex.MINUS_ONE)) {
+          console.warn(
+            `initDriveList: drive ${driveInfo.name} (${driveInfo.id}) has no manifest feed — skipping corrupt/incomplete drive`,
+          );
+          return;
+        }
+
+        driveInfo.manifestRef = drivePayload.toJSON() as ActReferences;
+        assertActReferences(driveInfo.manifestRef);
+
+        if (driveInfo.isAdmin) {
+          await this.fetchAndSetAdminStamp(driveInfo.batchId, requestOptions);
+          // TODO: I think we can work still if admin stamp is not usable, reconsider it
+          try {
+            verifyStampUsability(this.adminStamp, driveInfo.batchId, false);
+          } catch (err) {
+            this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
+            console.error(err);
+            throw err;
+          }
+
+          this.adminRedundancyLevel = driveInfo.redundancyLevel;
+        }
+
+        this.store.setNodeFeedIndex(driveInfo.topic, driveFeedIndexNext.toBigInt());
+
+        return driveInfo;
+      }),
+      (driveInfo) => {
+        if (driveInfo) {
+          this.driveList.push(driveInfo);
+        }
+      },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (reason) => console.error(`initDriveList: failed to load drive from fork: ${(reason as any)?.message || reason}`),
+    );
+  }
+
+  private async pruneDriveMetadata(
+    driveInfo: DriveInfo,
+    driveIndex: number,
+    stateTopic: string,
+    publisher: string,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void> {
+    if (!this.adminStamp) {
+      throw new DriveError('Admin stamp not found');
+    }
+
+    const adminMantaray = this.store.getManifestCache(stateTopic);
+    if (!adminMantaray) {
+      throw new DriveError('Admin manifest not loaded — initialize first.');
+    }
+
+    const adminHost = this.adminHost(publisher);
+
+    adminMantaray.removeFork(getDriveForkPath(driveInfo.id));
+    await this.store.saveMantarayNode(adminMantaray, adminHost, requestOptions);
+
+    this.driveList.splice(driveIndex, 1);
+    this.store.evict(driveInfo.topic);
+
+    for (let i = this.fileInfoList.length - 1; i >= 0; --i) {
+      if (this.fileInfoList[i].driveId === driveInfo.id) {
+        this.fileInfoList.splice(i, 1);
+      }
+    }
+  }
+
   private async createFolderNode(
     driveInfo: DriveInfo,
     parentHost: ManifestHost,
@@ -1703,47 +1629,22 @@ export class FileManagerBase implements FileManager {
     return { folder: fi, node: parentNode };
   }
 
-  async createFolder(
-    driveId: string | Identifier,
-    parentPath: string,
-    folderName: string,
-    redundancyLevel?: RedundancyLevel,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<FolderInfo> {
-    requestOptions?.signal?.throwIfAborted();
-    const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+  private async fetchAndSetAdminStamp(batchId: string | BatchId, requestOptions?: BeeRequestOptions): Promise<void> {
+    const adminStamp = await fetchStamp(this.bee, batchId, requestOptions);
+    const logText = `Admin stamp with batchId: ${batchId.toString().slice(0, 6)}...`;
 
-    if (!folderName || folderName.includes('/')) {
-      throw new DriveError(`Invalid folder name ${folderName}`);
+    if (!adminStamp) {
+      this._adminStamp = undefined;
+      console.warn(`${logText} not found.`);
+      return;
+    }
+    if (adminStamp.usable) {
+      console.debug(`${logText} found and set.`);
+    } else {
+      console.warn(`${logText} is unusable.`);
     }
 
-    const { host: parentHost, folder: parentFolder } = await this.store.resolveHost(
-      cachedDrive,
-      parentPath,
-      publisher,
-      requestOptions,
-    );
-
-    const { folder, node: parentNode } = await this.createFolderNode(
-      cachedDrive,
-      parentHost,
-      parentPath,
-      folderName,
-      publisher,
-      redundancyLevel,
-      requestOptions,
-    );
-
-    const updatedParentManifestRef = await this.store.saveMantarayNode(parentNode, parentHost, requestOptions);
-
-    if (!parentFolder) {
-      this.driveList[driveIx].manifestRef = updatedParentManifestRef;
-    }
-
-    this.emitter.emit(FileManagerEvents.FOLDER_CREATED, { folderInfo: folder });
-
-    return folder;
+    this._adminStamp = adminStamp;
   }
 
   private findDriveOrThrow(driveId: string): { driveIx: number; cachedDrive: DriveInfo } {
@@ -1756,5 +1657,123 @@ export class FileManagerBase implements FileManager {
     const cachedDrive = this.driveList[driveIx];
 
     return { driveIx, cachedDrive };
+  }
+
+  private async syncForkVersion(
+    drive: DriveInfo,
+    driveIx: number,
+    absolutePath: string,
+    newVersion: string,
+    publisher: string,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void> {
+    const { parentPath, name: filename } = splitPath(absolutePath);
+
+    const {
+      host: parentHost,
+      folder: parentFolder,
+      node: parentNode,
+    } = await this.store.resolveHostMantaray(drive, parentPath, publisher, requestOptions);
+    const fileFork = parentNode.find(filename);
+    if (!fileFork) {
+      throw new DriveError(`Path not found: ${absolutePath}`);
+    }
+
+    const forkMetadata = { ...(fileFork.metadata ?? {}) };
+    forkMetadata[MANIFEST_METADATA_NODE_VERSION] = newVersion;
+    parentNode.removeFork(filename);
+    parentNode.addFork(filename, fileFork.targetAddress, forkMetadata);
+
+    const newManifestRef = await this.store.saveMantarayNode(parentNode, parentHost, requestOptions);
+    if (!parentFolder) {
+      this.driveList[driveIx].manifestRef = newManifestRef;
+    }
+  }
+
+  private async persistRecord(fr: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
+    try {
+      await this.store.saveRecord(fr, requestOptions);
+    } catch (error: unknown) {
+      throw new FileInfoError(`Failed to save record: ${error instanceof Error ? error.message : error}`);
+    }
+
+    const existingIx = this.fileInfoList.findIndex((f) => f.topic === fr.topic);
+    if (existingIx !== -1) {
+      this.fileInfoList[existingIx] = fr;
+    } else {
+      this.fileInfoList.push(fr);
+    }
+  }
+
+  private async setTrashState(
+    driveId: string,
+    entry: TrashEntry,
+    isTrashed: boolean,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<DriveInfo> {
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+    const isAlreadyTrashed = getRecordStatus(cachedDrive, entry.topic) == NodeStatus.Trashed;
+
+    if (isTrashed && isAlreadyTrashed) {
+      throw new FileInfoError(`Already trashed: ${entry.path}`);
+    }
+    if (!isTrashed && !isAlreadyTrashed) {
+      throw new FileInfoError(`Not trashed, cannot recover: ${entry.path}`);
+    }
+
+    await this.persistAdminDriveFork(driveIx, requestOptions);
+
+    const current = cachedDrive.trashedNodes ?? [];
+    const withoutEntry = current.filter((n) => n.topic !== entry.topic);
+    cachedDrive.trashedNodes = isTrashed ? [...withoutEntry, entry] : withoutEntry;
+    return cachedDrive;
+  }
+
+  private async persistAdminDriveFork(driveIx: number, requestOptions?: BeeRequestOptions): Promise<void> {
+    const { publisher, stateFeedTopic } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+
+    const adminMantaray = this.store.getManifestCache(stateFeedTopic);
+    if (!adminMantaray) {
+      throw new DriveError('Admin manifest not loaded — initialize first.');
+    }
+
+    const drive = this.driveList[driveIx];
+    const adminHost = this.adminHost(publisher);
+
+    adminMantaray.removeFork(getDriveForkPath(drive.id));
+    adminMantaray.addFork(getDriveForkPath(drive.id), new Reference(drive.topic), driveForkMetadata(drive));
+
+    await this.store.saveMantarayNode(adminMantaray, adminHost, requestOptions);
+  }
+
+  private async pruneTrashOverlay(
+    driveIx: number,
+    predicate: (entry: TrashEntry) => boolean,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void> {
+    const drive = this.driveList[driveIx];
+    const current = drive.trashedNodes ?? [];
+    const remaining = current.filter((e) => !predicate(e));
+    if (remaining.length === current.length) {
+      return;
+    }
+
+    drive.trashedNodes = remaining;
+    await this.persistAdminDriveFork(driveIx, requestOptions);
+  }
+
+  private adminHost(publisher: string): ManifestHost {
+    const { stateFeedTopic } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+    if (!this.adminStamp) {
+      throw new DriveError('Admin stamp not found');
+    }
+
+    return {
+      owner: this.signerAddress,
+      topic: stateFeedTopic,
+      batchId: this.adminStamp.batchID.toString(),
+      redundancyLevel: this.adminRedundancyLevel,
+      actPublisher: publisher,
+    };
   }
 }
