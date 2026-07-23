@@ -137,7 +137,7 @@ describe('FileManager', () => {
       );
       expect(eventHandler).toHaveBeenCalledWith(true);
       await fm.initialize();
-      expect(logSpy).toHaveBeenCalledWith('FileManager is already initialized');
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('FileManager is already initialized'));
     });
 
     it('should not initialize, if currently being initialized', async () => {
@@ -151,7 +151,7 @@ describe('FileManager', () => {
       fm.initialize();
       fm.initialize();
 
-      expect(logSpy).toHaveBeenCalledWith('FileManager is being initialized');
+      expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('FileManager is being initialized'));
     });
 
     it('does not eagerly load any file records — hydration is lazy', async () => {

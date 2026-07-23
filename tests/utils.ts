@@ -54,8 +54,8 @@ export async function retryOnPropagationDelay<T>(fn: () => Promise<T>, attempts 
   for (let i = 0; i < attempts; i++) {
     try {
       return await fn();
-    } catch (error) {
-      lastError = error;
+    } catch (err: unknown) {
+      lastError = err;
       if (i < attempts - 1) {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }

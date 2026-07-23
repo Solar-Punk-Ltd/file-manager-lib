@@ -3,7 +3,9 @@ import { BatchId, Bee, BeeRequestOptions, FileUploadOptions, UploadResult } from
 import { DriveInfo } from '../types/info';
 import { NodeUploadOptions } from '../types/upload';
 import { ActReferences } from '../types/utils';
-import { FileError } from '../utils/errors';
+import { ErrorHandler, FileError } from '../utils/errors';
+
+const errorHandler = ErrorHandler.getInstance();
 
 async function uploadNode(
   bee: Bee,
@@ -40,9 +42,9 @@ async function uploadFile(
     const { data } = await readFile(resolvedPath);
 
     return await bee.uploadData(batchId, data, uploadOptions, requestOptions);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } catch (error: any) {
-    throw new FileError(`Failed to upload file ${resolvedPath}: ${error}`);
+  } catch (err: unknown) {
+    errorHandler.handleError(err, `Failed to upload file ${resolvedPath}`);
+    throw new FileError(`Failed to upload file ${resolvedPath}`);
   }
 }
 

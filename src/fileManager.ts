@@ -60,6 +60,7 @@ import {
 import { generateRandomBytes } from './utils/crypto';
 import {
   DriveError,
+  ErrorHandler,
   FileInfoError,
   GranteeError,
   SendShareMessageError,
@@ -68,6 +69,7 @@ import {
   SubscriptionError,
 } from './utils/errors';
 import { FileManagerEvents } from './utils/events';
+import { Logger } from './utils/logger';
 import {
   driveForkMetadata,
   fileForkMetadata,
@@ -90,8 +92,11 @@ export class FileManagerBase implements FileManager {
   private _isInitialized: boolean = false;
   private isInitializing: boolean = false;
   private _adminStamp: PostageBatch | undefined = undefined;
-  private readonly store: MantarayStore;
   private adminRedundancyLevel: RedundancyLevel = RedundancyLevel.OFF;
+
+  private readonly store: MantarayStore;
+  private readonly errorHandler = ErrorHandler.getInstance();
+  private readonly logger = Logger.getInstance();
 
   // --- Public member getters ---
 
@@ -110,7 +115,6 @@ export class FileManagerBase implements FileManager {
 
   // --- Initialization ---
 
-  // TODO: improve logging -> pass as ctor arg like emitter
   constructor(bee: Bee, emitter: EventEmitter = new EventEmitterBase()) {
     this.bee = bee;
     if (!this.bee.signer) {
@@ -126,14 +130,14 @@ export class FileManagerBase implements FileManager {
   // File records are loaded lazily via listFolder / download / move as the user navigates — no eager full-drive load at init.
   async initialize(requestOptions?: BeeRequestOptions): Promise<void> {
     if (this.isInitialized) {
-      console.debug('FileManager is already initialized');
+      this.logger.debug('FileManager is already initialized');
 
       this.emitter.emit(FileManagerEvents.INITIALIZED, true);
       return;
     }
 
     if (this.isInitializing) {
-      console.debug('FileManager is being initialized');
+      this.logger.debug('FileManager is being initialized');
       return;
     }
 
@@ -143,7 +147,7 @@ export class FileManagerBase implements FileManager {
       await verifySupportedBeeVersions(this.bee, requestOptions);
       await this.initPublisher(requestOptions);
 
-      console.debug('Trying to load state from Swarm.');
+      this.logger.debug('Trying to load state from Swarm.');
 
       const success = await this.tryToFetchAdminState(requestOptions);
       if (success) {
@@ -152,9 +156,8 @@ export class FileManagerBase implements FileManager {
 
       this._isInitialized = true;
       this.emitter.emit(FileManagerEvents.INITIALIZED, true);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (error: any) {
-      console.error(`Failed to initialize FileManager: ${error.message || error}`);
+    } catch (err: unknown) {
+      this.errorHandler.handleError(err, 'Failed to initialize FileManager');
       this._isInitialized = false;
       this.emitter.emit(FileManagerEvents.INITIALIZED, false);
     } finally {
@@ -186,7 +189,7 @@ export class FileManagerBase implements FileManager {
     const batchIdStr = batchId.toString();
     const level = redundancyLevel ?? RedundancyLevel.OFF;
 
-    console.debug('Creating admin drive with name: ', ADMIN_STAMP_LABEL);
+    this.logger.debug('Creating admin drive with name: ', ADMIN_STAMP_LABEL);
     await this.fetchAndSetAdminStamp(batchIdStr, requestOptions);
     verifyStampUsability(this.adminStamp, batchIdStr);
 
@@ -251,7 +254,7 @@ export class FileManagerBase implements FileManager {
     await this.bee.diluteBatch(cachedDrive.batchId, validStamp.depth + halvings, requestOptions);
     await this.pruneDriveMetadata(cachedDrive, driveIx, stateFeedTopic, publisher, requestOptions);
 
-    console.debug(`Drive destroyed: ${cachedDrive.name}`);
+    this.logger.debug(`Drive destroyed: ${cachedDrive.name}`);
     this.emitter.emit(FileManagerEvents.DRIVE_DESTROYED, { driveInfo: cachedDrive });
   }
 
@@ -264,7 +267,7 @@ export class FileManagerBase implements FileManager {
     }
 
     await this.pruneDriveMetadata(cachedDrive, driveIx, stateFeedTopic, publisher, requestOptions);
-    console.debug(`Drive forgotten (metadata only): ${cachedDrive.name}`);
+    this.logger.debug(`Drive forgotten (metadata only): ${cachedDrive.name}`);
     this.emitter.emit(FileManagerEvents.DRIVE_FORGOTTEN, { driveInfo: cachedDrive });
   }
 
@@ -310,7 +313,7 @@ export class FileManagerBase implements FileManager {
         (entries) => headers.push(...entries),
         (reason) => {
           if (requestOptions?.signal?.aborted) return;
-          console.error(`listFolder: failed to expand manifest: ${reason}`);
+          this.logger.error(`listFolder: failed to expand manifest: ${reason}`);
         },
       );
 
@@ -341,7 +344,7 @@ export class FileManagerBase implements FileManager {
         },
         (reason, ix) => {
           if (requestOptions?.signal?.aborted) return;
-          console.error(`listFolder: failed to load file ${fileHeaders[ix].topic}: ${reason}`);
+          this.logger.error(`listFolder: failed to load file ${fileHeaders[ix].topic}: ${reason}`);
         },
       );
 
@@ -360,7 +363,7 @@ export class FileManagerBase implements FileManager {
           );
 
           if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
-            console.warn(`listFolder: folder feed not found for ${e.path} — skipping`);
+            this.logger.warn(`listFolder: folder feed not found for ${e.path} — skipping`);
             return null;
           }
 
@@ -396,7 +399,7 @@ export class FileManagerBase implements FileManager {
         },
         (reason, ix) => {
           if (requestOptions?.signal?.aborted) return;
-          console.error(`listFolder: failed to resolve folder ${folderHeaders[ix].path}: ${reason}`);
+          this.logger.error(`listFolder: failed to resolve folder ${folderHeaders[ix].path}: ${reason}`);
         },
       );
 
@@ -1032,7 +1035,7 @@ export class FileManagerBase implements FileManager {
         const feedData = await getFeedData(this.bee, new Topic(entry.topic), owner, version, requestOptions);
 
         if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
-          console.warn(`listTrash: feed not found for ${entry.path} — skipping`);
+          this.logger.warn(`listTrash: feed not found for ${entry.path} — skipping`);
           return null;
         }
 
@@ -1065,7 +1068,7 @@ export class FileManagerBase implements FileManager {
       },
       (reason, ix) => {
         if (requestOptions?.signal?.aborted) return;
-        console.error(`listTrash: failed to resolve ${entries[ix].path}: ${reason}`);
+        this.logger.error(`listTrash: failed to resolve ${entries[ix].path}: ${reason}`);
       },
     );
 
@@ -1350,7 +1353,7 @@ export class FileManagerBase implements FileManager {
     );
 
     if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
-      console.debug('State not found.');
+      this.logger.debug('State not found.');
       return false;
     }
 
@@ -1358,9 +1361,8 @@ export class FileManagerBase implements FileManager {
     try {
       stateTopicInfo = payload.toJSON() as ActReferences;
       assertActReferences(stateTopicInfo);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (error: any) {
-      console.error(`Failed to fetch admin state: ${error.message || error}`);
+    } catch (err: unknown) {
+      this.errorHandler.handleError(err, 'Failed to fetch admin state');
       this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
       return false;
     }
@@ -1378,15 +1380,14 @@ export class FileManagerBase implements FileManager {
         },
         requestOptions,
       );
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (error: any) {
-      console.error(`Failed to decrypt admin state: ${error.message || error}`);
+    } catch (err: unknown) {
+      this.errorHandler.handleError(err, 'Failed to decrypt admin state');
       this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
       return false;
     }
 
     this.stateFeedTopic = new Topic(topicBytes.toUint8Array());
-    console.debug('Drive list feed successfully fetched');
+    this.logger.debug('Drive list feed successfully fetched');
 
     return true;
   }
@@ -1500,7 +1501,7 @@ export class FileManagerBase implements FileManager {
     );
 
     if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
-      console.debug('Admin manifest feed empty — no drives to load');
+      this.logger.debug('Admin manifest feed empty — no drives to load');
       return;
     }
 
@@ -1530,7 +1531,7 @@ export class FileManagerBase implements FileManager {
         } = await getFeedData(this.bee, new Topic(driveInfo.topic), this.signerAddress, undefined, requestOptions);
 
         if (driveFeedIndex.equals(FeedIndex.MINUS_ONE)) {
-          console.warn(
+          this.logger.warn(
             `initDriveList: drive ${driveInfo.name} (${driveInfo.id}) has no manifest feed — skipping corrupt/incomplete drive`,
           );
           return;
@@ -1544,9 +1545,9 @@ export class FileManagerBase implements FileManager {
           // TODO: I think we can work still if admin stamp is not usable, reconsider it
           try {
             verifyStampUsability(this.adminStamp, driveInfo.batchId, false);
-          } catch (err) {
+          } catch (err: unknown) {
+            this.errorHandler.handleError(err);
             this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
-            console.error(err);
             throw err;
           }
 
@@ -1562,8 +1563,9 @@ export class FileManagerBase implements FileManager {
           this.driveList.push(driveInfo);
         }
       },
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (reason) => console.error(`initDriveList: failed to load drive from fork: ${(reason as any)?.message || reason}`),
+      (reason) =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        this.logger.error(`initDriveList: failed to load drive from fork: ${(reason as any)?.message || reason}`),
     );
   }
 
@@ -1643,13 +1645,13 @@ export class FileManagerBase implements FileManager {
 
     if (!adminStamp) {
       this._adminStamp = undefined;
-      console.warn(`${logText} not found.`);
+      this.logger.warn(`${logText} not found.`);
       return;
     }
     if (adminStamp.usable) {
-      console.debug(`${logText} found and set.`);
+      this.logger.debug(`${logText} found and set.`);
     } else {
-      console.warn(`${logText} is unusable.`);
+      this.logger.warn(`${logText} is unusable.`);
     }
 
     this._adminStamp = adminStamp;
@@ -1701,8 +1703,9 @@ export class FileManagerBase implements FileManager {
   private async persistRecord(fr: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
     try {
       await this.store.saveRecord(fr, requestOptions);
-    } catch (error: unknown) {
-      throw new FileInfoError(`Failed to save record: ${error instanceof Error ? error.message : error}`);
+    } catch (err: unknown) {
+      this.errorHandler.handleError(err, `Failed to save record: ${fr.path}`);
+      throw new FileInfoError(`Failed to save record`);
     }
 
     const existingIx = this.fileInfoList.findIndex((f) => f.topic === fr.topic);

@@ -1,5 +1,9 @@
 import { DriveInfo, NodeStatus } from '../types/info';
 
+import { Logger } from './logger';
+
+const logger = Logger.getInstance();
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function isNotFoundError(error: any): boolean {
   return error.stack?.includes('404') || error.message?.includes('Not Found') || error.message?.includes('404');
@@ -18,7 +22,7 @@ export async function settlePromises<T>(
       if (onError) {
         onError(result.reason, ix);
       } else {
-        console.error(`Failed to resolve promise: ${result.reason}`);
+        logger.error(`Failed to resolve promise: ${result.reason}`);
       }
     }
   });
@@ -41,7 +45,7 @@ export async function awaitAllPromisesBounded<T>(
         if (onError) {
           onError(reason, ix);
         } else {
-          console.error(`Failed to resolve task ${ix}: ${reason}`);
+          logger.error(`Failed to resolve task ${ix}: ${reason}`);
         }
       }
     }

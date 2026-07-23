@@ -15,9 +15,13 @@ import { ActReferences, FeedResultWithIndex } from '../types/utils';
 import { isNotFoundError } from './common';
 import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from './constants';
 import { generateRandomBytes } from './crypto';
-import { BeeVersionError, StampError } from './errors';
+import { BeeVersionError, ErrorHandler, StampError } from './errors';
+import { Logger } from './logger';
 
 import { FileRecord } from '@/types';
+
+const logger = Logger.getInstance();
+const errorHandler = ErrorHandler.getInstance();
 
 export async function getFeedData(
   bee: Bee,
@@ -37,8 +41,8 @@ export async function getFeedData(
       feedIndexNext: data.feedIndexNext ?? data.feedIndex.next(),
       payload: data.payload,
     };
-  } catch (error) {
-    if (isNotFoundError(error)) {
+  } catch (err) {
+    if (isNotFoundError(err)) {
       return {
         feedIndex: FeedIndex.MINUS_ONE,
         feedIndexNext: FEED_INDEX_ZERO,
@@ -46,7 +50,7 @@ export async function getFeedData(
       };
     }
 
-    throw error;
+    throw err;
   }
 }
 
@@ -153,9 +157,8 @@ export async function fetchStamp(
 ): Promise<PostageBatch | undefined> {
   try {
     return (await bee.getPostageBatches(requestOptions)).find((s) => s.batchID.toString() === batchId.toString());
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } catch (error: any) {
-    console.error(`Failed to fetch stamp: ${error.message || error}`);
+  } catch (err: unknown) {
+    errorHandler.handleError(err, 'Failed to fetch stamp');
     return;
   }
 }
@@ -175,13 +178,13 @@ export const verifyStampUsability = (
 
 export async function verifySupportedBeeVersions(bee: Bee, requestOptions?: BeeRequestOptions): Promise<void> {
   const beeVersions = await bee.getVersions(requestOptions);
-  console.debug(`Bee version: ${beeVersions.beeVersion}`);
-  console.debug(`Bee API version: ${beeVersions.beeApiVersion}`);
+  logger.debug(`Bee version: ${beeVersions.beeVersion}`);
+  logger.debug(`Bee API version: ${beeVersions.beeApiVersion}`);
   const supportedApi = await bee.isSupportedApiVersion(requestOptions);
 
   if (!supportedApi) {
-    console.error('Supported bee API version: ', beeVersions.supportedBeeApiVersion);
-    console.error('Supported bee version: ', beeVersions.supportedBeeVersion);
+    logger.error('Supported bee API version: ', beeVersions.supportedBeeApiVersion);
+    logger.error('Supported bee version: ', beeVersions.supportedBeeVersion);
     throw new BeeVersionError('Bee or Bee API version not supported');
   }
 }
