@@ -164,12 +164,10 @@ export class FileManagerBase implements FileManager {
 
   // --- Drive operations ---
 
-  async createDrive(
+  async createAdminDrive(
     batchId: string | BatchId,
-    name: string,
-    isAdmin: boolean,
     redundancyLevel?: RedundancyLevel,
-    resetState?: boolean,
+    reset?: boolean,
     requestOptions?: BeeRequestOptions,
   ): Promise<DriveInfo> {
     requestOptions?.signal?.throwIfAborted();
@@ -180,82 +178,48 @@ export class FileManagerBase implements FileManager {
     if (!this.publisher) {
       throw new SignerError('Publisher not found');
     }
+    if (!reset && this.driveList.some((d) => d.isAdmin)) {
+      throw new DriveError('Admin drive already exists');
+    }
+
     const publisher = this.publisher.toCompressedHex();
-
     const batchIdStr = batchId.toString();
-    let driveName = name;
-    if (isAdmin) {
-      console.debug('Creating admin drive with name: ', ADMIN_STAMP_LABEL);
-      driveName = ADMIN_STAMP_LABEL;
+    const level = redundancyLevel ?? RedundancyLevel.OFF;
 
-      await this.fetchAndSetAdminStamp(batchIdStr, requestOptions);
-      verifyStampUsability(this.adminStamp, batchIdStr).batchID.toString();
-      await this.createAdminManifest(batchIdStr, redundancyLevel ?? RedundancyLevel.OFF, resetState, requestOptions);
-    } else {
-      const fetchedStamp = await fetchStamp(this.bee, batchId);
-      verifyStampUsability(fetchedStamp, batchIdStr).batchID.toString();
-    }
+    console.debug('Creating admin drive with name: ', ADMIN_STAMP_LABEL);
+    await this.fetchAndSetAdminStamp(batchIdStr, requestOptions);
+    verifyStampUsability(this.adminStamp, batchIdStr);
 
-    const stateTopic = this.stateFeedTopic?.toString();
-    if (!stateTopic) {
-      throw new DriveError('Admin state not initialized');
-    }
+    await this.establishAdminState(batchIdStr, level, reset, requestOptions);
 
-    if (!isAdmin && !this.store.getNodeRef(stateTopic)) {
+    return this.registerDrive(
+      { name: ADMIN_STAMP_LABEL, batchId: batchIdStr, isAdmin: true, redundancyLevel: level, publisher },
+      requestOptions,
+    );
+  }
+
+  async createDrive(
+    batchId: string | BatchId,
+    name: string,
+    redundancyLevel?: RedundancyLevel,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<DriveInfo> {
+    requestOptions?.signal?.throwIfAborted();
+
+    const { publisher, stateFeedTopic } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+
+    if (!this.store.getNodeRef(stateFeedTopic)) {
       throw new DriveError('Admin manifest not set');
     }
 
-    if (!this.adminStamp) {
-      throw new DriveError('Admin stamp not found');
-    }
+    const batchIdStr = batchId.toString();
+    const fetchedStamp = await fetchStamp(this.bee, batchId);
+    verifyStampUsability(fetchedStamp, batchIdStr);
 
-    if (resetState && !isAdmin) {
-      throw new DriveError(`Cannot reset non-admin drive: "${driveName}"`);
-    }
-
-    this.driveList.forEach((d) => {
-      if (isAdmin && d.isAdmin) {
-        throw new DriveError('Admin drive already exists');
-      }
-
-      if (d.name === driveName || d.batchId === batchIdStr) {
-        throw new DriveError(`Drive with name "${driveName}" or batchId "${batchIdStr.slice(0, 6)}" already exists`);
-      }
-    });
-
-    const randomId = generateRandomBytes(Identifier.LENGTH);
-    const newDrive: DriveInfo = {
-      type: NodeType.Drive,
-      id: new Identifier(randomId).toString(),
-      name: driveName,
-      batchId: batchIdStr,
-      owner: this.signerAddress,
-      redundancyLevel: redundancyLevel ?? RedundancyLevel.OFF,
-      topic: new Topic(generateRandomBytes(Topic.LENGTH)).toString(),
-      isAdmin,
-      actPublisher: publisher,
-      trashedNodes: [],
-    };
-
-    const driveNode = new MantarayNode();
-    this.store.setNodeFeedIndex(newDrive.topic, 0n);
-    newDrive.manifestRef = await this.store.saveMantarayNode(driveNode, newDrive, requestOptions);
-    this.store.setManifestCache(newDrive.topic, driveNode);
-
-    const adminMantaray = this.store.getManifestCache(stateTopic);
-    if (!adminMantaray) {
-      throw new DriveError('Admin manifest not loaded — initialize first.');
-    }
-    adminMantaray.addFork(getDriveForkPath(newDrive.id), new Reference(newDrive.topic), driveForkMetadata(newDrive));
-
-    const adminHost = this.adminHost(this.publisher.toCompressedHex());
-    await this.store.saveMantarayNode(adminMantaray, adminHost, requestOptions);
-
-    this.driveList.push(newDrive);
-
-    this.emitter.emit(FileManagerEvents.DRIVE_CREATED, { driveInfo: newDrive });
-
-    return newDrive;
+    return this.registerDrive(
+      { name, batchId: batchIdStr, isAdmin: false, redundancyLevel: redundancyLevel ?? RedundancyLevel.OFF, publisher },
+      requestOptions,
+    );
   }
 
   async destroyDrive(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<void> {
@@ -1427,10 +1391,54 @@ export class FileManagerBase implements FileManager {
     return true;
   }
 
-  private async createAdminManifest(
+  private async registerDrive(
+    params: { name: string; batchId: string; isAdmin: boolean; redundancyLevel: RedundancyLevel; publisher: string },
+    requestOptions?: BeeRequestOptions,
+  ): Promise<DriveInfo> {
+    const { name, batchId, isAdmin, redundancyLevel, publisher } = params;
+
+    this.driveList.forEach((d) => {
+      if (d.name === name || d.batchId === batchId) {
+        throw new DriveError(`Drive with name "${name}" or batchId "${batchId.slice(0, 6)}" already exists`);
+      }
+    });
+
+    const newDrive: DriveInfo = {
+      type: NodeType.Drive,
+      id: new Identifier(generateRandomBytes(Identifier.LENGTH)).toString(),
+      name,
+      batchId,
+      owner: this.signerAddress,
+      redundancyLevel,
+      topic: new Topic(generateRandomBytes(Topic.LENGTH)).toString(),
+      isAdmin,
+      actPublisher: publisher,
+      trashedNodes: [],
+    };
+
+    const driveNode = new MantarayNode();
+    this.store.setNodeFeedIndex(newDrive.topic, 0n);
+    newDrive.manifestRef = await this.store.saveMantarayNode(driveNode, newDrive, requestOptions);
+    this.store.setManifestCache(newDrive.topic, driveNode);
+
+    const adminHost = this.adminHost(publisher);
+    const adminMantaray = this.store.getManifestCache(adminHost.topic);
+    if (!adminMantaray) {
+      throw new DriveError('Admin manifest not loaded — initialize first.');
+    }
+    adminMantaray.addFork(getDriveForkPath(newDrive.id), new Reference(newDrive.topic), driveForkMetadata(newDrive));
+    await this.store.saveMantarayNode(adminMantaray, adminHost, requestOptions);
+
+    this.driveList.push(newDrive);
+    this.emitter.emit(FileManagerEvents.DRIVE_CREATED, { driveInfo: newDrive });
+
+    return newDrive;
+  }
+
+  private async establishAdminState(
     batchId: string,
     redundancyLevel: RedundancyLevel,
-    resetState?: boolean,
+    reset?: boolean,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
     const { feedIndexNext } = await getFeedData(
@@ -1441,11 +1449,11 @@ export class FileManagerBase implements FileManager {
       requestOptions,
     );
     const isStateExisting = !feedIndexNext.equals(FEED_INDEX_ZERO);
-    if (!resetState && isStateExisting) {
-      throw new DriveError('Admin state already exists. Pass resetState=true to overwrite.');
+    if (!reset && isStateExisting) {
+      throw new DriveError('Admin state already exists. Pass reset=true to overwrite.');
     }
 
-    if (resetState) {
+    if (reset) {
       this.driveList.length = 0;
       this.store.clear();
     }

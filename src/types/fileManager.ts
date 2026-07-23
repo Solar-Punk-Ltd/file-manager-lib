@@ -30,28 +30,45 @@ export interface FileManager {
   initialize(): Promise<void>;
 
   /**
-   * Creates a new drive with the specified options.
+   * Bootstraps the admin state (drive registry) and creates the admin drive.
+   *  It establishes the state feed and its empty admin manifest before registering the admin drive into it.
+   * Regular drives are created with {@link createDrive} once this has succeeded.
+   * @param batchId - The batch ID for the admin drive / state.
+   * @param redundancyLevel - Optional redundancy level for the admin drive.
+   * @param reset - Overwrite existing admin state with a freshly generated one (wipes local state
+   *   and appends a new state pointer). Required when admin state already exists.
+   * @param requestOptions - Additional Bee request options.
+   * @emits FileManagerEvents.DRIVE_CREATED
+   * @returns The newly-created admin DriveInfo.
+   * @throws {DriveError} If not initialized, or admin state already exists without `reset`.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   * @throws {StampError} If the admin batch stamp is missing or not usable.
+   */
+  createAdminDrive(
+    batchId: string | BatchId,
+    redundancyLevel?: RedundancyLevel,
+    reset?: boolean,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<DriveInfo>;
+
+  /**
+   * Creates a new (non-admin) drive and registers it in the admin manifest. Requires the admin state
+   * to already exist — call {@link createAdminDrive} first for initial setup.
    * @param batchId - The batch ID for the drive.
    * @param name - The name of the drive.
-   * @param isAdmin - Indicates if the drive is an admin drive.
    * @param redundancyLevel - Optional redundancy level for the drive.
-   * @param resetState - Optional flag to reset the state, if it is invalid/ no stamp is found for it.
-   *                   - It enables the creation of a new admin drive.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.DRIVE_CREATED
    * @returns The newly-created DriveInfo.
-   * @throws {DriveError} If not initialized, admin state/manifest/stamp is not ready, an admin drive
-   *   already exists, a drive with the same name or batchId exists, resetState is used on a non-admin
-   *   drive, or admin state already exists without resetState.
+   * @throws {DriveError} If not initialized, admin state/manifest is not ready, or a drive with the
+   *   same name or batchId already exists.
    * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {StampError} If the batch stamp is missing or not usable.
    */
   createDrive(
     batchId: string | BatchId,
     name: string,
-    isAdmin: boolean,
     redundancyLevel?: RedundancyLevel,
-    resetState?: boolean,
     requestOptions?: BeeRequestOptions,
   ): Promise<DriveInfo>;
 

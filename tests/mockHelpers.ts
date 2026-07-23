@@ -64,7 +64,7 @@ export async function createInitializedFileManager(
   await fm.initialize();
 
   if (!fm.driveList.some((d) => d.isAdmin)) {
-    await fm.createDrive(batchId ?? MOCK_BATCH_ID, ADMIN_STAMP_LABEL, true, RedundancyLevel.MEDIUM);
+    await fm.createAdminDrive(batchId ?? MOCK_BATCH_ID, RedundancyLevel.MEDIUM);
   }
 
   return fm;
