@@ -5,8 +5,8 @@
     "target": "ES2022",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ES2022",
-    "baseUrl": ".",
     "moduleResolution": "node",
+    "ignoreDeprecations": "5.0", // TODO: resolve deprication errors
     "resolveJsonModule": true,
     "declaration": true,
     "emitDeclarationOnly": false,
@@ -28,7 +28,7 @@
     "typeRoots": ["src/@types", "node_modules/@types"],
     "noImplicitReturns": true,
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     }
   }
 }
