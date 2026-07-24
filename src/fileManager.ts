@@ -528,7 +528,6 @@ export class FileManagerBase implements FileManager {
     return await processDownload(this.bee, resources, options, requestOptions);
   }
 
-  // TODO: now rLevel is derived from tha parent folder/ drive -> default to it and potentially overwrite it
   async uploadFile(
     driveId: string | Identifier,
     item: UploadItem,
@@ -1167,7 +1166,6 @@ export class FileManagerBase implements FileManager {
       throw new DriveError('Invalid destination path');
     }
 
-    // TODO: sameParent === !!sourceDriveId ?
     const isCrossDrive = !!targetDriveId && targetDriveId !== sourceDriveId;
     const effectiveTargetId = (targetDriveId ?? sourceDriveId).toString();
 
