@@ -768,6 +768,89 @@ describe('FileManager', () => {
         `Drive with id ${ghost.id.slice(0, 6)} not found`,
       );
     });
+
+    it('lazy-loads the record from its feed on a cache miss, then re-versions it', async () => {
+      const { fm, di, record } = await seedUploadedFile();
+
+      const ix = fm.fileInfoList.findIndex((f) => f.topic === record.topic);
+      fm.fileInfoList.splice(ix, 1);
+
+      (getFeedData as jest.Mock).mockResolvedValue({
+        feedIndex: FEED_INDEX_ZERO,
+        feedIndexNext: FeedIndex.fromBigInt(1n),
+        payload: {
+          toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
+        },
+      });
+      const getRecordSpy = jest
+        .spyOn((fm as any).store, 'getRecord')
+        .mockResolvedValue({ ...record, path: 'package.json' });
+
+      await fm.updateFile(di.id, record, { customMetadata: { note: 'hi' } });
+
+      expect(getRecordSpy).toHaveBeenCalledWith(record.topic, record.actPublisher, expect.anything(), undefined);
+      const rehydrated = fm.fileInfoList.filter((f) => f.topic === record.topic);
+      expect(rehydrated).toHaveLength(1);
+      expect(rehydrated[0].version).toBe(FeedIndex.fromBigInt(1n).toString());
+      expect(rehydrated[0].customMetadata).toMatchObject({ note: 'hi' });
+
+      getRecordSpy.mockRestore();
+    });
+
+    it('throws when the resolved record does not belong to the target drive', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      const di = fm.driveList[1];
+
+      const foreign: FileRecord = {
+        type: NodeType.File,
+        batchId: MOCK_BATCH_ID,
+        owner,
+        redundancyLevel: RedundancyLevel.OFF,
+        actPublisher,
+        topic: Topic.fromString('foreign-topic').toString(),
+        driveId: di.id,
+        path: 'package.json',
+        content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        version: FEED_INDEX_ZERO.toString(),
+      };
+
+      (getFeedData as jest.Mock).mockResolvedValue({
+        feedIndex: FEED_INDEX_ZERO,
+        feedIndexNext: FeedIndex.fromBigInt(1n),
+        payload: {
+          toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
+        },
+      });
+      jest.spyOn((fm as any).store, 'getRecord').mockResolvedValue({ ...foreign, driveId: '9'.repeat(64) });
+
+      await expect(fm.updateFile(di.id, foreign, { customMetadata: { a: '1' } })).rejects.toThrow(
+        `does not belong to drive "${di.name}"`,
+      );
+    });
+
+    it('throws a not-found error when the record is absent on a cold cache', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      const di = fm.driveList[1];
+
+      const record: FileRecord = {
+        type: NodeType.File,
+        batchId: MOCK_BATCH_ID,
+        owner,
+        redundancyLevel: RedundancyLevel.OFF,
+        actPublisher,
+        topic: Topic.fromString('cold-topic').toString(),
+        driveId: di.id,
+        path: 'package.json',
+        content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        version: FEED_INDEX_ZERO.toString(),
+      };
+
+      await expect(fm.updateFile(di.id, record, { customMetadata: { a: '1' } })).rejects.toThrow(
+        `File record not found for topic: ${record.topic.slice(0, 6)}`,
+      );
+    });
   });
 
   describe('createFolder', () => {

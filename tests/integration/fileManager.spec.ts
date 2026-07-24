@@ -1445,6 +1445,44 @@ describe('FileManager version control', () => {
     }
   });
 
+  it('updateFile lazy-loads the record on a cold cache (fresh instance, no prior listing)', async () => {
+    const NAME = `cold-update-${Date.now()}`;
+    try {
+      fs.writeFileSync(NAME, 'cold v0');
+      await fileManager.uploadFile(drive.id, { path: NAME, sourcePath: NAME });
+      const base = fileManager.fileInfoList.find((fr) => fr.path === NAME)!;
+      expect(base.version).toBe(FEED_INDEX_ZERO.toString());
+
+      // Fresh instance shares the signer/state but never listed the folder — its record cache is empty.
+      const fm2 = new FileManagerBase(bee);
+      await fm2.initialize();
+      expect(fm2.fileInfoList.find((fr) => fr.topic === base.topic)).toBeUndefined();
+
+      fs.writeFileSync(NAME, 'cold v1');
+      const updated = await fm2.updateFile(drive.id, base, { item: { sourcePath: NAME } });
+
+      // Re-versioned via lazy hydration; the record is now present in the fresh instance's cache.
+      expect(updated.version).toBe(FeedIndex.fromBigInt(1n).toString());
+      expect(updated.driveId).toBe(drive.id);
+      expect(fm2.fileInfoList.filter((fr) => fr.topic === base.topic)).toHaveLength(1);
+    } finally {
+      fs.rmSync(NAME, { force: true });
+    }
+  });
+
+  it('updateFile throws when the record belongs to a different drive', async () => {
+    const base = await ensureBase();
+
+    const otherBatch = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, `mismatchStamp-${Date.now()}`);
+    await fileManager.createDrive(otherBatch, `other-drive-${Date.now()}`);
+    const otherDrive = fileManager.driveList.at(-1)!;
+
+    // base was uploaded into `drive`, not `otherDrive`.
+    await expect(fileManager.updateFile(otherDrive.id, base, { customMetadata: { x: '1' } })).rejects.toThrow(
+      /does not belong to drive/,
+    );
+  });
+
   it('getFileVersion returns independently downloadable, version-correct bytes', async () => {
     const NAME = `version-bytes-${Date.now()}`;
     try {

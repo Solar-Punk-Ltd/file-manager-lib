@@ -37,22 +37,23 @@ export async function assertUploadableSource(item: UploadItem): Promise<void> {
 interface ProcessedOptions {
   options: BrowserUploadOptions | NodeUploadOptions;
   uploadOptions: RedundantUploadOptions | FileUploadOptions;
+  redundancyLevel: RedundancyLevel;
 }
 
 const processOptions = (
   isNode: boolean,
   item: UploadSource,
-  uploadOptions: RedundantUploadOptions | FileUploadOptions | undefined,
   redundancyLevel: RedundancyLevel,
+  uploadOptions?: RedundantUploadOptions | FileUploadOptions,
 ): ProcessedOptions => {
-  const processedOptions = { ...uploadOptions, act: true, redundancyLevel };
+  const effectiveRedundancyLevel = uploadOptions?.redundancyLevel ?? redundancyLevel;
+  const processedOptions = { ...uploadOptions, act: true, redundancyLevel: effectiveRedundancyLevel };
 
   const options = isNode ? (item as NodeUploadOptions) : (item as BrowserUploadOptions);
 
-  return { options, uploadOptions: processedOptions };
+  return { options, uploadOptions: processedOptions, redundancyLevel: effectiveRedundancyLevel };
 };
 
-// TODO: why separate rLevel arg ? --> merge and require
 export async function processUpload(
   bee: Bee,
   driveInfo: DriveInfo,
@@ -60,16 +61,34 @@ export async function processUpload(
   redundancyLevel: RedundancyLevel,
   uploadOptions?: RedundantUploadOptions | FileUploadOptions,
   requestOptions?: BeeRequestOptions,
-): Promise<ActReferences> {
-  const processedOptions = processOptions(isNode, item, uploadOptions, redundancyLevel);
+): Promise<{ contentRefs: ActReferences; rLevel: RedundancyLevel }> {
+  const {
+    options,
+    uploadOptions: processedUploadOptions,
+    redundancyLevel: rLevel,
+  } = processOptions(isNode, item, redundancyLevel, uploadOptions);
 
   if (isNode) {
     const { processUploadNode } = await import('./upload.node');
-    const nodeOptions = processedOptions.options as NodeUploadOptions;
-    return processUploadNode(bee, driveInfo, nodeOptions, processedOptions.uploadOptions, requestOptions);
+    const contentRefs = await processUploadNode(
+      bee,
+      driveInfo,
+      options as NodeUploadOptions,
+      processedUploadOptions,
+      requestOptions,
+    );
+
+    return { contentRefs, rLevel };
   }
 
   const { processUploadBrowser } = await import('./upload.browser');
-  const browserOptions = processedOptions.options as BrowserUploadOptions;
-  return processUploadBrowser(bee, driveInfo, browserOptions, processedOptions.uploadOptions, requestOptions);
+  const contentRefs = await processUploadBrowser(
+    bee,
+    driveInfo,
+    options as BrowserUploadOptions,
+    processedUploadOptions,
+    requestOptions,
+  );
+
+  return { contentRefs, rLevel };
 }

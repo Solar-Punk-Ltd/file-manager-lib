@@ -320,27 +320,19 @@ export class FileManagerBase implements FileManager {
       const fileHeaders = headers.filter((e) => e.type === NodeType.File);
       await awaitAllPromisesBounded(
         fileHeaders.map((e) => async (): Promise<FileRecord> => {
-          const cached = this.fileInfoList.find((f) => f.topic === e.topic);
-          if (cached) {
-            cached.path = e.path;
-            cached.status = getRecordStatus(cachedDrive, e.topic);
-            return cached;
-          }
-
           const owner = e.owner ?? this.signerAddress;
           const actPublisher = e.actPublisher ?? publisher;
-          const version = e.version ? BigInt(e.version) : undefined;
-          const feedData = await getFeedData(this.bee, new Topic(e.topic), owner, version, requestOptions);
+          const version = e.version ? new FeedIndex(e.version).toBigInt() : undefined;
 
-          const fr = await this.store.getRecord(e.topic, actPublisher, feedData, requestOptions);
-          fr.path = e.path;
-          fr.status = getRecordStatus(cachedDrive, e.topic);
-          return fr;
+          const { record } = await this.loadRecord(e.topic, owner, actPublisher, version, requestOptions);
+          record.path = e.path;
+          record.status = getRecordStatus(cachedDrive, e.topic);
+          return record;
         }),
         MAX_CONCURRENT_FEED_FETCHES,
-        (fr) => {
-          if (!this.fileInfoList.some((f) => f.topic === fr.topic)) this.fileInfoList.push(fr);
-          results.push(fr);
+        (record) => {
+          if (!this.fileInfoList.some((f) => f.topic === record.topic)) this.fileInfoList.push(record);
+          results.push(record);
         },
         (reason, ix) => {
           if (requestOptions?.signal?.aborted) return;
@@ -562,7 +554,7 @@ export class FileManagerBase implements FileManager {
     const owner = this.signerAddress;
     const { topic, version } = await getTopicAndVersion(this.bee, owner, undefined, undefined, requestOptions);
 
-    const contentRefAndHistory = await processUpload(
+    const { contentRefs, rLevel } = await processUpload(
       this.bee,
       cachedDrive,
       item,
@@ -575,16 +567,15 @@ export class FileManagerBase implements FileManager {
       batchId: cachedDrive.batchId,
       owner,
       topic,
-      // Persisted value is the relative filename — see FileRecord.path doc comment.
       path: filename,
       actPublisher: publisher,
-      content: contentRefAndHistory,
+      content: contentRefs,
       driveId: cachedDrive.id,
       timestamp: new Date().getTime(),
       shared: false,
       version,
       customMetadata: item.customMetadata,
-      redundancyLevel: targetHost.redundancyLevel,
+      redundancyLevel: rLevel,
       status: NodeStatus.Active,
     };
 
@@ -777,7 +768,7 @@ export class FileManagerBase implements FileManager {
 
         const { topic, version } = await getTopicAndVersion(this.bee, owner, undefined, undefined, requestOptions);
 
-        const contentRefAndHistory = await processUpload(
+        const { contentRefs, rLevel } = await processUpload(
           this.bee,
           cachedDrive,
           planned.item,
@@ -791,16 +782,15 @@ export class FileManagerBase implements FileManager {
           batchId: cachedDrive.batchId,
           owner,
           topic,
-          // Persisted value is the relative filename — see FileRecord.path doc comment.
           path: planned.filename,
           actPublisher: publisher,
-          content: contentRefAndHistory,
+          content: contentRefs,
           driveId: cachedDrive.id,
           timestamp: new Date().getTime(),
           shared: false,
           version,
           customMetadata: planned.item.customMetadata,
-          redundancyLevel: parentHost.redundancyLevel,
+          redundancyLevel: rLevel,
           status: NodeStatus.Active,
         };
 
@@ -848,7 +838,6 @@ export class FileManagerBase implements FileManager {
     return result;
   }
 
-  // TODO: define and verify what we shall allow for update records-> actpublisher, shared etc..
   async updateFile(
     driveId: string | Identifier,
     record: FileRecord,
@@ -866,55 +855,74 @@ export class FileManagerBase implements FileManager {
     }
 
     const owner = this.signerAddress;
-    const cached = this.fileInfoList.find((f) => f.topic === record.topic);
+    // Always resolve the current head
+    const { record: cached, fromCache } = await this.loadRecord(
+      record.topic,
+      record.owner,
+      record.actPublisher,
+      undefined,
+      requestOptions,
+    );
+
+    if (cached.driveId !== cachedDrive.id) {
+      throw new FileInfoError(`Record ${record.topic.slice(0, 6)} does not belong to drive "${cachedDrive.name}"`);
+    }
+
+    // A cached record already holds the authoritative absolute path; keep it.
+    if (!fromCache) {
+      cached.path = record.path;
+    }
+    cached.status = getRecordStatus(cachedDrive, record.topic);
+
     const { topic, version } = await getTopicAndVersion(this.bee, owner, cached, record.topic, requestOptions);
 
-    const { name: filename } = splitPath(record.path);
+    const { name: filename } = splitPath(cached.path);
 
     const mergedMetadata = changes.customMetadata
-      ? { ...record.customMetadata, ...changes.customMetadata }
-      : record.customMetadata;
+      ? { ...cached.customMetadata, ...changes.customMetadata }
+      : cached.customMetadata;
 
     let contentRefAndHistory: ActReferences;
     if (changes.item !== undefined) {
       const contentUploadOptions = {
         ...uploadOptions,
-        actHistoryAddress: record.content.historyRef,
+        actHistoryAddress: cached.content.historyRef,
       };
 
-      contentRefAndHistory = await processUpload(
+      const { contentRefs } = await processUpload(
         this.bee,
         cachedDrive,
         changes.item,
-        record.redundancyLevel ?? cachedDrive.redundancyLevel,
+        cached.redundancyLevel ?? cachedDrive.redundancyLevel,
         contentUploadOptions,
         requestOptions,
       );
+      contentRefAndHistory = contentRefs;
     } else {
-      contentRefAndHistory = record.content;
+      contentRefAndHistory = cached.content;
     }
 
     const fr: FileRecord = {
       type: NodeType.File,
-      batchId: record.batchId,
+      batchId: cached.batchId,
       owner,
       topic,
       path: filename,
-      actPublisher: record.actPublisher,
+      actPublisher: cached.actPublisher,
       content: contentRefAndHistory,
-      driveId: record.driveId,
+      driveId: cached.driveId,
       timestamp: new Date().getTime(),
-      shared: record.shared ?? false,
+      shared: cached.shared ?? false,
       version,
       customMetadata: mergedMetadata,
-      redundancyLevel: record.redundancyLevel,
-      status: record.status ?? NodeStatus.Active,
+      redundancyLevel: cached.redundancyLevel,
+      status: cached.status ?? NodeStatus.Active,
     };
 
     await this.persistRecord(fr, requestOptions);
-    await this.syncForkVersion(cachedDrive, driveIx, record.path, version, publisher, requestOptions);
+    await this.syncForkVersion(cachedDrive, driveIx, cached.path, version, publisher, requestOptions);
 
-    fr.path = record.path;
+    fr.path = cached.path;
 
     this.emitter.emit(FileManagerEvents.FILE_UPDATED, { record: fr });
 
@@ -1138,7 +1146,6 @@ export class FileManagerBase implements FileManager {
     this.emitter.emit(FileManagerEvents.FILE_FORGOTTEN, { record: forgotten, path });
   }
 
-  // TODO: disable drive move
   async move(
     fromPath: string,
     toPath: string,
@@ -1152,6 +1159,7 @@ export class FileManagerBase implements FileManager {
       new Identifier(sourceDriveId).toString(),
     );
 
+    // disable drive move
     if (!fromPath || fromPath === ROOT_PATH) {
       throw new DriveError('Cannot move root folder');
     }
@@ -1205,7 +1213,7 @@ export class FileManagerBase implements FileManager {
       publisher,
       requestOptions,
     );
-    // resolve target node here - throws if not found
+
     const sameParent = srcParentHost.topic === tgtParentHost.topic;
     const targetMantaray = sameParent
       ? sourceNode
@@ -1217,37 +1225,20 @@ export class FileManagerBase implements FileManager {
         throw new FileInfoError(`Fork at ${fromPath} has no file topic — cannot move`);
       }
 
-      let fr = this.fileInfoList.find((f) => f.topic === fileTopic);
-      // Lazy init - fetch it on demand.
-      if (!fr) {
-        const feedData = await getFeedData(
-          this.bee,
-          new Topic(fileTopic),
-          this.signerAddress,
-          undefined,
-          requestOptions,
-        );
+      const { record } = await this.loadRecord(fileTopic, this.signerAddress, publisher, undefined, requestOptions);
 
-        if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
-          throw new FileInfoError(`File feed not found for topic: ${fileTopic.slice(0, 6)}`);
-        }
-
-        fr = await this.store.getRecord(fileTopic, publisher, feedData, requestOptions);
-        this.fileInfoList.push(fr);
-      }
-
-      fr.path = tgtName;
+      record.path = tgtName;
       if (isCrossDrive) {
-        fr.driveId = effectiveTargetId;
+        record.driveId = effectiveTargetId;
       }
 
-      const newVersion = fr.version !== undefined ? new FeedIndex(fr.version) : FEED_INDEX_ZERO;
-      fr.version = newVersion.next().toString();
+      const newVersion = record.version !== undefined ? new FeedIndex(record.version) : FEED_INDEX_ZERO;
+      record.version = newVersion.next().toString();
 
-      await this.persistRecord(fr, requestOptions);
+      await this.persistRecord(record, requestOptions);
 
-      fr.path = toPath;
-      forkMetadata[MANIFEST_METADATA_NODE_VERSION] = fr.version;
+      record.path = toPath;
+      forkMetadata[MANIFEST_METADATA_NODE_VERSION] = record.version;
     }
 
     sourceNode.removeFork(srcName);
@@ -1542,7 +1533,6 @@ export class FileManagerBase implements FileManager {
 
         if (driveInfo.isAdmin) {
           await this.fetchAndSetAdminStamp(driveInfo.batchId, requestOptions);
-          // TODO: I think we can work still if admin stamp is not usable, reconsider it
           try {
             verifyStampUsability(this.adminStamp, driveInfo.batchId, false);
           } catch (err: unknown) {
@@ -1698,6 +1688,29 @@ export class FileManagerBase implements FileManager {
     if (!parentFolder) {
       this.driveList[driveIx].manifestRef = newManifestRef;
     }
+  }
+
+  private async loadRecord(
+    topic: string,
+    owner: string,
+    actPublisher: string,
+    version?: bigint,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<{ record: FileRecord; fromCache: boolean }> {
+    const cached = this.fileInfoList.find((f) => f.topic === topic);
+    if (cached) {
+      return { record: cached, fromCache: true };
+    }
+
+    const feedData = await getFeedData(this.bee, new Topic(topic), owner, version, requestOptions);
+    if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
+      throw new FileInfoError(`File record not found for topic: ${topic.slice(0, 6)}`);
+    }
+
+    const loaded = await this.store.getRecord(topic, actPublisher, feedData, requestOptions);
+    this.fileInfoList.push(loaded);
+
+    return { record: loaded, fromCache: false };
   }
 
   private async persistRecord(fr: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
