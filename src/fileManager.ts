@@ -20,6 +20,9 @@ import {
 import { FileManager } from './types/fileManager';
 import { DriveInfo, FileInfo, FileStatus } from './types/info';
 import { FeedResultWithIndex, FileInfoOptions, ReferenceWithHistory, StateTopicInfo } from './types/utils';
+import type { DownloadResource } from './types/v2/download';
+import type { DriveInfo as DriveInfoV2 } from './types/v2/info';
+import type { UploadSource } from './types/v2/upload';
 import { assertDriveInfo, assertFileInfo, assertStateTopicInfo } from './utils/asserts';
 import {
   fetchStamp,
@@ -420,12 +423,16 @@ export class FileManagerBase implements FileManager {
   ): Promise<ReadableStream<Uint8Array>[] | Bytes[]> {
     const resources = await this.listFiles(fileInfo, paths, options, requestOptions);
 
-    return await processDownload(
-      this.bee,
-      Object.values(resources),
-      { ...options, actPublisher: undefined, actHistoryAddress: undefined },
-      requestOptions,
-    );
+    const downloadResources: DownloadResource[] = Object.entries(resources).map(([path, reference]) => ({
+      path,
+      reference,
+      actHistoryAddress: fileInfo.file.historyRef.toString(),
+      actPublisher: fileInfo.actPublisher,
+    }));
+
+    const results = await processDownload(this.bee, downloadResources, options, requestOptions);
+
+    return results.map((r) => r.result);
   }
 
   async upload(
@@ -462,7 +469,14 @@ export class FileManagerBase implements FileManager {
       fileOptions.topic?.toString(),
     );
 
-    const file = await processUpload(this.bee, driveInfo, fileOptions, uploadOptions, requestOptions);
+    const { contentRefs, rLevel } = await processUpload(
+      this.bee,
+      driveInfo as unknown as DriveInfoV2,
+      fileOptions as unknown as UploadSource,
+      driveInfo.redundancyLevel,
+      uploadOptions as RedundantUploadOptions | FileUploadOptions | undefined,
+      requestOptions,
+    );
 
     const fileInfo: FileInfo = {
       batchId: driveInfo.batchId.toString(),
@@ -470,13 +484,13 @@ export class FileManagerBase implements FileManager {
       topic,
       name: fileOptions.name,
       actPublisher: this.publisher.toCompressedHex(),
-      file,
+      file: contentRefs,
       driveId: driveInfo.id.toString(),
       timestamp: new Date().getTime(),
       preview: undefined,
       version,
       customMetadata: fileOptions.customMetadata,
-      redundancyLevel: driveInfo.redundancyLevel,
+      redundancyLevel: rLevel,
       status: FileStatus.Active,
     };
 

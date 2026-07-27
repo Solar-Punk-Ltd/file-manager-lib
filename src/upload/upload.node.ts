@@ -1,105 +1,50 @@
-import {
-  BatchId,
-  Bee,
-  BeeRequestOptions,
-  CollectionUploadOptions,
-  FileUploadOptions,
-  UploadResult,
-} from '@ethersphere/bee-js';
+import { BatchId, Bee, BeeRequestOptions, FileUploadOptions, UploadResult } from '@ethersphere/bee-js';
 
-import { DriveInfo, NodeUploadOptions } from '../types';
-import { ReferenceWithHistory, WrappedUploadResult } from '../types/utils';
-import { FileError } from '../utils/errors';
+import { DriveInfo } from '../types/v2/info';
+import { NodeUploadOptions } from '../types/v2/upload';
+import { ActReferences } from '../types/v2/utils';
+import { ErrorHandler, FileError } from '../utils/errors';
+
+const errorHandler = ErrorHandler.getInstance();
 
 async function uploadNode(
   bee: Bee,
   batchId: string | BatchId,
   nodeOptions: NodeUploadOptions,
-  uploadOptions?: FileUploadOptions | CollectionUploadOptions,
+  uploadOptions?: FileUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<UploadResult> {
-  const uploadFilesRes = await uploadFileOrDirectory(
-    bee,
-    new BatchId(batchId),
-    nodeOptions.path,
-    { ...uploadOptions, act: false },
-    requestOptions,
-  );
+  const result = await uploadFile(bee, batchId, nodeOptions.sourcePath, uploadOptions, requestOptions);
 
-  let uploadPreviewRes: UploadResult | undefined;
-
-  if (nodeOptions.previewPath) {
-    uploadPreviewRes = await uploadFileOrDirectory(
-      bee,
-      new BatchId(batchId),
-      nodeOptions.previewPath,
-      { ...uploadOptions, act: false },
-      requestOptions,
-    );
+  if (result.tagUid !== undefined) {
+    nodeOptions.onUploadProgress?.(result.tagUid);
   }
 
-  const wrappedData: WrappedUploadResult = {
-    uploadFilesRes: uploadFilesRes.reference.toString(),
-    uploadPreviewRes: uploadPreviewRes?.reference.toString(),
-  };
-
-  return await bee.uploadData(batchId, JSON.stringify(wrappedData), { ...uploadOptions, act: true }, requestOptions);
+  return result;
 }
 
-async function uploadFileOrDirectory(
+async function uploadFile(
   bee: Bee,
-  batchId: BatchId,
+  batchId: string | BatchId,
   resolvedPath: string,
-  uploadOptions?: CollectionUploadOptions | FileUploadOptions,
+  uploadOptions?: FileUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<UploadResult> {
   const { isDir } = await import('../utils/fs/fs.node');
   const isPathDir = await isDir(resolvedPath);
 
   if (isPathDir) {
-    return uploadDirectory(bee, batchId, resolvedPath, uploadOptions as CollectionUploadOptions, requestOptions);
+    throw new FileError(`Cannot upload a directory - use uploadFiles`);
   }
 
-  return uploadFile(bee, batchId, resolvedPath, uploadOptions as FileUploadOptions, requestOptions);
-}
-
-async function uploadFile(
-  bee: Bee,
-  batchId: BatchId,
-  resolvedPath: string,
-  uploadOptions?: FileUploadOptions,
-  requestOptions?: BeeRequestOptions,
-): Promise<UploadResult> {
   try {
     const { readFile } = await import('../utils/fs/fs.node');
-    const { data, name, contentType } = await readFile(resolvedPath);
+    const { data } = await readFile(resolvedPath);
 
-    return await bee.uploadFile(
-      batchId,
-      data,
-      name,
-      {
-        ...uploadOptions,
-        contentType: contentType,
-      },
-      requestOptions,
-    );
-  } catch (err) {
-    throw new FileError(`Failed to upload file ${resolvedPath}`, err);
-  }
-}
-
-async function uploadDirectory(
-  bee: Bee,
-  batchId: BatchId,
-  resolvedPath: string,
-  uploadOptions?: CollectionUploadOptions,
-  requestOptions?: BeeRequestOptions,
-): Promise<UploadResult> {
-  try {
-    return await bee.uploadFilesFromDirectory(batchId, resolvedPath, uploadOptions, requestOptions);
-  } catch (err) {
-    throw new FileError(`Failed to upload directory ${resolvedPath}`, err);
+    return await bee.uploadData(batchId, data, uploadOptions, requestOptions);
+  } catch (err: unknown) {
+    errorHandler.handleError(err, `Failed to upload file ${resolvedPath}`);
+    throw new FileError(`Failed to upload file ${resolvedPath}`);
   }
 }
 
@@ -107,11 +52,11 @@ export async function processUploadNode(
   bee: Bee,
   driveInfo: DriveInfo,
   nodeOptions: NodeUploadOptions,
-  uploadOptions?: FileUploadOptions | CollectionUploadOptions,
+  uploadOptions?: FileUploadOptions,
   requestOptions?: BeeRequestOptions,
-): Promise<ReferenceWithHistory> {
-  if (!nodeOptions.path) {
-    throw new Error('File path is required.');
+): Promise<ActReferences> {
+  if (!nodeOptions.sourcePath) {
+    throw new FileError('File source path is required.');
   }
 
   const uploadResult = await uploadNode(bee, driveInfo.batchId, nodeOptions, uploadOptions, requestOptions);
@@ -119,5 +64,5 @@ export async function processUploadNode(
   return {
     reference: uploadResult.reference.toString(),
     historyRef: uploadResult.historyAddress.getOrThrow().toString(),
-  } as ReferenceWithHistory;
+  } as ActReferences;
 }

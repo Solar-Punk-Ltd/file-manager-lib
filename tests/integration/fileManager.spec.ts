@@ -1,6 +1,6 @@
 import {
   BatchId,
-  BeeDev,
+  Bee,
   Bytes,
   FeedIndex,
   Identifier,
@@ -49,7 +49,7 @@ import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 // TODO: emitter test for all events
 // TODO: separate IT cases into different files
 describe('FileManager initialization', () => {
-  let bee: BeeDev;
+  let bee: Bee;
   let fileManager: FileManagerBase;
   let actPublisher: PublicKey;
   let drive: DriveInfo;
@@ -72,7 +72,7 @@ describe('FileManager initialization', () => {
   it('should create and initialize a new instance and check if admin stamp is not found', async () => {
     expect(fileManager.fileInfoList).toEqual([]);
 
-    const otherBee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
+    const otherBee = new Bee(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
     const fm2 = new FileManagerBase(otherBee);
     try {
       fm2.emitter.on(FileManagerEvents.INITIALIZED, (e) => {
@@ -111,7 +111,7 @@ describe('FileManager initialization', () => {
   });
 
   it('should throw an error if someone else than the admin tries to read the admin feed', async () => {
-    const otherBee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
+    const otherBee = new Bee(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
 
     const { payload } = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 0n);
     const feedTopicState = payload.toJSON() as StateTopicInfo;
@@ -349,7 +349,7 @@ describe('FileManager reinitialization', () => {
 
     spy.mockImplementation(async () => {
       const batches = await originalFn();
-      return batches.map((b) => ({
+      return batches.map((b: any) => ({
         ...b,
         usable: true,
         label: b.label === ADMIN_STAMP_LABEL ? 'admin' : b.label,
@@ -407,7 +407,7 @@ describe('FileManager reinitialization', () => {
 });
 
 describe('FileManager drive handling', () => {
-  let bee: BeeDev;
+  let bee: Bee;
   let fileManager: FileManagerBase;
   let ownerBatch: PostageBatch;
   let tempDir: string;
@@ -567,7 +567,7 @@ describe('FileManager drive handling', () => {
 });
 
 describe('FileManager listFiles', () => {
-  let bee: BeeDev;
+  let bee: Bee;
   let fileManager: FileManagerBase;
   let batchId: BatchId;
   let tempDir: string;
@@ -720,7 +720,7 @@ describe('FileManager listFiles', () => {
 });
 
 describe('FileManager upload', () => {
-  let bee: BeeDev;
+  let bee: Bee;
   let fileManager: FileManagerBase;
   let batchId: BatchId;
   let tempUploadDir: string;
@@ -907,7 +907,7 @@ describe('FileManager upload', () => {
 });
 
 describe('FileManager download', () => {
-  let bee: BeeDev;
+  let bee: Bee;
   let fileManager: FileManagerBase;
   let batchId: BatchId;
   let tempDownloadDir: string;
@@ -1012,7 +1012,7 @@ describe('FileManager download', () => {
 });
 
 describe('FileManager file operations', () => {
-  let bee: BeeDev;
+  let bee: Bee;
   let fileManager: FileManagerBase;
   let batchId: BatchId;
   let testFi: FileInfo;
@@ -1131,7 +1131,7 @@ describe('FileManager file operations', () => {
 });
 
 describe('FileManager version control', () => {
-  let bee: BeeDev;
+  let bee: Bee;
   let fileManager: FileManagerBase;
   let batchId: BatchId;
   let drive: DriveInfo;
@@ -1376,7 +1376,7 @@ describe('FileManager version control', () => {
 });
 
 describe('FileManager End-to-End User Workflow', () => {
-  let bee: BeeDev;
+  let bee: Bee;
   let fileManager: FileManagerBase;
   let batchId: BatchId;
   let tempBaseDir: string;
@@ -1552,7 +1552,7 @@ describe('FileManager End-to-End User Workflow', () => {
 });
 
 describe('FileManager AbortController', () => {
-  let bee: BeeDev;
+  let bee: Bee;
   let fileManager: FileManagerBase;
   let batchId: BatchId;
   let tempDir: string;
