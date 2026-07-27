@@ -1,5 +1,5 @@
 import { ROOT_PATH } from './constants';
-import { FileInfoError } from './errors';
+import { FileRecordError } from './errors';
 
 /** Split a path into its non-empty segments, tolerating leading/trailing/duplicate slashes. */
 export function pathSegments(path: string): string[] {
@@ -26,6 +26,6 @@ export function splitPath(path: string): { parentPath: string; name: string } {
 /** Reject paths that are empty, absolute, contain "..", or end in a slash. */
 export function assertValidRelativePath(path: string): void {
   if (!path || path.startsWith('/') || path.includes('..') || path.endsWith('/')) {
-    throw new FileInfoError(`Invalid path: "${path}"`);
+    throw new FileRecordError(`Invalid path: "${path}"`);
   }
 }

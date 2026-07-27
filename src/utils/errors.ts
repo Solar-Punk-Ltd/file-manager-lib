@@ -15,64 +15,94 @@ export class ErrorHandler {
   }
 
   handleError(error: unknown, context?: string): void {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-    const stackTrace = error instanceof Error ? error.stack : null;
+    const isError = error instanceof Error;
+    const name = isError ? error.name : 'UnknownError';
+    const message = isError ? error.message : String(error);
 
-    this.logger.error(`Error in ${context || 'unknown context'}: ${errorMessage}`, {
-      stack: stackTrace,
+    this.logger.error(`[${name}] in ${context ?? 'unknown context'}: ${message}`, {
+      stack: isError ? error.stack : undefined,
+      cause: isError ? this.formatCause(error.cause) : undefined,
     });
   }
-}
-export class BeeVersionError extends Error {
-  public constructor(message: string) {
-    super(message);
+
+  private formatCause(cause: unknown, depth = 0): string | undefined {
+    if (cause === undefined || depth > 5) {
+      return undefined;
+    }
+
+    if (cause instanceof Error) {
+      const nested = this.formatCause(cause.cause, depth + 1);
+      return nested ? `${cause.name}: ${cause.message} <- ${nested}` : `${cause.name}: ${cause.message}`;
+    }
+
+    return String(cause);
   }
 }
 
-export class StampError extends Error {
-  public constructor(message: string) {
-    super(message);
-  }
-}
-// TODO: introduce new errors for folder, drive management
-export class DriveError extends Error {
-  public constructor(message: string) {
-    super(message);
+export class FileManagerError extends Error {
+  public constructor(message: string, name: string, cause?: unknown) {
+    super(message, cause !== undefined ? { cause } : undefined);
+    this.name = name;
   }
 }
 
-export class SignerError extends Error {
-  public constructor(message: string) {
-    super(message);
+export class BeeVersionError extends FileManagerError {
+  public constructor(message: string, cause?: unknown) {
+    super(message, 'BeeVersionError', cause);
   }
 }
 
-export class FileInfoError extends Error {
-  public constructor(message: string) {
-    super(message);
+export class StampError extends FileManagerError {
+  public constructor(message: string, cause?: unknown) {
+    super(message, 'StampError', cause);
   }
 }
 
-export class FileError extends Error {
-  public constructor(message: string) {
-    super(message);
+export class DriveError extends FileManagerError {
+  public constructor(message: string, cause?: unknown) {
+    super(message, 'DriveError', cause);
   }
 }
 
-export class SubscriptionError extends Error {
-  public constructor(message: string) {
-    super(message);
+export class FolderError extends FileManagerError {
+  public constructor(message: string, cause?: unknown) {
+    super(message, 'FolderError', cause);
   }
 }
 
-export class GranteeError extends Error {
-  public constructor(message: string) {
-    super(message);
+export class SignerError extends FileManagerError {
+  public constructor(message: string, cause?: unknown) {
+    super(message, 'SignerError', cause);
   }
 }
 
-export class SendShareMessageError extends Error {
-  public constructor(message: string) {
-    super(message);
+export class FileRecordError extends FileManagerError {
+  public constructor(message: string, cause?: unknown) {
+    super(message, 'FileRecordError', cause);
+  }
+}
+
+/** Content/IO failures (reading, uploading, or downloading file bytes). */
+export class FileError extends FileManagerError {
+  public constructor(message: string, cause?: unknown) {
+    super(message, 'FileError', cause);
+  }
+}
+
+export class SubscriptionError extends FileManagerError {
+  public constructor(message: string, cause?: unknown) {
+    super(message, 'SubscriptionError', cause);
+  }
+}
+
+export class GranteeError extends FileManagerError {
+  public constructor(message: string, cause?: unknown) {
+    super(message, 'GranteeError', cause);
+  }
+}
+
+export class SendShareMessageError extends FileManagerError {
+  public constructor(message: string, cause?: unknown) {
+    super(message, 'SendShareMessageError', cause);
   }
 }

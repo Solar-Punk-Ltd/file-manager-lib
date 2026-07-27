@@ -4,7 +4,7 @@ export {
   BeeVersionError,
   DriveError,
   FileError,
-  FileInfoError,
+  FileRecordError,
   GranteeError,
   SendShareMessageError,
   SignerError,

@@ -18,8 +18,6 @@ import { generateRandomBytes } from './crypto';
 import { BeeVersionError, ErrorHandler, StampError } from './errors';
 import { Logger } from './logger';
 
-import { FileRecord } from '@/types';
-
 const logger = Logger.getInstance();
 const errorHandler = ErrorHandler.getInstance();
 
@@ -101,7 +99,7 @@ export async function writeActFeed(
 export async function getTopicAndVersion(
   bee: Bee,
   address: string | EthAddress,
-  record?: FileRecord,
+  currentVersion?: string,
   currentTopic?: string | Topic,
   requestOptions?: BeeRequestOptions,
 ): Promise<{ topic: string; version: string }> {
@@ -120,8 +118,8 @@ export async function getTopicAndVersion(
     return { topic, version };
   }
 
-  if (record?.version !== undefined) {
-    return { topic, version: new FeedIndex(record.version).next().toString() };
+  if (currentVersion !== undefined) {
+    return { topic, version: new FeedIndex(currentVersion).next().toString() };
   }
 
   const { feedIndex, feedIndexNext } = await getFeedData(bee, new Topic(topic), address, undefined, requestOptions);

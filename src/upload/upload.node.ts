@@ -44,7 +44,7 @@ async function uploadFile(
     return await bee.uploadData(batchId, data, uploadOptions, requestOptions);
   } catch (err: unknown) {
     errorHandler.handleError(err, `Failed to upload file ${resolvedPath}`);
-    throw new FileError(`Failed to upload file ${resolvedPath}`);
+    throw new FileError(`Failed to upload file ${resolvedPath}`, err);
   }
 }
 

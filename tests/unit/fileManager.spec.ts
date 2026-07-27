@@ -25,7 +25,7 @@ import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
 import { DriveInfo, FileRecord, FolderInfo, ListDepth, NodeHeader, NodeStatus, NodeType } from '@/types';
 import { FeedResultWithIndex } from '@/types/utils';
-import { DriveError, FileError, FileInfoError, FileManagerEvents, SignerError } from '@/utils';
+import { DriveError, FileError, FileManagerEvents, FileRecordError, SignerError } from '@/utils';
 import { fetchStamp, getFeedData } from '@/utils/bee';
 import {
   ADMIN_STAMP_LABEL,
@@ -700,7 +700,7 @@ describe('FileManager', () => {
       const { fm, di, record } = await seedUploadedFile();
 
       await expect(fm.updateFile(di.id, record, {})).rejects.toThrow(
-        new FileInfoError('Neither a file/path nor customMetadata is provided'),
+        new FileRecordError('Neither a file/path nor customMetadata is provided'),
       );
 
       const updated = fm.fileInfoList.find((fr) => fr.topic === record.topic)!;

@@ -87,7 +87,7 @@ export interface FileManager {
    * @throws {DriveError} If not initialized, driveId is not found, or the target folder path does not exist.
    * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileError} If the source is a directory, a node source path does not exist, or the content upload fails.
-   * @throws {FileInfoError} If a folder along the path has no feed.
+   * @throws {FileRecordError} If a folder along the path has no feed.
    */
   uploadFile(
     driveId: string | Identifier,
@@ -111,7 +111,7 @@ export interface FileManager {
    * @emits FileManagerEvents.FILE_UPLOADED (per file uploaded)
    * @emits FileManagerEvents.FILES_UPLOADED (once, with the batch summary)
    * @returns The succeeded FileRecords and any per-file failures.
-   * @throws {FileInfoError} If no items are given, an item path is invalid, or a folder fork is malformed.
+   * @throws {FileRecordError} If no items are given, an item path is invalid, or a folder fork is malformed.
    * @throws {DriveError} If not initialized, driveId is not found, or a path segment is a file (not a folder).
    * @throws {SignerError} If the publisher/signer is unavailable.
    *   Note: per-file content-upload failures are collected in `failed`, not thrown.
@@ -136,7 +136,7 @@ export interface FileManager {
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FILE_UPDATED
    * @returns The newly-written FileRecord for the updated version.
-   * @throws {FileInfoError} If neither new content (`item`) nor `customMetadata` is provided.
+   * @throws {FileRecordError} If neither new content (`item`) nor `customMetadata` is provided.
    * @throws {DriveError} If not initialized or driveId is not found.
    * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileError} If the content upload fails.
@@ -158,7 +158,7 @@ export interface FileManager {
    * @returns A promise that resolves to an array of DownloadResult, one per file in the subtree.
    * @throws {DriveError} If not initialized, driveId is not found, or the folder path does not exist.
    * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {FileInfoError} If a folder feed is missing.
+   * @throws {FileRecordError} If a folder feed is missing.
    *   Note: per-file download failures are logged, not thrown.
    */
   downloadFolder(
@@ -212,7 +212,7 @@ export interface FileManager {
    * @returns Array of {@link NodeEntry} (FileRecord | FolderInfo) for every node found at or below the given path.
    * @throws {DriveError} If not initialized, driveId is not found, or a path segment does not exist.
    * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {FileInfoError} If a folder feed is missing.
+   * @throws {FileRecordError} If a folder feed is missing.
    */
   listFolder(
     driveId: string | Identifier,
@@ -230,7 +230,7 @@ export interface FileManager {
    * @emits FileManagerEvents.FILE_TRASHED
    * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
    * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {FileInfoError} If the file is already trashed.
+   * @throws {FileRecordError} If the file is already trashed.
    */
   trashFile(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<void>;
 
@@ -240,7 +240,7 @@ export interface FileManager {
    * @emits FileManagerEvents.FILE_RECOVERED
    * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
    * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {FileInfoError} If the file is not currently trashed.
+   * @throws {FileRecordError} If the file is not currently trashed.
    */
   recoverFile(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<void>;
 
@@ -253,7 +253,7 @@ export interface FileManager {
    * @emits FileManagerEvents.FOLDER_TRASHED
    * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
    * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {FileInfoError} If the folder is already trashed.
+   * @throws {FileRecordError} If the folder is already trashed.
    */
   trashFolder(folder: FolderInfo, requestOptions?: BeeRequestOptions): Promise<void>;
 
@@ -264,7 +264,7 @@ export interface FileManager {
    * @emits FileManagerEvents.FOLDER_RECOVERED
    * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
    * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {FileInfoError} If the folder is not currently trashed.
+   * @throws {FileRecordError} If the folder is not currently trashed.
    */
   recoverFolder(folder: FolderInfo, requestOptions?: BeeRequestOptions): Promise<void>;
 
@@ -289,7 +289,7 @@ export interface FileManager {
    * @emits FileManagerEvents.FILE_FORGOTTEN (file) or FileManagerEvents.FOLDER_FORGOTTEN (folder)
    * @throws {DriveError} If not initialized, driveId is not found, the path is the drive root, or the path does not exist.
    * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {FileInfoError} If a folder feed is missing.
+   * @throws {FileRecordError} If a folder feed is missing.
    */
   forget(driveId: string | Identifier, path: string, requestOptions?: BeeRequestOptions): Promise<void>;
 
@@ -365,7 +365,7 @@ export interface FileManager {
    * @returns The FileRecord corresponding to the requested version, either cached or fetched.
    * @throws {DriveError} If the FileManager is not initialized.
    * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {FileInfoError} If the file feed is not found.
+   * @throws {FileRecordError} If the file feed is not found.
    */
   getFileVersion(
     record: FileRecord,
@@ -381,7 +381,7 @@ export interface FileManager {
    * @emits FileManagerEvents.FILE_VERSION_RESTORED
    * @throws {DriveError} If the FileManager is not initialized.
    * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {FileInfoError} If the feed is not found, the restore version is undefined, or it is the current head.
+   * @throws {FileRecordError} If the feed is not found, the restore version is undefined, or it is the current head.
    */
   restoreFileVersion(versionToRestore: FileRecord, requestOptions?: BeeRequestOptions): Promise<void>;
 
@@ -397,7 +397,7 @@ export interface FileManager {
    * @throws {DriveError} If not initialized, a source/target driveId is not found, the source is the
    *   root, the destination is invalid, source and destination are identical, or a path does not exist.
    * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {FileInfoError} If a folder feed or the source file record is missing.
+   * @throws {FileRecordError} If a folder feed or the source file record is missing.
    */
   move(
     fromPath: string,
@@ -418,7 +418,7 @@ export interface FileManager {
    * @returns The FolderInfo for the newly created folder.
    * @throws {DriveError} If not initialized, driveId is not found, the folder name is invalid, or the parent path does not exist.
    * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {FileInfoError} If a folder feed is missing.
+   * @throws {FileRecordError} If a folder feed is missing.
    */
   createFolder(
     driveId: string | Identifier,

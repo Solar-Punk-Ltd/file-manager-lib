@@ -116,7 +116,7 @@ Located primarily in `tests/integration/` and executed against a live **BeeDev**
 - **Metadata-only updates** do not cause re-uploads of the same manifest (file refs remain identical).
 - `previewPath` is supported (if the implementation stores the preview reference, the test asserts presence; otherwise
   logs a warning).
-- Validates the invariant: `topic` and `historyRef` must be provided **together**, else `FileInfoError` is thrown.
+- Validates the invariant: `topic` and `historyRef` must be provided **together**, else `FileRecordError` is thrown.
 
 ### 7) Download
 

@@ -29,4 +29,6 @@ coverage/
 *.pid
 **.tgz
 
-CLAUDE.md
+*.md
+!README.md
+memory/
