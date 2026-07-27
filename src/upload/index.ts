@@ -12,24 +12,15 @@ import type { BrowserUploadOptions, NodeUploadOptions, UploadItem, UploadSource 
 import type { ActReferences } from '../types/utils';
 import { FileError } from '../utils/errors';
 
-export async function assertUploadableSource(item: UploadItem): Promise<void> {
-  // TODO: processUpload reports the missing path/file itself -> throw here?
+export function assertUploadableSource(item: UploadItem): void {
   if (isNode) {
-    const nodeOptions = item as NodeUploadOptions;
-    if (!nodeOptions.sourcePath) {
-      return;
+    if (!(item as NodeUploadOptions).sourcePath) {
+      throw new FileError('File source path is required.');
     }
-
-    const { isDir } = await import('../utils/fs/fs.node');
-    if (await isDir(nodeOptions.sourcePath)) {
-      throw new FileError('Cannot upload a directory - use uploadFiles');
-    }
-
     return;
   }
 
-  const isFileProvided = (item as BrowserUploadOptions).file;
-  if (!isFileProvided) {
+  if (!(item as BrowserUploadOptions).file) {
     throw new FileError('File is required.');
   }
 }
