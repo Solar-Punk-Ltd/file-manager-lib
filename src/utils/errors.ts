@@ -76,11 +76,10 @@ export class SignerError extends FileManagerError {
   }
 }
 
-// TODO: rename to FileRecordError in v2
 // Record/feed/metadata failures (record not found, wrong drive, version collision)
-export class FileInfoError extends FileManagerError {
+export class FileRecordError extends FileManagerError {
   public constructor(message: string, cause?: unknown) {
-    super(message, 'FileInfoError', cause);
+    super(message, 'FileRecordError', cause);
   }
 }
 

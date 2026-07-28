@@ -1,8 +1,8 @@
 import { BatchId, Bee, BeeRequestOptions, FileUploadOptions, UploadResult } from '@ethersphere/bee-js';
 
-import { DriveInfo } from '../types/v2/info';
-import { NodeUploadOptions } from '../types/v2/upload';
-import { ActReferences } from '../types/v2/utils';
+import { DriveInfo } from '../types/info';
+import { NodeUploadOptions } from '../types/upload';
+import { ActReferences } from '../types/utils';
 import { ErrorHandler, FileError } from '../utils/errors';
 
 const errorHandler = ErrorHandler.getInstance();

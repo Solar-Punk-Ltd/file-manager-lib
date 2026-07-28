@@ -1,5 +1,5 @@
-import { ROOT_PATH } from '../constants';
-import { FileInfoError } from '../errors';
+import { ROOT_PATH } from './constants';
+import { FileRecordError } from './errors';
 
 export function pathSegments(path: string): string[] {
   return path.split('/').filter(Boolean);
@@ -19,6 +19,6 @@ export function splitPath(path: string): { parentPath: string; name: string } {
 
 export function assertValidRelativePath(path: string): void {
   if (!path || path.startsWith('/') || path.includes('..') || path.endsWith('/')) {
-    throw new FileInfoError(`Invalid path: "${path}"`);
+    throw new FileRecordError(`Invalid path: "${path}"`);
   }
 }

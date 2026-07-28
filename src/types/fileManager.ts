@@ -1,11 +1,10 @@
 import {
   BatchId,
   BeeRequestOptions,
-  Bytes,
-  CollectionUploadOptions,
   DownloadOptions,
   FeedIndex,
   FileUploadOptions,
+  Identifier,
   PostageBatch,
   RedundancyLevel,
   RedundantUploadOptions,
@@ -13,11 +12,12 @@ import {
 
 import { EventEmitter } from '../eventEmitter';
 
-import { DriveInfo, FileInfo } from './info';
-import { FileInfoOptions } from './utils';
+import { DownloadResult } from './download';
+import { DriveInfo, FileRecord, FolderInfo, ListDepth, NodeEntry } from './info';
+import { UpdateItem, UploadFilesResult, UploadItem } from './upload';
 
 /**
- * Interface representing a file manager with various file operations.
+ * Interface representing a file manager with various file, folder and drive operations.
  */
 export interface FileManager {
   /**
@@ -29,153 +29,387 @@ export interface FileManager {
   initialize(): Promise<void>;
 
   /**
-   * Creates a new drive with the specified options.
-   * @param batchId - The batch ID for the drive.
-   * @param name - The name of the drive.
-   * @param isAdmin - Indicates if the drive is an admin drive.
-   * @param redundancyLevel - Optional redundancy level for the drive.
-   * @param resetState - Optional flag to reset the state, if it is invalid/ no stamp is found for it.
-   *                   - It enables the creation of a new admin drive.
+   * Bootstraps the admin state (drive registry) and creates the admin drive.
+   *  It establishes the state feed and its empty admin manifest before registering the admin drive into it.
+   * Regular drives are created with {@link createDrive} once this has succeeded.
+   * @param batchId - The batch ID for the admin drive / state.
+   * @param redundancyLevel - Optional redundancy level for the admin drive.
+   * @param reset - Overwrite existing admin state with a freshly generated one (wipes local state
+   *   and appends a new state pointer). Required when admin state already exists.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.DRIVE_CREATED
-   * @returns A promise that resolves when the drive is created.
+   * @returns The newly-created admin DriveInfo.
+   * @throws {DriveError} If not initialized, or admin state already exists without `reset`.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   * @throws {StampError} If the admin batch stamp is missing or not usable.
+   */
+  createAdminDrive(
+    batchId: string | BatchId,
+    redundancyLevel?: RedundancyLevel,
+    reset?: boolean,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<DriveInfo>;
+
+  /**
+   * Creates a new (non-admin) drive and registers it in the admin manifest. Requires the admin state
+   * to already exist — call {@link createAdminDrive} first for initial setup.
+   * @param batchId - The batch ID for the drive.
+   * @param name - The name of the drive.
+   * @param redundancyLevel - Optional redundancy level for the drive.
+   * @param requestOptions - Additional Bee request options.
+   * @emits FileManagerEvents.DRIVE_CREATED
+   * @returns The newly-created DriveInfo.
+   * @throws {DriveError} If not initialized, admin state/manifest is not ready, or a drive with the
+   *   same name or batchId already exists.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   * @throws {StampError} If the batch stamp is missing or not usable.
    */
   createDrive(
     batchId: string | BatchId,
     name: string,
-    isAdmin: boolean,
     redundancyLevel?: RedundancyLevel,
-    resetState?: boolean,
     requestOptions?: BeeRequestOptions,
-  ): Promise<void>;
+  ): Promise<DriveInfo>;
 
   /**
-   * Uploads a file with the given options.
-   * @param infoOptions - The options for the file info upload.
+   * Uploads a NEW file with the given options — mints a fresh feed topic and adds a new fork to
+   * the drive manifest. To re-version or change metadata of an existing file, use {@link updateFile}.
+   *
+   * For multi-file/folder uploads use  {@link uploadFiles} — passing multiple files here produces a
+   * single opaque collection without per-file versioning, ACT, or listing.
+   * @param driveId - The ID of the drive to upload into
+   * @param item - The options for the file info upload (new content: path/file; no topic).
    * @param uploadOptions - File and collection related upload options.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FILE_UPLOADED
-   * @returns A promise that resolves when the upload is complete.
+   * @returns The newly-created FileRecord.
+   * @throws {DriveError} If not initialized, driveId is not found, or the target folder path does not exist.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   * @throws {FileError} If the source is a directory, a node source path does not exist, or the content upload fails.
+   * @throws {FileRecordError} If a folder along the path has no feed.
    */
-  upload(
-    driveInfo: DriveInfo,
-    infoOptions: FileInfoOptions,
-    uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
+  uploadFile(
+    driveId: string | Identifier,
+    item: UploadItem,
+    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
     requestOptions?: BeeRequestOptions,
-  ): Promise<void>;
+  ): Promise<FileRecord>;
 
   /**
-   * Downloads a file using the given reference and options.
-   * @param eRef - The encrypted reference to the file(s) to be downloaded.
-   * @param paths - Optional array of fork paths to download.
-   * @param options - Optional download options for ACT and redundancy.
+   * Uploads multiple files, recreating their folder hierarchy as real folder-nodes under
+   * destinationPath. Each file becomes its own node with per-file versioning and ACT, unlike a
+   * single opaque collection upload via  {@link uploadFile}. Missing folders are created as needed; each
+   * touched parent manifest is saved once at the end. Tolerates partial failure: per-file errors
+   * are collected rather than aborting the whole batch.
+   * @param driveId - The ID of the drive to upload into.
+   * @param items - The files to upload, each with a path relative to destinationPath.
+   * @param destinationPath - Absolute path of the destination folder, or '/' for the drive root.
+   * @param uploadOptions - File-related upload options.
    * @param requestOptions - Additional Bee request options.
-   * @emits FileManagerEvents.FILE_DOWNLOADED
-   * @returns A promise that resolves to an array of strings representing the downloaded file(s).
+   * @emits FileManagerEvents.FOLDER_CREATED (per folder created)
+   * @emits FileManagerEvents.FILE_UPLOADED (per file uploaded)
+   * @emits FileManagerEvents.FILES_UPLOADED (once, with the batch summary)
+   * @returns The succeeded FileRecords and any per-file failures.
+   * @throws {FileRecordError} If no items are given, an item path is invalid, or a folder fork is malformed.
+   * @throws {DriveError} If not initialized, driveId is not found, or a path segment is a file (not a folder).
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   *   Note: per-file content-upload failures are collected in `failed`, not thrown.
    */
-  download(
-    fileInfo: FileInfo,
-    paths?: string[],
+  uploadFiles(
+    driveId: string | Identifier,
+    items: UploadItem[],
+    destinationPath?: string,
+    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<UploadFilesResult>;
+
+  /**
+   * Re-versions or changes metadata of an EXISTING file. Reuses the file's feed topic, writes a
+   * new feed slot, and never touches the drive manifest (no rename — use  {@link move()} to relocate).
+   * Everything derives from `record`, including the ACT-history continuation reference.
+   * @param driveId - The ID of the drive the file belongs to.
+   * @param record - The existing file's FileRecord (the single source of truth).
+   * @param changes - `item` present = new bytes (browser File or node filesystem path); absent =
+   *                  metadata-only. `customMetadata` is merged over the record's existing metadata.
+   * @param uploadOptions - File-related upload options (actHistoryAddress is derived from record).
+   * @param requestOptions - Additional Bee request options.
+   * @emits FileManagerEvents.FILE_UPDATED
+   * @returns The newly-written FileRecord for the updated version.
+   * @throws {FileRecordError} If neither new content (`item`) nor `customMetadata` is provided.
+   * @throws {DriveError} If not initialized or driveId is not found.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   * @throws {FileError} If the content upload fails.
+   */
+  updateFile(
+    driveId: string | Identifier,
+    record: FileRecord,
+    changes: UpdateItem,
+    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<FileRecord>;
+
+  /**
+   * Downloads every file in a folder subtree of a drive (resolved fresh via  {@link listFolder}).
+   * @param driveId - The ID of drive to download from.
+   * @param path - Absolute path of the folder; omitted = the whole drive.
+   * @param options - Optional download options.
+   * @param requestOptions - Additional Bee request options.
+   * @returns A promise that resolves to an array of DownloadResult, one per file in the subtree.
+   * @throws {DriveError} If not initialized, driveId is not found, or the folder path does not exist.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   * @throws {FileRecordError} If a folder feed is missing.
+   *   Note: per-file download failures are logged, not thrown.
+   */
+  downloadFolder(
+    driveId: string | Identifier,
+    path?: string,
     options?: DownloadOptions,
     requestOptions?: BeeRequestOptions,
-  ): Promise<ReadableStream<Uint8Array>[] | Bytes[]>;
+  ): Promise<DownloadResult[]>;
 
   /**
-   * Lists files based on the provided file information and options.
-   * @param fileInfo - Information about the file(s) containing the encrypted reference and history.
-   * @param paths - Optional array of fork paths to list.
+   * Downloads a single file the caller already holds as a FileRecord.
+   * @param fileRecord - The file to fetch.
+   * @param options - Optional download options.
    * @param requestOptions - Additional Bee request options.
-   * @param options - Optional download options for ACT.
-   * @returns A promise that resolves to an array of references with paths.
+   * @returns A promise that resolves to a single DownloadResult.
+   * @throws {DriveError} If the FileManager is not initialized.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   *   Note: content-fetch failures are logged, not thrown.
    */
-  listFiles(
-    fileInfo: FileInfo,
-    paths?: string[],
+  downloadFile(
+    record: FileRecord,
     options?: DownloadOptions,
     requestOptions?: BeeRequestOptions,
-  ): Promise<Record<string, string>>;
+  ): Promise<DownloadResult>;
 
   /**
-   * Soft-delete: move a file to “trash” (it stays in Swarm but is hidden from your live list).
-   * @param fileInfo - The file info describing the file to trash.
+   * Downloads files whose FileRecords the caller already holds — no drive traversal or hydration.
+   * Fetches exactly the passed records; does not re-resolve them against current drive state.
+   * @param fileRecords - The FileRecords to fetch content for.
+   * @param options - Optional download options.
+   * @param requestOptions - Additional Bee request options.
+   * @returns A promise that resolves to an array of DownloadResult, one per record.
+   * @throws {DriveError} If the FileManager is not initialized.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   *   Note: per-record fetch failures are logged, not thrown.
+   */
+  downloadFiles(
+    fileRecords: FileRecord[],
+    options?: DownloadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<DownloadResult[]>;
+
+  /**
+   * Lists entries in a folder (or drive root) in the drive manifest.
+   * Also populates the recordList cache for any file entries encountered.
+   * @param driveId - The ID of the drive containing the folder.
+   * @param path - Absolute path of the folder, or '/' for the drive root.
+   * @param depth - Shallow (one level) or Deep (full BFS). Defaults to Shallow.
+   * @param maxDepth - Maximum BFS levels when depth is Deep; unlimited if omitted.
+   * @param requestOptions - Additional Bee request options.
+   * @returns Array of {@link NodeEntry} (FileRecord | FolderInfo) for every node found at or below the given path.
+   * @throws {DriveError} If not initialized, driveId is not found, or a path segment does not exist.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   * @throws {FileRecordError} If a folder feed is missing.
+   */
+  listFolder(
+    driveId: string | Identifier,
+    path: string,
+    depth?: ListDepth,
+    maxDepth?: number,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<NodeEntry[]>;
+
+  /**
+   * Soft-delete: record a file in the drive's owner-private trash overlay so it is hidden from the
+   * active list. This is metadata-only — it does not touch the file's own feed or content. Recover with {@link recoverFile}.
+   * @param record - The file record describing the file to trash.
    * @emits FileManagerEvents.FILE_TRASHED
-   * @returns A promise that resolves when the file has been trashed.
+   * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   * @throws {FileRecordError} If the file is already trashed.
    */
-  trashFile(fileInfo: FileInfo): Promise<void>;
+  trashFile(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
-   * Recover a previously trashed file back into your live list.
-   * @param fileInfo - The file info describing the file to recover.
+   * Recover a previously trashed file back into the active list (removes it from the trash overlay).
+   * @param record - The file record describing the file to recover.
    * @emits FileManagerEvents.FILE_RECOVERED
-   * @returns A promise that resolves when the file has been recovered.
+   * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   * @throws {FileRecordError} If the file is not currently trashed.
    */
-  recoverFile(fileInfo: FileInfo): Promise<void>;
+  recoverFile(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
-   * Hard‐delete: remove from your owner‐feed and in-memory lists.
-   * @param fileInfo - The file info describing the file to forget.
-   * @emits FileManagerEvents.FILE_FORGOTTEN
-   * @returns A promise that resolves when the file has been forgotten.
+   * Soft-delete a folder: record only the folder's own topic in the drive's owner-private trash
+   * overlay. NO propagation — the subtree is untouched and costs a single overlay entry regardless
+   * of depth. The active {@link listFolder} hides the folder and stops descending into it; its
+   * contents reappear on {@link recoverFolder}.
+   * @param folder - The folder to trash (e.g. from {@link listFolder}).
+   * @emits FileManagerEvents.FOLDER_TRASHED
+   * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   * @throws {FileRecordError} If the folder is already trashed.
    */
-  forgetFile(fileInfo: FileInfo): Promise<void>;
+  trashFolder(folder: FolderInfo, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
-   * Destroys a drive identified by the given batch ID.
-   * Dilutes the stamp and shortens its duration (min. 24, max 47 hours) depending on the original TTL.
-   * @param driveInfo - The drive to destroy.
+   * Recover a previously trashed folder (removes its topic from the trash overlay). Its subtree,
+   * which was never modified, becomes visible again.
+   * @param folder - The folder to recover (e.g. from {@link listTrash}).
+   * @emits FileManagerEvents.FOLDER_RECOVERED
+   * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   * @throws {FileRecordError} If the folder is not currently trashed.
+   */
+  recoverFolder(folder: FolderInfo, requestOptions?: BeeRequestOptions): Promise<void>;
+
+  /**
+   * List a drive's trashed nodes (files and folders), hydrated into full {@link NodeEntry} objects
+   * with `status` = trashed. Reads straight from the owner-private overlay with no tree walk, so the
+   * cost is proportional to the number of trashed roots, not the drive size.
+   * Recovery is honored per topic so visibility also requires ancestors to be recovered.
+   * @param driveId - The drive whose trash to list.
+   * @returns The trashed files and folders; pass one back to {@link recoverFile}/{@link recoverFolder}.
+   * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   */
+  listTrash(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<NodeEntry[]>;
+
+  /**
+   * Hard-delete a file or folder at the given path from the drive manifest and in-memory state.
+   * For folders, all descendant FileRecords are also purged from recordList.
+   * @param driveId - The ID of the drive containing the path.
+   * @param path - Absolute path of the file or folder to remove.
+   * @param requestOptions - Additional Bee request options.
+   * @emits FileManagerEvents.FILE_FORGOTTEN (file) or FileManagerEvents.FOLDER_FORGOTTEN (folder)
+   * @throws {DriveError} If not initialized, driveId is not found, the path is the drive root, or the path does not exist.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   * @throws {FileRecordError} If a folder feed is missing.
+   */
+  forget(driveId: string | Identifier, path: string, requestOptions?: BeeRequestOptions): Promise<void>;
+
+  /**
+   * Destroys a drive identified by the given drive ID.
+   * Dilutes the drive stamp and shortens its duration (min. 24, max 47 hours) depending on the original TTL.
+   * @param driveId - The ID of the drive to destroy.
    * @emits FileManagerEvents.DRIVE_DESTROYED
    * @returns A promise that resolves when the drive is destroyed.
+   * @throws {DriveError} If not initialized, driveId is not found, or the target is the admin drive.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   * @throws {StampError} If the admin stamp is missing, or the drive's stamp cannot be fetched / is not usable.
    */
-  destroyDrive(driveInfo: DriveInfo, stamp: PostageBatch): Promise<void>;
+  destroyDrive(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
    * Removes the drive and all of its file metadata from local state and persists the updated drive list.
    * Does NOT touch the underlying Swarm batch (no dilution).
-   * @param driveInfo - The drive to forget.
+   * @param driveId - The ID of the drive to forget.
    * @emits FileManagerEvents.DRIVE_FORGOTTEN
    * @returns A promise that resolves when the drive is forgotten.
+   * @throws {DriveError} If not initialized, driveId is not found, or the target is the admin drive.
+   * @throws {SignerError} If the publisher/signer is unavailable.
    */
-  forgetDrive(driveInfo: DriveInfo): Promise<void>;
+  forgetDrive(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
    * Returns a specific version of a file.
    *
-   * @param fileInfo - The base FileInfo containing topic and owner fields.
+   * @param record - The base FileRecord containing topic and owner fields.
    * @param version - Optional desired version slot as a FeedIndex or hex/string. If omitted, fetches latest.
-   * @returns The FileInfo corresponding to the requested version, either cached or fetched.
+   * @returns The FileRecord corresponding to the requested version, either cached or fetched.
+   * @throws {DriveError} If the FileManager is not initialized.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   * @throws {FileRecordError} If the file feed is not found.
    */
-  getVersion(fileInfo: FileInfo, version?: FeedIndex): Promise<FileInfo>;
+  getFileVersion(
+    record: FileRecord,
+    version?: string | FeedIndex,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<FileRecord>;
 
   /**
-   * Restore a previous version of a file as the new “head” in your feed.
+   * Restore a previous version of a file as the new "head" in your feed.
    *
-   * @param versionToRestore - The FileInfo instance representing the version to restore.
+   * @param versionToRestore - The FileRecord instance representing the version to restore.
    * @param requestOptions - Optional BeeRequestOptions for upload operations.
    * @emits FileManagerEvents.FILE_VERSION_RESTORED
-   * @throws FileInfoError if no versions are found.
+   * @throws {DriveError} If the FileManager is not initialized.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   * @throws {FileRecordError} If the feed is not found, the restore version is undefined, or it is the current head.
    */
-  restoreVersion(versionToRestore: FileInfo, requestOptions?: BeeRequestOptions): Promise<void>;
+  restoreFileVersion(versionToRestore: FileRecord, requestOptions?: BeeRequestOptions): Promise<void>;
+
+  /**
+   * Moves a file or folder within a drive from one path to another.
+   *
+   * @param fromPath - Absolute path of the entry within the drive manifest.
+   * @param toPath - Destination path within the drive manifest.
+   * @param sourceDriveId - The ID of the drive containing the source path.
+   * @param targetDriveId - Optional target ID drive for cross-drive moves; defaults to sourceDriveInfo.
+   * @param requestOptions - Optional BeeRequestOptions for upload operations.
+   * @emits FileManagerEvents.FILE_MOVED
+   * @throws {DriveError} If not initialized, a source/target driveId is not found, the source is the
+   *   root, the destination is invalid, source and destination are identical, or a path does not exist.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   * @throws {FileRecordError} If a folder feed or the source file record is missing.
+   */
+  move(
+    fromPath: string,
+    toPath: string,
+    sourceDriveId: string | Identifier,
+    targetDriveId?: string | Identifier,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void>;
+
+  /**
+   * Creates a new empty folder within a drive.
+   * @param driveId - The ID of the drive to create the folder in.
+   * @param parentPath - Absolute path of the parent directory, or '/' for the drive root.
+   * @param folderName - Name of the new folder (must not contain '/').
+   * @param redundancyLevel - Optional redundancy level; inherits from parent or drive if omitted.
+   * @param requestOptions - Additional Bee request options.
+   * @emits FileManagerEvents.FOLDER_CREATED
+   * @returns The FolderInfo for the newly created folder.
+   * @throws {DriveError} If not initialized, driveId is not found, the folder name is invalid, or the parent path does not exist.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   * @throws {FileRecordError} If a folder feed is missing.
+   */
+  createFolder(
+    driveId: string | Identifier,
+    parentPath: string,
+    folderName: string,
+    redundancyLevel?: RedundancyLevel,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<FolderInfo>;
 
   /**
    * Admin postage batch used for drive management operations.
    * @returns The admin postage batch, or undefined if not set.
    */
-  adminStamp: PostageBatch | undefined;
+  readonly adminStamp: PostageBatch | undefined;
 
   /**
    * Retrieves a list of drive information.
    * @returns An array of drive information objects.
    */
-  driveList: DriveInfo[];
+  readonly driveList: readonly DriveInfo[];
 
   /**
-   * Retrieves a list of file information.
-   * @returns An array of file information objects.
+   * Retrieves a list of file records.
+   * @returns An array of FileRecord objects.
    */
-  fileInfoList: FileInfo[];
+  readonly recordList: readonly FileRecord[];
 
   /**
    * Event emitter for handling file manager events.
    */
-  emitter: EventEmitter;
+  readonly emitter: EventEmitter;
+
+  /**
+   * Indicates whether or not the FileManager instance is initialized.
+   */
+  readonly isInitialized: boolean;
 }

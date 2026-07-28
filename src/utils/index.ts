@@ -5,10 +5,9 @@ export {
   DriveError,
   ErrorHandler,
   FileError,
-  FileInfoError,
+  FileRecordError,
   FileManagerError,
   FolderError,
   SignerError,
   StampError,
 } from './errors';
-export { estimateDriveListMetadataSize, estimateFileInfoMetadataSize } from './capacity';

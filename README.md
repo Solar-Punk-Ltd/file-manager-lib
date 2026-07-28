@@ -99,7 +99,7 @@ await fm.createDrive('<BATCH_ID>', 'My Drive', false);
 const uploaded = await fm.upload(fm.driveList[0], { info: { name: 'docs' }, path: './docs' });
 
 // list + download
-const fi = fm.fileInfoList.find((f) => f.name === 'docs')!;
+const fi = fm.recordList.find((f) => f.name === 'docs')!;
 const list = await fm.listFiles(fi, {
   actHistoryAddress: fi.file.historyRef,
   actPublisher: fi.actPublisher,
