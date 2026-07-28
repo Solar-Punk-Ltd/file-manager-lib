@@ -4,7 +4,6 @@ import {
   DownloadOptions,
   FeedIndex,
   FileUploadOptions,
-  GetGranteesResult,
   Identifier,
   PostageBatch,
   RedundancyLevel,
@@ -14,11 +13,11 @@ import {
 import { EventEmitter } from '../eventEmitter';
 
 import { DownloadResult } from './download';
-import { DriveInfo, FileRecord, FolderInfo, ListDepth, NodeEntry, ShareItem } from './info';
+import { DriveInfo, FileRecord, FolderInfo, ListDepth, NodeEntry } from './info';
 import { UpdateItem, UploadFilesResult, UploadItem } from './upload';
 
 /**
- * Interface representing a file manager with various file operations.
+ * Interface representing a file manager with various file, folder and drive operations.
  */
 export interface FileManager {
   /**
@@ -203,7 +202,7 @@ export interface FileManager {
 
   /**
    * Lists entries in a folder (or drive root) in the drive manifest.
-   * Also populates the fileInfoList cache for any file entries encountered.
+   * Also populates the recordList cache for any file entries encountered.
    * @param driveId - The ID of the drive containing the folder.
    * @param path - Absolute path of the folder, or '/' for the drive root.
    * @param depth - Shallow (one level) or Deep (full BFS). Defaults to Shallow.
@@ -224,8 +223,7 @@ export interface FileManager {
 
   /**
    * Soft-delete: record a file in the drive's owner-private trash overlay so it is hidden from the
-   * active list. This is metadata-only — it does not touch the file's own feed or content, and the
-   * trash state is never visible to grantees. Recover with {@link recoverFile}.
+   * active list. This is metadata-only — it does not touch the file's own feed or content. Recover with {@link recoverFile}.
    * @param record - The file record describing the file to trash.
    * @emits FileManagerEvents.FILE_TRASHED
    * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
@@ -282,7 +280,7 @@ export interface FileManager {
 
   /**
    * Hard-delete a file or folder at the given path from the drive manifest and in-memory state.
-   * For folders, all descendant FileRecords are also purged from fileInfoList.
+   * For folders, all descendant FileRecords are also purged from recordList.
    * @param driveId - The ID of the drive containing the path.
    * @param path - Absolute path of the file or folder to remove.
    * @param requestOptions - Additional Bee request options.
@@ -315,47 +313,6 @@ export interface FileManager {
    * @throws {SignerError} If the publisher/signer is unavailable.
    */
   forgetDrive(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<void>;
-
-  /**
-   * Shares a file with the specified recipients.
-   * @param record - The file record to share.
-   * @param targetOverlays - An array of target overlays.
-   * @param recipients - An array of recipient overlay addresses.
-   * @param message - Optional message to include with the share.
-   * @emits FileManagerEvents.SHARE_MESSAGE_SENT
-   * @returns A promise that resolves when the file is shared.
-   * @throws {SendShareMessageError} Always — not yet implemented in the node-based model.
-   */
-  share(
-    record: FileRecord,
-    targetOverlays: string[],
-    recipients: string[],
-    message?: string,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<void>;
-
-  /**
-   * Subscribes to the shared inbox with the given topic and callback.
-   * @param topic - The topic to subscribe to.
-   * @param callback - Optional callback function to handle incoming shared items.
-   * @returns A promise that resolves when the subscription is successful.
-   * @throws {SubscriptionError} Always — not yet implemented in the node-based model.
-   */
-  subscribeToSharedInbox(topic: string, callback?: (data: ShareItem) => void): Promise<void>;
-
-  /**
-   * Unsubscribes from the shared inbox.
-   * @throws {SubscriptionError} Always — not yet implemented in the node-based model.
-   */
-  unsubscribeFromSharedInbox(): void;
-
-  /**
-   * Retrieves the grantees of a file.
-   * @param record - The file record to query.
-   * @returns A promise that resolves to list of grantee public keys.
-   * @throws {GranteeError} Always — not yet migrated to the mantaray model.
-   */
-  getGrantees(record: FileRecord): Promise<GetGranteesResult>;
 
   /**
    * Returns a specific version of a file.
@@ -434,26 +391,17 @@ export interface FileManager {
    */
   readonly adminStamp: PostageBatch | undefined;
 
-  // TODO: consider using: Readonly<DriveInfo>
   /**
    * Retrieves a list of drive information.
    * @returns An array of drive information objects.
    */
-  readonly driveList: DriveInfo[];
+  readonly driveList: readonly DriveInfo[];
 
-  // TODO: consider using: Readonly<FileRecord>
-  // TODO: consider renaming to fileList and also maybe use folderlist
   /**
    * Retrieves a list of file records.
    * @returns An array of FileRecord objects.
    */
-  readonly fileInfoList: FileRecord[];
-
-  /**
-   * Retrieves a list of items shared with the user.
-   * @returns An array of shared items.
-   */
-  readonly sharedWithMe: ShareItem[];
+  readonly recordList: readonly FileRecord[];
 
   /**
    * Event emitter for handling file manager events.
@@ -464,4 +412,9 @@ export interface FileManager {
    * Indicates whether or not the FileManager instance is initialized.
    */
   readonly isInitialized: boolean;
+}
+
+export interface FileManagerConfig {
+  uploadConcurrency?: number; // default MAX_CONCURRENT_UPLOADS (2)
+  feedFetchConcurrency?: number; // default MAX_CONCURRENT_FEED_FETCHES (10)
 }

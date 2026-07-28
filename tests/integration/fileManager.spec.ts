@@ -59,8 +59,7 @@ describe('FileManager initialization', () => {
   });
 
   it('should create and initialize a new instance and check if admin stamp is not found', async () => {
-    expect(fileManager.fileInfoList).toEqual([]);
-    expect(fileManager.sharedWithMe).toEqual([]);
+    expect(fileManager.recordList).toEqual([]);
 
     const unpurchasedBatchId = new BatchId(generateRandomBytes(BatchId.LENGTH));
     const otherBee = new Bee(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
@@ -78,13 +77,11 @@ describe('FileManager initialization', () => {
       );
     }
 
-    expect(fm2.fileInfoList).toEqual([]);
-    expect(fm2.sharedWithMe).toEqual([]);
+    expect(fm2.recordList).toEqual([]);
   });
 
   it('should initialize the admin feed and topic', async () => {
-    expect(fileManager.fileInfoList).toEqual([]);
-    expect(fileManager.sharedWithMe).toEqual([]);
+    expect(fileManager.recordList).toEqual([]);
 
     const { payload } = await retryOnPropagationDelay(() =>
       getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 0n),
@@ -185,12 +182,12 @@ describe('FileManager initialization', () => {
   });
 
   it('should not reinitialize if already initialized', async () => {
-    const fileInfoListBefore = [...fileManager.fileInfoList];
+    const fileInfoListBefore = [...fileManager.recordList];
     fileManager.emitter.on(FileManagerEvents.INITIALIZED, (e) => {
       expect(e).toEqual(true);
     });
     await fileManager.initialize();
-    expect(fileManager.fileInfoList).toEqual(fileInfoListBefore);
+    expect(fileManager.recordList).toEqual(fileInfoListBefore);
   });
 
   it('should maintain isInitialized flag after successful reinitialization', async () => {
@@ -247,7 +244,7 @@ describe('FileManager reinitialization', () => {
     await newFileManager.initialize();
 
     expect(newFileManager.driveList).toHaveLength(0);
-    expect(newFileManager.fileInfoList).toHaveLength(0);
+    expect(newFileManager.recordList).toHaveLength(0);
 
     spy.mockRestore();
   });
@@ -257,7 +254,7 @@ describe('FileManager reinitialization', () => {
     const fileManager = await createInitializedFileManager(beeDev, ownerStamp);
 
     const initialDrives = fileManager.driveList;
-    const initialFileCount = fileManager.fileInfoList.length;
+    const initialFileCount = fileManager.recordList.length;
 
     expect(initialDrives.length).toBeGreaterThanOrEqual(1);
 
@@ -278,7 +275,7 @@ describe('FileManager reinitialization', () => {
     expect(initEventFired).toBe(true);
     expect(invalidEventFired).toBe(false);
     expect(fileManager.driveList).toEqual(initialDrives);
-    expect(fileManager.fileInfoList).toHaveLength(initialFileCount);
+    expect(fileManager.recordList).toHaveLength(initialFileCount);
   });
 
   it('should preserve user data when creating a new instance with valid stamp', async () => {
@@ -434,7 +431,7 @@ describe('FileManager drive handling', () => {
     expect(testDrive!.name).toBe('Test Drive');
     expect(testDrive!.owner).toBe(signer.publicKey().address().toHex());
     expect(testDrive!.redundancyLevel).toBe(RedundancyLevel.OFF);
-    expect(fileManager.fileInfoList.filter((fr) => fr.driveId === testDrive!.id)).toHaveLength(0);
+    expect(fileManager.recordList.filter((fr) => fr.driveId === testDrive!.id)).toHaveLength(0);
   });
 
   it('should throw an error when trying to destroy the admin drive/ stamp', async () => {
@@ -456,25 +453,26 @@ describe('FileManager drive handling', () => {
     const driveId = created!.id.toString();
     const initialDriveCount = fileManager.driveList.length;
 
-    const now = Date.now();
-    const fakeFile = (topic: string, filePath: string): FileRecord => ({
-      type: NodeType.File,
-      batchId: created!.batchId,
-      owner: signer.publicKey().address().toString(),
-      topic,
-      path: filePath,
-      actPublisher: signer.publicKey().toCompressedHex(),
-      content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
-      driveId,
-      timestamp: now,
-      shared: false,
-      version: FEED_INDEX_ZERO.toString(),
-      redundancyLevel: RedundancyLevel.OFF,
-      status: NodeStatus.Active,
-    });
+    const fileA = 'forget-drive-a.txt';
+    const fileB = 'forget-drive-b.txt';
+    fs.writeFileSync(fileA, 'forget a content');
+    fs.writeFileSync(fileB, 'forget b content');
+    try {
+      const uploadResult = await fileManager.uploadFiles(
+        driveId,
+        [
+          { path: 'a.txt', sourcePath: fileA },
+          { path: 'b.txt', sourcePath: fileB },
+        ],
+        '',
+      );
+      expect(uploadResult.failed).toHaveLength(0);
+    } finally {
+      fs.rmSync(fileA, { force: true });
+      fs.rmSync(fileB, { force: true });
+    }
 
-    fileManager.fileInfoList.push(fakeFile('topic-1', 'a.txt'));
-    fileManager.fileInfoList.push(fakeFile('topic-2', 'b.txt'));
+    expect(fileManager.recordList.some((fr) => fr.driveId === driveId)).toBe(true);
 
     const eventPromise = new Promise<void>((resolve) => {
       const handler = ({ driveInfo }: { driveInfo: DriveInfo }): void => {
@@ -493,7 +491,7 @@ describe('FileManager drive handling', () => {
     expect(afterForgetDrives).toHaveLength(initialDriveCount - 1);
     expect(afterForgetDrives.find((d) => d.id.toString() === driveId)).toBeUndefined();
 
-    expect(fileManager.fileInfoList.some((fr) => fr.driveId === driveId)).toBe(false);
+    expect(fileManager.recordList.some((fr) => fr.driveId === driveId)).toBe(false);
 
     const fm2 = await createInitializedFileManager(bee, ownerBatch.batchID);
     const drives2 = fm2.driveList;
@@ -662,7 +660,7 @@ describe('FileManager uploadFile', () => {
     fs.writeFileSync(name, 'New Content');
     try {
       await fileManager.uploadFile(drive.id, { path: name, sourcePath: name });
-      const record = fileManager.fileInfoList.find((fr) => fr.path === name);
+      const record = fileManager.recordList.find((fr) => fr.path === name);
       expect(record).toBeDefined();
       expect(record!.version).toEqual(FEED_INDEX_ZERO.toString());
     } finally {
@@ -675,18 +673,18 @@ describe('FileManager uploadFile', () => {
     fs.writeFileSync(name, 'v0');
     try {
       await fileManager.uploadFile(drive.id, { path: name, sourcePath: name });
-      const firstInfo = fileManager.fileInfoList.find((fr) => fr.path === name)!;
+      const firstInfo = fileManager.recordList.find((fr) => fr.path === name)!;
       expect(firstInfo).toBeDefined();
 
       fs.writeFileSync(name, 'v1');
       await fileManager.updateFile(drive.id, firstInfo, { item: { sourcePath: name } });
-      const secondInfo = fileManager.fileInfoList.find((fr) => fr.topic.toString() === firstInfo.topic.toString())!;
+      const secondInfo = fileManager.recordList.find((fr) => fr.topic.toString() === firstInfo.topic.toString())!;
       expect(secondInfo.topic.toString()).toEqual(firstInfo.topic.toString());
       expect(secondInfo.version).toEqual(new FeedIndex(firstInfo.version!).next().toString());
 
       fs.writeFileSync(name, 'v2');
       await fileManager.updateFile(drive.id, secondInfo, { item: { sourcePath: name } });
-      const thirdInfo = fileManager.fileInfoList.find((fr) => fr.topic.toString() === firstInfo.topic.toString())!;
+      const thirdInfo = fileManager.recordList.find((fr) => fr.topic.toString() === firstInfo.topic.toString())!;
       expect(thirdInfo.version).toEqual(new FeedIndex(secondInfo.version!).next().toString());
     } finally {
       fs.rmSync(name, { force: true });
@@ -698,16 +696,16 @@ describe('FileManager uploadFile', () => {
     fs.writeFileSync(name, 'Metadata Content');
     try {
       await fileManager.uploadFile(drive.id, { path: name, sourcePath: name });
-      const firstInfo = fileManager.fileInfoList.find((fr) => fr.path === name)!;
+      const firstInfo = fileManager.recordList.find((fr) => fr.path === name)!;
       expect(firstInfo).toBeDefined();
 
       await fileManager.updateFile(drive.id, firstInfo, { customMetadata: { tag: 'v1' } });
-      const secondInfo = fileManager.fileInfoList.find((fr) => fr.topic.toString() === firstInfo.topic.toString())!;
+      const secondInfo = fileManager.recordList.find((fr) => fr.topic.toString() === firstInfo.topic.toString())!;
       expect(secondInfo.content).toEqual(firstInfo.content);
       expect(secondInfo.customMetadata).toMatchObject({ tag: 'v1' });
 
       await fileManager.updateFile(drive.id, secondInfo, { customMetadata: { tag: 'v2' } });
-      const thirdInfo = fileManager.fileInfoList.find((fr) => fr.topic.toString() === firstInfo.topic.toString())!;
+      const thirdInfo = fileManager.recordList.find((fr) => fr.topic.toString() === firstInfo.topic.toString())!;
       expect(thirdInfo.content).toEqual(firstInfo.content);
       expect(thirdInfo.customMetadata).toMatchObject({ tag: 'v2' });
     } finally {
@@ -722,7 +720,7 @@ describe('FileManager uploadFile', () => {
       path: tempFile,
       sourcePath: tempFile,
     });
-    const fileInfoList = fileManager.fileInfoList;
+    const fileInfoList = fileManager.recordList;
     const uploadedInfo = fileInfoList.find((fr) => fr.path === tempFile);
     expect(uploadedInfo).toBeDefined();
     fs.rmSync(tempFile, { force: true });
@@ -733,12 +731,12 @@ describe('FileManager uploadFile', () => {
     fs.writeFileSync(name, 'Bump Content');
     try {
       await fileManager.uploadFile(drive.id, { path: name, sourcePath: name });
-      const original = fileManager.fileInfoList.find((fr) => fr.path === name)!;
+      const original = fileManager.recordList.find((fr) => fr.path === name)!;
       expect(original).toBeDefined();
 
       await fileManager.updateFile(drive.id, original, { item: { sourcePath: name } });
 
-      const entries = fileManager.fileInfoList.filter((fr) => fr.topic.toString() === original.topic.toString());
+      const entries = fileManager.recordList.filter((fr) => fr.topic.toString() === original.topic.toString());
       expect(entries).toHaveLength(1);
       expect(BigInt(entries[0].version!.toString())).toBeGreaterThan(BigInt(original.version?.toString() || '0'));
     } finally {
@@ -755,7 +753,7 @@ describe('FileManager uploadFile', () => {
       await expect(fileManager.uploadFile(drive.id, { path: dirPath, sourcePath: dirPath })).rejects.toThrow(
         'Cannot upload a directory - use uploadFiles',
       );
-      expect(fileManager.fileInfoList.some((fr) => fr.path === dirPath)).toBe(false);
+      expect(fileManager.recordList.some((fr) => fr.path === dirPath)).toBe(false);
     } finally {
       fs.rmSync(dirPath, { recursive: true, force: true });
     }
@@ -768,7 +766,7 @@ describe('FileManager uploadFile', () => {
     fs.mkdirSync(dirPath, { recursive: true });
     try {
       await fileManager.uploadFile(drive.id, { path: name, sourcePath: name });
-      const record = fileManager.fileInfoList.find((fr) => fr.path === name)!;
+      const record = fileManager.recordList.find((fr) => fr.path === name)!;
 
       await expect(fileManager.updateFile(drive.id, record, { item: { sourcePath: dirPath } })).rejects.toThrow(
         'Cannot upload a directory - use uploadFiles',
@@ -834,7 +832,7 @@ describe('FileManager uploadFiles', () => {
     expect(fileEntries.map((e) => e.path).sort()).toEqual(['a.txt', 'b.txt', 'c.txt']);
 
     const distinctTopics = new Set(
-      fileManager.fileInfoList
+      fileManager.recordList
         .filter((fr) => ['a.txt', 'b.txt', 'c.txt'].includes(fr.path))
         .map((fr) => fr.topic.toString()),
     );
@@ -961,7 +959,7 @@ describe('FileManager uploadFiles', () => {
     const rootEntries = await fileManager.listFolder(drive.id, '', ListDepth.Shallow);
     expect(rootEntries.some((e) => e.path === 'inner.txt')).toBe(false);
     expect(rootEntries.some((e) => e.type === NodeType.Folder && e.path.endsWith(blockerPath))).toBe(false);
-    expect(fileManager.fileInfoList.some((fr) => fr.path.includes('inner.txt'))).toBe(false);
+    expect(fileManager.recordList.some((fr) => fr.path.includes('inner.txt'))).toBe(false);
   });
 
   it('rejects invalid path and empty entries before doing any work', async () => {
@@ -1016,7 +1014,7 @@ describe('FileManager move', () => {
     const fileA = writeTempFile('it-move-a.txt', 'Move Content A');
     await fileManager.uploadFile(driveA.id, { path: fileA, sourcePath: fileA });
 
-    const before = fileManager.fileInfoList.find((fr) => fr.path === fileA)!;
+    const before = fileManager.recordList.find((fr) => fr.path === fileA)!;
     expect(before).toBeDefined();
     const beforeVersion = BigInt((before.version ?? '0').toString());
     const topic = before.topic.toString();
@@ -1027,7 +1025,7 @@ describe('FileManager move', () => {
     expect(rootEntries.some((e) => e.path === fileA)).toBe(false);
     expect(rootEntries.some((e) => e.type === NodeType.File && e.path === 'it-move-b.txt')).toBe(true);
 
-    const moved = fileManager.fileInfoList.find((fr) => fr.topic.toString() === topic)!;
+    const moved = fileManager.recordList.find((fr) => fr.topic.toString() === topic)!;
     expect(moved).toBeDefined();
     expect(moved.path).toBe('it-move-b.txt');
     expect(BigInt(moved.version!.toString())).toBe(beforeVersion + 1n);
@@ -1118,7 +1116,7 @@ describe('FileManager move', () => {
     // descendant's path fresh from the current tree — it correctly reflects the new location.
     expect(innerEntry!.path).toBe('backup/src/inner.txt');
 
-    const movedFi = fileManager.fileInfoList.find((fr) => fr.topic.toString() === originalTopic)!;
+    const movedFi = fileManager.recordList.find((fr) => fr.topic.toString() === originalTopic)!;
     expect(movedFi).toBeDefined();
     // move()'s own in-memory prefix rewrite already corrected the cached entry — no fresh
     // listFolder call was needed to get here.
@@ -1142,7 +1140,7 @@ describe('FileManager move', () => {
     const driveBEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveB.id, '', ListDepth.Shallow));
     expect(driveBEntries.some((e) => e.type === NodeType.File && e.path === xFile)).toBe(true);
 
-    const moved = fileManager.fileInfoList.find((fr) => fr.path === xFile && fr.driveId === driveB.id.toString());
+    const moved = fileManager.recordList.find((fr) => fr.path === xFile && fr.driveId === driveB.id.toString());
     expect(moved).toBeDefined();
 
     const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveB.id, '/'));
@@ -1275,7 +1273,7 @@ describe('FileManager file operations', () => {
     fs.writeFileSync(testFilePath, 'file ops content');
     await fileManager.uploadFile(drive.id, { path: testFilePath, sourcePath: testFilePath });
 
-    testFi = fileManager.fileInfoList.find((fr) => fr.path === TEST_NAME)!;
+    testFi = fileManager.recordList.find((fr) => fr.path === TEST_NAME)!;
     expect(testFi).toBeDefined();
     expect(testFi.status).toBe(NodeStatus.Active);
   });
@@ -1285,7 +1283,7 @@ describe('FileManager file operations', () => {
   });
 
   it('should trash a file (soft-delete)', async () => {
-    const initial = fileManager.fileInfoList.find((fr) => fr.path === TEST_NAME)!;
+    const initial = fileManager.recordList.find((fr) => fr.path === TEST_NAME)!;
     const beforeVersion = BigInt((initial.version ?? '0').toString());
 
     await fileManager.trashFile(initial);
@@ -1294,7 +1292,7 @@ describe('FileManager file operations', () => {
     const fm2 = await createInitializedFileManager(bee, adminBatch);
     await fm2.listFolder(new Identifier(drive.id), ROOT_PATH);
 
-    const fi2 = fm2.fileInfoList.find((fr) => fr.path === TEST_NAME)!;
+    const fi2 = fm2.recordList.find((fr) => fr.path === TEST_NAME)!;
     // Trash state round-trips through the owner-private admin overlay, so a fresh instance derives
     // it on listFolder. It is overlay-only: the file's own feed/version is never touched.
     expect(fi2.status).toBe(NodeStatus.Trashed);
@@ -1315,7 +1313,7 @@ describe('FileManager file operations', () => {
     const fm2 = await createInitializedFileManager(bee, adminBatch);
     await fm2.listFolder(drive.id, ROOT_PATH);
 
-    const fi2 = fm2.fileInfoList.find((fr) => fr.path === TEST_NAME)!;
+    const fi2 = fm2.recordList.find((fr) => fr.path === TEST_NAME)!;
     // Recover is overlay-only too: status flips back to Active without a version bump.
     expect(fi2.status).toBe(NodeStatus.Active);
     expect(BigInt(fi2.version!.toString())).toBe(beforeVersion);
@@ -1323,20 +1321,20 @@ describe('FileManager file operations', () => {
 
   it('should forget (hard-delete) a file', async () => {
     await fileManager.forget(drive.id, TEST_NAME);
-    expect(fileManager.fileInfoList.find((fr) => fr.path === TEST_NAME)).toBeUndefined();
+    expect(fileManager.recordList.find((fr) => fr.path === TEST_NAME)).toBeUndefined();
 
     const fm2 = new FileManagerBase(bee);
     await fm2.initialize();
 
-    expect(fm2.fileInfoList.find((fr) => fr.path === TEST_NAME)).toBeUndefined();
+    expect(fm2.recordList.find((fr) => fr.path === TEST_NAME)).toBeUndefined();
   });
 
   it('should never duplicate FileRecord entries when trashing/recovering', async () => {
     await fileManager.uploadFile(drive.id, { path: TEST_NAME, sourcePath: TEST_NAME });
 
-    const freshFi = fileManager.fileInfoList.find((fr) => fr.path === TEST_NAME)!;
+    const freshFi = fileManager.recordList.find((fr) => fr.path === TEST_NAME)!;
     const topic = freshFi.topic.toString();
-    expect(fileManager.fileInfoList.filter((fr) => fr.topic.toString() === topic)).toHaveLength(1);
+    expect(fileManager.recordList.filter((fr) => fr.topic.toString() === topic)).toHaveLength(1);
 
     await fileManager.trashFile(freshFi);
     expect(freshFi.status).toBe(NodeStatus.Trashed);
@@ -1348,13 +1346,13 @@ describe('FileManager file operations', () => {
 
     await expect(fileManager.recoverFile(freshFi)).rejects.toThrow(/Not trashed, cannot recover/i);
 
-    expect(fileManager.fileInfoList.filter((fr) => fr.topic.toString() === topic)).toHaveLength(1);
+    expect(fileManager.recordList.filter((fr) => fr.topic.toString() === topic)).toHaveLength(1);
   });
 
   it('fileInfoList should never gain duplicate topics when trash/restoring', async () => {
     await fileManager.listFolder(drive.id, ROOT_PATH);
 
-    const fi0 = fileManager.fileInfoList.find((fr) => fr.path === TEST_NAME)!;
+    const fi0 = fileManager.recordList.find((fr) => fr.path === TEST_NAME)!;
     const topic = fi0.topic.toString();
     const beforeVer = BigInt(fi0.version!.toString());
 
@@ -1365,7 +1363,7 @@ describe('FileManager file operations', () => {
 
     const fm2 = await createInitializedFileManager(bee, adminBatch);
     await fm2.listFolder(drive.id, ROOT_PATH);
-    const fi2 = fm2.fileInfoList.find((fr) => fr.topic.toString() === topic)!;
+    const fi2 = fm2.recordList.find((fr) => fr.topic.toString() === topic)!;
 
     // Trash + recover are overlay-only round-trips — the file's own version never advances.
     expect(BigInt(fi2.version!.toString())).toBe(beforeVer);
@@ -1383,7 +1381,7 @@ describe('FileManager version control', () => {
   // Flat, cwd-relative name: upload()'s `path` doubles as both the on-disk source and the
   // top-level drive manifest fork name, so it must resolve with zero intermediate segments.
   const ensureBase = async (name = `versioned-file-${Date.now()}`, di: DriveInfo = drive): Promise<FileRecord> => {
-    const existing = fileManager.fileInfoList.find((f) => f.path === name);
+    const existing = fileManager.recordList.find((f) => f.path === name);
     if (existing) return existing;
     fs.writeFileSync(name, 'seed');
     try {
@@ -1391,7 +1389,7 @@ describe('FileManager version control', () => {
     } finally {
       fs.unlinkSync(name);
     }
-    return fileManager.fileInfoList.at(-1)!;
+    return fileManager.recordList.at(-1)!;
   };
 
   beforeAll(async () => {
@@ -1419,7 +1417,7 @@ describe('FileManager version control', () => {
     try {
       fs.writeFileSync(name, 'v0');
       await fileManager.uploadFile(drive.id, { path: name, sourcePath: name });
-      const base = fileManager.fileInfoList.at(-1)!;
+      const base = fileManager.recordList.at(-1)!;
 
       let latestVersion = BigInt(base.version!.toString());
 
@@ -1450,13 +1448,13 @@ describe('FileManager version control', () => {
     try {
       fs.writeFileSync(NAME, 'cold v0');
       await fileManager.uploadFile(drive.id, { path: NAME, sourcePath: NAME });
-      const base = fileManager.fileInfoList.find((fr) => fr.path === NAME)!;
+      const base = fileManager.recordList.find((fr) => fr.path === NAME)!;
       expect(base.version).toBe(FEED_INDEX_ZERO.toString());
 
       // Fresh instance shares the signer/state but never listed the folder — its record cache is empty.
       const fm2 = new FileManagerBase(bee);
       await fm2.initialize();
-      expect(fm2.fileInfoList.find((fr) => fr.topic === base.topic)).toBeUndefined();
+      expect(fm2.recordList.find((fr) => fr.topic === base.topic)).toBeUndefined();
 
       fs.writeFileSync(NAME, 'cold v1');
       const updated = await fm2.updateFile(drive.id, base, { item: { sourcePath: NAME } });
@@ -1464,7 +1462,7 @@ describe('FileManager version control', () => {
       // Re-versioned via lazy hydration; the record is now present in the fresh instance's cache.
       expect(updated.version).toBe(FeedIndex.fromBigInt(1n).toString());
       expect(updated.driveId).toBe(drive.id);
-      expect(fm2.fileInfoList.filter((fr) => fr.topic === base.topic)).toHaveLength(1);
+      expect(fm2.recordList.filter((fr) => fr.topic === base.topic)).toHaveLength(1);
     } finally {
       fs.rmSync(NAME, { force: true });
     }
@@ -1488,7 +1486,7 @@ describe('FileManager version control', () => {
     try {
       fs.writeFileSync(NAME, 'Version bytes v0');
       await fileManager.uploadFile(drive.id, { path: NAME, sourcePath: NAME });
-      const v0Fi = fileManager.fileInfoList.at(-1)!;
+      const v0Fi = fileManager.recordList.at(-1)!;
 
       fs.writeFileSync(NAME, 'Version bytes v1');
       await fileManager.updateFile(drive.id, v0Fi, { item: { sourcePath: NAME } });
@@ -1518,7 +1516,7 @@ describe('FileManager version control', () => {
 
     const base = await ensureBase('cache-test');
 
-    const cached = fileManager.fileInfoList.find((f) => f.topic === base.topic)!;
+    const cached = fileManager.recordList.find((f) => f.topic === base.topic)!;
     expect(cached).toBeDefined();
 
     spyGetFeedData.mockClear();
@@ -1537,7 +1535,7 @@ describe('FileManager version control', () => {
       const content = 'Version 0 content';
       fs.writeFileSync(NAME, content);
       await fileManager.uploadFile(drive.id, { path: NAME, sourcePath: NAME });
-      const v0Fi = fileManager.fileInfoList.at(-1)!;
+      const v0Fi = fileManager.recordList.at(-1)!;
 
       fs.writeFileSync(NAME, 'Version 1 content');
       await fileManager.updateFile(drive.id, v0Fi, { item: { sourcePath: NAME } });
@@ -1627,7 +1625,7 @@ describe('FileManager version control', () => {
     try {
       fs.writeFileSync(NAME, 'Restore Move V0 Content');
       await fileManager.uploadFile(drive.id, { path: NAME, sourcePath: NAME });
-      const base = fileManager.fileInfoList.at(-1)!;
+      const base = fileManager.recordList.at(-1)!;
       const topic = base.topic.toString();
 
       fs.writeFileSync(NAME, 'Restore Move V1 Content');
@@ -1648,7 +1646,7 @@ describe('FileManager version control', () => {
 
       await fileManager.restoreFileVersion(v0);
 
-      const cached = fileManager.fileInfoList.find((f) => f.topic.toString() === topic)!;
+      const cached = fileManager.recordList.find((f) => f.topic.toString() === topic)!;
       expect(cached).toBeDefined();
       // Restoring content must not regress the tree position back to v0's own recorded path.
       expect(cached.path).toBe(destPath);
@@ -1931,7 +1929,7 @@ describe('FileManager AbortController', () => {
       });
 
       // Verify file was uploaded
-      const uploadedFile = fileManager.fileInfoList.find((fr) => fr.path === successFile);
+      const uploadedFile = fileManager.recordList.find((fr) => fr.path === successFile);
       expect(uploadedFile).toBeDefined();
       expect(uploadedFile?.driveId).toBe(drive.id.toString());
     });
@@ -1964,7 +1962,7 @@ describe('FileManager AbortController', () => {
         signal: controller2.signal,
       });
 
-      const uploadedFile = fileManager.fileInfoList.find((fr) => fr.path === multi2File);
+      const uploadedFile = fileManager.recordList.find((fr) => fr.path === multi2File);
       expect(uploadedFile).toBeDefined();
     });
   });
@@ -1978,7 +1976,7 @@ describe('FileManager AbortController', () => {
       // Upload a 1MB file to download later (large enough for reliable abort timing)
       fs.writeFileSync(downloadTestFile, Buffer.alloc(1 * 1024 * 1024, 'x'));
       await fileManager.uploadFile(drive.id, { path: downloadTestFile, sourcePath: downloadTestFile });
-      const fr = fileManager.fileInfoList.find((fr) => fr.path === downloadTestFile);
+      const fr = fileManager.recordList.find((fr) => fr.path === downloadTestFile);
       expect(fr).toBeDefined();
       uploadedFileInfo = fr!;
 

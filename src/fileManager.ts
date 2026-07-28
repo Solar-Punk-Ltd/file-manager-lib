@@ -6,7 +6,6 @@ import {
   DownloadOptions,
   FeedIndex,
   FileUploadOptions,
-  GetGranteesResult,
   Identifier,
   MantarayNode,
   PostageBatch,
@@ -19,7 +18,7 @@ import {
 } from '@ethersphere/bee-js';
 
 import { DownloadResource, DownloadResult } from './types/download';
-import { FileManager } from './types/fileManager';
+import { FileManager, FileManagerConfig } from './types/fileManager';
 import {
   DriveInfo,
   FileRecord,
@@ -30,7 +29,6 @@ import {
   NodeHeader,
   NodeStatus,
   NodeType,
-  ShareItem,
   TrashEntry,
 } from './types/info';
 import { UpdateItem, UploadFilesResult, UploadItem } from './types/upload';
@@ -52,22 +50,12 @@ import {
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
   MANIFEST_METADATA_NODE_VERSION,
-  MANIFEST_METADATA_REDUNDANCY_LEVEL,
   MAX_CONCURRENT_FEED_FETCHES,
   MAX_CONCURRENT_UPLOADS,
   ROOT_PATH,
 } from './utils/constants';
 import { generateRandomBytes } from './utils/crypto';
-import {
-  DriveError,
-  ErrorHandler,
-  FileRecordError,
-  GranteeError,
-  SendShareMessageError,
-  SignerError,
-  StampError,
-  SubscriptionError,
-} from './utils/errors';
+import { DriveError, ErrorHandler, FileRecordError, SignerError, StampError } from './utils/errors';
 import { FileManagerEvents } from './utils/events';
 import { Logger } from './utils/logger';
 import {
@@ -76,6 +64,7 @@ import {
   folderForkMetadata,
   getAllNodeEntries,
   getDriveForkPath,
+  getRlevel,
 } from './utils/mantaray';
 import { assertValidRelativePath, normalizePath, pathSegments, splitPath } from './utils/path';
 import { processDownload } from './download';
@@ -89,24 +78,32 @@ export class FileManagerBase implements FileManager {
   private signerAddress: string;
   private publisher: PublicKey | undefined = undefined;
   private stateFeedTopic: Topic | undefined = undefined;
-  private _isInitialized: boolean = false;
   private isInitializing: boolean = false;
-  private _adminStamp: PostageBatch | undefined = undefined;
   private adminRedundancyLevel: RedundancyLevel = RedundancyLevel.OFF;
-
+  private uploadConcurrency: number;
+  private feedFetchConcurrency: number;
+  private _adminStamp: PostageBatch | undefined = undefined;
+  private _isInitialized: boolean = false;
+  private readonly _driveList: DriveInfo[] = [];
+  private readonly _recordList: FileRecord[] = [];
   private readonly store: MantarayStore;
   private readonly errorHandler = ErrorHandler.getInstance();
   private readonly logger = Logger.getInstance();
 
   // --- Public member getters ---
 
-  readonly driveList: DriveInfo[] = [];
-  readonly fileInfoList: FileRecord[] = [];
-  readonly sharedWithMe: ShareItem[] = [];
   readonly emitter: EventEmitter;
 
   get adminStamp(): PostageBatch | undefined {
     return this._adminStamp;
+  }
+
+  get driveList(): readonly DriveInfo[] {
+    return this._driveList;
+  }
+
+  get recordList(): readonly FileRecord[] {
+    return this._recordList;
   }
 
   get isInitialized(): boolean {
@@ -115,13 +112,15 @@ export class FileManagerBase implements FileManager {
 
   // --- Initialization ---
 
-  constructor(bee: Bee, emitter: EventEmitter = new EventEmitterBase()) {
+  constructor(bee: Bee, emitter: EventEmitter = new EventEmitterBase(), config?: FileManagerConfig) {
     this.bee = bee;
     if (!this.bee.signer) {
       throw new SignerError('Signer required');
     }
 
     this.emitter = emitter;
+    this.uploadConcurrency = Math.max(1, config?.uploadConcurrency ?? MAX_CONCURRENT_UPLOADS);
+    this.feedFetchConcurrency = Math.max(1, config?.feedFetchConcurrency ?? MAX_CONCURRENT_FEED_FETCHES);
     this.signer = this.bee.signer;
     this.signerAddress = this.signer.publicKey().address().toString();
     this.store = new MantarayStore(this.bee, this.signer);
@@ -271,262 +270,7 @@ export class FileManagerBase implements FileManager {
     this.emitter.emit(FileManagerEvents.DRIVE_FORGOTTEN, { driveInfo: cachedDrive });
   }
 
-  // --- Folder operations ---
-
-  // Per BFS walk: (1) expand current manifest node, (2) load file feeds found, (3) resolve folder feeds into next node. Each phase is concurrency-bounded.
-  async listFolder(
-    driveId: string | Identifier,
-    path: string,
-    depth: ListDepth = ListDepth.Shallow,
-    maxDepth?: number,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<NodeEntry[]> {
-    requestOptions?.signal?.throwIfAborted();
-
-    const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const { cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
-
-    const { host: startHost } = await this.store.resolveHost(cachedDrive, path, publisher, requestOptions);
-    const startBasePath = normalizePath(path);
-
-    const results: NodeEntry[] = [];
-    let visitedNodes: { host: ManifestHost; basePath: string }[] = [{ host: startHost, basePath: startBasePath }];
-    let currentDepth = 0;
-    const depthLimit = depth === ListDepth.Deep ? (maxDepth ?? Number.MAX_SAFE_INTEGER) : 1;
-
-    while (visitedNodes.length > 0 && currentDepth < depthLimit) {
-      requestOptions?.signal?.throwIfAborted();
-
-      const headers: NodeHeader[] = [];
-      await awaitAllPromisesBounded(
-        visitedNodes.map((item) => async (): Promise<NodeHeader[]> => {
-          const mantarayNode = await this.store.getMantarayNode(
-            item.host.topic,
-            publisher,
-            item.host.manifestRef,
-            requestOptions,
-          );
-
-          return getAllNodeEntries(mantarayNode).map((e) => ({ ...e, path: joinPath(item.basePath, e.path) }));
-        }),
-        MAX_CONCURRENT_FEED_FETCHES,
-        (entries) => headers.push(...entries),
-        (reason) => {
-          if (requestOptions?.signal?.aborted) return;
-          this.logger.error(`listFolder: failed to expand manifest: ${reason}`);
-        },
-      );
-
-      const fileHeaders = headers.filter((e) => e.type === NodeType.File);
-      await awaitAllPromisesBounded(
-        fileHeaders.map((e) => async (): Promise<FileRecord> => {
-          const owner = e.owner ?? this.signerAddress;
-          const actPublisher = e.actPublisher ?? publisher;
-          const version = e.version ? new FeedIndex(e.version).toBigInt() : undefined;
-
-          const { record } = await this.loadRecord(e.topic, owner, actPublisher, version, requestOptions);
-          record.path = e.path;
-          record.status = getRecordStatus(cachedDrive, e.topic);
-          return record;
-        }),
-        MAX_CONCURRENT_FEED_FETCHES,
-        (record) => {
-          if (!this.fileInfoList.some((f) => f.topic === record.topic)) this.fileInfoList.push(record);
-          results.push(record);
-        },
-        (reason, ix) => {
-          if (requestOptions?.signal?.aborted) return;
-          this.logger.error(`listFolder: failed to load file ${fileHeaders[ix].topic}: ${reason}`);
-        },
-      );
-
-      const folderHeaders = headers.filter((e) => e.type === NodeType.Folder);
-      const nextFrontier: { host: ManifestHost; basePath: string }[] = [];
-      await awaitAllPromisesBounded(
-        folderHeaders.map((e) => async (): Promise<FolderInfo | null> => {
-          const owner = e.owner ?? this.signerAddress;
-          // Probe the feed head. A folder is a container and carries no stored version
-          const { payload, feedIndex, feedIndexNext } = await getFeedData(
-            this.bee,
-            new Topic(e.topic),
-            owner,
-            undefined,
-            requestOptions,
-          );
-
-          if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
-            this.logger.warn(`listFolder: folder feed not found for ${e.path} — skipping`);
-            return null;
-          }
-
-          const manifestRef: ActReferences = payload.toJSON() as ActReferences;
-          assertActReferences(manifestRef);
-          this.store.setNodeFeedIndex(e.topic, feedIndexNext.toBigInt());
-
-          const redundancyLevel = e.rawMetadata[MANIFEST_METADATA_REDUNDANCY_LEVEL]
-            ? (parseInt(e.rawMetadata[MANIFEST_METADATA_REDUNDANCY_LEVEL]) as RedundancyLevel)
-            : cachedDrive.redundancyLevel;
-
-          return {
-            type: NodeType.Folder,
-            owner,
-            topic: e.topic,
-            manifestRef,
-            batchId: cachedDrive.batchId,
-            redundancyLevel,
-            actPublisher: e.actPublisher ?? publisher,
-            path: e.path,
-            driveId: cachedDrive.id,
-            status: getRecordStatus(cachedDrive, e.topic),
-          };
-        }),
-        MAX_CONCURRENT_FEED_FETCHES,
-        (folder) => {
-          if (folder) {
-            results.push(folder);
-            if (folder.status !== NodeStatus.Trashed) {
-              nextFrontier.push({ host: folder, basePath: folder.path });
-            }
-          }
-        },
-        (reason, ix) => {
-          if (requestOptions?.signal?.aborted) return;
-          this.logger.error(`listFolder: failed to resolve folder ${folderHeaders[ix].path}: ${reason}`);
-        },
-      );
-
-      // Shallow lists one level: depthLimit is 1, so the loop exits before descending into nextFrontier.
-      visitedNodes = nextFrontier;
-      currentDepth++;
-    }
-
-    requestOptions?.signal?.throwIfAborted();
-
-    return results;
-  }
-
-  // Download an entire folder subtree of a drive: resolves the subtree's records fresh (hydrating
-  // via listFolder), then fetches them. path '/' the whole drive.
-  async downloadFolder(
-    driveId: string | Identifier,
-    path: string,
-    options?: DownloadOptions,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<DownloadResult[]> {
-    requestOptions?.signal?.throwIfAborted();
-    assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-
-    await this.listFolder(driveId, path, ListDepth.Deep, undefined, requestOptions);
-
-    const normalized = normalizePath(path);
-    const prefix = normalized ? normalized + '/' : '';
-    const files = this.fileInfoList.filter((f) => f.driveId === driveId.toString() && f.path.startsWith(prefix));
-
-    return this.downloadFiles(files, options, requestOptions);
-  }
-
-  async trashFolder(folder: FolderInfo, requestOptions?: BeeRequestOptions): Promise<void> {
-    await this.setTrashState(
-      folder.driveId,
-      { topic: folder.topic, type: NodeType.Folder, path: folder.path },
-      true,
-      requestOptions,
-    );
-    folder.status = NodeStatus.Trashed;
-    this.emitter.emit(FileManagerEvents.FOLDER_TRASHED, { folder });
-  }
-
-  async recoverFolder(folder: FolderInfo, requestOptions?: BeeRequestOptions): Promise<void> {
-    await this.setTrashState(
-      folder.driveId,
-      { topic: folder.topic, type: NodeType.Folder, path: folder.path },
-      false,
-      requestOptions,
-    );
-    folder.status = NodeStatus.Active;
-    this.emitter.emit(FileManagerEvents.FOLDER_RECOVERED, { folder });
-  }
-
-  async createFolder(
-    driveId: string | Identifier,
-    parentPath: string,
-    folderName: string,
-    redundancyLevel?: RedundancyLevel,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<FolderInfo> {
-    requestOptions?.signal?.throwIfAborted();
-    const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
-
-    if (!folderName || folderName.includes('/')) {
-      throw new DriveError(`Invalid folder name ${folderName}`);
-    }
-
-    const { host: parentHost, folder: parentFolder } = await this.store.resolveHost(
-      cachedDrive,
-      parentPath,
-      publisher,
-      requestOptions,
-    );
-
-    const { folder, node: parentNode } = await this.createFolderNode(
-      cachedDrive,
-      parentHost,
-      parentPath,
-      folderName,
-      publisher,
-      redundancyLevel,
-      requestOptions,
-    );
-
-    const updatedParentManifestRef = await this.store.saveMantarayNode(parentNode, parentHost, requestOptions);
-
-    if (!parentFolder) {
-      this.driveList[driveIx].manifestRef = updatedParentManifestRef;
-    }
-
-    this.emitter.emit(FileManagerEvents.FOLDER_CREATED, { folderInfo: folder });
-
-    return folder;
-  }
-
-  // --- File operations ---
-
-  // Download a single file the caller already holds as a FileRecord — convenience wrapper over
-  // downloadFiles(). Does not re-resolve against drive state (see downloadFiles).
-  async downloadFile(
-    fileRecord: FileRecord,
-    options?: DownloadOptions,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<DownloadResult> {
-    return (await this.downloadFiles([fileRecord], options, requestOptions))[0];
-  }
-
-  /**
-   * Download files whose FileRecords the caller already holds — no drive traversal or hydration.
-   * Fetches exactly the passed records: it does NOT re-resolve them against current drive state,
-   * so the caller is responsible for record currency (a stale record fetches whatever it points at,
-   * e.g. an older version). For folder- or drive-based fetching that resolves fresh, use downloadFolder().
-   */
-  async downloadFiles(
-    fileRecords: FileRecord[],
-    options?: DownloadOptions,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<DownloadResult[]> {
-    requestOptions?.signal?.throwIfAborted();
-    assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-
-    if (fileRecords.length === 0) return [];
-
-    const resources: DownloadResource[] = fileRecords.map((fr) => ({
-      path: fr.path,
-      reference: fr.content.reference,
-      actHistoryAddress: fr.content.historyRef,
-      actPublisher: fr.actPublisher,
-    }));
-
-    return await processDownload(this.bee, resources, options, requestOptions);
-  }
+  // --- File write operations ---
 
   async uploadFile(
     driveId: string | Identifier,
@@ -538,7 +282,7 @@ export class FileManagerBase implements FileManager {
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
     const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
 
-    await assertUploadableSource(item);
+    assertUploadableSource(item);
 
     // Resolve the parent folder up front so the new fork inherits the parent's redundancy level.
     const { parentPath, name: filename } = splitPath(item.path);
@@ -571,7 +315,6 @@ export class FileManagerBase implements FileManager {
       content: contentRefs,
       driveId: cachedDrive.id,
       timestamp: new Date().getTime(),
-      shared: false,
       version,
       customMetadata: item.customMetadata,
       redundancyLevel: rLevel,
@@ -720,9 +463,7 @@ export class FileManagerBase implements FileManager {
         topic: folderTopic,
         manifestRef,
         batchId: cachedDrive.batchId,
-        redundancyLevel: meta[MANIFEST_METADATA_REDUNDANCY_LEVEL]
-          ? (parseInt(meta[MANIFEST_METADATA_REDUNDANCY_LEVEL]) as RedundancyLevel)
-          : cachedDrive.redundancyLevel,
+        redundancyLevel: getRlevel(meta, cachedDrive.redundancyLevel),
         actPublisher: publisher,
       });
     }
@@ -786,7 +527,6 @@ export class FileManagerBase implements FileManager {
           content: contentRefs,
           driveId: cachedDrive.id,
           timestamp: new Date().getTime(),
-          shared: false,
           version,
           customMetadata: planned.item.customMetadata,
           redundancyLevel: rLevel,
@@ -810,7 +550,7 @@ export class FileManagerBase implements FileManager {
 
         return record;
       }),
-      MAX_CONCURRENT_UPLOADS,
+      this.uploadConcurrency,
       (record) => succeeded.push(record),
       (reason, ix) => {
         if (requestOptions?.signal?.aborted) return;
@@ -911,7 +651,6 @@ export class FileManagerBase implements FileManager {
       content: contentRefAndHistory,
       driveId: cached.driveId,
       timestamp: new Date().getTime(),
-      shared: cached.shared ?? false,
       version,
       customMetadata: mergedMetadata,
       redundancyLevel: cached.redundancyLevel,
@@ -928,6 +667,46 @@ export class FileManagerBase implements FileManager {
     return fr;
   }
 
+  // --- File read operations ---
+
+  // Download a single file the caller already holds as a FileRecord — convenience wrapper over
+  // downloadFiles(). Does not re-resolve against drive state (see downloadFiles).
+  async downloadFile(
+    fileRecord: FileRecord,
+    options?: DownloadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<DownloadResult> {
+    return (await this.downloadFiles([fileRecord], options, requestOptions))[0];
+  }
+
+  /**
+   * Download files whose FileRecords the caller already holds — no drive traversal or hydration.
+   * Fetches exactly the passed records: it does NOT re-resolve them against current drive state,
+   * so the caller is responsible for record currency (a stale record fetches whatever it points at,
+   * e.g. an older version). For folder- or drive-based fetching that resolves fresh, use downloadFolder().
+   */
+  async downloadFiles(
+    fileRecords: FileRecord[],
+    options?: DownloadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<DownloadResult[]> {
+    requestOptions?.signal?.throwIfAborted();
+    assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+
+    if (fileRecords.length === 0) return [];
+
+    const resources: DownloadResource[] = fileRecords.map((fr) => ({
+      path: fr.path,
+      reference: fr.content.reference,
+      actHistoryAddress: fr.content.historyRef,
+      actPublisher: fr.actPublisher,
+    }));
+
+    return await processDownload(this.bee, resources, options, requestOptions);
+  }
+
+  // --- File version operations ---
+
   async getFileVersion(
     fr: FileRecord,
     version?: string | FeedIndex,
@@ -935,7 +714,7 @@ export class FileManagerBase implements FileManager {
   ): Promise<FileRecord> {
     assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
 
-    const localHead = this.fileInfoList.find((f) => f.topic === fr.topic);
+    const localHead = this.recordList.find((f) => f.topic === fr.topic);
 
     if (localHead && localHead.version && version) {
       const requested = new FeedIndex(version);
@@ -981,7 +760,7 @@ export class FileManagerBase implements FileManager {
       );
     }
 
-    const cached = this.fileInfoList.find((f) => f.topic === versionToRestore.topic);
+    const cached = this.recordList.find((f) => f.topic === versionToRestore.topic);
 
     const newVersion = feedIndexNext.toString();
     const restored: FileRecord = {
@@ -1003,146 +782,197 @@ export class FileManagerBase implements FileManager {
     });
   }
 
-  async trashFile(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
-    await this.setTrashState(
-      record.driveId,
-      { topic: record.topic, type: NodeType.File, path: record.path, version: record.version },
-      true,
+  // --- Folder operations ---
+
+  async createFolder(
+    driveId: string | Identifier,
+    parentPath: string,
+    folderName: string,
+    redundancyLevel?: RedundancyLevel,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<FolderInfo> {
+    requestOptions?.signal?.throwIfAborted();
+    const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+
+    if (!folderName || folderName.includes('/')) {
+      throw new DriveError(`Invalid folder name ${folderName}`);
+    }
+
+    const { host: parentHost, folder: parentFolder } = await this.store.resolveHost(
+      cachedDrive,
+      parentPath,
+      publisher,
       requestOptions,
     );
-    record.status = NodeStatus.Trashed;
-    this.emitter.emit(FileManagerEvents.FILE_TRASHED, { record });
-  }
 
-  async recoverFile(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
-    await this.setTrashState(
-      record.driveId,
-      { topic: record.topic, type: NodeType.File, path: record.path },
-      false,
+    const { folder, node: parentNode } = await this.createFolderNode(
+      cachedDrive,
+      parentHost,
+      parentPath,
+      folderName,
+      publisher,
+      redundancyLevel,
       requestOptions,
     );
-    record.status = NodeStatus.Active;
-    this.emitter.emit(FileManagerEvents.FILE_RECOVERED, { record });
+
+    const updatedParentManifestRef = await this.store.saveMantarayNode(parentNode, parentHost, requestOptions);
+
+    if (!parentFolder) {
+      this.driveList[driveIx].manifestRef = updatedParentManifestRef;
+    }
+
+    this.emitter.emit(FileManagerEvents.FOLDER_CREATED, { folderInfo: folder });
+
+    return folder;
   }
 
-  async listTrash(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<NodeEntry[]> {
+  // Per BFS walk: (1) expand current manifest node, (2) load file feeds found, (3) resolve folder feeds into next node. Each phase is concurrency-bounded.
+  async listFolder(
+    driveId: string | Identifier,
+    path: string,
+    depth: ListDepth = ListDepth.Shallow,
+    maxDepth?: number,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<NodeEntry[]> {
     requestOptions?.signal?.throwIfAborted();
 
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
     const { cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
 
-    const entries = cachedDrive.trashedNodes ?? [];
-    const owner = this.signerAddress;
-    const trashedResults: NodeEntry[] = [];
+    const { host: startHost } = await this.store.resolveHost(cachedDrive, path, publisher, requestOptions);
+    const startBasePath = normalizePath(path);
 
-    await awaitAllPromisesBounded(
-      entries.map((entry) => async (): Promise<NodeEntry | null> => {
-        const version = entry.version ? new FeedIndex(entry.version).toBigInt() : undefined;
+    const results: NodeEntry[] = [];
+    let visitedNodes: { host: ManifestHost; basePath: string }[] = [{ host: startHost, basePath: startBasePath }];
+    let currentDepth = 0;
+    const depthLimit = depth === ListDepth.Deep ? (maxDepth ?? Number.MAX_SAFE_INTEGER) : 1;
 
-        const feedData = await getFeedData(this.bee, new Topic(entry.topic), owner, version, requestOptions);
+    while (visitedNodes.length > 0 && currentDepth < depthLimit) {
+      requestOptions?.signal?.throwIfAborted();
 
-        if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
-          this.logger.warn(`listTrash: feed not found for ${entry.path} — skipping`);
-          return null;
-        }
+      const headers: NodeHeader[] = [];
+      await awaitAllPromisesBounded(
+        visitedNodes.map((item) => async (): Promise<NodeHeader[]> => {
+          const mantarayNode = await this.store.getMantarayNode(
+            item.host.topic,
+            publisher,
+            item.host.manifestRef,
+            requestOptions,
+          );
 
-        if (entry.type === NodeType.File) {
-          const fr = await this.store.getRecord(entry.topic, publisher, feedData, requestOptions);
-          fr.path = entry.path;
-          fr.status = NodeStatus.Trashed;
-          return fr;
-        }
+          return getAllNodeEntries(mantarayNode).map((e) => ({ ...e, path: joinPath(item.basePath, e.path) }));
+        }),
+        this.feedFetchConcurrency,
+        (entries) => headers.push(...entries),
+        (reason) => {
+          if (requestOptions?.signal?.aborted) return;
+          this.logger.error(`listFolder: failed to expand manifest: ${reason}`);
+        },
+      );
 
-        const manifestRef = feedData.payload.toJSON() as ActReferences;
-        assertActReferences(manifestRef);
+      const fileHeaders = headers.filter((e) => e.type === NodeType.File);
+      await awaitAllPromisesBounded(
+        fileHeaders.map((e) => async (): Promise<FileRecord> => {
+          const owner = e.owner ?? this.signerAddress;
+          const actPublisher = e.actPublisher ?? publisher;
+          const version = e.version ? new FeedIndex(e.version).toBigInt() : undefined;
 
-        return {
-          type: NodeType.Folder,
-          owner,
-          topic: entry.topic,
-          manifestRef,
-          batchId: cachedDrive.batchId,
-          redundancyLevel: cachedDrive.redundancyLevel,
-          actPublisher: publisher,
-          path: entry.path,
-          driveId: cachedDrive.id,
-          status: NodeStatus.Trashed,
-        };
-      }),
-      MAX_CONCURRENT_FEED_FETCHES,
-      (node) => {
-        if (node) trashedResults.push(node);
-      },
-      (reason, ix) => {
-        if (requestOptions?.signal?.aborted) return;
-        this.logger.error(`listTrash: failed to resolve ${entries[ix].path}: ${reason}`);
-      },
-    );
+          const { record } = await this.loadRecord(e.topic, owner, actPublisher, version, requestOptions);
+          record.path = e.path;
+          record.status = getRecordStatus(cachedDrive, e.topic);
+          return record;
+        }),
+        this.feedFetchConcurrency,
+        (record) => {
+          if (!this.recordList.some((f) => f.topic === record.topic)) this._recordList.push(record);
+          results.push(record);
+        },
+        (reason, ix) => {
+          if (requestOptions?.signal?.aborted) return;
+          this.logger.error(`listFolder: failed to load file ${fileHeaders[ix].topic}: ${reason}`);
+        },
+      );
 
-    return trashedResults;
+      const folderHeaders = headers.filter((e) => e.type === NodeType.Folder);
+      const nextFrontier: { host: ManifestHost; basePath: string }[] = [];
+      await awaitAllPromisesBounded(
+        folderHeaders.map((e) => async (): Promise<FolderInfo | null> => {
+          const owner = e.owner ?? this.signerAddress;
+          // Probe the feed head. A folder is a container and carries no stored version
+          const { payload, feedIndex, feedIndexNext } = await getFeedData(
+            this.bee,
+            new Topic(e.topic),
+            owner,
+            undefined,
+            requestOptions,
+          );
+
+          if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
+            this.logger.warn(`listFolder: folder feed not found for ${e.path} — skipping`);
+            return null;
+          }
+
+          const manifestRef: ActReferences = payload.toJSON() as ActReferences;
+          assertActReferences(manifestRef);
+          this.store.setNodeFeedIndex(e.topic, feedIndexNext.toBigInt());
+
+          return {
+            type: NodeType.Folder,
+            owner,
+            topic: e.topic,
+            manifestRef,
+            batchId: cachedDrive.batchId,
+            redundancyLevel: getRlevel(e.rawMetadata, cachedDrive.redundancyLevel),
+            actPublisher: e.actPublisher ?? publisher,
+            path: e.path,
+            driveId: cachedDrive.id,
+            status: getRecordStatus(cachedDrive, e.topic),
+          };
+        }),
+        this.feedFetchConcurrency,
+        (folder) => {
+          if (folder) {
+            results.push(folder);
+            if (folder.status !== NodeStatus.Trashed) {
+              nextFrontier.push({ host: folder, basePath: folder.path });
+            }
+          }
+        },
+        (reason, ix) => {
+          if (requestOptions?.signal?.aborted) return;
+          this.logger.error(`listFolder: failed to resolve folder ${folderHeaders[ix].path}: ${reason}`);
+        },
+      );
+
+      // Shallow lists one level: depthLimit is 1, so the loop exits before descending into nextFrontier.
+      visitedNodes = nextFrontier;
+      currentDepth++;
+    }
+
+    requestOptions?.signal?.throwIfAborted();
+
+    return results;
   }
 
-  async forget(driveId: string | Identifier, path: string, requestOptions?: BeeRequestOptions): Promise<void> {
+  // Download an entire folder subtree of a drive: resolves the subtree's records fresh (hydrating
+  // via listFolder), then fetches them. path '/' the whole drive.
+  async downloadFolder(
+    driveId: string | Identifier,
+    path: string,
+    options?: DownloadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<DownloadResult[]> {
     requestOptions?.signal?.throwIfAborted();
-    const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+    assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
 
-    if (!path || path === ROOT_PATH) {
-      throw new DriveError('Cannot forget drive root');
-    }
+    await this.listFolder(driveId, path, ListDepth.Deep, undefined, requestOptions);
 
-    const { parentPath, name } = splitPath(path);
+    const normalized = normalizePath(path);
+    const prefix = normalized ? normalized + '/' : '';
+    const files = this.recordList.filter((f) => f.driveId === driveId.toString() && f.path.startsWith(prefix));
 
-    const {
-      host: parentHost,
-      folder: parentFolder,
-      node: parentNode,
-    } = await this.store.resolveHostMantaray(cachedDrive, parentPath, publisher, requestOptions);
-
-    const fork = parentNode.find(name);
-    if (!fork) {
-      throw new FileRecordError(`Path not found: ${path}`);
-    }
-
-    const meta = fork.metadata ?? {};
-    const nodeType = meta[MANIFEST_METADATA_NODE_TYPE] as NodeType | undefined;
-    const nodeTopic = meta[MANIFEST_METADATA_NODE_TOPIC];
-
-    parentNode.removeFork(name);
-    const newManifestRef = await this.store.saveMantarayNode(parentNode, parentHost, requestOptions);
-
-    if (!parentFolder) {
-      this.driveList[driveIx].manifestRef = newManifestRef;
-    }
-
-    if (nodeType === NodeType.Folder) {
-      if (nodeTopic) {
-        this.store.evict(nodeTopic);
-      }
-
-      const prefix = path.endsWith('/') ? path : path + '/';
-      for (let i = this.fileInfoList.length - 1; i >= 0; --i) {
-        const f = this.fileInfoList[i];
-        if (f.driveId === cachedDrive.id && f.path.startsWith(prefix)) {
-          this.fileInfoList.splice(i, 1);
-        }
-      }
-
-      await this.pruneTrashOverlay(driveIx, (n) => n.topic === nodeTopic || n.path.startsWith(prefix), requestOptions);
-      this.emitter.emit(FileManagerEvents.FOLDER_FORGOTTEN, { driveInfo: cachedDrive, path });
-
-      return;
-    }
-
-    const fiIndex = this.fileInfoList.findIndex((f) => f.driveId === cachedDrive.id && f.path === path);
-
-    const forgotten = fiIndex !== -1 ? this.fileInfoList[fiIndex] : undefined;
-    if (fiIndex !== -1) {
-      this.fileInfoList.splice(fiIndex, 1);
-    }
-
-    await this.pruneTrashOverlay(driveIx, (n) => n.topic === nodeTopic, requestOptions);
-    this.emitter.emit(FileManagerEvents.FILE_FORGOTTEN, { record: forgotten, path });
+    return this.downloadFiles(files, options, requestOptions);
   }
 
   async move(
@@ -1184,8 +1014,6 @@ export class FileManagerBase implements FileManager {
     const { parentPath: srcParentPath, name: srcName } = splitPath(fromPath);
     const { parentPath: tgtParentPath, name: tgtName } = splitPath(toPath);
 
-    // TODO: important! drivinfo shall also have a publisher and shall be passed on to each manifest get ! not always the node.address -> fm owner != shared drive publisher
-    // resolve source node here - throws if not found
     const {
       host: srcParentHost,
       folder: srcParentFolder,
@@ -1263,7 +1091,7 @@ export class FileManagerBase implements FileManager {
       // reset the in-memory cache
       const fromPrefix = fromPath + '/';
       const toPrefix = toPath + '/';
-      for (const f of this.fileInfoList) {
+      for (const f of this.recordList) {
         if (f.driveId === sourceDriveId.toString() && f.path.startsWith(fromPrefix)) {
           f.path = toPrefix + f.path.substring(fromPrefix.length);
           if (isCrossDrive) {
@@ -1296,30 +1124,170 @@ export class FileManagerBase implements FileManager {
     this.emitter.emit(FileManagerEvents.FILE_MOVED, { fromPath, toPath });
   }
 
-  // --- Sharing and grantee management ---
+  async forget(driveId: string | Identifier, path: string, requestOptions?: BeeRequestOptions): Promise<void> {
+    requestOptions?.signal?.throwIfAborted();
+    const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
 
-  // eslint-disable-next-line require-await
-  async getGrantees(_: FileRecord): Promise<GetGranteesResult> {
-    throw new GranteeError('getGrantees: not yet implemented');
+    if (!path || path === ROOT_PATH) {
+      throw new DriveError('Cannot forget drive root');
+    }
+
+    const { parentPath, name } = splitPath(path);
+
+    const {
+      host: parentHost,
+      folder: parentFolder,
+      node: parentNode,
+    } = await this.store.resolveHostMantaray(cachedDrive, parentPath, publisher, requestOptions);
+
+    const fork = parentNode.find(name);
+    if (!fork) {
+      throw new FileRecordError(`Path not found: ${path}`);
+    }
+
+    const meta = fork.metadata ?? {};
+    const nodeType = meta[MANIFEST_METADATA_NODE_TYPE] as NodeType | undefined;
+    const nodeTopic = meta[MANIFEST_METADATA_NODE_TOPIC];
+
+    parentNode.removeFork(name);
+    const newManifestRef = await this.store.saveMantarayNode(parentNode, parentHost, requestOptions);
+
+    if (!parentFolder) {
+      this.driveList[driveIx].manifestRef = newManifestRef;
+    }
+
+    if (nodeType === NodeType.Folder) {
+      if (nodeTopic) {
+        this.store.evict(nodeTopic);
+      }
+
+      const prefix = path.endsWith('/') ? path : path + '/';
+      for (let i = this.recordList.length - 1; i >= 0; --i) {
+        const f = this.recordList[i];
+        if (f.driveId === cachedDrive.id && f.path.startsWith(prefix)) {
+          this._recordList.splice(i, 1);
+        }
+      }
+
+      await this.pruneTrashOverlay(driveIx, (n) => n.topic === nodeTopic || n.path.startsWith(prefix), requestOptions);
+      this.emitter.emit(FileManagerEvents.FOLDER_FORGOTTEN, { driveInfo: cachedDrive, path });
+
+      return;
+    }
+
+    const fiIndex = this.recordList.findIndex((f) => f.driveId === cachedDrive.id && f.path === path);
+
+    const forgotten = fiIndex !== -1 ? this.recordList[fiIndex] : undefined;
+    if (fiIndex !== -1) {
+      this._recordList.splice(fiIndex, 1);
+    }
+
+    await this.pruneTrashOverlay(driveIx, (n) => n.topic === nodeTopic, requestOptions);
+    this.emitter.emit(FileManagerEvents.FILE_FORGOTTEN, { record: forgotten, path });
   }
 
-  // eslint-disable-next-line require-await
-  async subscribeToSharedInbox(_topic: string, _callback?: (_data: ShareItem) => void): Promise<void> {
-    throw new SubscriptionError('subscribeToSharedInbox: not yet implemented');
+  // --- Trash operations ---
+
+  async trashFile(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
+    await this.setTrashState(
+      record.driveId,
+      { topic: record.topic, type: NodeType.File, path: record.path, version: record.version },
+      true,
+      requestOptions,
+    );
+    record.status = NodeStatus.Trashed;
+    this.emitter.emit(FileManagerEvents.FILE_TRASHED, { record });
   }
 
-  unsubscribeFromSharedInbox(): void {
-    throw new SubscriptionError('unsubscribeFromSharedInbox: not yet implemented');
+  async recoverFile(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
+    await this.setTrashState(
+      record.driveId,
+      { topic: record.topic, type: NodeType.File, path: record.path },
+      false,
+      requestOptions,
+    );
+    record.status = NodeStatus.Active;
+    this.emitter.emit(FileManagerEvents.FILE_RECOVERED, { record });
   }
 
-  // eslint-disable-next-line require-await
-  async share(
-    _fileInfo: FileRecord,
-    _targetOverlays: string[],
-    _recipients: string[],
-    _message?: string,
-  ): Promise<void> {
-    throw new SendShareMessageError('share: not yet implemented');
+  async trashFolder(folder: FolderInfo, requestOptions?: BeeRequestOptions): Promise<void> {
+    await this.setTrashState(
+      folder.driveId,
+      { topic: folder.topic, type: NodeType.Folder, path: folder.path },
+      true,
+      requestOptions,
+    );
+    folder.status = NodeStatus.Trashed;
+    this.emitter.emit(FileManagerEvents.FOLDER_TRASHED, { folder });
+  }
+
+  async recoverFolder(folder: FolderInfo, requestOptions?: BeeRequestOptions): Promise<void> {
+    await this.setTrashState(
+      folder.driveId,
+      { topic: folder.topic, type: NodeType.Folder, path: folder.path },
+      false,
+      requestOptions,
+    );
+    folder.status = NodeStatus.Active;
+    this.emitter.emit(FileManagerEvents.FOLDER_RECOVERED, { folder });
+  }
+
+  async listTrash(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<NodeEntry[]> {
+    requestOptions?.signal?.throwIfAborted();
+
+    const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+    const { cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+
+    const entries = cachedDrive.trashedNodes ?? [];
+    const owner = this.signerAddress;
+    const trashedResults: NodeEntry[] = [];
+
+    await awaitAllPromisesBounded(
+      entries.map((entry) => async (): Promise<NodeEntry | null> => {
+        const version = entry.version ? new FeedIndex(entry.version).toBigInt() : undefined;
+
+        const feedData = await getFeedData(this.bee, new Topic(entry.topic), owner, version, requestOptions);
+
+        if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
+          this.logger.warn(`listTrash: feed not found for ${entry.path} — skipping`);
+          return null;
+        }
+
+        if (entry.type === NodeType.File) {
+          const fr = await this.store.getRecord(entry.topic, publisher, feedData, requestOptions);
+          fr.path = entry.path;
+          fr.status = NodeStatus.Trashed;
+          return fr;
+        }
+
+        const manifestRef = feedData.payload.toJSON() as ActReferences;
+        assertActReferences(manifestRef);
+
+        return {
+          type: NodeType.Folder,
+          owner,
+          topic: entry.topic,
+          manifestRef,
+          batchId: cachedDrive.batchId,
+          redundancyLevel: cachedDrive.redundancyLevel,
+          actPublisher: publisher,
+          path: entry.path,
+          driveId: cachedDrive.id,
+          status: NodeStatus.Trashed,
+        };
+      }),
+      this.feedFetchConcurrency,
+      (node) => {
+        if (node) trashedResults.push(node);
+      },
+      (reason, ix) => {
+        if (requestOptions?.signal?.aborted) return;
+        this.logger.error(`listTrash: failed to resolve ${entries[ix].path}: ${reason}`);
+      },
+    );
+
+    return trashedResults;
   }
 
   // --- Private helpers ---
@@ -1419,7 +1387,7 @@ export class FileManagerBase implements FileManager {
     adminMantaray.addFork(getDriveForkPath(newDrive.id), new Reference(newDrive.topic), driveForkMetadata(newDrive));
     await this.store.saveMantarayNode(adminMantaray, adminHost, requestOptions);
 
-    this.driveList.push(newDrive);
+    this._driveList.push(newDrive);
     this.emitter.emit(FileManagerEvents.DRIVE_CREATED, { driveInfo: newDrive });
 
     return newDrive;
@@ -1444,7 +1412,7 @@ export class FileManagerBase implements FileManager {
     }
 
     if (reset) {
-      this.driveList.length = 0;
+      this._driveList.length = 0;
       this.store.clear();
     }
 
@@ -1480,7 +1448,7 @@ export class FileManagerBase implements FileManager {
     if (!this.publisher) {
       throw new SignerError('Publisher not found');
     }
-    // TODO: possible performance improvement: store version next to stateFeedTopic
+
     const { payload, feedIndex, feedIndexNext } = await getFeedData(
       this.bee,
       this.stateFeedTopic,
@@ -1548,13 +1516,43 @@ export class FileManagerBase implements FileManager {
       }),
       (driveInfo) => {
         if (driveInfo) {
-          this.driveList.push(driveInfo);
+          this._driveList.push(driveInfo);
         }
       },
       (reason) =>
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         this.logger.error(`initDriveList: failed to load drive from fork: ${(reason as any)?.message || reason}`),
     );
+  }
+
+  private async fetchAndSetAdminStamp(batchId: string | BatchId, requestOptions?: BeeRequestOptions): Promise<void> {
+    const adminStamp = await fetchStamp(this.bee, batchId, requestOptions);
+    const logText = `Admin stamp with batchId: ${batchId.toString().slice(0, 6)}...`;
+
+    if (!adminStamp) {
+      this._adminStamp = undefined;
+      this.logger.warn(`${logText} not found.`);
+      return;
+    }
+    if (adminStamp.usable) {
+      this.logger.debug(`${logText} found and set.`);
+    } else {
+      this.logger.warn(`${logText} is unusable.`);
+    }
+
+    this._adminStamp = adminStamp;
+  }
+
+  private findDriveOrThrow(driveId: string): { driveIx: number; cachedDrive: DriveInfo } {
+    const driveIx = this.driveList.findIndex((d) => d.id === driveId);
+
+    if (driveIx == -1) {
+      throw new DriveError(`Drive with id ${driveId.slice(0, 6)} not found`);
+    }
+
+    const cachedDrive = this.driveList[driveIx];
+
+    return { driveIx, cachedDrive };
   }
 
   private async pruneDriveMetadata(
@@ -1578,12 +1576,12 @@ export class FileManagerBase implements FileManager {
     adminMantaray.removeFork(getDriveForkPath(driveInfo.id));
     await this.store.saveMantarayNode(adminMantaray, adminHost, requestOptions);
 
-    this.driveList.splice(driveIndex, 1);
+    this._driveList.splice(driveIndex, 1);
     this.store.evict(driveInfo.topic);
 
-    for (let i = this.fileInfoList.length - 1; i >= 0; --i) {
-      if (this.fileInfoList[i].driveId === driveInfo.id) {
-        this.fileInfoList.splice(i, 1);
+    for (let i = this.recordList.length - 1; i >= 0; --i) {
+      if (this.recordList[i].driveId === driveInfo.id) {
+        this._recordList.splice(i, 1);
       }
     }
   }
@@ -1627,36 +1625,6 @@ export class FileManagerBase implements FileManager {
     return { folder: fi, node: parentNode };
   }
 
-  private async fetchAndSetAdminStamp(batchId: string | BatchId, requestOptions?: BeeRequestOptions): Promise<void> {
-    const adminStamp = await fetchStamp(this.bee, batchId, requestOptions);
-    const logText = `Admin stamp with batchId: ${batchId.toString().slice(0, 6)}...`;
-
-    if (!adminStamp) {
-      this._adminStamp = undefined;
-      this.logger.warn(`${logText} not found.`);
-      return;
-    }
-    if (adminStamp.usable) {
-      this.logger.debug(`${logText} found and set.`);
-    } else {
-      this.logger.warn(`${logText} is unusable.`);
-    }
-
-    this._adminStamp = adminStamp;
-  }
-
-  private findDriveOrThrow(driveId: string): { driveIx: number; cachedDrive: DriveInfo } {
-    const driveIx = this.driveList.findIndex((d) => d.id === driveId);
-
-    if (driveIx == -1) {
-      throw new DriveError(`Drive with id ${driveId.slice(0, 6)} not found`);
-    }
-
-    const cachedDrive = this.driveList[driveIx];
-
-    return { driveIx, cachedDrive };
-  }
-
   private async syncForkVersion(
     drive: DriveInfo,
     driveIx: number,
@@ -1695,7 +1663,7 @@ export class FileManagerBase implements FileManager {
     version?: bigint,
     requestOptions?: BeeRequestOptions,
   ): Promise<{ record: FileRecord; fromCache: boolean }> {
-    const cached = this.fileInfoList.find((f) => f.topic === topic);
+    const cached = this.recordList.find((f) => f.topic === topic);
     if (cached) {
       return { record: cached, fromCache: true };
     }
@@ -1706,7 +1674,7 @@ export class FileManagerBase implements FileManager {
     }
 
     const loaded = await this.store.getRecord(topic, actPublisher, feedData, requestOptions);
-    this.fileInfoList.push(loaded);
+    this._recordList.push(loaded);
 
     return { record: loaded, fromCache: false };
   }
@@ -1719,11 +1687,11 @@ export class FileManagerBase implements FileManager {
       throw new FileRecordError(`Failed to save record`, err);
     }
 
-    const existingIx = this.fileInfoList.findIndex((f) => f.topic === fr.topic);
+    const existingIx = this.recordList.findIndex((f) => f.topic === fr.topic);
     if (existingIx !== -1) {
-      this.fileInfoList[existingIx] = fr;
+      this._recordList[existingIx] = fr;
     } else {
-      this.fileInfoList.push(fr);
+      this._recordList.push(fr);
     }
   }
 
@@ -1743,11 +1711,11 @@ export class FileManagerBase implements FileManager {
       throw new FileRecordError(`Not trashed, cannot recover: ${entry.path}`);
     }
 
-    await this.persistAdminDriveFork(driveIx, requestOptions);
-
     const current = cachedDrive.trashedNodes ?? [];
     const withoutEntry = current.filter((n) => n.topic !== entry.topic);
     cachedDrive.trashedNodes = isTrashed ? [...withoutEntry, entry] : withoutEntry;
+    await this.persistAdminDriveFork(driveIx, requestOptions);
+
     return cachedDrive;
   }
 

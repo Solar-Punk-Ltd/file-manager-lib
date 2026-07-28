@@ -1,4 +1,12 @@
-import { Bee, BeeRequestOptions, DownloadOptions, MantarayNode, PrivateKey, Reference } from '@ethersphere/bee-js';
+import {
+  Bee,
+  BeeRequestOptions,
+  DownloadOptions,
+  MantarayNode,
+  PrivateKey,
+  RedundancyLevel,
+  Reference,
+} from '@ethersphere/bee-js';
 
 import { DriveInfo, FileRecord, FolderInfo, ManifestHost, NodeHeader, NodeType } from '../types/info';
 import { ActReferences } from '../types/utils';
@@ -125,4 +133,18 @@ export function driveForkMetadata(drive: DriveInfo): Record<string, string> {
 
 export function getDriveForkPath(driveId: string): string {
   return `${DRIVE_FORK_PREFIX}-${driveId}`;
+}
+
+export function getRlevel(meta: Record<string, string>, cachedRlevel: RedundancyLevel): RedundancyLevel {
+  const raw = meta[MANIFEST_METADATA_REDUNDANCY_LEVEL];
+  if (!raw) {
+    return cachedRlevel;
+  }
+
+  const parsed = parseInt(raw, 10);
+  if (!Number.isInteger(parsed) || parsed < RedundancyLevel.OFF || parsed > RedundancyLevel.PARANOID) {
+    return cachedRlevel;
+  }
+
+  return parsed as RedundancyLevel;
 }
