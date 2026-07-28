@@ -36,7 +36,6 @@ export interface ReferenceWithHistory {
 
 export interface WrappedFileInfoFeed {
   topic: string | Topic;
-  eGranteeRef?: string | Reference;
 }
 
 interface FeedUpdateHeaders {

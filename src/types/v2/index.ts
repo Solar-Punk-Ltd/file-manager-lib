@@ -6,7 +6,6 @@ export type {
   NodeEntry,
   NodeHeader,
   NodeResource,
-  ShareItem,
   TrashEntry,
 } from './info';
 export { ListDepth, NodeType, NodeStatus } from './info';

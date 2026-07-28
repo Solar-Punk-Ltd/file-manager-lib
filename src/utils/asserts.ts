@@ -1,7 +1,7 @@
 import { BatchId, EthAddress, FeedIndex, Identifier, PublicKey, Reference, Topic } from '@ethersphere/bee-js';
 import { Types } from 'cafe-utility';
 
-import { DriveInfo, FileInfo, ShareItem } from '../types';
+import { DriveInfo, FileInfo } from '../types';
 import { StateTopicInfo, WrappedFileInfoFeed, WrappedUploadResult } from '../types/utils';
 
 export function isRecord(value: unknown): value is Record<string, string> {
@@ -39,34 +39,12 @@ export function assertFileInfo(value: unknown): asserts value is FileInfo {
     new Reference(fi.preview.historyRef);
   }
 
-  if (fi.shared !== undefined && typeof fi.shared !== 'boolean') {
-    throw new TypeError('shared property of FileInfo has to be boolean!');
-  }
-
   if (fi.redundancyLevel !== undefined && typeof fi.redundancyLevel !== 'number') {
     throw new TypeError('redundancyLevel property of FileInfo has to be number!');
   }
 
   if (fi.status !== undefined && typeof fi.status !== 'string') {
     throw new TypeError('status property of FileInfo has to be string!');
-  }
-}
-
-export function assertShareItem(value: unknown): asserts value is ShareItem {
-  if (!Types.isStrictlyObject(value)) {
-    throw new TypeError('ShareItem has to be object!');
-  }
-
-  const item = value as unknown as ShareItem;
-
-  assertFileInfo(item.fileInfo);
-
-  if (item.timestamp !== undefined && typeof item.timestamp !== 'number') {
-    throw new TypeError('timestamp property of ShareItem has to be number!');
-  }
-
-  if (item.message !== undefined && typeof item.message !== 'string') {
-    throw new TypeError('message property of ShareItem has to be string!');
   }
 }
 
@@ -78,10 +56,6 @@ export function assertWrappedFileInfoFeed(value: unknown): asserts value is Wrap
   const wmf = value as unknown as WrappedFileInfoFeed;
 
   new Topic(wmf.topic);
-
-  if (wmf.eGranteeRef !== undefined) {
-    new Reference(wmf.eGranteeRef);
-  }
 }
 
 export function assertWrappedUploadResult(value: unknown): asserts value is WrappedUploadResult {

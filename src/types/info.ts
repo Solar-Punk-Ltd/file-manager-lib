@@ -17,19 +17,12 @@ export interface FileInfo {
   topic: string | Topic;
   driveId: string;
   timestamp?: number;
-  shared?: boolean;
   preview?: ReferenceWithHistory;
   version?: string | undefined;
   index?: FeedIndex | undefined;
   redundancyLevel?: RedundancyLevel;
   customMetadata?: Record<string, string>;
   status?: FileStatus;
-}
-
-export interface ShareItem {
-  fileInfo: FileInfo;
-  timestamp?: number;
-  message?: string;
 }
 
 export interface DriveInfo {

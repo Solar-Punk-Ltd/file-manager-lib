@@ -8,7 +8,6 @@ import {
   EthAddress,
   FeedIndex,
   FileUploadOptions,
-  GetGranteesResult,
   Identifier,
   PostageBatch,
   PrivateKey,
@@ -28,7 +27,7 @@ import { generateRandomBytes } from './utils/crypto';
 import { getForksMap, loadMantaray } from './utils/mantaray';
 import { processDownload } from './download';
 import { EventEmitter, EventEmitterBase } from './eventEmitter';
-import { DriveInfo, FileInfo, FileInfoOptions, FileManager, FileStatus, ShareItem } from './types';
+import { DriveInfo, FileInfo, FileInfoOptions, FileManager, FileStatus } from './types';
 import { processUpload } from './upload';
 import {
   ADMIN_STAMP_LABEL,
@@ -37,7 +36,6 @@ import {
   FileInfoError,
   FILEMANAGER_STATE_TOPIC,
   FileManagerEvents,
-  GranteeError,
   SignerError,
   StampError,
 } from './utils';
@@ -55,7 +53,6 @@ export class FileManagerBase implements FileManager {
 
   readonly driveList: DriveInfo[] = [];
   readonly fileInfoList: FileInfo[] = [];
-  readonly sharedWithMe: ShareItem[] = [];
   readonly emitter: EventEmitter;
 
   get adminStamp(): PostageBatch | undefined {
@@ -485,7 +482,6 @@ export class FileManagerBase implements FileManager {
       file,
       driveId: driveInfo.id.toString(),
       timestamp: new Date().getTime(),
-      shared: false,
       preview: undefined,
       version,
       customMetadata: fileOptions.customMetadata,
@@ -519,10 +515,8 @@ export class FileManagerBase implements FileManager {
       return;
     }
 
-    // overwrite the existing grantee reference if it exists, as they do not have access to the new version
     this.driveList[driveIndex].infoFeedList[infoIx] = {
       topic,
-      eGranteeRef: undefined,
     };
   }
 
@@ -835,37 +829,5 @@ export class FileManagerBase implements FileManager {
     await this.pruneDriveMetadata(driveInfo);
     console.debug(`Drive forgotten (metadata only): ${driveInfo.name}`);
     this.emitter.emit(FileManagerEvents.DRIVE_FORGOTTEN, { driveInfo });
-  }
-
-  // eslint-disable-next-line require-await
-  async getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult> {
-    const driveIx = this.driveList.findIndex((d) => d.id.toString() === fileInfo.driveId);
-    if (driveIx === -1) {
-      throw new GranteeError(`Drive not found for file: ${fileInfo.name}`);
-    }
-
-    const info = this.driveList[driveIx].infoFeedList?.find((wf) => wf.topic === fileInfo.topic);
-    if (!info || !info.eGranteeRef) {
-      throw new GranteeError(`Grantee list or file not found for file: ${fileInfo.name}`);
-    }
-
-    return this.bee.getGrantees(info.eGranteeRef);
-  }
-
-  // eslint-disable-next-line require-await
-  async subscribeToSharedInbox(_topic: string, _callback?: (_data: ShareItem) => void): Promise<void> {
-    /** no-op */
-    return;
-  }
-
-  unsubscribeFromSharedInbox(): void {
-    /** no-op */
-    return;
-  }
-
-  // eslint-disable-next-line require-await
-  async share(_fileInfo: FileInfo, _targetOverlays: string[], _recipients: string[], _message?: string): Promise<void> {
-    /** no-op */
-    return;
   }
 }

@@ -40,7 +40,6 @@ import {
   FileInfoError,
   FILEMANAGER_STATE_TOPIC,
   FileManagerEvents,
-  GranteeError,
   StampError,
 } from '@/utils';
 import { assertStateTopicInfo } from '@/utils/asserts';
@@ -72,7 +71,6 @@ describe('FileManager initialization', () => {
 
   it('should create and initialize a new instance and check if admin stamp is not found', async () => {
     expect(fileManager.fileInfoList).toEqual([]);
-    expect(fileManager.sharedWithMe).toEqual([]);
 
     const otherBee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
     const fm2 = new FileManagerBase(otherBee);
@@ -90,12 +88,10 @@ describe('FileManager initialization', () => {
     }
 
     expect(fm2.fileInfoList).toEqual([]);
-    expect(fm2.sharedWithMe).toEqual([]);
   });
 
   it('should initialize the admin feed and topic', async () => {
     expect(fileManager.fileInfoList).toEqual([]);
-    expect(fileManager.sharedWithMe).toEqual([]);
 
     const { payload } = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 0n);
     const feedTopicState = payload.toJSON() as StateTopicInfo;
@@ -517,7 +513,6 @@ describe('FileManager drive handling', () => {
       file: { reference: '0xref', historyRef: '0xhref' },
       driveId,
       timestamp: now,
-      shared: false,
       version: '0',
       redundancyLevel: RedundancyLevel.OFF,
       status: FileStatus.Active,
@@ -1375,40 +1370,6 @@ describe('FileManager version control', () => {
     const after = await fileManager.getVersion(base, headIdx);
     expect(after.version).toBe(before.version);
     expect(after.file.reference).toBe(before.file.reference);
-  });
-});
-
-describe('FileManager getGranteesOfFile', () => {
-  let bee: BeeDev;
-  let fileManager: FileManagerBase;
-  let signer: PrivateKey;
-
-  beforeAll(async () => {
-    const { bee: beeDev, ownerStamp, signer: newSigner } = await ensureUniqueSignerWithStamp();
-    bee = beeDev;
-    fileManager = await createInitializedFileManager(bee, ownerStamp);
-    signer = newSigner;
-  });
-
-  it('should throw an error if grantee list is not found for a file', async () => {
-    const fileInfo: FileInfo = {
-      batchId: 'dummyBatchId',
-      topic: Topic.fromString('nonexistent-topic').toString(),
-      file: {
-        reference: new Reference('1'.repeat(64)).toString(),
-        historyRef: new Reference('0'.repeat(64)).toString(),
-      },
-      owner: signer.publicKey().address().toString(),
-      name: 'dummyFile',
-      timestamp: Date.now(),
-      shared: false,
-      version: FEED_INDEX_ZERO.toString(),
-      driveId: 'dummyDriveId',
-      actPublisher: 'dummyActPublisher',
-    };
-    await expect(fileManager.getGrantees(fileInfo)).rejects.toThrow(
-      new GranteeError(`Drive not found for file: ${fileInfo.name}`),
-    );
   });
 });
 

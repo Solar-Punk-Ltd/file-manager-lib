@@ -9,7 +9,6 @@ provide:
 - **Access Control (ACT)** — enforceable read/unwrapping via publisher + history address.
 - **Versioning** — restore any historical version to head.
 - **Soft delete / recover / forget** — manage lifecycle without losing underlying Swarm data.
-- **Sharing** — manage grantees and share notifications.
 - **Browser + Node.js support** — unified API.
 
 > Full method-level documentation: see [REFERENCE.md](REFERENCE.md). Test coverage and usage patterns: see

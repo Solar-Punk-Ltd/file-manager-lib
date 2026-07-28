@@ -6,7 +6,6 @@ export {
   assertFolderInfo,
   assertNodeResource,
   assertReady,
-  assertShareItem,
   isRecord,
   parseTrashedNodes,
 } from './asserts';

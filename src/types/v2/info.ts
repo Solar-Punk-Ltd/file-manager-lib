@@ -34,9 +34,7 @@ export interface FileRecord extends NodeResource {
   path: string;
   content: ActReferences;
   timestamp?: number;
-  shared?: boolean;
   customMetadata?: Record<string, string>;
-  granteeListRef?: string;
 }
 
 export interface ManifestHost extends NodeResource {
@@ -76,10 +74,4 @@ export interface NodeHeader {
   version?: string;
   head?: ActReferences;
   rawMetadata: Record<string, string>;
-}
-
-export interface ShareItem {
-  record: FileRecord;
-  timestamp?: number;
-  message?: string;
 }
