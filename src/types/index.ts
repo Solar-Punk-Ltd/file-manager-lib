@@ -19,4 +19,4 @@ export type {
 } from './upload';
 export type { DownloadResource, DownloadResult } from './download';
 export type { ActReferences } from './utils';
-export type { FileManager } from './fileManager';
+export type { FileManager, FileManagerConfig } from './fileManager';

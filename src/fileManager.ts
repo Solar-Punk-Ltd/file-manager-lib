@@ -18,7 +18,7 @@ import {
 } from '@ethersphere/bee-js';
 
 import { DownloadResource, DownloadResult } from './types/download';
-import { FileManager } from './types/fileManager';
+import { FileManager, FileManagerConfig } from './types/fileManager';
 import {
   DriveInfo,
   FileRecord,
@@ -78,11 +78,12 @@ export class FileManagerBase implements FileManager {
   private signerAddress: string;
   private publisher: PublicKey | undefined = undefined;
   private stateFeedTopic: Topic | undefined = undefined;
-  private _isInitialized: boolean = false;
   private isInitializing: boolean = false;
   private adminRedundancyLevel: RedundancyLevel = RedundancyLevel.OFF;
-
+  private uploadConcurrency: number;
+  private feedFetchConcurrency: number;
   private _adminStamp: PostageBatch | undefined = undefined;
+  private _isInitialized: boolean = false;
   private readonly _driveList: DriveInfo[] = [];
   private readonly _recordList: FileRecord[] = [];
   private readonly store: MantarayStore;
@@ -111,13 +112,15 @@ export class FileManagerBase implements FileManager {
 
   // --- Initialization ---
 
-  constructor(bee: Bee, emitter: EventEmitter = new EventEmitterBase()) {
+  constructor(bee: Bee, emitter: EventEmitter = new EventEmitterBase(), config?: FileManagerConfig) {
     this.bee = bee;
     if (!this.bee.signer) {
       throw new SignerError('Signer required');
     }
 
     this.emitter = emitter;
+    this.uploadConcurrency = Math.max(1, config?.uploadConcurrency ?? MAX_CONCURRENT_UPLOADS);
+    this.feedFetchConcurrency = Math.max(1, config?.feedFetchConcurrency ?? MAX_CONCURRENT_FEED_FETCHES);
     this.signer = this.bee.signer;
     this.signerAddress = this.signer.publicKey().address().toString();
     this.store = new MantarayStore(this.bee, this.signer);
@@ -547,7 +550,7 @@ export class FileManagerBase implements FileManager {
 
         return record;
       }),
-      MAX_CONCURRENT_UPLOADS,
+      this.uploadConcurrency,
       (record) => succeeded.push(record),
       (reason, ix) => {
         if (requestOptions?.signal?.aborted) return;
@@ -860,7 +863,7 @@ export class FileManagerBase implements FileManager {
 
           return getAllNodeEntries(mantarayNode).map((e) => ({ ...e, path: joinPath(item.basePath, e.path) }));
         }),
-        MAX_CONCURRENT_FEED_FETCHES,
+        this.feedFetchConcurrency,
         (entries) => headers.push(...entries),
         (reason) => {
           if (requestOptions?.signal?.aborted) return;
@@ -880,7 +883,7 @@ export class FileManagerBase implements FileManager {
           record.status = getRecordStatus(cachedDrive, e.topic);
           return record;
         }),
-        MAX_CONCURRENT_FEED_FETCHES,
+        this.feedFetchConcurrency,
         (record) => {
           if (!this.recordList.some((f) => f.topic === record.topic)) this._recordList.push(record);
           results.push(record);
@@ -927,7 +930,7 @@ export class FileManagerBase implements FileManager {
             status: getRecordStatus(cachedDrive, e.topic),
           };
         }),
-        MAX_CONCURRENT_FEED_FETCHES,
+        this.feedFetchConcurrency,
         (folder) => {
           if (folder) {
             results.push(folder);
@@ -1274,7 +1277,7 @@ export class FileManagerBase implements FileManager {
           status: NodeStatus.Trashed,
         };
       }),
-      MAX_CONCURRENT_FEED_FETCHES,
+      this.feedFetchConcurrency,
       (node) => {
         if (node) trashedResults.push(node);
       },

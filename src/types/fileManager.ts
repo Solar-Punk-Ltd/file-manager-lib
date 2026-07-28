@@ -413,3 +413,8 @@ export interface FileManager {
    */
   readonly isInitialized: boolean;
 }
+
+export interface FileManagerConfig {
+  uploadConcurrency?: number; // default MAX_CONCURRENT_UPLOADS (2)
+  feedFetchConcurrency?: number; // default MAX_CONCURRENT_FEED_FETCHES (10)
+}
