@@ -1,2 +1,4 @@
 allowBuilds:
   unrs-resolver: true
+minimumReleaseAgeExclude:
+  - '@solarpunkltd/bee-js@0.0.0-fmv2.1'
