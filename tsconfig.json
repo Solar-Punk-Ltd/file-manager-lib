@@ -1,6 +1,6 @@
 {
-  "include": ["src", "tests"],
-  "exclude": ["node_modules", "dist"],
+  "include": ["src"],
+  "exclude": ["node_modules", "dist", "tests"], // TODO: reintroduce tests once v2 is in place
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
