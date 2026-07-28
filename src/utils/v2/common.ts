@@ -2,7 +2,7 @@ import { DriveInfo, NodeStatus } from '../../types/v2/info';
 import { Logger } from '../logger';
 
 const logger = Logger.getInstance();
-
+// TODO: can this be used in config? --> config: max num of parallel down/up ops ?
 export async function awaitAllPromisesBounded<T>(
   tasks: (() => Promise<T>)[],
   limit: number,
