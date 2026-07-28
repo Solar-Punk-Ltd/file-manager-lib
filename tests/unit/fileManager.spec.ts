@@ -640,7 +640,7 @@ describe('FileManager', () => {
       const di = fm.driveList[1];
 
       await expect(fm.uploadFile(di.id, { path: 'tests/unit', sourcePath: 'tests/unit' })).rejects.toThrow(
-        'Cannot upload a directory - use uploadFiles',
+        'Path not found: /tests',
       );
     });
 
