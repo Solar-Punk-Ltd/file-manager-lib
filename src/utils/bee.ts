@@ -11,12 +11,18 @@ import {
   Topic,
 } from '@ethersphere/bee-js';
 
-import { FeedResultWithIndex, WrappedUploadResult } from '../types/utils';
+import { WrappedUploadResult } from '../types/utils';
+import { FeedResultWithIndex } from '../types/v2/utils';
 
 import { assertWrappedUploadResult } from './asserts';
 import { isNotFoundError } from './common';
 import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from './constants';
-import { FileInfoError } from './errors';
+import { generateRandomBytes } from './crypto';
+import { BeeVersionError, ErrorHandler, FileInfoError, StampError } from './errors';
+import { Logger } from './logger';
+
+const logger = Logger.getInstance();
+const errorHandler = ErrorHandler.getInstance();
 
 export async function getFeedData(
   bee: Bee,
@@ -28,7 +34,6 @@ export async function getFeedData(
   try {
     const feedReader = bee.makeFeedReader(topic.toUint8Array(), address, requestOptions);
 
-    // TODO: act options
     const feedOptions = index !== undefined ? { index: FeedIndex.fromBigInt(index) } : undefined;
     const data = await feedReader.downloadPayload(feedOptions);
 
@@ -37,8 +42,8 @@ export async function getFeedData(
       feedIndexNext: data.feedIndexNext ?? data.feedIndex.next(),
       payload: data.payload,
     };
-  } catch (error) {
-    if (isNotFoundError(error)) {
+  } catch (err: unknown) {
+    if (isNotFoundError(err)) {
       return {
         feedIndex: FeedIndex.MINUS_ONE,
         feedIndexNext: FEED_INDEX_ZERO,
@@ -46,8 +51,42 @@ export async function getFeedData(
       };
     }
 
-    throw error;
+    throw err;
   }
+}
+
+export async function getTopicAndVersion(
+  bee: Bee,
+  address: string | EthAddress,
+  currentVersion?: string,
+  currentTopic?: string | Topic,
+  requestOptions?: BeeRequestOptions,
+): Promise<{ topic: string; version: string }> {
+  let version: string | undefined;
+  let topic: string;
+
+  if (!currentTopic) {
+    const randomTopic = generateRandomBytes(Topic.LENGTH);
+    version = FEED_INDEX_ZERO.toString();
+    topic = new Topic(randomTopic).toString();
+  } else {
+    topic = currentTopic.toString();
+  }
+
+  if (version) {
+    return { topic, version };
+  }
+
+  if (currentVersion !== undefined) {
+    return { topic, version: new FeedIndex(currentVersion).next().toString() };
+  }
+
+  const { feedIndex, feedIndexNext } = await getFeedData(bee, new Topic(topic), address, undefined, requestOptions);
+  if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
+    return { topic, version: FEED_INDEX_ZERO.toString() };
+  }
+
+  return { topic, version: feedIndexNext.toString() };
 }
 
 export async function buyStamp(
@@ -85,8 +124,8 @@ export async function getWrappedData(
     const wrappedResult = rawData.toJSON() as WrappedUploadResult;
     assertWrappedUploadResult(wrappedResult);
     return wrappedResult;
-  } catch (error) {
-    throw new FileInfoError(`Failed to get wrapped data: ${error}`);
+  } catch (err) {
+    throw new FileInfoError('Failed to get wrapped data', err);
   }
 }
 
@@ -97,9 +136,34 @@ export async function fetchStamp(
 ): Promise<PostageBatch | undefined> {
   try {
     return (await bee.getPostageBatches(requestOptions)).find((s) => s.batchID.toString() === batchId.toString());
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } catch (error: any) {
-    console.error(`Failed to fetch stamp: ${error.message || error}`);
+  } catch (err: unknown) {
+    errorHandler.handleError(err, 'Failed to fetch stamp');
     return;
+  }
+}
+
+export const verifyStampUsability = (
+  s: PostageBatch | undefined,
+  requestedBatchId?: string,
+  mustBeUsable: boolean = true,
+): PostageBatch => {
+  if (!s || (mustBeUsable && !s.usable)) {
+    const batchIdStr = s ? s.batchID.toString().slice(0, 6) : (requestedBatchId?.slice(0, 6) ?? 'unknown');
+    throw new StampError(`Stamp with batchId: ${batchIdStr}... not found OR not usable`);
+  }
+
+  return s;
+};
+
+export async function verifySupportedBeeVersions(bee: Bee, requestOptions?: BeeRequestOptions): Promise<void> {
+  const beeVersions = await bee.getVersions(requestOptions);
+  logger.debug(`Bee version: ${beeVersions.beeVersion}`);
+  logger.debug(`Bee API version: ${beeVersions.beeApiVersion}`);
+  const supportedApi = await bee.isSupportedApiVersion(requestOptions);
+
+  if (!supportedApi) {
+    logger.error('Supported bee API version: ', beeVersions.supportedBeeApiVersion);
+    logger.error('Supported bee version: ', beeVersions.supportedBeeVersion);
+    throw new BeeVersionError('Bee or Bee API version not supported');
   }
 }

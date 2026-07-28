@@ -32,4 +32,5 @@ tests/**/bee-dev/
 
 *.md
 !README.md
+!changelog/*.md
 memory/

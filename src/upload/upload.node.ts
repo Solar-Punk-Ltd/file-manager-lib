@@ -84,9 +84,8 @@ async function uploadFile(
       },
       requestOptions,
     );
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } catch (error: any) {
-    throw new FileError(`Failed to upload file ${resolvedPath}: ${error}`);
+  } catch (err) {
+    throw new FileError(`Failed to upload file ${resolvedPath}`, err);
   }
 }
 
@@ -99,9 +98,8 @@ async function uploadDirectory(
 ): Promise<UploadResult> {
   try {
     return await bee.uploadFilesFromDirectory(batchId, resolvedPath, uploadOptions, requestOptions);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } catch (error: any) {
-    throw new FileError(`Failed to upload directory ${resolvedPath}: ${error}`);
+  } catch (err) {
+    throw new FileError(`Failed to upload directory ${resolvedPath}`, err);
   }
 }
 

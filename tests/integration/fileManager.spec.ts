@@ -636,7 +636,7 @@ describe('FileManager listFiles', () => {
       fileInfo = allFileInfos.find((fi) => fi.name === path.basename(emptyDir));
     } catch (error: any) {
       expect(error).toBeInstanceOf(FileError);
-      expect(error.message).toMatch(/status code 400/);
+      expect(String(error.cause)).toMatch(/status code 400/);
       fs.rmSync(emptyDir, { recursive: true, force: true });
       return;
     }
@@ -773,13 +773,15 @@ describe('FileManager upload', () => {
     expect(secondInfo?.topic).toEqual(firstInfo?.topic);
     expect(secondInfo?.version).toEqual(secondVersion.toString());
 
+    // getTopicAndVersion advances the supplied current version by one, so pass the current
+    // (second) version and expect the next slot to be written.
     const thirdVersion = secondVersion.next().toString();
     await fileManager.upload(
       drive,
       {
         name: path.basename(tempUploadDir),
         topic: firstInfo?.topic,
-        version: thirdVersion,
+        version: secondInfo?.version,
         path: tempUploadDir,
       },
       {
@@ -1589,16 +1591,14 @@ describe('FileManager AbortController', () => {
       const controller = new AbortController();
       controller.abort(); // Pre-abort
 
-      await expect(
-        fileManager.upload(
-          drive,
-          { name: 'test-abort-file.txt', path: path.join(tempDir, 'large-file.bin') },
-          undefined,
-          {
-            signal: controller.signal,
-          },
-        ),
-      ).rejects.toThrow('Request aborted');
+      // upload wraps the underlying abort error in a FileError; the abort reason is on `cause`
+      const error: any = await fileManager
+        .upload(drive, { name: 'test-abort-file.txt', path: path.join(tempDir, 'large-file.bin') }, undefined, {
+          signal: controller.signal,
+        })
+        .catch((e) => e);
+      expect(error).toBeInstanceOf(FileError);
+      expect(String(error.cause)).toContain('Request aborted');
     });
 
     it('should throw BeeResponseError when upload is cancelled mid-flight', async () => {
@@ -1615,11 +1615,12 @@ describe('FileManager AbortController', () => {
 
       await expect(uploadPromise).rejects.toThrow();
 
-      // Verify the error is related to abort
+      // Verify the error is related to abort (the underlying reason is wrapped as `cause`)
       try {
         await uploadPromise;
       } catch (error: any) {
-        expect(error.statusText === 'ERR_CANCELED' || error.message.includes('aborted')).toBe(true);
+        const cause = error.cause;
+        expect(cause?.statusText === 'ERR_CANCELED' || String(cause).toLowerCase().includes('abort')).toBe(true);
       }
     });
 
@@ -1650,12 +1651,14 @@ describe('FileManager AbortController', () => {
       fs.writeFileSync(file1Path, 'Content 1');
       fs.writeFileSync(file2Path, 'Content 2');
 
-      // First upload should fail (aborted)
-      await expect(
-        fileManager.upload(drive, { name: 'file1-abort.txt', path: file1Path }, undefined, {
+      // First upload should fail (aborted) — abort reason is wrapped on the FileError's `cause`
+      const error: any = await fileManager
+        .upload(drive, { name: 'file1-abort.txt', path: file1Path }, undefined, {
           signal: controller1.signal,
-        }),
-      ).rejects.toThrow('Request aborted');
+        })
+        .catch((e) => e);
+      expect(error).toBeInstanceOf(FileError);
+      expect(String(error.cause)).toContain('Request aborted');
 
       // Second upload should succeed (not aborted)
       await fileManager.upload(drive, { name: 'file2-success.txt', path: file2Path }, undefined, {

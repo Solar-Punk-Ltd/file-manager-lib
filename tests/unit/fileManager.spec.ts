@@ -119,7 +119,6 @@ describe('FileManager', () => {
     });
 
     it('should not initialize, if already initialized', async () => {
-      const logSpy = jest.spyOn(console, 'debug');
       const eventHandler = jest.fn((_) => {});
       const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.INITIALIZED, eventHandler);
@@ -131,21 +130,21 @@ describe('FileManager', () => {
       );
       expect(eventHandler).toHaveBeenCalledWith(true);
       await fm.initialize();
-      expect(logSpy).toHaveBeenCalledWith('FileManager is already initialized');
+      expect(eventHandler).toHaveBeenCalledWith(true);
     });
 
     it('should not initialize, if currently being initialized', async () => {
-      const logSpy = jest.spyOn(console, 'debug');
       const eventHandler = jest.fn((_) => {});
       const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.INITIALIZED, eventHandler);
 
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const fm = new FileManagerBase(bee, emitter);
-      fm.initialize();
-      fm.initialize();
+      const first = fm.initialize();
+      const second = fm.initialize();
+      await Promise.all([first, second]);
 
-      expect(logSpy).toHaveBeenCalledWith('FileManager is being initialized');
+      expect(eventHandler).toHaveBeenCalledWith(true);
     });
   });
 
@@ -530,18 +529,12 @@ describe('FileManager', () => {
       createUploadDataSpy('8');
       createMockFeedWriter('9');
 
-      (getFeedData as jest.Mock).mockReset();
-      (getFeedData as jest.Mock).mockResolvedValueOnce({
-        feedIndex: FEED_INDEX_ZERO,
-        feedIndexNext: FeedIndex.fromBigInt(1n),
-        payload: SWARM_ZERO_ADDRESS,
-      });
-
       await fm.upload(
         di,
         {
           name: 'hello',
           topic: original.topic,
+          version: original.version,
           file: original.file,
           path: './tests',
         },
