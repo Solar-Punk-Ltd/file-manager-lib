@@ -1,12 +1,11 @@
 {
-  "include": ["src"],
-  "exclude": ["node_modules", "dist", "tests"], // TODO: reintroduce tests once v2 is in place
+  "include": ["src", "tests"],
+  "exclude": ["node_modules", "dist"],
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ES2022",
     "moduleResolution": "node",
-    "ignoreDeprecations": "5.0", // TODO: resolve deprication errors
     "resolveJsonModule": true,
     "declaration": true,
     "emitDeclarationOnly": false,

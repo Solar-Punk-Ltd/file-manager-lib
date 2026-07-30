@@ -48,8 +48,8 @@ module.exports = {
         '^@/(.*)$': '<rootDir>/src/$1',
       },
       testMatch: ['<rootDir>/tests/integration/**/*.spec.ts'],
-      globalSetup: '<rootDir>/tests/integration/test-node-setup/jestSetup.ts',
-      globalTeardown: '<rootDir>/tests/integration/test-node-setup/jestTeardown.ts',
+      globalSetup: '<rootDir>/tests/integration/test-setup/jestSetup.ts',
+      globalTeardown: '<rootDir>/tests/integration/test-setup/jestTeardown.ts',
     },
   ],
 };

@@ -1,13 +1,11 @@
-import { BatchId, Bee, Bytes, MantarayNode, PrivateKey } from '@ethersphere/bee-js';
+import { PrivateKey } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
-import { FileInfo, FileManager } from '@/types';
-import { ReferenceWithHistory, WrappedUploadResult } from '@/types/utils';
-import { SWARM_ZERO_ADDRESS } from '@/utils/constants';
-
+// bee-factory queen node
 export const BEE_URL = 'http://127.0.0.1:1633';
-export const OTHER_BEE_URL = 'http://127.0.0.1:1733';
+// bee-factory worker 1 — a non-admin peer
+export const OTHER_BEE_URL = 'http://127.0.0.1:1635';
 export const DEFAULT_BATCH_DEPTH = 21;
 export const DEFAULT_BATCH_AMOUNT = '500000000';
 export const DEFAULT_MOCK_SIGNER = new PrivateKey('634fb5a872396d9693e5c9f9d7233cfa93f395c093371017ff44aa9ae6564cdd');
@@ -45,36 +43,23 @@ export async function readFilesOrDirectory(fullPath: string, name?: string): Pro
   return relativeFilePaths;
 }
 
-export async function dowloadAndCompareFiles(
-  fileManager: FileManager,
-  publicKey: string,
-  fiList: FileInfo[],
-  expArr: string[][],
-): Promise<void> {
-  if (fiList.length !== expArr.length) {
-    expect(fiList).toHaveLength(expArr.length);
-    return;
-  }
+export async function streamToUint8Array(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  const buffer = await new Response(stream).arrayBuffer();
 
-  for (const [ix, fi] of fiList.entries()) {
-    const fetchedFiles = (await fileManager.download(fi, undefined, {
-      actHistoryAddress: fi.file.historyRef,
-      actPublisher: publicKey,
-    })) as Bytes[];
-    const fetchedFilesStrings = fetchedFiles.map((f) => f.toUtf8());
-    expect(expArr[ix]).toEqual(fetchedFilesStrings);
-  }
+  return new Uint8Array(buffer);
 }
 
-export async function createWrappedData(bee: Bee, batchId: BatchId, node: MantarayNode): Promise<ReferenceWithHistory> {
-  const manatarayResult = await node.saveRecursively(bee, batchId);
-  const wrappedData: WrappedUploadResult = {
-    uploadFilesRes: manatarayResult.reference.toString(),
-    uploadPreviewRes: SWARM_ZERO_ADDRESS.toString(),
-  };
-  const wrappedRes = await bee.uploadData(batchId, JSON.stringify(wrappedData), { act: true });
-  return {
-    reference: wrappedRes.reference.toString(),
-    historyRef: wrappedRes.historyAddress.getOrThrow().toString(),
-  };
+export async function retryOnPropagationDelay<T>(fn: () => Promise<T>, attempts = 5, delayMs = 500): Promise<T> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err: unknown) {
+      lastError = err;
+      if (i < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  throw lastError;
 }

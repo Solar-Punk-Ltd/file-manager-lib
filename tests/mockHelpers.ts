@@ -26,7 +26,7 @@ import { BEE_URL, DEFAULT_MOCK_SIGNER } from './utils';
 
 import { EventEmitter } from '@/eventEmitter/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
-import { DriveInfo, FileInfo } from '@/types';
+import { DriveInfo, FileRecord, NodeType } from '@/types';
 import { FileManagerEvents } from '@/utils';
 import { ADMIN_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
@@ -64,7 +64,7 @@ export async function createInitializedFileManager(
   await fm.initialize();
 
   if (!fm.driveList.some((d) => d.isAdmin)) {
-    await fm.createDrive(batchId ?? MOCK_BATCH_ID, ADMIN_STAMP_LABEL, true, RedundancyLevel.MEDIUM);
+    await fm.createAdminDrive(batchId ?? MOCK_BATCH_ID, RedundancyLevel.MEDIUM);
   }
 
   return fm;
@@ -84,34 +84,41 @@ export async function createMockFileInfo(
   owner: string,
   actPublisher: string,
   ref: string = SWARM_ZERO_ADDRESS.toString(),
-): Promise<FileInfo> {
+  overrides?: Partial<FileRecord>,
+): Promise<FileRecord> {
   return {
+    type: NodeType.File,
     batchId: MOCK_BATCH_ID,
-    name: 'john doe',
-    topic: Topic.fromString('1'),
+    path: '/john doe',
+    topic: Topic.fromString('file-1').toString(),
     driveId: Identifier.fromString('123').toString(),
-    owner: owner,
+    owner,
     actPublisher,
-    file: {
+    content: {
       reference: ref,
       historyRef: SWARM_ZERO_ADDRESS.toString(),
     },
+    redundancyLevel: RedundancyLevel.OFF,
+    ...overrides,
   };
 }
 
-export function createMockDriveInfo(): DriveInfo {
+export function createMockDriveInfo(actPublisher: string, overrides?: Partial<DriveInfo>): DriveInfo {
   return {
-    id: Identifier.fromString('123'),
+    type: NodeType.Drive,
+    id: Identifier.fromString('123').toString(),
     batchId: MOCK_BATCH_ID,
     owner: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
     name: 'Test Drive',
+    topic: Topic.fromString('drive-topic-1').toString(),
     redundancyLevel: RedundancyLevel.MEDIUM,
-    infoFeedList: [
-      {
-        topic: Topic.fromString('1'),
-      },
-    ],
+    manifestRef: {
+      reference: new Reference('1'.repeat(64)).toString(),
+      historyRef: new Reference('2'.repeat(64)).toString(),
+    },
     isAdmin: false,
+    actPublisher,
+    ...overrides,
   };
 }
 
@@ -151,6 +158,16 @@ export function createInitMocks(data?: Reference): any {
   jest.spyOn(Bee.prototype, 'getNodeAddresses').mockResolvedValue(createMockNodeAddresses());
   loadStampListMock();
   jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(new Bytes(data || SWARM_ZERO_ADDRESS));
+  jest.spyOn(Bee.prototype, 'downloadFile').mockResolvedValue({ data: new Bytes(SWARM_ZERO_ADDRESS) });
+  jest.spyOn(Bee.prototype, 'downloadReadableData').mockResolvedValue(
+    new ReadableStream<Uint8Array>({
+      // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
+      start(controller) {
+        controller.enqueue((data || SWARM_ZERO_ADDRESS).toUint8Array());
+        controller.close();
+      },
+    }),
+  );
   jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValue({
     reference: data || SWARM_ZERO_ADDRESS,
     historyAddress: Optional.of(data || SWARM_ZERO_ADDRESS),
@@ -158,20 +175,6 @@ export function createInitMocks(data?: Reference): any {
   jest.spyOn(Bee.prototype, 'makeFeedWriter').mockReturnValue(createMockFeedWriter());
   jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue(createMockFeedReader());
   jest.spyOn(Bee.prototype, 'getPostageBatches').mockResolvedValue(loadStampListMock());
-}
-
-export function createUploadFilesFromDirectorySpy(char: string): jest.SpyInstance {
-  return jest.spyOn(Bee.prototype, 'uploadFilesFromDirectory').mockResolvedValueOnce({
-    reference: new Reference(char.repeat(64)),
-    historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
-  });
-}
-
-export function createUploadFileSpy(char: string): jest.SpyInstance {
-  return jest.spyOn(Bee.prototype, 'uploadFile').mockResolvedValueOnce({
-    reference: new Reference(char.repeat(64)),
-    historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
-  });
 }
 
 export function createUploadDataSpy(char: string): jest.SpyInstance {
