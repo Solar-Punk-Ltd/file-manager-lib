@@ -1,47 +1,60 @@
 # TESTS — @solarpunkltd/file-manager-lib
 
 This document explains how the test-suite for **@solarpunkltd/file-manager-lib** is organized and how to run, extend,
-and troubleshoot it. It covers both **unit** and **integration** tests (including end‑to‑end workflows).
+and troubleshoot it. It covers both **unit** and **integration** tests (including an end‑to‑end workflow suite).
 
-> For usage and API details, see:  
-> • **README.md** — install, dev/mainnet setup, quick start  
-> • **REFERENCE.md** — method-by-method technical reference
+> For usage and API details, see: • **README.md** — install, mainnet setup
 
 ---
 
 ## At a glance
 
-- **Jest** test runner (Node + JSDOM where needed)
-- **Unit tests** mock Swarm internals and focus on _FileManagerBase_ behavior
-- **Integration tests** exercise real Bee devnodes via `BeeDev` and verify ACT, feeds, manifests, versioning, and
-  sharing workflows
-- Tests run **serially** (`--runInBand`) to avoid shared Bee/port conflicts
-- Coverage supported via `pnpm run test:coverage`
+- **Jest** with two **projects** (`unit` and `integration`), both running under **ts-jest** in a Node environment.
+- **Unit tests** mock all Swarm/Bee internals and focus on `FileManagerBase` behavior — no network.
+- **Integration tests** run against real Bee nodes provisioned by **`@ethersphere/bee-factory`** and exercise ACT
+  encryption, per‑file feeds, mantaray drive manifests, versioning and the trash overlay end‑to‑end.
+- Tests run **serially** (`--runInBand`) to avoid shared Bee/port conflicts.
+- `testTimeout` is **5 minutes** per test (integration steps wait on chunk propagation).
+- Coverage is collected by default (`v8` provider) into `tests/coverage`.
 
 ---
 
 ## Prerequisites
 
-- **Node.js ≥ 14**
-- **Bee devnode** (for integration tests):  
-  The jest setup ensures we have bee dev nodes running to support the bee-js methods invoked.
+- **Node.js** — a recent LTS (matching the version bee-js targets).
+- **Docker** — required for integration tests. `bee-factory` spins up a local Bee cluster in containers.
+- **`@ethersphere/bee-factory`** — a dev/test dependency. The integration project's `globalSetup` starts it and
+  `globalTeardown` stops it automatically; you don't start Bee manually.
+  - Queen node (used by tests): `http://127.0.0.1:1633` (`BEE_URL`)
+  - Worker node (a non-admin peer): `http://127.0.0.1:1635` (`OTHER_BEE_URL`)
+  - The image tag defaults to `v2.8.0` and can be overridden with the `BEE_FACTORY_TAG` env var.
+
+Unit tests need none of the above — they never touch the network.
 
 ---
 
 ## Running tests
 
 ```bash
-# All tests (unit + integration), verbose and serial
+# Everything (unit + integration), serial + verbose
 pnpm test
 
-# With coverage
+# Only unit / only integration
+pnpm run test:ut
+pnpm run test:it
+
+# Coverage
 pnpm run test:coverage
 ```
 
-Jest options are configured via `jest.config.ts`. The project’s `package.json` exposes these scripts:
+Scripts exposed by `package.json`:
 
-- **`pnpm test`** → `jest --config=jest.config.ts --runInBand --verbose`
+- **`pnpm test`** → `jest --config=jest.config.ts --runInBand --verbose --silent`
+- **`pnpm run test:ut`** → runs `pnpm test --selectProjects=unit`
+- **`pnpm run test:it`** → runs `pnpm test --selectProjects=integration`
 - **`pnpm run test:coverage`** → `jest --coverage`
+
+Everything is configured in `jest.config.ts`, including the `@/*` → `src/*` path mapping used throughout the specs.
 
 ---
 
@@ -49,228 +62,202 @@ Jest options are configured via `jest.config.ts`. The project’s `package.json`
 
 ```
 tests/
-  ├─ utils.ts
-  ├─ TESTS.md
-  ├─ mockHelpers.ts
-  ├─ unit/
-  │   └─ fileManager.spec.ts
-  ├─ integration/
-  │   ├─ fileManager.spec.ts
-  │   ├─ testSetupHelpers.ts
-  │   └─ test-node-setup
-  └─ fixtures/
+├─ TESTS.md
+├─ utils.ts                     # shared: URLs, signers, batch params, createInitializedFileManager, retry/stream helpers
+├─ unit/
+│   ├─ setup.ts                 # setupFilesAfterEnv — centralizes jest.mock() for @/utils/bee & @/utils/mantaray
+│   ├─ mock.ts                  # applyDefaultMocks, mock factories, seedRecords, unit createInitializedFileManager
+│   ├─ init.spec.ts
+│   ├─ drive.spec.ts
+│   ├─ file.spec.ts
+│   ├─ folder.spec.ts
+│   ├─ version.spec.ts
+│   ├─ trash.spec.ts
+│   ├─ events.spec.ts
+│   └─ abort.spec.ts
+└─ integration/
+    ├─ setup/
+    │   ├─ jestSetup.ts         # globalSetup → `npx bee-factory start --tag <tag>`
+    │   ├─ jestTeardown.ts      # globalTeardown → `npx bee-factory stop`
+    │   └─ utils.ts             # temporary file and stamp management
+    ├─ init.spec.ts
+    ├─ drive.spec.ts
+    ├─ file.spec.ts
+    ├─ folder.spec.ts
+    ├─ version.spec.ts
+    ├─ trash.spec.ts
+    ├─ e2e.spec.ts
+    └─ abort.spec.ts
 ```
 
-Helper modules you will see in specs:
+Each domain area lives in its own spec file, mirrored across `unit/` and `integration/`.
 
-- **`createInitializedFileManager`** — builds a `FileManagerBase` with a properly configured Bee client and emitter.
-- **`ensureOwnerStamp`** — ensures an admin/owner postage stamp exists for the test node, returning
-  `{ bee, ownerStamp }`.
-- **`utils.ts`** — constants, signer mocks, directory walkers, download/compare helpers, test batch parameters.
-- **`mockHelpers.ts`** — spies/mocks for upload/download paths, mantaray, feed writers, etc.
+### Shared helpers
 
----
+**`tests/utils.ts`** (used by both projects)
 
-## Integration tests — what they verify
+- Constants: `BEE_URL`, `OTHER_BEE_URL`, `DEFAULT_MOCK_SIGNER`, `OTHER_MOCK_SIGNER`, `DUMMY_BATCH_ID`,
+  `DEFAULT_BATCH_DEPTH`, `DEFAULT_BATCH_AMOUNT`.
+- `createInitializedFileManager(bee?, batchId?, emitter?)` — constructs a `FileManagerBase`, initializes it, and
+  bootstraps an admin drive if one isn't present.
+- `retryOnPropagationDelay(fn, attempts?, delayMs?)` — retries a read until chunks propagate on the devnet.
+- `streamToUint8Array`, `readFilesOrDirectory`, `getTestFile` — content/dir helpers.
 
-Located primarily in `tests/integration/` and executed against a live **BeeDev** node.
+**Unit — `tests/unit/setup.ts` + `tests/unit/mock.ts`**
 
-### 1) Initialization
+- `setup.ts` is wired via `setupFilesAfterEnv` and holds the module-level `jest.mock()` calls for `@/utils/bee`
+  (`getFeedData`, `fetchStamp`) and `@/utils/mantaray` (`loadMantaray`, `getAllNodeEntries`). Centralizing them here
+  keeps every spec free of duplicated mock boilerplate.
+- `mock.ts` provides `applyDefaultMocks()` (call it first in each `beforeEach` — resets mocks, installs
+  `createInitMocks` and sensible default return values), mock factories (`createMockDriveInfo`, `createMockFileInfo`,
+  `createMockFeedReader`, `createMockFeedWriter`, `createMockMantarayNode`, …), `seedRecords(fm, ...records)` to
+  pre-populate the record cache, and a unit-local `createInitializedFileManager`.
 
-- Creates a new `FileManagerBase` and asserts default state (`fileInfoList`, `sharedWithMe` are empty).
-- Emits **`FILEMANAGER_INITIALIZED`** with success when owner/admin stamp can be found.
-- When a non-owner node attempts to read the owner feed, proper **404/500** errors surface from `downloadData()`.
-- Owner feed/topic is **stable** across reinitialization (re-reads same topic hex).
+**Integration — `tests/integration/setup/utils.ts`**
 
-### 2) Upload + fetch nested structure
-
-- Uploads a nested folder + a single file into a drive created with a live postage stamp.
-- Uses `listFiles()` to verify **relative paths** and ordering.
-- Uses helper `dowloadAndCompareFiles()` to read all forks and byte-compare results.
-
-### 3) Bee node sanity
-
-- Asserts `getVersions()` returns `beeVersion` and `beeApiVersion` and `isSupportedApiVersion()` is true.
-- Asserts `getNodeAddresses()` returns a `publicKey` for ACT.
-
-### 4) Drive handling
-
-- `createDrive()` emits **`DRIVE_CREATED`** and persists a drive with expected attributes (`Identifier` length, owner
-  address, batch id, redundancy level, etc.).
-
-> Note: Full destruction/dilution flows are difficult in devnode; a placeholder test is provided (commented) for a
-> production Bee that supports the relevant API.
-
-### 5) `listFiles()` behavior
-
-- Uploads folders with various structures and checks that `listFiles()` returns accurate **relative paths** and **fork
-  references**.
-- Validates behavior for an **empty folder** (throws on upload / returns empty list).
-- Deeply nested paths are preserved (e.g. `level1/level2/level3/d.txt`).
-- Entries with **empty paths** are **ignored**.
-
-### 6) `upload()` flows
-
-- Uploading a directory produces a `FileInfo` entry; **re-uploads** using same topic increment the **feed index**
-  without creating duplicate entries.
-- **Metadata-only updates** do not cause re-uploads of the same manifest (file refs remain identical).
-- `previewPath` is supported (if the implementation stores the preview reference, the test asserts presence; otherwise
-  logs a warning).
-- Validates the invariant: `topic` and `historyRef` must be provided **together**, else `FileRecordError` is thrown.
-
-### 7) Download
-
-- Downloads **all** files from a manifest and compares contents.
-- Downloads **specific forks** by path selection.
-- Handles **empty manifests** by returning an empty array.
-
-### 8) File lifecycle
-
-- **Trash** (soft-delete) flips status to `Trashed` and bumps version; subsequent re-initialization observes persisted
-  status.
-- **Recover** from `Trashed` to `Active` and bump version.
-- **Forget** (hard-delete) removes the `FileInfo` from local lists and persists the drive list.
-- Guards against **duplicate topics** when trashing/restoring multiple times.
-
-### 9) Version control
-
-- `getVersion()` rejects invalid indices (negative or out-of-range).
-- Sequential uploads result in proper **slot indices** (`FeedIndex` 0,1,2…).
-- `getVersion() + download()` returns correct **subset** of bytes when a path list is supplied.
-- Returns **cached** head `FileInfo` without re-fetching when the requested version equals head.
-- **Restore** an old version creates a **new head** that points at the historical reference.
-- Restoring the current head is a no‑op.
-
-### 10) Grantees / Sharing metadata
-
-- `getGrantees()` throws a friendly error when the file’s topic is not found in the drive list (missing grantee list).
-
-### 11) E2E workflow
-
-- Full user path: create drive → upload single file → upload project folder → re-upload folder “in place” (not
-  supported, so original manifest remains) → upload a new **version** folder → list & download from that new version
-  manifest.
-- Validates path preservation, version semantics, and ACT download parameters (`actHistoryAddress`, `actPublisher`).
+- `ensureUniqueSignerWithStamp(isNewSigner?)` — returns `{ bee, ownerStamp, signer }`, buying the admin/owner stamp once
+  and caching it for the run.
+- `setupUserDrive(driveName, { stampLabel?, reuseOwnerStamp? })` — the standard `beforeAll` fixture: ensures a signer,
+  initializes a `FileManagerBase` (with admin drive), buys a stamp, creates the named user drive, and returns
+  `{ bee, fileManager, drive, ownerStamp, batchId, signer }`.
+- `tempFileRegistry()` — returns `{ writeTempFile, writeTempDir, cleanup }`. All on-disk fixtures are written through it
+  and removed in a single `afterAll(cleanup)`, so **no temporary file survives the run** even if a test throws.
 
 ---
 
-## Unit tests — what they verify
+## Domain model under test (v2)
 
-Located in `tests/unit/` and focused on behavior of `FileManagerBase` **without** hitting the network.
+- `FileManagerBase` exposes `recordList` (`FileRecord[]`) and `driveList` (`DriveInfo[]`); records and drives carry a
+  `NodeType`.
+- **Drives are mantaray manifests.** A drive's file tree is a mantaray whose forks carry per-file metadata; per-file
+  version history lives in each file's own Swarm feed.
+- **ACT** wraps content per file (`content.historyRef`, `actPublisher`).
+- **Trash is an owner-private overlay** on the admin drive: status is _derived_ on load (not stored on the file's own
+  feed), so a fresh instance re-derives Active/Trashed via `listFolder`.
+- `FileManagerConfig` lets clients cap `uploadConcurrency` and `feedFetchConcurrency`.
+- Sharing / grantees are **not** part of v2 and are not tested.
+
+---
+
+## Integration tests — what each suite verifies
+
+Executed against live bee-factory nodes.
+
+- **`init.spec.ts`** — _Initialization and construction_ + _reinitialization_: default state, admin feed/topic
+  stability, a non-owner failing to read the admin feed, and `INITIALIZED` / `STATE_INVALID` behavior across
+  re-initialization with a valid vs. expired admin stamp (user drives and admin stamp survive re-init).
+- **`drive.spec.ts`** — _Drive operations_: `createDrive` persists id/owner/batch/redundancy; forgetting a user drive
+  removes it, prunes its records, emits `DRIVE_FORGOTTEN`, and persists; destroying/forgetting the **admin** drive and
+  forgetting a non-existent drive throw `DriveError`.
+- **`file.spec.ts`** — split into `uploadFile`, `uploadFiles`, `updateFile`, `downloadFile and downloadFiles`, `move`:
+  single- and multi-file uploads (each with its own topic), implicit folder creation with batched manifest saves, the
+  two-hop ACT-unwrap download round-trip, `updateFile` re-versioning (content vs. metadata-only), directory-source
+  guards, and rename/move within and across drives.
+- **`folder.spec.ts`** — _Folder operations_: `listFolder` (relative paths, empty folders, deep nesting, empty-path
+  rejection), `downloadFolder` destination-path composition, and moving a folder as a unit.
+- **`version.spec.ts`** — _Version control_: invalid index rejection, sequential slot indices, cold-cache lazy
+  hydration, drive-mismatch guard, independently downloadable version bytes, cached-head fast path, restoring a prior
+  version as the new head, no-op restore of the head, and restore keeping the current (post-move) location.
+- **`trash.spec.ts`** — _Lifecycle management_: trash (soft-delete) and recover round-trip through the owner-private
+  overlay (status re-derived by a fresh instance, **no** version bump), `forget` (hard-delete), and no-duplicate-topic
+  guarantees.
+- **`abort.spec.ts`** — _Abort signal handling_: `AbortSignal` forwarding for `uploadFile`, `downloadFiles`, and
+  `listFolder` — pre-aborted, mid-flight cancel, and clean completion when not aborted.
+- **`e2e.spec.ts`** — _End-to-End User Workflow_: in-place folder update (one file changes, siblings untouched), adding
+  a new folder version without disturbing old files, and multi-branch relative-path listing.
+
+---
+
+## Unit tests — what each suite verifies
+
+Located in `tests/unit/`, all network access mocked (see `setup.ts` / `mock.ts`).
 
 Key strategies:
 
-- Replace `getFeedData`, `getWrappedData`, `generateRandomBytes` with jest mocks
-- Replace mantaray operations via mocked `MantarayNode` + controlled `collect()` output
-- Spy on Bee client methods (`downloadData`, `diluteBatch`) to assert parameters
+- `@/utils/bee` (`getFeedData`, `fetchStamp`) and `@/utils/mantaray` (`loadMantaray`, `getAllNodeEntries`) are
+  `jest.mock()`-ed in `setup.ts`; `applyDefaultMocks()` gives them default resolved values per test.
+- Bee client methods are spied via `createInitMocks` (`downloadData`, `uploadData`, feed reader/writer, stamps, …).
+- `seedRecords()` injects `FileRecord`s directly into the cache to test read paths without uploading.
 
-### Constructor & initialization
+- **`init.spec.ts`** — _constructor_ (missing signer, emitter wiring), _initialize_ (emits `INITIALIZED`; idempotent),
+  _reinitialization_.
+- **`drive.spec.ts`** — `creatAdminDrive`, `createDrive` (duplicate name/batchId → `DriveError`), `destroyDrive`
+  (`bee.diluteBatch` / admin-stamp guard), `forgetDrive`.
+- **`file.spec.ts`** — _File operations_ → `downloadFile`, `downloadFiles`, `uploadFile`, `updateFile`, `move` (correct
+  ACT params, no duplicate records on re-version, directory guards).
+- **`folder.spec.ts`** — `downloadFolder`, `listFolder`, `createFolder`, `move`.
+- **`version.spec.ts`** — `getFileVersion` (indexed vs. head, cache reuse, missing-feed error), `restoreFileVersion`
+  (head restore is a no-op / emits no event).
+- **`trash.spec.ts`** — _Lifecycle management_ → `trashFile`, `recoverFile`, `trashFolder`, `listTrash`, `forget` (event
+  emission and overlay bookkeeping).
+- **`events.spec.ts`** — _Events and emitter_: deterministic `FILE_UPLOADED` payloads (system time pinned via
+  `jest.useFakeTimers()`), `INITIALIZED` fired once per cold init.
+- **`abort.spec.ts`** — abort-signal plumbing at the unit level.
 
-- Creating `FileManagerBase` without a signer fails with `SignerError`.
-- Proper init emits `FILEMANAGER_INITIALIZED` once; subsequent calls log “already initialized” / “being initialized”.
-
-### Download + listFiles
-
-- Asserts mantaray **`collect()`** is called.
-- For a selected path (e.g. `/root/2.txt`) only the **correct fork** reference is downloaded.
-- When collecting all forks, each ref is passed to `bee.downloadData()` and the returned `Bytes` array is propagated.
-- `listFiles()` returns a **path → reference** map (`{'/root/2.txt': '…'}`).
-
-### Upload
-
-- Chooses the right **upload path** depending on inputs (`path`, `previewPath`).
-- Throws when `topic` and `historyRef` are not supplied together.
-- Ensures **no duplicate entries** are added when re‑uploading the same topic; instead only the `version` is
-  incremented.
-
-### Version control
-
-- `getVersion()` orchestrates `getFeedData` + `fetchFileInfo` and returns a `FileInfo` for indexed or head fetch.
-- Chaining `getVersion()` and `download()` forwards ACT options and returns byte arrays.
-- Missing feeds throw a helpful “File info not found for topic” message.
-- Restoring the current head **does not emit** a `FILE_VERSION_RESTORED` event.
-
-### Drive handling
-
-- Creating an **admin drive** normalizes the name to the admin label and sets flags accordingly.
-- Creating a normal drive persists id/batch/owner metadata.
-- Creating a drive with duplicate **name** or **batchId** throws `DriveError`.
-- Destroying a drive calls `bee.diluteBatch(batchId, STAMPS_DEPTH_MAX)`.
-- Attempting to destroy the admin drive/stamp throws `DriveError`.
-
-### File operations
-
-- **Trash** emits `FILE_TRASHED`, bumps `timestamp`, and persists the new `FileInfo` slot.
-- **Recover** emits `FILE_RECOVERED` with a later `timestamp`.
-- **Forget** removes the file from lists, saves owner feed, and emits `FILE_FORGOTTEN`.
-
-### Events
-
-- `FILE_UPLOADED` payload is **deterministic**: tests pin system time with `jest.useFakeTimers()` to assert `timestamp`
-  precisely.
-- `FILEMANAGER_INITIALIZED` fires once per “cold” initialization.
+Emitted events live in `FileManagerEvents` (`src/utils/events.ts`): `FILE_UPLOADED`, `FILE_UPDATED`, `FILE_DOWNLOADED`,
+`FILE_TRASHED`, `FILE_RECOVERED`, `FILE_FORGOTTEN`, `FILE_VERSION_RESTORED`, `FILE_MOVED`, `INITIALIZED`,
+`DRIVE_CREATED`, `DRIVE_FORGOTTEN`, `DRIVE_DESTROYED`, `FOLDER_*`, `FILES_UPLOADED`, `STATE_INVALID`.
 
 ---
 
 ## Writing new tests
 
-- **When to choose unit vs. integration**
-  - If logic depends on **Bee responses** (feeds, ACT, mantaray), prefer **integration** tests using `BeeDev`.
-  - If you’re validating **pure FileManagerBase behavior** or edge branches, mock out Bee and write **unit** tests.
+- **Unit vs. integration**
+  - Depends on real Bee behavior (feeds, ACT, mantaray, propagation)? → **integration**, using `setupUserDrive`.
+  - Validating pure `FileManagerBase` branches/edge cases? → **unit**, using `applyDefaultMocks` + `seedRecords`.
 
-- **Use ACT options correctly** when downloading in integration tests:
+- **Integration `beforeAll` fixture** — prefer `setupUserDrive` over hand-rolling stamp/drive setup:
 
   ```ts
-  const files = await fm.download(fi, ['path.txt'], {
-    actHistoryAddress: fi.file.historyRef,
-    actPublisher: fi.actPublisher, // usually from bee.getNodeAddresses().publicKey
+  let fileManager: FileManagerBase;
+  let drive: DriveInfo;
+  const { writeTempFile, cleanup } = tempFileRegistry();
+
+  beforeAll(async () => {
+    ({ fileManager, drive } = await setupUserDrive('my-suite', { stampLabel: 'mySuiteStamp' }));
   });
+
+  afterAll(cleanup);
   ```
 
-- **Add fixtures** under `tests/integration/fixtures/` and keep them small to make the suite fast.
+- **On-disk fixtures** — always create them via `writeTempFile` / `writeTempDir` so `afterAll(cleanup)` removes them.
+  Never call `fs.writeFileSync`/`mkdirSync` directly in a spec.
 
-- **Prefer explicit errors**: if a code path is expected to throw, assert both **type** and **message** so regressions
-  are easier to spot.
+- **ACT download parameters** — pass `actHistoryAddress` and `actPublisher` from the same context that uploaded:
+
+  ```ts
+  await fileManager.downloadFiles(
+    [record],
+    { actHistoryAddress: record.content.historyRef, actPublisher },
+    { signal }, // optional requestOptions
+  );
+  ```
+
+- **Propagation** — wrap reads that follow a write in `retryOnPropagationDelay(() => ...)` to avoid devnet flakiness.
+
+- **Unit ordering** — call `applyDefaultMocks()` at the top of `beforeEach`, _before_ `createInitializedFileManager()`,
+  so the mocks are in place when the manager initializes.
+
+- **Prefer explicit errors** — assert both the error **type** and **message** so regressions are easy to spot.
 
 ---
 
-## Troubleshooting test failures
+## Troubleshooting
 
-- **ACT unwrap (404/500) or permission errors**  
-  Check you are passing **both** `actPublisher` and `actHistoryAddress` from the same context as the uploader.
-- **CORS or port issues**  
-  Ensure you dont have an existing bee node running on ports 1633 or 1733
-- **Empty manifest or upload 400**  
-  Ensure source directories are non-empty and readable; verify permissions.
-- **Version assertions fail**  
-  Re-check that the test uses the **historyRef** when bumping versions.
-
----
-
-## Mapping: Features → Tests
-
-| Feature                               | Where it’s tested                                           |
-| ------------------------------------- | ----------------------------------------------------------- |
-| Initialization & admin stamp          | `integration: initialization`                               |
-| Upload (dir/file)                     | `integration: upload`, `unit: upload`                       |
-| List files (mantaray)                 | `integration: listFiles`, `unit: listFiles`                 |
-| Download (all / subset)               | `integration: download`, `unit: download`                   |
-| Versioning (get/restore/cache)        | `integration: version control`, `unit: version control`     |
-| Drive create/destroy                  | `integration: drive handling`, `unit: drive handling`       |
-| File lifecycle (trash/recover/forget) | `integration: file operations`, `unit: file operations`     |
-| Grantees / sharing lookup             | `integration: getGranteesOfFile`, `unit: getGranteesOfFile` |
-| Events                                | `unit: eventEmitter`, `integration: initialization`         |
+- **bee-factory won't start / port in use** — ensure Docker is running and nothing else is bound to `1633`/`1635`. A
+  previous crashed run may leave containers up; `npx bee-factory stop` clears them.
+- **ACT unwrap (404/500) / permission errors** — pass **both** `actPublisher` and `actHistoryAddress` from the
+  uploader's context.
+- **Version assertions fail** — confirm the test re-uploads using the **same path** the record was created with and
+  reads the feed head after propagation.
+- **Flaky reads right after a write** — increase the `retryOnPropagationDelay` attempts/delay for that step.
+- **Leftover temp files** — shouldn't happen; every fixture goes through `tempFileRegistry()` and is removed in
+  `afterAll(cleanup)`. If you added a raw `fs` write, route it through the registry.
 
 ---
 
 ## Notes on Bee mainnet
 
-These tests are designed for a **local devnode**. Running them against mainnet:
-
-- will be **slow**, may incur **real costs**, and may **pollute** your feed history
-- may produce **intermittent failures** due to network conditions or ACT publisher contexts
-
-If you still need to point integration tests to a remote Bee, isolate those runs and supply appropriate **stamps**,
-**signers**, and **ACT** parameters.
-
----
+The integration suite targets a local **bee-factory** cluster. Pointing it at mainnet will be **slow**, may incur **real
+costs**, may **pollute** your feed history, and can fail intermittently on network/ACT-publisher contexts. If you must,
+isolate those runs and supply appropriate stamps, signers, and ACT parameters.

@@ -35,6 +35,7 @@ module.exports = {
         '^@/(.*)$': '<rootDir>/src/$1',
       },
       testMatch: ['<rootDir>/tests/unit/**/*.spec.ts'],
+      setupFilesAfterEnv: ['<rootDir>/tests/unit/setup.ts'],
     },
     {
       displayName: 'integration',
@@ -48,8 +49,8 @@ module.exports = {
         '^@/(.*)$': '<rootDir>/src/$1',
       },
       testMatch: ['<rootDir>/tests/integration/**/*.spec.ts'],
-      globalSetup: '<rootDir>/tests/integration/test-node-setup/jestSetup.ts',
-      globalTeardown: '<rootDir>/tests/integration/test-node-setup/jestTeardown.ts',
+      globalSetup: '<rootDir>/tests/integration/setup/jestSetup.ts',
+      globalTeardown: '<rootDir>/tests/integration/setup/jestTeardown.ts',
     },
   ],
 };
