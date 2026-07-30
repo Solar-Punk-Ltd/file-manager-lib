@@ -1,15 +1,8 @@
 import { BatchId, Bee, Identifier, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 
-import { DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
+import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
 
-import {
-  applyDefaultMocks,
-  createInitializedFileManager,
-  createMockDriveInfo,
-  createMockNodeAddresses,
-  mockPostageBatch,
-  seedRecords,
-} from './mock';
+import { applyDefaultMocks, createMockDriveInfo, createMockNodeAddresses, mockPostageBatch, seedRecords } from './mock';
 
 import { DriveInfo, NodeType } from '@/types';
 import { DriveError, FileManagerEvents } from '@/utils';

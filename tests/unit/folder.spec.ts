@@ -1,16 +1,10 @@
 import { BatchId, Bee, Bytes, FeedIndex, Identifier, MantarayNode, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 
-import { DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
+import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
 
-import {
-  applyDefaultMocks,
-  createInitializedFileManager,
-  createMockDriveInfo,
-  createMockNodeAddresses,
-  seedRecords,
-} from './mock';
+import { applyDefaultMocks, createMockDriveInfo, createMockNodeAddresses, seedDummyFile, seedRecords } from './mock';
 
-import { DriveInfo, FileRecord, ListDepth, NodeHeader, NodeType } from '@/types';
+import { ListDepth, NodeHeader, NodeType } from '@/types';
 import { FileManagerEvents } from '@/utils';
 import { getFeedData } from '@/utils/bee';
 import { SWARM_ZERO_ADDRESS } from '@/utils/constants';
@@ -25,27 +19,14 @@ describe('Folder operations', () => {
   });
 
   describe('downloadFolder', () => {
-    function seedFile(drive: DriveInfo, path: string, ref: string): FileRecord {
-      return {
-        type: NodeType.File,
-        batchId: DUMMY_BATCH_ID,
-        owner,
-        actPublisher,
-        topic: Topic.fromString(`dl-${path}`).toString(),
-        driveId: drive.id,
-        path,
-        content: {
-          reference: ref,
-          historyRef: SWARM_ZERO_ADDRESS.toString(),
-        },
-        redundancyLevel: RedundancyLevel.OFF,
-      };
-    }
-
     it('downloadFolder downloads every hydrated file belonging to the drive', async () => {
       const fm = await createInitializedFileManager();
       const drive = fm.driveList[0];
-      seedRecords(fm, seedFile(drive, 'a.txt', '1'.repeat(64)), seedFile(drive, 'b.txt', '2'.repeat(64)));
+      seedRecords(
+        fm,
+        seedDummyFile(drive, 'a.txt', '1'.repeat(64), owner, actPublisher),
+        seedDummyFile(drive, 'b.txt', '2'.repeat(64), owner, actPublisher),
+      );
 
       const downloadReadableDataSpy = jest.spyOn(Bee.prototype, 'downloadReadableData');
 
@@ -70,8 +51,8 @@ describe('Folder operations', () => {
       const fm = await createInitializedFileManager();
       const drive = fm.driveList[0];
       const otherDrive = createMockDriveInfo(actPublisher, { id: Identifier.fromString('other-drive').toString() });
-      seedRecords(fm, seedFile(drive, 'mine.txt', '1'.repeat(64)));
-      seedRecords(fm, seedFile(otherDrive, 'not-mine.txt', '2'.repeat(64)));
+      seedRecords(fm, seedDummyFile(drive, 'mine.txt', '1'.repeat(64), owner, actPublisher));
+      seedRecords(fm, seedDummyFile(otherDrive, 'not-mine.txt', '2'.repeat(64), owner, actPublisher));
 
       const downloadReadableDataSpy = jest.spyOn(Bee.prototype, 'downloadReadableData');
 

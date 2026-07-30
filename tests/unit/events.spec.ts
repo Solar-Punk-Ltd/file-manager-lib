@@ -1,8 +1,8 @@
 import { BatchId, Bee, RedundancyLevel } from '@ethersphere/bee-js';
 
-import { BEE_URL, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
+import { BEE_URL, createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
 
-import { applyDefaultMocks, createInitializedFileManager } from './mock';
+import { applyDefaultMocks } from './mock';
 
 import { EventEmitterBase } from '@/eventEmitter';
 import { NodeStatus } from '@/types';

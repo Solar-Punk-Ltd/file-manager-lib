@@ -1,13 +1,13 @@
 import { BatchId, Bee, Bytes, FeedIndex, MantarayNode, RedundancyLevel, Reference, Topic } from '@ethersphere/bee-js';
 
-import { DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
+import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
 
 import {
   applyDefaultMocks,
-  createInitializedFileManager,
   createMockDriveInfo,
   createMockNodeAddresses,
   SeedableFm,
+  seedDummyFile,
   seedRecords,
 } from './mock';
 
@@ -33,29 +33,11 @@ describe('File operations', () => {
   });
 
   describe('downloadFile', () => {
-    // TODO: create seedFile util
-    function seedFile(drive: DriveInfo, path: string, ref: string): FileRecord {
-      return {
-        type: NodeType.File,
-        batchId: DUMMY_BATCH_ID,
-        owner,
-        actPublisher,
-        topic: Topic.fromString(`dl-${path}`).toString(),
-        driveId: drive.id,
-        path,
-        content: {
-          reference: ref,
-          historyRef: SWARM_ZERO_ADDRESS.toString(),
-        },
-        redundancyLevel: RedundancyLevel.OFF,
-      };
-    }
-
     it('fetches a single held record and returns one result', async () => {
       const fm = await createInitializedFileManager();
       const drive = fm.driveList[0];
-      const a = seedFile(drive, 'a.txt', '1'.repeat(64));
-      seedRecords(fm, a, seedFile(drive, 'b.txt', '2'.repeat(64)));
+      const a = seedDummyFile(drive, 'a.txt', '1'.repeat(64), owner, actPublisher);
+      seedRecords(fm, a, seedDummyFile(drive, 'b.txt', '2'.repeat(64), owner, actPublisher));
 
       const downloadReadableDataSpy = jest.spyOn(Bee.prototype, 'downloadReadableData');
       const result = await fm.downloadFile(a);

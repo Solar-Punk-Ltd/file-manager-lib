@@ -23,12 +23,10 @@ import {
 } from '@ethersphere/bee-js';
 import { Optional } from 'cafe-utility';
 
-import { BEE_URL, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
+import { DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
 
-import { EventEmitter } from '@/eventEmitter/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
 import { DriveInfo, FileRecord, NodeType } from '@/types';
-import { FileManagerEvents } from '@/utils';
 import { fetchStamp, getFeedData } from '@/utils/bee';
 import { ADMIN_STAMP_LABEL, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 import { getAllNodeEntries, loadMantaray } from '@/utils/mantaray';
@@ -45,30 +43,6 @@ export function createMockMantarayNode(all = true): MantarayNode {
   }
 
   return mn;
-}
-
-export async function createInitializedFileManager(
-  bee: Bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER }),
-  batchId?: string | BatchId,
-  emitter?: EventEmitter,
-): Promise<FileManagerBase> {
-  const fm = new FileManagerBase(bee, emitter);
-
-  let isFirstInit = true;
-  fm.emitter.on(FileManagerEvents.INITIALIZED, (ok: boolean) => {
-    if (isFirstInit) {
-      expect(ok).toBe(true);
-      isFirstInit = false;
-    }
-  });
-
-  await fm.initialize();
-
-  if (!fm.driveList.some((d) => d.isAdmin)) {
-    await fm.createAdminDrive(batchId ?? DUMMY_BATCH_ID, RedundancyLevel.MEDIUM);
-  }
-
-  return fm;
 }
 
 export function createMockNodeAddresses(): NodeAddresses {
@@ -162,7 +136,6 @@ export function createInitMocks(data?: Reference): any {
   jest.spyOn(Bee.prototype, 'downloadFile').mockResolvedValue({ data: new Bytes(SWARM_ZERO_ADDRESS) });
   jest.spyOn(Bee.prototype, 'downloadReadableData').mockResolvedValue(
     new ReadableStream<Uint8Array>({
-      // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
       start(controller) {
         controller.enqueue((data || SWARM_ZERO_ADDRESS).toUint8Array());
         controller.close();
@@ -277,3 +250,26 @@ export function applyDefaultMocks(): void {
   (loadMantaray as jest.Mock).mockResolvedValue(new MantarayNode());
   (getAllNodeEntries as jest.Mock).mockReturnValue([]);
 }
+
+export const seedDummyFile = (
+  drive: DriveInfo,
+  path: string,
+  ref: string,
+  owner: string,
+  actPublisher: string,
+): FileRecord => {
+  return {
+    type: NodeType.File,
+    batchId: DUMMY_BATCH_ID,
+    owner,
+    actPublisher,
+    topic: Topic.fromString(`dl-${path}`).toString(),
+    driveId: drive.id,
+    path,
+    content: {
+      reference: ref,
+      historyRef: SWARM_ZERO_ADDRESS.toString(),
+    },
+    redundancyLevel: RedundancyLevel.OFF,
+  };
+};

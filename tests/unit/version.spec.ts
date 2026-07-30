@@ -1,8 +1,8 @@
 import { Bytes, FeedIndex, Identifier, PublicKey, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 
-import { DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
+import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
 
-import { applyDefaultMocks, createInitializedFileManager, createMockNodeAddresses, seedRecords } from './mock';
+import { applyDefaultMocks, createMockNodeAddresses, seedRecords } from './mock';
 
 import { FileManagerBase } from '@/fileManager';
 import { FileRecord, NodeType } from '@/types';

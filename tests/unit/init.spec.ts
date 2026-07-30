@@ -1,8 +1,8 @@
 import { Bee } from '@ethersphere/bee-js';
 
-import { BEE_URL, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
+import { BEE_URL, createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
 
-import { applyDefaultMocks, createInitializedFileManager, mockPostageBatch } from './mock';
+import { applyDefaultMocks, mockPostageBatch } from './mock';
 
 import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
