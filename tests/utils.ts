@@ -1,6 +1,10 @@
-import { PrivateKey } from '@ethersphere/bee-js';
+import { BatchId, Bee, PrivateKey, RedundancyLevel } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
+
+import { EventEmitter } from '@/eventEmitter';
+import { FileManagerBase } from '@/fileManager';
+import { FileManagerEvents } from '@/utils';
 
 // bee-factory queen node
 export const BEE_URL = 'http://127.0.0.1:1633';
@@ -10,6 +14,7 @@ export const DEFAULT_BATCH_DEPTH = 21;
 export const DEFAULT_BATCH_AMOUNT = '500000000';
 export const DEFAULT_MOCK_SIGNER = new PrivateKey('634fb5a872396d9693e5c9f9d7233cfa93f395c093371017ff44aa9ae6564cdd');
 export const OTHER_MOCK_SIGNER = new PrivateKey('734fb5a872396d9693e5c9f9d7233cfa93f395c093371017ff44aa9ae6564cd7');
+export const DUMMY_BATCH_ID = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
 
 export function getTestFile(relativePath: string): string {
   return fs.readFileSync(path.resolve(__dirname, relativePath), 'utf-8');
@@ -62,4 +67,28 @@ export async function retryOnPropagationDelay<T>(fn: () => Promise<T>, attempts 
     }
   }
   throw lastError;
+}
+
+export async function createInitializedFileManager(
+  bee: Bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER }),
+  batchId?: string | BatchId,
+  emitter?: EventEmitter,
+): Promise<FileManagerBase> {
+  const fm = new FileManagerBase(bee, emitter);
+
+  let isFirstInit = true;
+  fm.emitter.on(FileManagerEvents.INITIALIZED, (ok: boolean) => {
+    if (isFirstInit) {
+      expect(ok).toBe(true);
+      isFirstInit = false;
+    }
+  });
+
+  await fm.initialize();
+
+  if (!fm.driveList.some((d) => d.isAdmin)) {
+    await fm.createAdminDrive(batchId ?? DUMMY_BATCH_ID, RedundancyLevel.MEDIUM);
+  }
+
+  return fm;
 }

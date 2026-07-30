@@ -15,8 +15,8 @@ import * as fs from 'fs';
 import path from 'path';
 import { setTimeout } from 'timers';
 
-import { createInitializedFileManager } from '../mockHelpers';
 import {
+  createInitializedFileManager,
   DEFAULT_BATCH_AMOUNT,
   DEFAULT_BATCH_DEPTH,
   OTHER_BEE_URL,
@@ -25,7 +25,7 @@ import {
   streamToUint8Array,
 } from '../utils';
 
-import { ensureUniqueSignerWithStamp } from './testSetupHelpers';
+import { ensureUniqueSignerWithStamp } from './utils/testSetupHelpers';
 
 import { FileManagerBase } from '@/fileManager';
 import { ActReferences, DriveInfo, FileRecord, FolderInfo, ListDepth, NodeStatus, NodeType } from '@/types';
@@ -179,12 +179,12 @@ describe('FileManager initialization', () => {
   });
 
   it('should not reinitialize if already initialized', async () => {
-    const fileInfoListBefore = [...fileManager.recordList];
+    const recordListBefore = [...fileManager.recordList];
     fileManager.emitter.on(FileManagerEvents.INITIALIZED, (e) => {
       expect(e).toEqual(true);
     });
     await fileManager.initialize();
-    expect(fileManager.recordList).toEqual(fileInfoListBefore);
+    expect(fileManager.recordList).toEqual(recordListBefore);
   });
 
   it('should maintain isInitialized flag after successful reinitialization', async () => {
@@ -649,7 +649,7 @@ describe('FileManager uploadFile', () => {
   });
 
   // Each test uses a unique filename: upload() now always mints a fresh topic + fork, so re-using
-  // the same path across tests would leave multiple same-path entries in fileInfoList. Re-versioning
+  // the same path across tests would leave multiple same-path entries in recordList. Re-versioning
   // is done via update(record, ...), which reuses the topic and writes a new feed slot.
 
   it('uploads a new file and adds it to the file record list at version 0', async () => {
@@ -717,8 +717,8 @@ describe('FileManager uploadFile', () => {
       path: tempFile,
       sourcePath: tempFile,
     });
-    const fileInfoList = fileManager.recordList;
-    const uploadedInfo = fileInfoList.find((fr) => fr.path === tempFile);
+    const recordList = fileManager.recordList;
+    const uploadedInfo = recordList.find((fr) => fr.path === tempFile);
     expect(uploadedInfo).toBeDefined();
     fs.rmSync(tempFile, { force: true });
   });
@@ -1346,7 +1346,7 @@ describe('FileManager file operations', () => {
     expect(fileManager.recordList.filter((fr) => fr.topic.toString() === topic)).toHaveLength(1);
   });
 
-  it('fileInfoList should never gain duplicate topics when trash/restoring', async () => {
+  it('recordList should never gain duplicate topics when trash/restoring', async () => {
     await fileManager.listFolder(drive.id, ROOT_PATH);
 
     const fi0 = fileManager.recordList.find((fr) => fr.path === TEST_NAME)!;
