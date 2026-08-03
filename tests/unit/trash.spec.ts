@@ -72,6 +72,31 @@ describe('Lifecycle management', () => {
     });
   });
 
+  describe('recoverFolder', () => {
+    it('removes the folder from the overlay and emits FOLDER_RECOVERED', async () => {
+      const folder: FolderInfo = {
+        type: NodeType.Folder,
+        owner,
+        actPublisher,
+        topic: Topic.fromString('docs-folder').toString(),
+        driveId: drive.id,
+        path: 'Docs',
+        batchId: DUMMY_BATCH_ID,
+        redundancyLevel: RedundancyLevel.OFF,
+      };
+
+      await fm.trashFolder(folder);
+      const handler = jest.fn();
+      fm.emitter.on(FileManagerEvents.FOLDER_RECOVERED, handler);
+
+      await fm.recoverFolder(folder);
+
+      expect(folder.status).toBe(NodeStatus.Active);
+      expect(drive.trashedNodes).toEqual([]);
+      expect(handler).toHaveBeenCalledWith({ folder });
+    });
+  });
+
   describe('trashFolder', () => {
     it('records a folder in the overlay and emits FOLDER_TRASHED', async () => {
       const folder: FolderInfo = {
