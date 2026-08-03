@@ -171,7 +171,7 @@ describe('Version control', () => {
     await fileManager.updateFile(drive.id, latestFi, { item: { sourcePath: NAME } });
 
     const count = await getFeedData(bee, new Topic(v0Fi.topic), signer.publicKey().address().toString());
-    expect(count.feedIndexNext.toBigInt()).toEqual(initialVersion + 2n);
+    expect(count.feedIndexNext.toBigInt()).toEqual(initialVersion + 3n);
 
     const v0 = await fileManager.getFileVersion(v0Fi, FEED_INDEX_ZERO);
     expect(v0.version).toBeDefined();

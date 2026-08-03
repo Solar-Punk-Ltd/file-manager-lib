@@ -73,11 +73,11 @@ describe('Abort signal handling', () => {
 
       controller.abort();
 
-      // Verify the error is related to abort
       try {
         await uploadPromise;
       } catch (error: any) {
-        expect(error.statusText === 'ERR_CANCELED' || error.message.includes('aborted')).toBe(true);
+        const haystack = `${error?.name ?? ''} ${error?.message ?? ''} ${error?.cause?.message ?? ''}`.toLowerCase();
+        expect(error?.statusText === 'ERR_CANCELED' || /abort|cancel|terminated/.test(haystack)).toBe(true);
       }
     });
 

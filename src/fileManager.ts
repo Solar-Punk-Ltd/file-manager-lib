@@ -1607,6 +1607,7 @@ export class FileManagerBase implements FileManager {
       path: parentPath === ROOT_PATH || !parentPath ? folderName : `${parentPath}/${folderName}`,
       driveId: driveInfo.id,
       actPublisher: publisher,
+      status: NodeStatus.Active,
     };
 
     const folderNode = new MantarayNode();
