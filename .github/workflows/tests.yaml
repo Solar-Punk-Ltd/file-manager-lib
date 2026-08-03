@@ -2,73 +2,65 @@ name: Tests
 
 on:
   push:
-    branches: ['master', 'develop']
+    branches: [master, develop]
   pull_request:
-    branches: ['master', 'develop']
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   unit-tests:
     runs-on: ubuntu-latest
-
     strategy:
       matrix:
         node-version: [24.x]
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 10
-
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'pnpm'
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
       - name: Build
         run: pnpm run build
-
       - name: Run unit tests
         run: pnpm run test:ut
 
   integration-tests:
     runs-on: ubuntu-latest
-
+    if: >-
+      github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' &&
+      github.base_ref == 'master') || contains(github.event.pull_request.labels.*.name, 'run-it')
     strategy:
       matrix:
         node-version: [24.x]
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 10
-
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'pnpm'
-
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.24'
           cache: false
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
       - name: Build
         run: pnpm run build
-
       - name: Run integration tests
         run: pnpm run test:it

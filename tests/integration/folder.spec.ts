@@ -1,4 +1,4 @@
-import { Identifier } from '@ethersphere/bee-js';
+import { BatchId, Identifier } from '@ethersphere/bee-js';
 
 import { DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, retryOnPropagationDelay, streamToUint8Array } from '../utils';
 
@@ -117,10 +117,14 @@ describe('Folder operations', () => {
     });
   });
 
-  describe('move', async () => {
-    const { bee: beeDev } = await ensureUniqueSignerWithStamp();
+  describe('move', () => {
+    let moveBatchId: BatchId;
 
-    const moveBatchId = await buyStamp(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'movestamp');
+    beforeAll(async () => {
+      const { bee: beeDev } = await ensureUniqueSignerWithStamp();
+
+      moveBatchId = await buyStamp(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'movestamp');
+    });
 
     it('moves a folder as a unit, composing correct descendant paths at read time', async () => {
       await fileManager.createDrive(moveBatchId, 'move-folder-a');

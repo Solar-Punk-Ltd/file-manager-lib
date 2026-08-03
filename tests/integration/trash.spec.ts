@@ -1,14 +1,13 @@
 import { BatchId, Bee, Identifier } from '@ethersphere/bee-js';
 
-import { createInitializedFileManager } from '../utils';
+import { createInitializedFileManager, retryOnPropagationDelay } from '../utils';
 
 import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
-import { DriveInfo, FileRecord, NodeStatus } from '@/types';
+import { DriveInfo, FileRecord, NodeStatus, NodeType } from '@/types';
 import { ROOT_PATH } from '@/utils/constants';
 
-// TODO: missing recoverFolder
 describe('Lifecycle management', () => {
   let bee: Bee;
   let fileManager: FileManagerBase;
@@ -26,8 +25,6 @@ describe('Lifecycle management', () => {
       ownerStamp: adminBatch,
     } = await setupUserDrive('fileoperations', { stampLabel: 'fileOpsIntegration' }));
 
-    // Flat, cwd-relative name: upload()'s `path` doubles as both the on-disk source and the
-    // top-level drive manifest fork name, so it must resolve with zero intermediate segments.
     writeTempFile(TEST_NAME, 'file ops content');
     await fileManager.uploadFile(drive.id, { path: TEST_NAME, sourcePath: TEST_NAME });
 
@@ -49,8 +46,7 @@ describe('Lifecycle management', () => {
     await fm2.listFolder(new Identifier(drive.id), ROOT_PATH);
 
     const fi2 = fm2.recordList.find((fr) => fr.path === TEST_NAME)!;
-    // Trash state round-trips through the owner-private admin overlay, so a fresh instance derives
-    // it on listFolder. It is overlay-only: the file's own feed/version is never touched.
+
     expect(fi2.status).toBe(NodeStatus.Trashed);
     expect(BigInt(fi2.version!.toString())).toBe(beforeVersion);
   });
@@ -66,13 +62,43 @@ describe('Lifecycle management', () => {
 
     await fileManager.recoverFile(testFi);
 
-    const fm2 = await createInitializedFileManager(bee, adminBatch);
-    await fm2.listFolder(drive.id, ROOT_PATH);
+    const fi2 = await retryOnPropagationDelay(async () => {
+      const fm2 = await createInitializedFileManager(bee, adminBatch);
+      await fm2.listFolder(drive.id, ROOT_PATH);
+      const found = fm2.recordList.find((fr) => fr.path === TEST_NAME)!;
+      if (found.status !== NodeStatus.Active) {
+        throw new Error('recover not yet propagated to a fresh instance');
+      }
+      return found;
+    });
 
-    const fi2 = fm2.recordList.find((fr) => fr.path === TEST_NAME)!;
-    // Recover is overlay-only too: status flips back to Active without a version bump.
     expect(fi2.status).toBe(NodeStatus.Active);
     expect(BigInt(fi2.version!.toString())).toBe(beforeVersion);
+  });
+
+  it('should recover a previously trashed folder', async () => {
+    const FOLDER_NAME = 'trash-recover-folder';
+    const folder = await fileManager.createFolder(drive.id, ROOT_PATH, FOLDER_NAME);
+    console.log('bagoy folder: ', folder);
+    expect(folder.status).toBe(NodeStatus.Active);
+
+    await fileManager.trashFolder(folder);
+    expect(folder.status).toBe(NodeStatus.Trashed);
+
+    await fileManager.recoverFolder(folder);
+    expect(folder.status).toBe(NodeStatus.Active);
+
+    const recovered = await retryOnPropagationDelay(async () => {
+      const fm2 = await createInitializedFileManager(bee, adminBatch);
+      const entries = await fm2.listFolder(drive.id, ROOT_PATH);
+      const found = entries.find((e) => e.type === NodeType.Folder && e.topic.toString() === folder.topic.toString());
+      if (!found || found.status !== NodeStatus.Active) {
+        throw new Error('folder recover not yet propagated to a fresh instance');
+      }
+      return found;
+    });
+
+    expect(recovered.status).toBe(NodeStatus.Active);
   });
 
   it('should forget (hard-delete) a file', async () => {
@@ -121,7 +147,6 @@ describe('Lifecycle management', () => {
     await fm2.listFolder(drive.id, ROOT_PATH);
     const fi2 = fm2.recordList.find((fr) => fr.topic.toString() === topic)!;
 
-    // Trash + recover are overlay-only round-trips — the file's own version never advances.
     expect(BigInt(fi2.version!.toString())).toBe(beforeVer);
   });
 });
