@@ -32,6 +32,18 @@ import { ADMIN_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
 export const MOCK_BATCH_ID = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
 
+// bee-js v13 doesn't export the namespace classes (Data, Status, ...), so their shared
+// prototypes are obtained from a throwaway instance instead, to spy on methods like
+// `bee.data.download` across every `Bee` instance created in tests.
+const PROTOTYPE_BEE = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+export const StatusPrototype = Object.getPrototypeOf(PROTOTYPE_BEE.status);
+export const ConnectivityPrototype = Object.getPrototypeOf(PROTOTYPE_BEE.connectivity);
+export const DataPrototype = Object.getPrototypeOf(PROTOTYPE_BEE.data);
+export const StampPrototype = Object.getPrototypeOf(PROTOTYPE_BEE.stamp);
+export const FeedPrototype = Object.getPrototypeOf(PROTOTYPE_BEE.feed);
+export const FilePrototype = Object.getPrototypeOf(PROTOTYPE_BEE.file);
+export const CollectionPrototype = Object.getPrototypeOf(PROTOTYPE_BEE.collection);
+
 export function createMockMantarayNode(all = true): MantarayNode {
   const mn = new MantarayNode();
   if (all) {
@@ -146,37 +158,37 @@ export function createMockFeedWriter(char: string = '1'): FeedWriter {
 
 export function createInitMocks(data?: Reference): any {
   jest
-    .spyOn(Bee.prototype, 'getVersions')
+    .spyOn(StatusPrototype, 'getVersions')
     .mockResolvedValue({ beeApiVersion: '0.0.0', beeVersion: '0.0.0' } as BeeVersions);
-  jest.spyOn(Bee.prototype, 'isSupportedApiVersion').mockResolvedValue(true);
-  jest.spyOn(Bee.prototype, 'getNodeAddresses').mockResolvedValue(createMockNodeAddresses());
+  jest.spyOn(StatusPrototype, 'isSupportedApiVersion').mockResolvedValue(true);
+  jest.spyOn(ConnectivityPrototype, 'getNodeAddresses').mockResolvedValue(createMockNodeAddresses());
   loadStampListMock();
-  jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(new Bytes(data || SWARM_ZERO_ADDRESS));
-  jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValue({
+  jest.spyOn(DataPrototype, 'download').mockResolvedValue(new Bytes(data || SWARM_ZERO_ADDRESS));
+  jest.spyOn(DataPrototype, 'upload').mockResolvedValue({
     reference: data || SWARM_ZERO_ADDRESS,
     historyAddress: Optional.of(data || SWARM_ZERO_ADDRESS),
   } as unknown as UploadResult);
-  jest.spyOn(Bee.prototype, 'makeFeedWriter').mockReturnValue(createMockFeedWriter());
-  jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue(createMockFeedReader());
-  jest.spyOn(Bee.prototype, 'getPostageBatches').mockResolvedValue(loadStampListMock());
+  jest.spyOn(FeedPrototype, 'makeWriter').mockReturnValue(createMockFeedWriter());
+  jest.spyOn(FeedPrototype, 'makeReader').mockReturnValue(createMockFeedReader());
+  jest.spyOn(StampPrototype, 'getAll').mockResolvedValue(loadStampListMock());
 }
 
 export function createUploadFilesFromDirectorySpy(char: string): jest.SpyInstance {
-  return jest.spyOn(Bee.prototype, 'uploadFilesFromDirectory').mockResolvedValueOnce({
+  return jest.spyOn(CollectionPrototype, 'uploadFromDirectory').mockResolvedValueOnce({
     reference: new Reference(char.repeat(64)),
     historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
   });
 }
 
 export function createUploadFileSpy(char: string): jest.SpyInstance {
-  return jest.spyOn(Bee.prototype, 'uploadFile').mockResolvedValueOnce({
+  return jest.spyOn(FilePrototype, 'upload').mockResolvedValueOnce({
     reference: new Reference(char.repeat(64)),
     historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
   });
 }
 
 export function createUploadDataSpy(char: string): jest.SpyInstance {
-  return jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValueOnce({
+  return jest.spyOn(DataPrototype, 'upload').mockResolvedValueOnce({
     reference: new Reference(char.repeat(64)),
     historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
   });

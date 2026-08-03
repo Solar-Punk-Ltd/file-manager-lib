@@ -1,6 +1,6 @@
 import {
   BatchId,
-  BeeDev,
+  Bee,
   Bytes,
   FeedIndex,
   Identifier,
@@ -50,7 +50,7 @@ import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 // TODO: emitter test for all events
 // TODO: separate IT cases into different files
 describe('FileManager initialization', () => {
-  let bee: BeeDev;
+  let bee: Bee;
   let fileManager: FileManagerBase;
   let actPublisher: PublicKey;
   let drive: DriveInfo;
@@ -63,7 +63,7 @@ describe('FileManager initialization', () => {
     adminBatchId = ownerStamp;
     signer = newSigner;
     fileManager = await createInitializedFileManager(bee, adminBatchId);
-    actPublisher = (await bee.getNodeAddresses()).publicKey;
+    actPublisher = (await bee.connectivity.getNodeAddresses()).publicKey;
   });
 
   beforeEach(async () => {
@@ -74,7 +74,7 @@ describe('FileManager initialization', () => {
     expect(fileManager.fileInfoList).toEqual([]);
     expect(fileManager.sharedWithMe).toEqual([]);
 
-    const otherBee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
+    const otherBee = new Bee(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
     const fm2 = new FileManagerBase(otherBee);
     try {
       fm2.emitter.on(FileManagerEvents.INITIALIZED, (e) => {
@@ -100,14 +100,14 @@ describe('FileManager initialization', () => {
     const { payload } = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 0n);
     const feedTopicState = payload.toJSON() as StateTopicInfo;
     assertStateTopicInfo(feedTopicState);
-    const topicHex = await bee.downloadData(new Reference(feedTopicState.topicReference), {
+    const topicHex = await bee.data.download(new Reference(feedTopicState.topicReference), {
       actHistoryAddress: new Reference(feedTopicState.historyAddress),
       actPublisher,
     });
     expect(topicHex).not.toEqual(SWARM_ZERO_ADDRESS);
 
     await fileManager.initialize();
-    const reinitTopicHex = await bee.downloadData(new Reference(feedTopicState.topicReference), {
+    const reinitTopicHex = await bee.data.download(new Reference(feedTopicState.topicReference), {
       actHistoryAddress: new Reference(feedTopicState.historyAddress),
       actPublisher,
     });
@@ -115,13 +115,13 @@ describe('FileManager initialization', () => {
   });
 
   it('should throw an error if someone else than the admin tries to read the admin feed', async () => {
-    const otherBee = new BeeDev(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
+    const otherBee = new Bee(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
 
     const { payload } = await getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 0n);
     const feedTopicState = payload.toJSON() as StateTopicInfo;
 
     try {
-      await bee.downloadData(new Reference(feedTopicState.topicReference), {
+      await bee.data.download(new Reference(feedTopicState.topicReference), {
         actHistoryAddress: new Reference(feedTopicState.historyAddress),
         actPublisher: OTHER_MOCK_SIGNER.publicKey(),
       });
@@ -131,7 +131,7 @@ describe('FileManager initialization', () => {
     }
 
     try {
-      await otherBee.downloadData(new Reference(feedTopicState.topicReference), {
+      await otherBee.data.download(new Reference(feedTopicState.topicReference), {
         actHistoryAddress: new Reference(feedTopicState.historyAddress),
         actPublisher,
       });
@@ -189,10 +189,10 @@ describe('FileManager initialization', () => {
   });
 
   it('should verify Bee versions and supported API', async () => {
-    const versions = await bee.getVersions();
+    const versions = await bee.status.getVersions();
     expect(versions.beeVersion).toBeDefined();
     expect(versions.beeApiVersion).toBeDefined();
-    const supported = await bee.isSupportedApiVersion();
+    const supported = await bee.status.isSupportedApiVersion();
     expect(supported).toBeTruthy();
   });
 
@@ -238,8 +238,8 @@ describe('FileManager reinitialization', () => {
     const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
     await createInitializedFileManager(beeDev, ownerStamp);
 
-    const originalFn = beeDev.getPostageBatches.bind(beeDev);
-    const spy = jest.spyOn(beeDev, 'getPostageBatches');
+    const originalFn = beeDev.stamp.getAll.bind(beeDev.stamp);
+    const spy = jest.spyOn(beeDev.stamp, 'getAll');
 
     spy.mockImplementation(async () => {
       await originalFn();
@@ -348,8 +348,8 @@ describe('FileManager reinitialization', () => {
 
   it('should emit correct events during revalidation failure', async () => {
     const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
-    const originalFn = beeDev.getPostageBatches.bind(beeDev);
-    const spy = jest.spyOn(beeDev, 'getPostageBatches');
+    const originalFn = beeDev.stamp.getAll.bind(beeDev.stamp);
+    const spy = jest.spyOn(beeDev.stamp, 'getAll');
 
     spy.mockImplementation(async () => {
       const batches = await originalFn();
@@ -411,7 +411,7 @@ describe('FileManager reinitialization', () => {
 });
 
 describe('FileManager drive handling', () => {
-  let bee: BeeDev;
+  let bee: Bee;
   let fileManager: FileManagerBase;
   let ownerBatch: PostageBatch;
   let tempDir: string;
@@ -421,7 +421,7 @@ describe('FileManager drive handling', () => {
     const { bee: beeDev, ownerStamp, signer: newSigner } = await ensureUniqueSignerWithStamp();
     bee = beeDev;
     signer = newSigner;
-    const stamp = (await bee.getPostageBatches()).find((s) => s.batchID.toString() === ownerStamp.toString());
+    const stamp = (await bee.stamp.getAll()).find((s) => s.batchID.toString() === ownerStamp.toString());
 
     expect(stamp).toBeDefined();
     expect(stamp?.batchID.toString() === ownerStamp.toString()).toBeTruthy();
@@ -572,7 +572,7 @@ describe('FileManager drive handling', () => {
 });
 
 describe('FileManager listFiles', () => {
-  let bee: BeeDev;
+  let bee: Bee;
   let fileManager: FileManagerBase;
   let batchId: BatchId;
   let tempDir: string;
@@ -587,7 +587,7 @@ describe('FileManager listFiles', () => {
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'listFilesIntegrationStamp');
 
     fileManager = await createInitializedFileManager(bee, ownerStamp);
-    actPublisher = (await bee.getNodeAddresses()).publicKey;
+    actPublisher = (await bee.connectivity.getNodeAddresses()).publicKey;
 
     await fileManager.createDrive(batchId, 'listFiles', false);
     const tmpDrive = fileManager.driveList.find((d) => d.name === 'listFiles');
@@ -725,7 +725,7 @@ describe('FileManager listFiles', () => {
 });
 
 describe('FileManager upload', () => {
-  let bee: BeeDev;
+  let bee: Bee;
   let fileManager: FileManagerBase;
   let batchId: BatchId;
   let tempUploadDir: string;
@@ -910,7 +910,7 @@ describe('FileManager upload', () => {
 });
 
 describe('FileManager download', () => {
-  let bee: BeeDev;
+  let bee: Bee;
   let fileManager: FileManagerBase;
   let batchId: BatchId;
   let tempDownloadDir: string;
@@ -926,7 +926,7 @@ describe('FileManager download', () => {
     signer = newSigner;
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'downloadFilesIntegrationStamp');
     fileManager = await createInitializedFileManager(bee, ownerStamp);
-    actPublisher = (await bee.getNodeAddresses()).publicKey;
+    actPublisher = (await bee.connectivity.getNodeAddresses()).publicKey;
 
     await fileManager.createDrive(batchId, 'download', false);
     const tmpDrive = fileManager.driveList.find((d) => d.name === 'download');
@@ -1015,7 +1015,7 @@ describe('FileManager download', () => {
 });
 
 describe('FileManager file operations', () => {
-  let bee: BeeDev;
+  let bee: Bee;
   let fileManager: FileManagerBase;
   let batchId: BatchId;
   let testFi: FileInfo;
@@ -1134,7 +1134,7 @@ describe('FileManager file operations', () => {
 });
 
 describe('FileManager version control', () => {
-  let bee: BeeDev;
+  let bee: Bee;
   let fileManager: FileManagerBase;
   let batchId: BatchId;
   let drive: DriveInfo;
@@ -1291,7 +1291,7 @@ describe('FileManager version control', () => {
       expect(v0.version).toBeDefined();
       expect(v0.version).toBe(FEED_INDEX_ZERO.toString());
 
-      const actPublisher = (await bee.getNodeAddresses()).publicKey.toCompressedHex();
+      const actPublisher = (await bee.connectivity.getNodeAddresses()).publicKey.toCompressedHex();
       const dl0 = (await fileManager.download(v0, undefined, {
         actHistoryAddress: v0.file.historyRef,
         actPublisher,
@@ -1379,7 +1379,7 @@ describe('FileManager version control', () => {
 });
 
 describe('FileManager getGranteesOfFile', () => {
-  let bee: BeeDev;
+  let bee: Bee;
   let fileManager: FileManagerBase;
   let signer: PrivateKey;
 
@@ -1413,7 +1413,7 @@ describe('FileManager getGranteesOfFile', () => {
 });
 
 describe('FileManager End-to-End User Workflow', () => {
-  let bee: BeeDev;
+  let bee: Bee;
   let fileManager: FileManagerBase;
   let batchId: BatchId;
   let tempBaseDir: string;
@@ -1426,7 +1426,7 @@ describe('FileManager End-to-End User Workflow', () => {
     tempBaseDir = path.join(__dirname, 'e2eTestSession');
     fileManager = await createInitializedFileManager(bee, ownerStamp);
     fs.mkdirSync(tempBaseDir, { recursive: true });
-    actPublisher = (await bee.getNodeAddresses()).publicKey;
+    actPublisher = (await bee.connectivity.getNodeAddresses()).publicKey;
 
     batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'e2eStamp');
     await fileManager.createDrive(batchId, 'e2e', false);
@@ -1589,7 +1589,7 @@ describe('FileManager End-to-End User Workflow', () => {
 });
 
 describe('FileManager AbortController', () => {
-  let bee: BeeDev;
+  let bee: Bee;
   let fileManager: FileManagerBase;
   let batchId: BatchId;
   let tempDir: string;
@@ -1717,7 +1717,7 @@ describe('FileManager AbortController', () => {
       expect(fileInfo).toBeDefined();
       uploadedFileInfo = fileInfo!;
 
-      actPublisher = (await bee.getNodeAddresses()).publicKey;
+      actPublisher = (await bee.connectivity.getNodeAddresses()).publicKey;
     });
 
     it('should throw error when download is aborted with pre-aborted signal', async () => {
@@ -1826,7 +1826,7 @@ describe('FileManager AbortController', () => {
       expect(fileInfo).toBeDefined();
       uploadedFolderInfo = fileInfo!;
 
-      actPublisher = (await bee.getNodeAddresses()).publicKey;
+      actPublisher = (await bee.connectivity.getNodeAddresses()).publicKey;
     });
 
     it('should throw error when listFiles is aborted with pre-aborted signal', async () => {

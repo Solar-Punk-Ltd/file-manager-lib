@@ -20,8 +20,10 @@ import {
   createUploadDataSpy,
   createUploadFilesFromDirectorySpy,
   createUploadFileSpy,
+  DataPrototype,
   MOCK_BATCH_ID,
   mockPostageBatch,
+  StampPrototype,
 } from '../mockHelpers';
 import { BEE_URL, DEFAULT_MOCK_SIGNER } from '../utils';
 
@@ -155,7 +157,7 @@ describe('FileManager', () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const emitter = new EventEmitterBase();
 
-      const getPostageBatchesSpy = jest.spyOn(Bee.prototype, 'getPostageBatches');
+      const getPostageBatchesSpy = jest.spyOn(StampPrototype, 'getAll');
       getPostageBatchesSpy.mockResolvedValue([
         {
           ...mockPostageBatch,
@@ -225,7 +227,7 @@ describe('FileManager', () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       await createInitializedFileManager(bee, MOCK_BATCH_ID);
 
-      const getPostageBatchesSpy = jest.spyOn(Bee.prototype, 'getPostageBatches');
+      const getPostageBatchesSpy = jest.spyOn(StampPrototype, 'getAll');
       getPostageBatchesSpy.mockResolvedValue([
         {
           ...mockPostageBatch,
@@ -248,7 +250,7 @@ describe('FileManager', () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const emitter = new EventEmitterBase();
 
-      const getPostageBatchesSpy = jest.spyOn(Bee.prototype, 'getPostageBatches');
+      const getPostageBatchesSpy = jest.spyOn(StampPrototype, 'getAll');
       getPostageBatchesSpy.mockImplementation(async () => [
         {
           ...mockPostageBatch,
@@ -314,7 +316,7 @@ describe('FileManager', () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       await createInitializedFileManager(bee, MOCK_BATCH_ID);
 
-      const getPostageBatchesSpy = jest.spyOn(Bee.prototype, 'getPostageBatches');
+      const getPostageBatchesSpy = jest.spyOn(StampPrototype, 'getAll');
       getPostageBatchesSpy.mockResolvedValue([
         {
           ...mockPostageBatch,
@@ -376,7 +378,7 @@ describe('FileManager', () => {
     it('should call bee.downloadData with only correct fork reference', async () => {
       createInitMocks();
       const fm = await createInitializedFileManager();
-      const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
+      const downloadDataSpy = jest.spyOn(DataPrototype, 'download');
       const mockFi = await createMockFileInfo(owner, actPublisher, mockSelfAddr.toString());
 
       const mockMantarayNode = createMockMantarayNode(false);
@@ -398,7 +400,7 @@ describe('FileManager', () => {
       const fm = await createInitializedFileManager();
       const mockFi = await createMockFileInfo(owner, actPublisher, mockSelfAddr.toString());
 
-      const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
+      const downloadDataSpy = jest.spyOn(DataPrototype, 'download');
 
       const { settlePromises } = jest.requireActual('@/utils/common');
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
@@ -448,7 +450,7 @@ describe('FileManager', () => {
       const mockFi = await createMockFileInfo(owner, actPublisher);
 
       jest
-        .spyOn(Bee.prototype, 'downloadData')
+        .spyOn(DataPrototype, 'download')
         .mockResolvedValueOnce(Bytes.fromUtf8(JSON.stringify({ uploadFilesRes: '1'.repeat(64) })));
 
       const result = await fm.listFiles(mockFi);
@@ -718,7 +720,7 @@ describe('FileManager', () => {
     });
 
     it('destroyDrive should call diluteBatch with batchId and MAX_DEPTH', async () => {
-      const diluteSpy = jest.spyOn(Bee.prototype, 'diluteBatch').mockResolvedValue(otherMockBatchId);
+      const diluteSpy = jest.spyOn(StampPrototype, 'dilute').mockResolvedValue(otherMockBatchId);
       const fm = await createInitializedFileManager();
       await fm.createDrive(otherMockBatchId, 'Test Drive', false);
       const di = fm.driveList[1];
@@ -782,7 +784,7 @@ describe('FileManager', () => {
       fm.fileInfoList.push(mkFi('topic-x', 'x.txt'));
       fm.fileInfoList.push(mkFi('topic-y', 'y.txt'));
 
-      const diluteSpy = jest.spyOn(Bee.prototype, 'diluteBatch');
+      const diluteSpy = jest.spyOn(StampPrototype, 'dilute');
       const saveSpy = jest.spyOn(fm as any, 'saveDriveList');
 
       const eventPromise = new Promise<void>((resolve) => {
