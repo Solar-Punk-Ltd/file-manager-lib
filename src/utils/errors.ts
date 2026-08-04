@@ -76,33 +76,16 @@ export class SignerError extends FileManagerError {
   }
 }
 
+// Record/feed/metadata failures (record not found, wrong drive, version collision)
 export class FileRecordError extends FileManagerError {
   public constructor(message: string, cause?: unknown) {
     super(message, 'FileRecordError', cause);
   }
 }
 
-/** Content/IO failures (reading, uploading, or downloading file bytes). */
+// Content/IO failures (reading, uploading, or downloading file bytes)
 export class FileError extends FileManagerError {
   public constructor(message: string, cause?: unknown) {
     super(message, 'FileError', cause);
-  }
-}
-
-export class SubscriptionError extends FileManagerError {
-  public constructor(message: string, cause?: unknown) {
-    super(message, 'SubscriptionError', cause);
-  }
-}
-
-export class GranteeError extends FileManagerError {
-  public constructor(message: string, cause?: unknown) {
-    super(message, 'GranteeError', cause);
-  }
-}
-
-export class SendShareMessageError extends FileManagerError {
-  public constructor(message: string, cause?: unknown) {
-    super(message, 'SendShareMessageError', cause);
   }
 }

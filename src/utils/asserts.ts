@@ -1,16 +1,7 @@
 import { BatchId, EthAddress, Identifier, PublicKey, RedundancyLevel, Reference, Topic } from '@ethersphere/bee-js';
 import { Types } from 'cafe-utility';
 
-import {
-  DriveInfo,
-  FileRecord,
-  FolderInfo,
-  NodeResource,
-  NodeStatus,
-  NodeType,
-  ShareItem,
-  TrashEntry,
-} from '../types/info';
+import { DriveInfo, FileRecord, FolderInfo, NodeResource, NodeStatus, NodeType, TrashEntry } from '../types/info';
 import { ActReferences } from '../types/utils';
 
 import {
@@ -86,34 +77,8 @@ export function assertFileRecord(value: unknown): asserts value is FileRecord {
     throw new TypeError('timestamp property of FileRecord has to be number!');
   }
 
-  if (fr.shared !== undefined && typeof fr.shared !== 'boolean') {
-    throw new TypeError('shared property of FileRecord has to be boolean!');
-  }
-
   if (fr.status !== undefined && !Object.values(NodeStatus).includes(fr.status)) {
     throw new TypeError('status property of FileRecord has to be a valid NodeStatus!');
-  }
-
-  if (fr.granteeListRef !== undefined) {
-    new Reference(fr.granteeListRef);
-  }
-}
-
-export function assertShareItem(value: unknown): asserts value is ShareItem {
-  if (!Types.isStrictlyObject(value)) {
-    throw new TypeError('ShareItem has to be object!');
-  }
-
-  const item = value as unknown as ShareItem;
-
-  assertFileRecord(item.record);
-
-  if (item.timestamp !== undefined && typeof item.timestamp !== 'number') {
-    throw new TypeError('timestamp property of ShareItem has to be number!');
-  }
-
-  if (item.message !== undefined && typeof item.message !== 'string') {
-    throw new TypeError('message property of ShareItem has to be string!');
   }
 }
 
