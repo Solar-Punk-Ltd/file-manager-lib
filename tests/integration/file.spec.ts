@@ -13,8 +13,7 @@ import {
 import { ensureUniqueSignerWithStamp, setupUserDrive, tempFileRegistry } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
-import { BeeClient } from '@/swarm';
-import { DriveInfo, ListDepth, NodeType } from '@/types';
+import { DriveInfo, ListDepth, NodeType, SwarmClient } from '@/types';
 import { FileManagerEvents } from '@/utils';
 import { FEED_INDEX_ZERO, ROOT_PATH } from '@/utils/constants';
 
@@ -426,7 +425,7 @@ describe('downloadFile and downloadFiles', () => {
 });
 
 describe('move', () => {
-  let client: BeeClient;
+  let client: SwarmClient;
   let bee: Bee;
   let fileManager: FileManagerBase;
   let driveA: DriveInfo;

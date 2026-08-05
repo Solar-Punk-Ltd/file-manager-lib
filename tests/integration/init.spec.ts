@@ -14,7 +14,7 @@ import { ensureUniqueSignerWithStamp } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
 import { BeeClient } from '@/swarm';
-import { ActReferences } from '@/types';
+import { ActReferences, SwarmClient } from '@/types';
 import { ADMIN_STAMP_LABEL, FILEMANAGER_STATE_TOPIC, FileManagerEvents, StampError } from '@/utils';
 import { assertActReferences } from '@/utils/asserts';
 import { getFeedData } from '@/utils/bee';
@@ -22,7 +22,7 @@ import { SWARM_ZERO_ADDRESS } from '@/utils/constants';
 import { generateRandomBytes } from '@/utils/crypto';
 
 describe('Initialization and construction', () => {
-  let client: BeeClient;
+  let client: SwarmClient;
   let fileManager: FileManagerBase;
   let actPublisher: string;
   let adminBatchId: BatchId;

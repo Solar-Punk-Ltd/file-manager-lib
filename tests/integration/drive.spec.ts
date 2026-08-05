@@ -5,12 +5,11 @@ import { buyStamp, createInitializedFileManager, DEFAULT_BATCH_AMOUNT, DEFAULT_B
 import { ensureUniqueSignerWithStamp, tempFileRegistry } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
-import { BeeClient } from '@/swarm';
-import { DriveInfo, StampInfo } from '@/types';
+import { DriveInfo, StampInfo, SwarmClient } from '@/types';
 import { DriveError, FileManagerEvents } from '@/utils';
 
 describe('Drive operations', () => {
-  let client: BeeClient;
+  let client: SwarmClient;
   let bee: Bee;
   let fileManager: FileManagerBase;
   let ownerBatch: StampInfo;

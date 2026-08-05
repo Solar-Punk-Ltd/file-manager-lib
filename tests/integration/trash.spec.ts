@@ -5,12 +5,11 @@ import { createInitializedFileManager, retryOnPropagationDelay } from '../utils'
 import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
-import { BeeClient } from '@/swarm';
-import { DriveInfo, FileRecord, NodeStatus, NodeType } from '@/types';
+import { DriveInfo, FileRecord, NodeStatus, NodeType, SwarmClient } from '@/types';
 import { ROOT_PATH } from '@/utils/constants';
 
 describe('Lifecycle management', () => {
-  let client: BeeClient;
+  let client: SwarmClient;
   let fileManager: FileManagerBase;
   let adminBatch: string | BatchId;
   let testFi: FileRecord;

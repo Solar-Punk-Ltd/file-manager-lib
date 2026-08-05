@@ -3,12 +3,11 @@ import { setTimeout } from 'timers';
 import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
-import { BeeClient } from '@/swarm';
-import { DriveInfo, FileRecord, FolderInfo, ListDepth } from '@/types';
+import { DriveInfo, FileRecord, FolderInfo, ListDepth, SwarmClient } from '@/types';
 import { ROOT_PATH } from '@/utils/constants';
 
 describe('Abort signal handling', () => {
-  let client: BeeClient;
+  let client: SwarmClient;
   let fileManager: FileManagerBase;
   let drive: DriveInfo;
   const { writeTempFile, writeTempDir, cleanup } = tempFileRegistry();

@@ -11,13 +11,12 @@ import {
 import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
-import { BeeClient } from '@/swarm';
-import { DriveInfo, FileRecord } from '@/types';
+import { DriveInfo, FileRecord, SwarmClient } from '@/types';
 import { getFeedData } from '@/utils/bee';
 import { FEED_INDEX_ZERO, ROOT_PATH } from '@/utils/constants';
 
 describe('Version control', () => {
-  let client: BeeClient;
+  let client: SwarmClient;
   let bee: Bee;
   let fileManager: FileManagerBase;
   let drive: DriveInfo;

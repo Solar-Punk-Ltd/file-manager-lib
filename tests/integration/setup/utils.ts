@@ -13,12 +13,12 @@ import {
 
 import { FileManagerBase } from '@/fileManager';
 import { BeeClient } from '@/swarm';
-import { DriveInfo } from '@/types';
+import { DriveInfo, SwarmClient } from '@/types';
 import { ADMIN_STAMP_LABEL } from '@/utils/constants';
 import { generateRandomBytes } from '@/utils/crypto';
 
 interface BeeWithStampAndSigner {
-  client: BeeClient;
+  client: SwarmClient;
   bee: Bee;
   ownerStamp: BatchId;
   signer: PrivateKey;
@@ -50,7 +50,7 @@ export function resetGlobalStampState(): void {
 }
 
 export interface UserDriveFixture {
-  client: BeeClient;
+  client: SwarmClient;
   bee: Bee;
   fileManager: FileManagerBase;
   drive: DriveInfo;

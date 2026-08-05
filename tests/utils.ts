@@ -5,6 +5,7 @@ import path from 'path';
 import { EventEmitter } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
 import { BeeClient } from '@/swarm';
+import { SwarmClient } from '@/types';
 import { FileManagerEvents } from '@/utils';
 
 // bee-factory queen node
@@ -71,7 +72,7 @@ export async function retryOnPropagationDelay<T>(fn: () => Promise<T>, attempts 
 }
 
 export async function createInitializedFileManager(
-  client: BeeClient = new BeeClient(new Bee(BEE_URL), DEFAULT_MOCK_SIGNER),
+  client: SwarmClient = new BeeClient(new Bee(BEE_URL), DEFAULT_MOCK_SIGNER),
   batchId?: string | BatchId,
   emitter?: EventEmitter,
 ): Promise<FileManagerBase> {
