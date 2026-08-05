@@ -1,9 +1,10 @@
-import { BatchId, Bee, PrivateKey, RedundancyLevel } from '@ethersphere/bee-js';
+import { BatchId, Bee, BeeRequestOptions, PrivateKey, RedundancyLevel } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
 import { EventEmitter } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
+import { BeeClient } from '@/swarm';
 import { FileManagerEvents } from '@/utils';
 
 // bee-factory queen node
@@ -70,11 +71,11 @@ export async function retryOnPropagationDelay<T>(fn: () => Promise<T>, attempts 
 }
 
 export async function createInitializedFileManager(
-  bee: Bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER }),
+  client: BeeClient = new BeeClient(new Bee(BEE_URL), DEFAULT_MOCK_SIGNER),
   batchId?: string | BatchId,
   emitter?: EventEmitter,
 ): Promise<FileManagerBase> {
-  const fm = new FileManagerBase(bee, emitter);
+  const fm = new FileManagerBase(client, emitter);
 
   let isFirstInit = true;
   fm.emitter.on(FileManagerEvents.INITIALIZED, (ok: boolean) => {
@@ -91,4 +92,22 @@ export async function createInitializedFileManager(
   }
 
   return fm;
+}
+
+export async function buyStamp(
+  bee: Bee,
+  amount: string | bigint,
+  depth: number,
+  label?: string,
+  requestOptions?: BeeRequestOptions,
+): Promise<BatchId> {
+  const stamp = (await bee.getPostageBatches(requestOptions)).find((b) => b.label === label);
+  if (stamp && stamp.usable) {
+    return stamp.batchID;
+  }
+
+  return await bee.createPostageBatch(amount, depth, {
+    waitForUsable: true,
+    label,
+  });
 }

@@ -2,11 +2,10 @@ import { BatchId, Bee, Identifier, RedundancyLevel, Topic } from '@ethersphere/b
 
 import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
 
-import { applyDefaultMocks, createMockDriveInfo, createMockNodeAddresses, mockPostageBatch, seedRecords } from './mock';
+import { applyDefaultMocks, createMockDriveInfo, createMockNodeAddresses, seedRecords } from './mock';
 
 import { DriveInfo, NodeType } from '@/types';
 import { DriveError, FileManagerEvents } from '@/utils';
-import { fetchStamp } from '@/utils/bee';
 import { ADMIN_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
 describe('Drive operations', () => {
@@ -64,31 +63,6 @@ describe('Drive operations', () => {
       await expect(fm.createDrive(newDriveId, 'Test Drive')).rejects.toThrow(
         new DriveError(`Drive with name "Test Drive" or batchId "${newDriveId.slice(0, 6)}" already exists`),
       );
-    });
-  });
-
-  describe('destroyDrive', () => {
-    it('should call diluteBatch with batchId and MAX_DEPTH', async () => {
-      const diluteSpy = jest.spyOn(Bee.prototype, 'diluteBatch').mockResolvedValue(otherMockBatchId);
-      const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
-      const di = fm.driveList[1];
-
-      (fetchStamp as jest.Mock).mockResolvedValue({ ...mockPostageBatch, batchID: otherMockBatchId });
-      await fm.destroyDrive(di.id);
-
-      const ttlDays = mockPostageBatch.duration.toDays();
-      const halvings = Math.floor(Math.log2(ttlDays));
-      expect(diluteSpy).toHaveBeenCalledWith(di.batchId, mockPostageBatch.depth + halvings, undefined);
-    });
-    it('should throw error if trying to destroy Admin drive / stamp', async () => {
-      const fm = await createInitializedFileManager();
-      const di = fm.driveList[0];
-
-      di.isAdmin = false;
-      await expect(async () => {
-        await fm.destroyDrive(di.id);
-      }).rejects.toThrow(`Cannot destroy admin drive / stamp, batchId: ${DUMMY_BATCH_ID.slice(0, 6)}`);
     });
   });
 

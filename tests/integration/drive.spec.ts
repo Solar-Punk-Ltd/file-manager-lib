@@ -1,32 +1,34 @@
-import { Bee, Identifier, PostageBatch, PrivateKey, RedundancyLevel } from '@ethersphere/bee-js';
+import { Bee, Identifier, PrivateKey, RedundancyLevel } from '@ethersphere/bee-js';
 
-import { createInitializedFileManager, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH } from '../utils';
+import { buyStamp, createInitializedFileManager, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH } from '../utils';
 
 import { ensureUniqueSignerWithStamp, tempFileRegistry } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
-import { DriveInfo } from '@/types';
+import { BeeClient } from '@/swarm';
+import { DriveInfo, StampInfo } from '@/types';
 import { DriveError, FileManagerEvents } from '@/utils';
-import { buyStamp } from '@/utils/bee';
 
 describe('Drive operations', () => {
+  let client: BeeClient;
   let bee: Bee;
   let fileManager: FileManagerBase;
-  let ownerBatch: PostageBatch;
+  let ownerBatch: StampInfo;
   let signer: PrivateKey;
   const { writeTempFile, cleanup } = tempFileRegistry();
 
   beforeAll(async () => {
-    const { bee: beeDev, ownerStamp, signer: newSigner } = await ensureUniqueSignerWithStamp();
+    const { client: bc, bee: beeDev, ownerStamp, signer: newSigner } = await ensureUniqueSignerWithStamp();
+    client = bc;
     bee = beeDev;
     signer = newSigner;
-    const stamp = (await bee.getPostageBatches()).find((s) => s.batchID.toString() === ownerStamp.toString());
+    const stamp = await client.getStamp(ownerStamp.toString());
 
     expect(stamp).toBeDefined();
-    expect(stamp?.batchID.toString() === ownerStamp.toString()).toBeTruthy();
+    expect(stamp?.batchId === ownerStamp.toString()).toBeTruthy();
     ownerBatch = stamp!;
 
-    fileManager = await createInitializedFileManager(bee, ownerStamp);
+    fileManager = await createInitializedFileManager(client, ownerStamp);
   });
 
   afterAll(cleanup);
@@ -45,16 +47,6 @@ describe('Drive operations', () => {
     expect(testDrive!.owner).toBe(signer.publicKey().address().toHex());
     expect(testDrive!.redundancyLevel).toBe(RedundancyLevel.OFF);
     expect(fileManager.recordList.filter((fr) => fr.driveId === testDrive!.id)).toHaveLength(0);
-  });
-
-  it('should throw an error when trying to destroy the admin drive/ stamp', async () => {
-    const adminDrive = fileManager.driveList.find((d) => d.isAdmin);
-    expect(adminDrive).toBeDefined();
-    expect(adminDrive!.batchId).toBe(ownerBatch.batchID.toString());
-
-    await expect(fileManager.destroyDrive(new Identifier(adminDrive!.id))).rejects.toThrow(
-      new DriveError(`Cannot destroy admin drive / stamp, batchId: ${adminDrive!.batchId.slice(0, 6)}`),
-    );
   });
 
   it('should forget a user drive: removes the drive, prunes its files, and persists the change', async () => {
@@ -99,7 +91,7 @@ describe('Drive operations', () => {
 
     expect(fileManager.recordList.some((fr) => fr.driveId === driveId)).toBe(false);
 
-    const fm2 = await createInitializedFileManager(bee, ownerBatch.batchID);
+    const fm2 = await createInitializedFileManager(client, ownerBatch.batchId);
     const drives2 = fm2.driveList;
     expect(drives2.find((d) => d.name === 'Drive to forget')).toBeUndefined();
   });

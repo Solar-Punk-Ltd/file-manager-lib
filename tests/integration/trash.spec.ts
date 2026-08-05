@@ -1,15 +1,16 @@
-import { BatchId, Bee, Identifier } from '@ethersphere/bee-js';
+import { BatchId, Identifier } from '@ethersphere/bee-js';
 
 import { createInitializedFileManager, retryOnPropagationDelay } from '../utils';
 
 import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
+import { BeeClient } from '@/swarm';
 import { DriveInfo, FileRecord, NodeStatus, NodeType } from '@/types';
 import { ROOT_PATH } from '@/utils/constants';
 
 describe('Lifecycle management', () => {
-  let bee: Bee;
+  let client: BeeClient;
   let fileManager: FileManagerBase;
   let adminBatch: string | BatchId;
   let testFi: FileRecord;
@@ -18,12 +19,17 @@ describe('Lifecycle management', () => {
   const { writeTempFile, cleanup } = tempFileRegistry();
 
   beforeAll(async () => {
-    ({
-      bee,
-      fileManager,
-      drive,
-      ownerStamp: adminBatch,
-    } = await setupUserDrive('fileoperations', { stampLabel: 'fileOpsIntegration' }));
+    const {
+      client: bc,
+      fileManager: fm,
+      drive: d,
+      ownerStamp: os,
+    } = await setupUserDrive('fileoperations', { stampLabel: 'fileOpsIntegration' });
+
+    fileManager = fm;
+    client = bc;
+    drive = d;
+    adminBatch = os;
 
     writeTempFile(TEST_NAME, 'file ops content');
     await fileManager.uploadFile(drive.id, { path: TEST_NAME, sourcePath: TEST_NAME });
@@ -42,7 +48,7 @@ describe('Lifecycle management', () => {
     await fileManager.trashFile(initial);
     expect(initial.status).toBe(NodeStatus.Trashed);
 
-    const fm2 = await createInitializedFileManager(bee, adminBatch);
+    const fm2 = await createInitializedFileManager(client, adminBatch);
     await fm2.listFolder(new Identifier(drive.id), ROOT_PATH);
 
     const fi2 = fm2.recordList.find((fr) => fr.path === TEST_NAME)!;
@@ -63,7 +69,7 @@ describe('Lifecycle management', () => {
     await fileManager.recoverFile(testFi);
 
     const fi2 = await retryOnPropagationDelay(async () => {
-      const fm2 = await createInitializedFileManager(bee, adminBatch);
+      const fm2 = await createInitializedFileManager(client, adminBatch);
       await fm2.listFolder(drive.id, ROOT_PATH);
       const found = fm2.recordList.find((fr) => fr.path === TEST_NAME)!;
       if (found.status !== NodeStatus.Active) {
@@ -89,7 +95,7 @@ describe('Lifecycle management', () => {
     expect(folder.status).toBe(NodeStatus.Active);
 
     const recovered = await retryOnPropagationDelay(async () => {
-      const fm2 = await createInitializedFileManager(bee, adminBatch);
+      const fm2 = await createInitializedFileManager(client, adminBatch);
       const entries = await fm2.listFolder(drive.id, ROOT_PATH);
       const found = entries.find((e) => e.type === NodeType.Folder && e.topic.toString() === folder.topic.toString());
       if (!found || found.status !== NodeStatus.Active) {
@@ -105,7 +111,7 @@ describe('Lifecycle management', () => {
     await fileManager.forget(drive.id, TEST_NAME);
     expect(fileManager.recordList.find((fr) => fr.path === TEST_NAME)).toBeUndefined();
 
-    const fm2 = new FileManagerBase(bee);
+    const fm2 = new FileManagerBase(client);
     await fm2.initialize();
 
     expect(fm2.recordList.find((fr) => fr.path === TEST_NAME)).toBeUndefined();
@@ -143,7 +149,7 @@ describe('Lifecycle management', () => {
     }
     await fileManager.recoverFile(fi0);
 
-    const fm2 = await createInitializedFileManager(bee, adminBatch);
+    const fm2 = await createInitializedFileManager(client, adminBatch);
     await fm2.listFolder(drive.id, ROOT_PATH);
     const fi2 = fm2.recordList.find((fr) => fr.topic.toString() === topic)!;
 

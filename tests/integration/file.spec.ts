@@ -2,6 +2,7 @@ import { Bee, FeedIndex } from '@ethersphere/bee-js';
 import path from 'path';
 
 import {
+  buyStamp,
   createInitializedFileManager,
   DEFAULT_BATCH_AMOUNT,
   DEFAULT_BATCH_DEPTH,
@@ -12,9 +13,9 @@ import {
 import { ensureUniqueSignerWithStamp, setupUserDrive, tempFileRegistry } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
+import { BeeClient } from '@/swarm';
 import { DriveInfo, ListDepth, NodeType } from '@/types';
 import { FileManagerEvents } from '@/utils';
-import { buyStamp } from '@/utils/bee';
 import { FEED_INDEX_ZERO, ROOT_PATH } from '@/utils/constants';
 
 describe('uploadFile', () => {
@@ -53,7 +54,15 @@ describe('uploadFiles', () => {
   const { writeTempFile, writeTempDir, cleanup } = tempFileRegistry();
 
   beforeAll(async () => {
-    ({ bee, fileManager, drive } = await setupUserDrive('uploadmany', { stampLabel: 'uploadManyIntegration' }));
+    const {
+      bee: beeDev,
+      fileManager: fm,
+      drive: d,
+    } = await setupUserDrive('uploadmany', { stampLabel: 'uploadManyIntegration' });
+
+    bee = beeDev;
+    fileManager = fm;
+    drive = d;
   });
 
   afterAll(cleanup);
@@ -349,7 +358,15 @@ describe('downloadFile and downloadFiles', () => {
   const { writeTempFile, cleanup } = tempFileRegistry();
 
   beforeAll(async () => {
-    ({ bee, fileManager, drive } = await setupUserDrive('downloaddrive', { stampLabel: 'downloadIntegration' }));
+    const {
+      bee: beeDev,
+      fileManager: fm,
+      drive: d,
+    } = await setupUserDrive('downloaddrive', { stampLabel: 'downloadIntegration' });
+
+    bee = beeDev;
+    fileManager = fm;
+    drive = d;
   });
 
   afterAll(cleanup);
@@ -409,6 +426,7 @@ describe('downloadFile and downloadFiles', () => {
 });
 
 describe('move', () => {
+  let client: BeeClient;
   let bee: Bee;
   let fileManager: FileManagerBase;
   let driveA: DriveInfo;
@@ -416,11 +434,12 @@ describe('move', () => {
   const { writeTempFile, writeTempDir, cleanup } = tempFileRegistry();
 
   beforeAll(async () => {
-    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
+    const { client: bc, bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
+    client = bc;
     bee = beeDev;
     const batchIdA = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'moveIntegrationA');
     const batchIdB = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'moveIntegrationB');
-    fileManager = await createInitializedFileManager(bee, ownerStamp);
+    fileManager = await createInitializedFileManager(client, ownerStamp);
 
     await fileManager.createDrive(batchIdA, 'move-a');
     const tmpDriveA = fileManager.driveList.find((d) => d.name === 'move-a');

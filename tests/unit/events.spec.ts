@@ -5,6 +5,7 @@ import { BEE_URL, createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH
 import { applyDefaultMocks } from './mock';
 
 import { EventEmitterBase } from '@/eventEmitter';
+import { BeeClient } from '@/swarm';
 import { NodeStatus } from '@/types';
 import { FileManagerEvents } from '@/utils';
 
@@ -17,11 +18,14 @@ describe('Events and emitter', () => {
   });
 
   it('emits FILE_UPLOADED with the persisted FileRecord', async () => {
-    const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
     const emitter = new EventEmitterBase();
     const uploadHandler = jest.fn();
 
-    const fm = await createInitializedFileManager(bee, DUMMY_BATCH_ID, emitter);
+    const fm = await createInitializedFileManager(
+      new BeeClient(new Bee(BEE_URL), DEFAULT_MOCK_SIGNER),
+      DUMMY_BATCH_ID,
+      emitter,
+    );
     fm.emitter.on(FileManagerEvents.FILE_UPLOADED, uploadHandler);
     const redundancy = RedundancyLevel.MEDIUM;
     await fm.createDrive(otherMockBatchId, 'Test Drive', redundancy);
@@ -51,11 +55,10 @@ describe('Events and emitter', () => {
   });
 
   it('emits an INITIALIZED event with true on successful init', async () => {
-    const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
     const eventHandler = jest.fn();
     const emitter = new EventEmitterBase();
     emitter.on(FileManagerEvents.INITIALIZED, eventHandler);
-    await createInitializedFileManager(bee, DUMMY_BATCH_ID, emitter);
+    await createInitializedFileManager(new BeeClient(new Bee(BEE_URL), DEFAULT_MOCK_SIGNER), DUMMY_BATCH_ID, emitter);
 
     expect(eventHandler).toHaveBeenCalledWith(true);
   });

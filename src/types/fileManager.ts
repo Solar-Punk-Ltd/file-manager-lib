@@ -5,7 +5,6 @@ import {
   FeedIndex,
   FileUploadOptions,
   Identifier,
-  PostageBatch,
   RedundancyLevel,
   RedundantUploadOptions,
 } from '@ethersphere/bee-js';
@@ -14,6 +13,7 @@ import { EventEmitter } from '../eventEmitter';
 
 import { DownloadResult } from './download';
 import { DriveInfo, FileRecord, FolderInfo, ListDepth, NodeEntry } from './info';
+import { StampInfo } from './swarmClient';
 import { UpdateItem, UploadFilesResult, UploadItem } from './upload';
 
 /**
@@ -292,18 +292,6 @@ export interface FileManager {
   forget(driveId: string | Identifier, path: string, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
-   * Destroys a drive identified by the given drive ID.
-   * Dilutes the drive stamp and shortens its duration (min. 24, max 47 hours) depending on the original TTL.
-   * @param driveId - The ID of the drive to destroy.
-   * @emits FileManagerEvents.DRIVE_DESTROYED
-   * @returns A promise that resolves when the drive is destroyed.
-   * @throws {DriveError} If not initialized, driveId is not found, or the target is the admin drive.
-   * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {StampError} If the admin stamp is missing, or the drive's stamp cannot be fetched / is not usable.
-   */
-  destroyDrive(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<void>;
-
-  /**
    * Removes the drive and all of its file metadata from local state and persists the updated drive list.
    * Does NOT touch the underlying Swarm batch (no dilution).
    * @param driveId - The ID of the drive to forget.
@@ -389,7 +377,7 @@ export interface FileManager {
    * Admin postage batch used for drive management operations.
    * @returns The admin postage batch, or undefined if not set.
    */
-  readonly adminStamp: PostageBatch | undefined;
+  readonly adminStamp: StampInfo | undefined;
 
   /**
    * Retrieves a list of drive information.

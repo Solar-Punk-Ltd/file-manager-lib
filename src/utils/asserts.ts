@@ -192,7 +192,7 @@ interface FMReadyState {
 }
 
 export function assertReady(
-  publisher: PublicKey | undefined,
+  publisher: string | undefined,
   isInitialized: boolean | undefined,
   stateFeedTopic: Topic | undefined,
 ): FMReadyState {
@@ -207,7 +207,7 @@ export function assertReady(
   }
 
   return {
-    publisher: publisher.toCompressedHex(),
+    publisher,
     isInitialized,
     stateFeedTopic: stateFeedTopic.toString(),
   };

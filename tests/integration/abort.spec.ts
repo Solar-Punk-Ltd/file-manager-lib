@@ -1,20 +1,20 @@
-import { Bee, PublicKey } from '@ethersphere/bee-js';
 import { setTimeout } from 'timers';
 
 import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
+import { BeeClient } from '@/swarm';
 import { DriveInfo, FileRecord, FolderInfo, ListDepth } from '@/types';
 import { ROOT_PATH } from '@/utils/constants';
 
 describe('Abort signal handling', () => {
-  let bee: Bee;
+  let client: BeeClient;
   let fileManager: FileManagerBase;
   let drive: DriveInfo;
   const { writeTempFile, writeTempDir, cleanup } = tempFileRegistry();
 
   beforeAll(async () => {
-    ({ bee, fileManager, drive } = await setupUserDrive('abort-test', { stampLabel: 'abortControllerStamp' }));
+    ({ client, fileManager, drive } = await setupUserDrive('abort-test', { stampLabel: 'abortControllerStamp' }));
   });
 
   afterAll(cleanup);
@@ -131,7 +131,7 @@ describe('Abort signal handling', () => {
   describe('download', () => {
     const downloadTestFile = 'it-abort-large-download.bin';
     let uploadedFileInfo: FileRecord;
-    let actPublisher: PublicKey;
+    let actPublisher: string;
 
     beforeAll(async () => {
       // Upload a 1MB file to download later (large enough for reliable abort timing)
@@ -141,7 +141,7 @@ describe('Abort signal handling', () => {
       expect(fr).toBeDefined();
       uploadedFileInfo = fr!;
 
-      actPublisher = (await bee.getNodeAddresses()).publicKey;
+      actPublisher = client.actPublisher;
     });
 
     it('should throw error when download is aborted with pre-aborted signal', async () => {

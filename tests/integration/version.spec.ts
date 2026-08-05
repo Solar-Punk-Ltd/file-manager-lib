@@ -1,19 +1,26 @@
-import { Bee, FeedIndex, PrivateKey, Topic } from '@ethersphere/bee-js';
+import { Bee, FeedIndex, Topic } from '@ethersphere/bee-js';
 
-import { DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, retryOnPropagationDelay, streamToUint8Array } from '../utils';
+import {
+  buyStamp,
+  DEFAULT_BATCH_AMOUNT,
+  DEFAULT_BATCH_DEPTH,
+  retryOnPropagationDelay,
+  streamToUint8Array,
+} from '../utils';
 
 import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
+import { BeeClient } from '@/swarm';
 import { DriveInfo, FileRecord } from '@/types';
-import { buyStamp, getFeedData } from '@/utils/bee';
+import { getFeedData } from '@/utils/bee';
 import { FEED_INDEX_ZERO, ROOT_PATH } from '@/utils/constants';
 
 describe('Version control', () => {
+  let client: BeeClient;
   let bee: Bee;
   let fileManager: FileManagerBase;
   let drive: DriveInfo;
-  let signer: PrivateKey;
   const { writeTempFile, cleanup } = tempFileRegistry();
 
   // helper to ensure at least one base FileRecord exists.
@@ -28,7 +35,19 @@ describe('Version control', () => {
   };
 
   beforeAll(async () => {
-    ({ bee, fileManager, drive, signer } = await setupUserDrive('versioncontrol', { stampLabel: 'versioningStamp' }));
+    const {
+      client: bc,
+      fileManager: fm,
+      drive: d,
+      bee: beeDev,
+    } = await setupUserDrive('versioncontrol', {
+      stampLabel: 'versioningStamp',
+    });
+
+    bee = beeDev;
+    fileManager = fm;
+    drive = d;
+    client = bc;
   });
 
   afterAll(cleanup);
@@ -74,7 +93,7 @@ describe('Version control', () => {
     expect(base.version).toBe(FEED_INDEX_ZERO.toString());
 
     // Fresh instance shares the signer/state but never listed the folder — its record cache is empty.
-    const fm2 = new FileManagerBase(bee);
+    const fm2 = new FileManagerBase(client);
     await fm2.initialize();
     expect(fm2.recordList.find((fr) => fr.topic === base.topic)).toBeUndefined();
 
@@ -165,12 +184,12 @@ describe('Version control', () => {
     writeTempFile(NAME, 'Version 1 content');
     await fileManager.updateFile(drive.id, v0Fi, { item: { sourcePath: NAME } });
 
-    const countAfterV1 = await getFeedData(bee, new Topic(v0Fi.topic), signer.publicKey().address().toString());
+    const countAfterV1 = await getFeedData(client, new Topic(v0Fi.topic), client.owner);
     const latestFi = await fileManager.getFileVersion(v0Fi, countAfterV1.feedIndex);
     writeTempFile(NAME, 'Version 2 content');
     await fileManager.updateFile(drive.id, latestFi, { item: { sourcePath: NAME } });
 
-    const count = await getFeedData(bee, new Topic(v0Fi.topic), signer.publicKey().address().toString());
+    const count = await getFeedData(client, new Topic(v0Fi.topic), client.owner);
     expect(count.feedIndexNext.toBigInt()).toEqual(initialVersion + 3n);
 
     const v0 = await fileManager.getFileVersion(v0Fi, FEED_INDEX_ZERO);
@@ -190,11 +209,7 @@ describe('Version control', () => {
 
     await fileManager.restoreFileVersion(base);
 
-    const { feedIndex: current } = await getFeedData(
-      bee,
-      new Topic(base.topic),
-      signer.publicKey().address().toString(),
-    );
+    const { feedIndex: current } = await getFeedData(client, new Topic(base.topic), client.owner);
 
     expect(BigInt(current.toBigInt())).toBe(initialVersion + 2n);
 
@@ -250,11 +265,7 @@ describe('Version control', () => {
     const v0 = await fileManager.getFileVersion(base, FEED_INDEX_ZERO);
     expect(v0.version).toBe(FEED_INDEX_ZERO.toString());
 
-    const { feedIndex: headBeforeRestore } = await getFeedData(
-      bee,
-      new Topic(topic),
-      signer.publicKey().address().toString(),
-    );
+    const { feedIndex: headBeforeRestore } = await getFeedData(client, new Topic(topic), client.owner);
 
     await fileManager.restoreFileVersion(v0);
 
@@ -264,7 +275,7 @@ describe('Version control', () => {
     expect(cached.path).toBe(destPath);
 
     const { feedIndex: headAfterRestore } = await retryOnPropagationDelay(async () => {
-      const result = await getFeedData(bee, new Topic(topic), signer.publicKey().address().toString());
+      const result = await getFeedData(client, new Topic(topic), client.owner);
       if (!(result.feedIndex.toBigInt() > headBeforeRestore.toBigInt())) {
         throw new Error('feed head has not advanced yet');
       }

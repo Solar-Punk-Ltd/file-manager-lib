@@ -1,6 +1,7 @@
-import { BatchId, Bee, BeeResponseError, PrivateKey, PublicKey, RedundancyLevel, Reference } from '@ethersphere/bee-js';
+import { BatchId, Bee, BeeResponseError, RedundancyLevel, Reference } from '@ethersphere/bee-js';
 
 import {
+  buyStamp,
   createInitializedFileManager,
   DEFAULT_BATCH_AMOUNT,
   DEFAULT_BATCH_DEPTH,
@@ -12,27 +13,26 @@ import {
 import { ensureUniqueSignerWithStamp } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
+import { BeeClient } from '@/swarm';
 import { ActReferences } from '@/types';
 import { ADMIN_STAMP_LABEL, FILEMANAGER_STATE_TOPIC, FileManagerEvents, StampError } from '@/utils';
 import { assertActReferences } from '@/utils/asserts';
-import { buyStamp, getFeedData } from '@/utils/bee';
+import { getFeedData } from '@/utils/bee';
 import { SWARM_ZERO_ADDRESS } from '@/utils/constants';
 import { generateRandomBytes } from '@/utils/crypto';
 
 describe('Initialization and construction', () => {
-  let bee: Bee;
+  let client: BeeClient;
   let fileManager: FileManagerBase;
-  let actPublisher: PublicKey;
+  let actPublisher: string;
   let adminBatchId: BatchId;
-  let signer: PrivateKey;
 
   beforeAll(async () => {
-    const { bee: beeDev, ownerStamp, signer: newSigner } = await ensureUniqueSignerWithStamp();
-    bee = beeDev;
+    const { client: bc, ownerStamp } = await ensureUniqueSignerWithStamp();
+    client = bc;
     adminBatchId = ownerStamp;
-    signer = newSigner;
-    fileManager = await createInitializedFileManager(bee, adminBatchId);
-    actPublisher = (await bee.getNodeAddresses()).publicKey;
+    fileManager = await createInitializedFileManager(client, adminBatchId);
+    actPublisher = client.actPublisher;
   });
 
   beforeEach(async () => {
@@ -43,7 +43,8 @@ describe('Initialization and construction', () => {
     expect(fileManager.recordList).toEqual([]);
 
     const unpurchasedBatchId = new BatchId(generateRandomBytes(BatchId.LENGTH));
-    const otherBee = new Bee(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
+    const otherBee = new BeeClient(new Bee(OTHER_BEE_URL), OTHER_MOCK_SIGNER);
+
     const fm2 = new FileManagerBase(otherBee);
     try {
       fm2.emitter.on(FileManagerEvents.INITIALIZED, (e) => {
@@ -65,20 +66,22 @@ describe('Initialization and construction', () => {
     expect(fileManager.recordList).toEqual([]);
 
     const { payload } = await retryOnPropagationDelay(() =>
-      getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 0n),
+      getFeedData(client, FILEMANAGER_STATE_TOPIC, client.owner, 0n),
     );
     const feedTopicState = payload.toJSON() as ActReferences;
     assertActReferences(feedTopicState);
-    const topicHex = await bee.downloadData(new Reference(feedTopicState.reference), {
-      actHistoryAddress: new Reference(feedTopicState.historyRef),
-      actPublisher,
+    const topicHex = await client.downloadProtected({
+      reference: feedTopicState.reference,
+      historyRef: feedTopicState.historyRef,
+      publisher: actPublisher,
     });
     expect(topicHex).not.toEqual(SWARM_ZERO_ADDRESS);
 
     await fileManager.initialize();
-    const reinitTopicHex = await bee.downloadData(new Reference(feedTopicState.reference), {
-      actHistoryAddress: new Reference(feedTopicState.historyRef),
-      actPublisher,
+    const reinitTopicHex = await client.downloadProtected({
+      reference: feedTopicState.reference,
+      historyRef: feedTopicState.historyRef,
+      publisher: actPublisher,
     });
     expect(topicHex).toEqual(reinitTopicHex);
   });
@@ -87,14 +90,15 @@ describe('Initialization and construction', () => {
     const otherBee = new Bee(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
 
     const { payload } = await retryOnPropagationDelay(() =>
-      getFeedData(bee, FILEMANAGER_STATE_TOPIC, signer.publicKey().address(), 0n),
+      getFeedData(client, FILEMANAGER_STATE_TOPIC, client.owner, 0n),
     );
     const feedTopicState = payload.toJSON() as ActReferences;
 
     try {
-      await bee.downloadData(new Reference(feedTopicState.reference), {
-        actHistoryAddress: new Reference(feedTopicState.historyRef),
-        actPublisher: OTHER_MOCK_SIGNER.publicKey(),
+      await client.downloadProtected({
+        reference: feedTopicState.reference,
+        historyRef: feedTopicState.historyRef,
+        publisher: OTHER_MOCK_SIGNER.publicKey().address().toString(),
       });
     } catch (error) {
       expect(error).toBeInstanceOf(BeeResponseError);
@@ -147,24 +151,24 @@ describe('Initialization and construction', () => {
 
     const adminStampAfter = fileManager.adminStamp;
     expect(adminStampAfter).toBeDefined();
-    expect(adminStampAfter?.batchID.toString()).toBe(adminStampBefore?.batchID.toString());
+    expect(adminStampAfter?.batchId).toBe(adminStampBefore?.batchId);
   });
 });
 
 describe('reinitialization', () => {
   it('should emit STATE_INVALID after expiry', async () => {
-    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
-    await createInitializedFileManager(beeDev, ownerStamp);
+    const { client, bee, ownerStamp } = await ensureUniqueSignerWithStamp();
+    await createInitializedFileManager(client, ownerStamp);
 
-    const originalFn = beeDev.getPostageBatches.bind(beeDev);
-    const spy = jest.spyOn(beeDev, 'getPostageBatches');
+    const originalFn = bee.getPostageBatches.bind(bee);
+    const spy = jest.spyOn(bee, 'getPostageBatches');
 
     spy.mockImplementation(async () => {
       await originalFn();
       return [];
     });
 
-    const newFileManager = new FileManagerBase(beeDev);
+    const newFileManager = new FileManagerBase(client);
 
     newFileManager.emitter.on(FileManagerEvents.STATE_INVALID, (stateInvalidEmitted) => {
       expect(stateInvalidEmitted).toBe(true);
@@ -183,7 +187,7 @@ describe('reinitialization', () => {
   });
 
   it('should successfully revalidate when admin stamp is still valid', async () => {
-    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
+    const { client: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
     const fileManager = await createInitializedFileManager(beeDev, ownerStamp);
 
     const initialDrives = fileManager.driveList;
@@ -212,17 +216,17 @@ describe('reinitialization', () => {
   });
 
   it('should preserve user data when creating a new instance with valid stamp', async () => {
-    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
-    const fileManager = await createInitializedFileManager(beeDev, ownerStamp);
+    const { client, bee, ownerStamp } = await ensureUniqueSignerWithStamp();
+    const fileManager = await createInitializedFileManager(client, ownerStamp);
 
-    const userBatchId = await buyStamp(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'userDrive');
+    const userBatchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'userDrive');
     await fileManager.createDrive(userBatchId, 'User Drive');
 
     const drivesBeforeReinit = fileManager.driveList;
     const userDrive = drivesBeforeReinit.find((d) => d.name === 'User Drive');
     expect(userDrive).toBeDefined();
 
-    const newFileManager = new FileManagerBase(beeDev);
+    const newFileManager = new FileManagerBase(client);
     await newFileManager.initialize();
 
     const drivesAfterReinit = newFileManager.driveList;
@@ -233,7 +237,7 @@ describe('reinitialization', () => {
   });
 
   it('should handle multiple sequential reinitializations with valid stamp', async () => {
-    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
+    const { client: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
     const fileManager = await createInitializedFileManager(beeDev, ownerStamp);
 
     const initialDriveCount = fileManager.driveList.length;
@@ -253,12 +257,12 @@ describe('reinitialization', () => {
   });
 
   it('should allow operations after successful revalidation', async () => {
-    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
-    const fileManager = await createInitializedFileManager(beeDev, ownerStamp);
+    const { client, bee, ownerStamp } = await ensureUniqueSignerWithStamp();
+    const fileManager = await createInitializedFileManager(client, ownerStamp);
 
     await fileManager.initialize();
 
-    const newBatchId = await buyStamp(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'afterReinit');
+    const newBatchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'afterReinit');
     await fileManager.createDrive(newBatchId, 'Post Reinit Drive');
 
     const drives = fileManager.driveList;
@@ -267,9 +271,9 @@ describe('reinitialization', () => {
   });
 
   it('should emit correct events during revalidation failure', async () => {
-    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
-    const originalFn = beeDev.getPostageBatches.bind(beeDev);
-    const spy = jest.spyOn(beeDev, 'getPostageBatches');
+    const { client, bee, ownerStamp } = await ensureUniqueSignerWithStamp();
+    const originalFn = bee.getPostageBatches.bind(bee);
+    const spy = jest.spyOn(bee, 'getPostageBatches');
 
     spy.mockImplementation(async () => {
       const batches = await originalFn();
@@ -280,7 +284,7 @@ describe('reinitialization', () => {
       }));
     });
 
-    await createInitializedFileManager(beeDev, ownerStamp);
+    await createInitializedFileManager(client, ownerStamp);
 
     spy.mockImplementation(async () => {
       await originalFn();
@@ -290,7 +294,7 @@ describe('reinitialization', () => {
     await retryOnPropagationDelay(async () => {
       const events: string[] = [];
 
-      const newFileManager = new FileManagerBase(beeDev);
+      const newFileManager = new FileManagerBase(client);
       newFileManager.emitter.on(FileManagerEvents.STATE_INVALID, () => {
         events.push('STATE_INVALID');
       });
@@ -308,11 +312,11 @@ describe('reinitialization', () => {
   });
 
   it('should not affect other drives when revalidating admin stamp', async () => {
-    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
-    const fileManager = await createInitializedFileManager(beeDev, ownerStamp);
+    const { client, bee, ownerStamp } = await ensureUniqueSignerWithStamp();
+    const fileManager = await createInitializedFileManager(client, ownerStamp);
 
-    const batch1 = await buyStamp(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'drive1');
-    const batch2 = await buyStamp(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'drive2');
+    const batch1 = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'drive1');
+    const batch2 = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'drive2');
 
     await fileManager.createDrive(batch1, 'Drive 1');
     await fileManager.createDrive(batch2, 'Drive 2');
