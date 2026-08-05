@@ -26,9 +26,9 @@ import { Optional } from 'cafe-utility';
 import { DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
 
 import { FileManagerBase } from '@/fileManager';
-import { DriveInfo, FileRecord, NodeType } from '@/types';
+import { DriveInfo, FileRecord, NodeType, StampInfo } from '@/types';
 import { fetchStamp, getFeedData } from '@/utils/bee';
-import { ADMIN_STAMP_LABEL, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
+import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 import { getAllNodeEntries, loadMantaray } from '@/utils/mantaray';
 
 export function createMockMantarayNode(all = true): MantarayNode {
@@ -148,7 +148,7 @@ export function createInitMocks(data?: Reference): any {
   } as unknown as UploadResult);
   jest.spyOn(Bee.prototype, 'makeFeedWriter').mockReturnValue(createMockFeedWriter());
   jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue(createMockFeedReader());
-  jest.spyOn(Bee.prototype, 'getPostageBatches').mockResolvedValue(loadStampListMock());
+  jest.spyOn(Bee.prototype, 'getPostageBatches').mockResolvedValue([mockPostageBatch]);
 }
 
 export function createUploadDataSpy(char: string): jest.SpyInstance {
@@ -178,48 +178,26 @@ export const mockPostageBatch: PostageBatch = {
   calculateRemainingSize: () => Size.fromGigabytes(100),
 };
 
-export function loadStampListMock(): PostageBatch[] {
+export const mockStamp: StampInfo = {
+  batchId: new BatchId(DUMMY_BATCH_ID).toString(),
+  usable: true,
+  depth: 22,
+};
+
+export function loadStampListMock(): StampInfo[] {
   return [
     {
-      ...mockPostageBatch,
+      ...mockStamp,
     },
     {
-      batchID: new BatchId('2345'.repeat(16)),
-      utilization: 3,
+      batchId: new BatchId('2345'.repeat(16)).toString(),
       usable: true,
-      usageText: '2%',
-      label: 'two',
       depth: 22,
-      amount: '570' as NumberString,
-      bucketDepth: 30,
-      blockNumber: 1000,
-      immutableFlag: true,
-      duration: Duration.fromSeconds(5),
-      usage: 0,
-      size: Size.fromGigabytes(100),
-      remainingSize: Size.fromGigabytes(100),
-      theoreticalSize: Size.fromGigabytes(100),
-      calculateSize: () => Size.fromGigabytes(100),
-      calculateRemainingSize: () => Size.fromGigabytes(100),
     },
     {
-      batchID: new BatchId('3456'.repeat(16)),
-      utilization: 5,
+      batchId: new BatchId('3456'.repeat(16)).toString(),
       usable: true,
-      usageText: '2%',
-      label: ADMIN_STAMP_LABEL,
       depth: 22,
-      amount: '990' as NumberString,
-      bucketDepth: 30,
-      blockNumber: 1020,
-      immutableFlag: false,
-      duration: Duration.fromSeconds(8),
-      usage: 0,
-      size: Size.fromGigabytes(100),
-      remainingSize: Size.fromGigabytes(100),
-      theoreticalSize: Size.fromGigabytes(100),
-      calculateSize: () => Size.fromGigabytes(100),
-      calculateRemainingSize: () => Size.fromGigabytes(100),
     },
   ];
 }
@@ -245,7 +223,7 @@ export function applyDefaultMocks(): void {
     },
   });
 
-  (fetchStamp as jest.Mock).mockResolvedValue({ ...mockPostageBatch });
+  (fetchStamp as jest.Mock).mockResolvedValue({ ...mockStamp });
 
   (loadMantaray as jest.Mock).mockResolvedValue(new MantarayNode());
   (getAllNodeEntries as jest.Mock).mockReturnValue([]);

@@ -98,7 +98,7 @@ describe('Initialization and construction', () => {
       await client.downloadProtected({
         reference: feedTopicState.reference,
         historyRef: feedTopicState.historyRef,
-        publisher: OTHER_MOCK_SIGNER.publicKey().address().toString(),
+        publisher: OTHER_MOCK_SIGNER.publicKey().toCompressedHex(),
       });
     } catch (error) {
       expect(error).toBeInstanceOf(BeeResponseError);
