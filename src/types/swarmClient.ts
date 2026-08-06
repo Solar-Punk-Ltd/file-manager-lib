@@ -60,6 +60,13 @@ export interface ClientProtectedUploadResult {
  */
 export interface SwarmClient {
   /**
+   * Derives a secret from the master key
+   * @param seed Input string necessary for deriving the secret
+   * @returns a 32 byte hex string
+   */
+  deriveSecret(seed: string): Promise<string>;
+
+  /**
    * Prepare the backend: version/compatibility checks for Bee, connection handshake for swarm-id.
    * {@link owner} and {@link publicKey} are only valid once this resolves.
    */

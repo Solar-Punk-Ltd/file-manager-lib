@@ -281,6 +281,7 @@ export interface FileManager {
   /**
    * Hard-delete a file or folder at the given path from the drive manifest and in-memory state.
    * For folders, all descendant FileRecords are also purged from recordList.
+   * Note: In case the underlying stamp needs to be distroyed, then the client shall dilute the stamp.
    * @param driveId - The ID of the drive containing the path.
    * @param path - Absolute path of the file or folder to remove.
    * @param requestOptions - Additional Bee request options.

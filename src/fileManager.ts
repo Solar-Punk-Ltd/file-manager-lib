@@ -1,7 +1,6 @@
 import {
   BatchId,
   BeeRequestOptions,
-  Bytes,
   DownloadOptions,
   FeedIndex,
   FileUploadOptions,
@@ -36,7 +35,6 @@ import { awaitAllPromisesBounded, getRecordStatus, joinPath, settlePromises } fr
 import {
   ADMIN_STAMP_LABEL,
   FEED_INDEX_ZERO,
-  FILEMANAGER_STATE_TOPIC,
   MANIFEST_METADATA_FILE_TOPIC,
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
@@ -44,6 +42,7 @@ import {
   MAX_CONCURRENT_FEED_FETCHES,
   MAX_CONCURRENT_UPLOADS,
   ROOT_PATH,
+  STATE_TOPIC_LABEL,
 } from './utils/constants';
 import { generateRandomBytes } from './utils/crypto';
 import { DriveError, ErrorHandler, FileRecordError, SignerError } from './utils/errors';
@@ -166,6 +165,23 @@ export class FileManagerBase implements FileManager {
       throw new DriveError('Admin drive already exists');
     }
 
+    if (!this.stateFeedTopic) {
+      throw new DriveError('State feed topic not set');
+    }
+
+    const { feedIndexNext } = await getFeedData(
+      this.swarmClient,
+      this.stateFeedTopic,
+      this.swarmClient.owner,
+      undefined,
+      requestOptions,
+    );
+
+    const isStateExisting = !feedIndexNext.equals(FEED_INDEX_ZERO);
+    if (!reset && isStateExisting) {
+      throw new DriveError('Admin state already exists. Pass reset=true to overwrite.');
+    }
+
     const publisher = this.swarmClient.actPublisher;
     const batchIdStr = batchId.toString();
     const level = redundancyLevel ?? RedundancyLevel.OFF;
@@ -174,7 +190,11 @@ export class FileManagerBase implements FileManager {
     await this.fetchAndSetAdminStamp(batchIdStr, requestOptions);
     verifyStampUsability(this.adminStamp, batchIdStr);
 
-    await this.establishAdminState(batchIdStr, level, reset, requestOptions);
+    this._driveList.length = 0;
+    this.store.clear();
+    this.store.setManifestCache(this.stateFeedTopic.toString(), new MantarayNode());
+    this.store.setNodeFeedIndex(this.stateFeedTopic.toString(), feedIndexNext.toBigInt());
+    this.adminRedundancyLevel = level;
 
     return this.registerDrive(
       { name: ADMIN_STAMP_LABEL, batchId: batchIdStr, isAdmin: true, redundancyLevel: level, publisher },
@@ -702,7 +722,7 @@ export class FileManagerBase implements FileManager {
       undefined,
       requestOptions,
     );
-    if (feedIndex.equals(FeedIndex.MINUS_ONE.toString())) {
+    if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
       throw new FileRecordError('Record feed not found');
     }
 
@@ -1254,9 +1274,12 @@ export class FileManagerBase implements FileManager {
       throw new SignerError('Publisher not found');
     }
 
+    const stateSecret = await this.swarmClient.deriveSecret(STATE_TOPIC_LABEL);
+    this.stateFeedTopic = new Topic(stateSecret);
+
     const { payload, feedIndex } = await getFeedData(
       this.swarmClient,
-      FILEMANAGER_STATE_TOPIC,
+      this.stateFeedTopic,
       this.swarmClient.owner,
       undefined,
       requestOptions,
@@ -1267,40 +1290,16 @@ export class FileManagerBase implements FileManager {
       return false;
     }
 
-    let stateTopicInfo: ActReferences;
+    let adminManifestRef: ActReferences;
     try {
-      stateTopicInfo = payload.toJSON() as ActReferences;
-      assertActReferences(stateTopicInfo);
+      adminManifestRef = payload.toJSON() as ActReferences;
+      assertActReferences(adminManifestRef);
     } catch (err: unknown) {
       this.errorHandler.handleError(err, 'Failed to fetch admin state');
       this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
       return false;
     }
 
-    const stateTopicRef = new Reference(stateTopicInfo.reference);
-    const topicHistoryRef = new Reference(stateTopicInfo.historyRef);
-
-    let topicBytes: Bytes;
-    try {
-      const topicAsUintArr = await this.swarmClient.downloadProtected(
-        {
-          reference: stateTopicRef.toString(),
-          historyRef: topicHistoryRef.toString(),
-          publisher: this.swarmClient.actPublisher,
-        },
-        undefined,
-        undefined,
-        requestOptions,
-      );
-
-      topicBytes = new Bytes(topicAsUintArr);
-    } catch (err: unknown) {
-      this.errorHandler.handleError(err, 'Failed to decrypt admin state');
-      this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
-      return false;
-    }
-
-    this.stateFeedTopic = new Topic(topicBytes.toUint8Array());
     this.logger.debug('Drive list feed successfully fetched');
 
     return true;
@@ -1348,58 +1347,6 @@ export class FileManagerBase implements FileManager {
     this.emitter.emit(FileManagerEvents.DRIVE_CREATED, { driveInfo: newDrive });
 
     return newDrive;
-  }
-
-  private async establishAdminState(
-    batchId: string,
-    redundancyLevel: RedundancyLevel,
-    reset?: boolean,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<void> {
-    const { feedIndexNext } = await getFeedData(
-      this.swarmClient,
-      FILEMANAGER_STATE_TOPIC,
-      this.swarmClient.owner,
-      undefined,
-      requestOptions,
-    );
-    const isStateExisting = !feedIndexNext.equals(FEED_INDEX_ZERO);
-    if (!reset && isStateExisting) {
-      throw new DriveError('Admin state already exists. Pass reset=true to overwrite.');
-    }
-
-    if (reset) {
-      this._driveList.length = 0;
-      this.store.clear();
-    }
-
-    const randomTopic = generateRandomBytes(Topic.LENGTH);
-    const newStateFeedTopic = new Topic(randomTopic);
-    const topicUploadRes = await this.swarmClient.uploadProtected(
-      batchId,
-      newStateFeedTopic.toUint8Array(),
-      undefined,
-      { redundancyLevel },
-      requestOptions,
-    );
-    const historyRef = topicUploadRes.contentRefs.historyRef;
-    const topicState: ActReferences = {
-      reference: topicUploadRes.contentRefs.reference,
-      historyRef: historyRef,
-    };
-
-    await this.swarmClient.writeFeed(
-      batchId,
-      FILEMANAGER_STATE_TOPIC.toString(),
-      JSON.stringify(topicState),
-      feedIndexNext.toString(),
-      { redundancyLevel: this.adminRedundancyLevel },
-      requestOptions,
-    );
-
-    this.stateFeedTopic = newStateFeedTopic;
-    this.store.setManifestCache(newStateFeedTopic.toString(), new MantarayNode());
-    this.store.setNodeFeedIndex(newStateFeedTopic.toString(), 0n);
   }
 
   private async initDriveList(requestOptions?: BeeRequestOptions): Promise<void> {

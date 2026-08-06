@@ -84,7 +84,7 @@ describe('Lifecycle management', () => {
   it('should recover a previously trashed folder', async () => {
     const FOLDER_NAME = 'trash-recover-folder';
     const folder = await fileManager.createFolder(drive.id, ROOT_PATH, FOLDER_NAME);
-    console.log('bagoy folder: ', folder);
+
     expect(folder.status).toBe(NodeStatus.Active);
 
     await fileManager.trashFolder(folder);

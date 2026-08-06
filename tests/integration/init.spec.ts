@@ -1,4 +1,4 @@
-import { BatchId, Bee, BeeResponseError, RedundancyLevel, Reference } from '@ethersphere/bee-js';
+import { BatchId, Bee, BeeResponseError, RedundancyLevel, Reference, Topic } from '@ethersphere/bee-js';
 
 import {
   buyStamp,
@@ -7,6 +7,7 @@ import {
   DEFAULT_BATCH_DEPTH,
   OTHER_BEE_URL,
   OTHER_MOCK_SIGNER,
+  retryOnFeedPropagation,
   retryOnPropagationDelay,
 } from '../utils';
 
@@ -15,10 +16,10 @@ import { ensureUniqueSignerWithStamp } from './setup/utils';
 import { FileManagerBase } from '@/fileManager';
 import { BeeClient } from '@/swarm';
 import { ActReferences, SwarmClient } from '@/types';
-import { ADMIN_STAMP_LABEL, FILEMANAGER_STATE_TOPIC, FileManagerEvents, StampError } from '@/utils';
+import { ADMIN_STAMP_LABEL, FileManagerEvents, StampError } from '@/utils';
 import { assertActReferences } from '@/utils/asserts';
 import { getFeedData } from '@/utils/bee';
-import { SWARM_ZERO_ADDRESS } from '@/utils/constants';
+import { STATE_TOPIC_LABEL, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 import { generateRandomBytes } from '@/utils/crypto';
 
 describe('Initialization and construction', () => {
@@ -65,9 +66,9 @@ describe('Initialization and construction', () => {
   it('should initialize the admin feed and topic', async () => {
     expect(fileManager.recordList).toEqual([]);
 
-    const { payload } = await retryOnPropagationDelay(() =>
-      getFeedData(client, FILEMANAGER_STATE_TOPIC, client.owner, 0n),
-    );
+    const stateSecret = await client.deriveSecret(STATE_TOPIC_LABEL);
+    const { payload } = await retryOnFeedPropagation(() => getFeedData(client, new Topic(stateSecret), client.owner));
+
     const feedTopicState = payload.toJSON() as ActReferences;
     assertActReferences(feedTopicState);
     const topicHex = await client.downloadProtected({
@@ -89,9 +90,9 @@ describe('Initialization and construction', () => {
   it('should throw an error if someone else than the admin tries to read the admin feed', async () => {
     const otherBee = new Bee(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
 
-    const { payload } = await retryOnPropagationDelay(() =>
-      getFeedData(client, FILEMANAGER_STATE_TOPIC, client.owner, 0n),
-    );
+    const stateTopic = await client.deriveSecret(STATE_TOPIC_LABEL);
+
+    const { payload } = await retryOnFeedPropagation(() => getFeedData(client, new Topic(stateTopic), client.owner));
     const feedTopicState = payload.toJSON() as ActReferences;
 
     try {

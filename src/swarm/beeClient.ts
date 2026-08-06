@@ -1,6 +1,7 @@
 import {
   Bee,
   BeeRequestOptions,
+  Bytes,
   DownloadOptions,
   FeedIndex,
   PrivateKey,
@@ -72,6 +73,13 @@ export class BeeClient implements SwarmClient {
 
     const ro = toBeeRequestOptions(requestOptions);
     this.nodePublicKey = (await this.bee.getNodeAddresses(ro)).publicKey.toCompressedHex();
+  }
+
+  // eslint-disable-next-line require-await
+  async deriveSecret(seed: string): Promise<string> {
+    const seedBytes = Bytes.fromUtf8(seed);
+    const secretAsUint8Arr = new Uint8Array([...this.signer.toUint8Array(), ...seedBytes.toUint8Array()]);
+    return Bytes.keccak256(secretAsUint8Arr).toString();
   }
 
   async getStamp(batchId?: Hex, requestOptions?: SwarmRequestOptions): Promise<StampInfo | undefined> {

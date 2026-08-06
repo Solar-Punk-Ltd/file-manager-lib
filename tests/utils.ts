@@ -1,4 +1,4 @@
-import { BatchId, Bee, BeeRequestOptions, PrivateKey, RedundancyLevel } from '@ethersphere/bee-js';
+import { BatchId, Bee, BeeRequestOptions, FeedIndex, PrivateKey, RedundancyLevel } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
@@ -6,6 +6,7 @@ import { EventEmitter } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
 import { BeeClient } from '@/swarm';
 import { SwarmClient } from '@/types';
+import { FeedResultWithIndex } from '@/types/utils';
 import { FileManagerEvents } from '@/utils';
 
 // bee-factory queen node
@@ -54,6 +55,19 @@ export async function streamToUint8Array(stream: ReadableStream<Uint8Array>): Pr
   const buffer = await new Response(stream).arrayBuffer();
 
   return new Uint8Array(buffer);
+}
+
+export async function retryOnFeedPropagation(
+  fn: () => Promise<FeedResultWithIndex>,
+  attempts = 5,
+  delayMs = 500,
+): Promise<FeedResultWithIndex> {
+  for (let i = 0; i < attempts; i++) {
+    const res = await fn();
+    if (!res.feedIndex.equals(FeedIndex.MINUS_ONE)) return res;
+    if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs));
+  }
+  throw new Error('feed did not propagate within retry budget');
 }
 
 export async function retryOnPropagationDelay<T>(fn: () => Promise<T>, attempts = 5, delayMs = 500): Promise<T> {
