@@ -54,6 +54,14 @@
     "cafe-utility": "^36.2.0",
     "std-env": "^3.10.0"
   },
+  "peerDependencies": {
+    "@snaha/swarm-id": "^0.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@snaha/swarm-id": {
+      "optional": true
+    }
+  },
   "overrides": {
     "@ethersphere/bee-factory": {
       "@ethersphere/bee-js": "npm:@solarpunkltd/bee-js@0.0.0-fmv2.1"
@@ -62,8 +70,9 @@
   "devDependencies": {
     "@commitlint/cli": "^20.4.1",
     "@commitlint/config-conventional": "^20.4.1",
-    "@ethersphere/bee-factory": "^1.1.1",
     "@eslint/js": "^9.39.2",
+    "@ethersphere/bee-factory": "^1.1.1",
+    "@snaha/swarm-id": "^0.2.0",
     "@types/event-emitter": "^0.3.5",
     "@types/fs-extra": "^11.0.4",
     "@types/jest": "^30.0.0",
