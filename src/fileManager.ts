@@ -1312,8 +1312,8 @@ export class FileManagerBase implements FileManager {
     const { name, batchId, isAdmin, redundancyLevel, publisher } = params;
 
     this.driveList.forEach((d) => {
-      if (d.name === name || d.batchId === batchId) {
-        throw new DriveError(`Drive with name "${name}" or batchId "${batchId.slice(0, 6)}" already exists`);
+      if (d.name === name) {
+        throw new DriveError(`Drive with name "${name}" already exists`);
       }
     });
 

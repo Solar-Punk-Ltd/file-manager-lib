@@ -60,7 +60,7 @@ export interface FileManager {
    * @emits FileManagerEvents.DRIVE_CREATED
    * @returns The newly-created DriveInfo.
    * @throws {DriveError} If not initialized, admin state/manifest is not ready, or a drive with the
-   *   same name or batchId already exists.
+   *   same name already exists. Several drives may share one batch.
    * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {StampError} If the batch stamp is missing or not usable.
    */

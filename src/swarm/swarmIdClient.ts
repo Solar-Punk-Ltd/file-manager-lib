@@ -1,4 +1,4 @@
-import { Bytes, FeedIndex, PrivateKey } from '@ethersphere/bee-js';
+import { Bytes, FeedIndex } from '@ethersphere/bee-js';
 import type { DownloadOptions as SnahaDownloadOptions, SwarmIdClient as SnahaClient } from '@snaha/swarm-id';
 import { Readable } from 'stream';
 
@@ -61,29 +61,7 @@ interface SnahaRequestOptions {
  *   parameter.
  */
 export class SwarmIdSwarmClient implements SwarmClient {
-  private readonly secretBytes: Uint8Array;
-
-  constructor(
-    private readonly client: SnahaClient,
-    /**
-     * TEMPORARY stand-in for swarm-id-side key derivation.
-     *
-     * `SwarmIdClient` exposes no way to derive a stable app-scoped secret — its derivation helpers
-     * are module-level and take the master key, which never leaves the iframe. Until snaha adds
-     * `deriveAppSecret(label)`, the state feed topic has to come from a caller-supplied private
-     * key, which is exactly the per-browser, unrecoverable key that v1 kept in `localStorage`.
-     *
-     * Same input as {@link BeeClient}'s signer, so both backends derive the same topic from the
-     * same key. That is harmless — the feeds have different owners either way.
-     */
-    secret: string,
-  ) {
-    if (!secret) {
-      throw new SignerError('Secret required');
-    }
-
-    this.secretBytes = new PrivateKey(secret).toUint8Array();
-  }
+  constructor(private readonly client: SnahaClient) {}
 
   get owner(): Hex {
     return this.appKey().address;
@@ -106,8 +84,10 @@ export class SwarmIdSwarmClient implements SwarmClient {
 
   // eslint-disable-next-line require-await
   async deriveSecret(seed: string): Promise<string> {
+    const { publicKey } = this.appKey();
+    const appKeyBytes = new Bytes(publicKey).toUint8Array();
     const seedBytes = Bytes.fromUtf8(seed);
-    const secretAsUint8Arr = new Uint8Array([...this.secretBytes, ...seedBytes.toUint8Array()]);
+    const secretAsUint8Arr = new Uint8Array([...appKeyBytes, ...seedBytes.toUint8Array()]);
 
     return Bytes.keccak256(secretAsUint8Arr).toString();
   }
