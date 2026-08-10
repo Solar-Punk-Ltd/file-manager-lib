@@ -561,6 +561,10 @@ export class FileManagerBase implements FileManager {
       throw new FileRecordError('Neither a file/path nor customMetadata is provided');
     }
 
+    if (changes.item !== undefined) {
+      assertUploadableSource(changes.item);
+    }
+
     const owner = this.signerAddress;
     // Always resolve the current head
     const { record: cached, fromCache } = await this.loadRecord(

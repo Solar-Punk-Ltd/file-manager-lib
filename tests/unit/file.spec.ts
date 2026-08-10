@@ -544,4 +544,22 @@ describe('File operations', () => {
       expect(driveMantaray.find('b.json')).toBeTruthy();
     });
   });
+
+  describe('upload source validation', () => {
+    it('isDir throws when the path does not exist (node fs)', async () => {
+      const { isDir } = await import('@/utils/fs/fs.node');
+      await expect(isDir('definitely-missing-path-xyz-123')).rejects.toThrow(/does not exist/);
+    });
+
+    it('updateFile rejects a missing upload source via assertUploadableSource', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      const di = fm.driveList[1];
+      await fm.uploadFile(di.id, { path: 'package.json', ...makeUploadSource('package.json') });
+      const record = fm.recordList.find((fr) => fr.path === 'package.json')!;
+
+      const expected = IS_BROWSER ? 'File is required.' : 'File source path is required.';
+      await expect(fm.updateFile(di.id, record, { item: { sourcePath: '' } })).rejects.toThrow(expected);
+    });
+  });
 });
