@@ -55,10 +55,6 @@ export async function processUploadNode(
   uploadOptions?: FileUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<ActReferences> {
-  if (!nodeOptions.sourcePath) {
-    throw new FileError('File source path is required.');
-  }
-
   const uploadResult = await uploadNode(bee, driveInfo.batchId, nodeOptions, uploadOptions, requestOptions);
 
   return {

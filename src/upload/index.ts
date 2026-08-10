@@ -8,11 +8,11 @@ import type {
 import { isNode } from 'std-env';
 
 import type { DriveInfo } from '../types/info';
-import type { BrowserUploadOptions, NodeUploadOptions, UploadItem, UploadSource } from '../types/upload';
+import type { BrowserUploadOptions, NodeUploadOptions, UploadSource } from '../types/upload';
 import type { ActReferences } from '../types/utils';
 import { FileError } from '../utils/errors';
 
-export function assertUploadableSource(item: UploadItem): void {
+export function assertUploadableSource(item: UploadSource): void {
   if (isNode) {
     if (!(item as NodeUploadOptions).sourcePath) {
       throw new FileError('File source path is required.');

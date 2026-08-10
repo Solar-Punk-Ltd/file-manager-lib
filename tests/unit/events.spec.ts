@@ -1,6 +1,6 @@
 import { BatchId, Bee, RedundancyLevel } from '@ethersphere/bee-js';
 
-import { BEE_URL, createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
+import { BEE_URL, createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID, makeUploadSource } from '../utils';
 
 import { applyDefaultMocks } from './mock';
 
@@ -31,7 +31,7 @@ describe('Events and emitter', () => {
     const fixedNow = 1_755_158_248_500;
     jest.setSystemTime(new Date(fixedNow));
 
-    await fm.uploadFile(di.id, { path: 'package.json', sourcePath: 'package.json' });
+    await fm.uploadFile(di.id, { path: 'package.json', ...makeUploadSource('package.json') });
     fm.emitter.off(FileManagerEvents.FILE_UPLOADED, uploadHandler);
 
     expect(uploadHandler).toHaveBeenCalledWith({

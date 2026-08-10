@@ -1,6 +1,12 @@
 import { BatchId, Bee, MantarayNode, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 
-import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
+import {
+  createInitializedFileManager,
+  DEFAULT_MOCK_SIGNER,
+  DUMMY_BATCH_ID,
+  IS_BROWSER,
+  makeUploadSource,
+} from '../utils';
 
 import { applyDefaultMocks, createMockDriveInfo, createMockNodeAddresses, seedRecords } from './mock';
 
@@ -13,11 +19,13 @@ describe('Abort signal handling', () => {
   const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
   const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
 
+  const nodeOnly = IS_BROWSER ? it.skip : it;
+
   beforeEach(async () => {
     applyDefaultMocks();
   });
 
-  it('should throw for a directory upload regardless of an abort signal', async () => {
+  nodeOnly('should throw for a directory upload regardless of an abort signal', async () => {
     const fm = await createInitializedFileManager();
     await fm.createDrive(otherMockBatchId, 'Test Drive');
     const di = fm.driveList[1];
@@ -39,7 +47,7 @@ describe('Abort signal handling', () => {
     const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
     const controller = new AbortController();
 
-    await fm.uploadFile(di.id, { path: 'package.json', sourcePath: 'package.json' }, undefined, {
+    await fm.uploadFile(di.id, { path: 'package.json', ...makeUploadSource('package.json') }, undefined, {
       signal: controller.signal,
     });
 
@@ -57,7 +65,7 @@ describe('Abort signal handling', () => {
 
     const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
 
-    await fm.uploadFile(di.id, { path: 'package.json', sourcePath: 'package.json' });
+    await fm.uploadFile(di.id, { path: 'package.json', ...makeUploadSource('package.json') });
 
     expect(uploadDataSpy).toHaveBeenCalled();
     for (const call of uploadDataSpy.mock.calls) {
@@ -73,7 +81,7 @@ describe('Abort signal handling', () => {
     const controller = new AbortController();
 
     await expect(
-      fm.uploadFile(di.id, { path: 'package.json', sourcePath: 'package.json' }, undefined, {
+      fm.uploadFile(di.id, { path: 'package.json', ...makeUploadSource('package.json') }, undefined, {
         signal: controller.signal,
       }),
     ).resolves.not.toThrow();

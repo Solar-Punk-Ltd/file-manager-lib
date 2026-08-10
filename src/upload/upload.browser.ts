@@ -3,7 +3,6 @@ import { BatchId, Bee, BeeRequestOptions, RedundantUploadOptions, UploadResult }
 import { DriveInfo } from '../types/info';
 import { BrowserUploadOptions } from '../types/upload';
 import { ActReferences } from '../types/utils';
-import { FileError } from '../utils/errors';
 
 async function uploadBrowser(
   bee: Bee,
@@ -28,10 +27,6 @@ export async function processUploadBrowser(
   uploadOptions?: RedundantUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<ActReferences> {
-  if (!browserOptions.file) {
-    throw new FileError('File is required.');
-  }
-
   const uploadResult = await uploadBrowser(bee, driveInfo.batchId, browserOptions, uploadOptions, requestOptions);
 
   return {
