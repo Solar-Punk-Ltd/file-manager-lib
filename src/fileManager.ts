@@ -17,10 +17,10 @@ import {
   Topic,
 } from '@ethersphere/bee-js';
 
-import { DownloadResource, DownloadResult } from './types/v2/download';
+import { DownloadFilesResult, DownloadResource, DownloadResult } from './types/v2/download';
 import { DriveInfo, FileRecord, FolderInfo, ManifestHost, NodeStatus, NodeType } from './types/v2/info';
 import { UpdateItem, UploadFilesResult, UploadItem } from './types/v2/upload';
-import { ActReferences } from './types/v2/utils';
+import { ActReferences, FailedResult } from './types/v2/utils';
 import {
   fetchStamp,
   getFeedData,
@@ -41,7 +41,7 @@ import {
   ROOT_PATH,
 } from './utils/constants';
 import { generateRandomBytes } from './utils/crypto';
-import { DriveError, ErrorHandler, FileInfoError, SignerError } from './utils/errors';
+import { DriveError, ErrorHandler, FileError, FileInfoError, SignerError } from './utils/errors';
 import { FileManagerEvents } from './utils/events';
 import { Logger } from './utils/logger';
 import { assertActReferences, assertDriveInfoFromMetadata, assertReady } from './utils/v2/asserts';
@@ -440,7 +440,7 @@ export class FileManagerBase {
     }
 
     const succeeded: FileRecord[] = [];
-    const failed: { path: string; error: string }[] = [];
+    const failed: FailedResult[] = [];
     const owner = this.signerAddress;
 
     await awaitAllPromisesBounded(
@@ -623,7 +623,13 @@ export class FileManagerBase {
     options?: DownloadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<DownloadResult> {
-    return (await this.downloadFiles([fileRecord], options, requestOptions))[0];
+    const { succeeded, failed } = await this.downloadFiles([fileRecord], options, requestOptions);
+
+    if (succeeded.length === 0) {
+      throw new FileError(`Failed to download ${fileRecord.path}: ${failed[0]?.error ?? 'unknown error'}`);
+    }
+
+    return succeeded[0];
   }
 
   /**
@@ -636,11 +642,11 @@ export class FileManagerBase {
     fileRecords: FileRecord[],
     options?: DownloadOptions,
     requestOptions?: BeeRequestOptions,
-  ): Promise<DownloadResult[]> {
+  ): Promise<DownloadFilesResult> {
     requestOptions?.signal?.throwIfAborted();
     assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
 
-    if (fileRecords.length === 0) return [];
+    if (fileRecords.length === 0) return { succeeded: [], failed: [] };
 
     const resources: DownloadResource[] = fileRecords.map((fr) => ({
       path: fr.path,
@@ -692,7 +698,7 @@ export class FileManagerBase {
       undefined,
       requestOptions,
     );
-    if (feedIndex.equals(FeedIndex.MINUS_ONE.toString())) {
+    if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
       throw new FileInfoError('Record feed not found');
     }
 

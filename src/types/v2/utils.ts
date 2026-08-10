@@ -18,3 +18,8 @@ export interface FeedReferenceResult extends FeedUpdateHeaders {
 export interface FeedResultWithIndex extends FeedPayloadResult {
   feedIndexNext: FeedIndex;
 }
+
+export interface FailedResult {
+  path: string;
+  error: string;
+}
