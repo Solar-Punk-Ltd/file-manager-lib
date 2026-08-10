@@ -190,5 +190,34 @@ describe('Lifecycle management', () => {
       expect(fm.recordList.some((f) => f.path.startsWith('Docs/'))).toBe(false);
       expect(handler).toHaveBeenCalledWith({ driveInfo: drive, path: 'Docs' });
     });
+
+    it('forgets only the targeted file when a same-named file exists in another folder', async () => {
+      await fm.createFolder(drive.id, '', 'A');
+      await fm.createFolder(drive.id, '', 'B');
+
+      (getFeedData as jest.Mock).mockResolvedValue({
+        feedIndex: FeedIndex.fromBigInt(0n),
+        feedIndexNext: FeedIndex.fromBigInt(1n),
+        payload: {
+          toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
+        },
+      });
+
+      await fm.uploadFile(drive.id, { path: 'A/dup.txt', sourcePath: 'package.json' });
+      await fm.uploadFile(drive.id, { path: 'B/dup.txt', sourcePath: 'package.json' });
+
+      const inB = fm.recordList.find((f) => f.path === 'B/dup.txt')!;
+      expect(fm.recordList.find((f) => f.path === 'A/dup.txt')).toBeDefined();
+      expect(inB).toBeDefined();
+
+      await fm.trashFile(inB);
+      expect(drive.trashedNodes?.some((n) => n.path === 'B/dup.txt')).toBe(true);
+
+      await fm.forget(drive.id, 'A/dup.txt');
+
+      expect(fm.recordList.find((f) => f.path === 'A/dup.txt')).toBeUndefined();
+      expect(fm.recordList.find((f) => f.path === 'B/dup.txt')).toBeDefined();
+      expect(drive.trashedNodes?.some((n) => n.path === 'B/dup.txt')).toBe(true);
+    });
   });
 });

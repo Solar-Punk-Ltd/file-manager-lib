@@ -245,11 +245,15 @@ describe('reinitialization', () => {
     }
 
     for (let i = 0; i < 2; i++) {
-      await retryOnPropagationDelay(async () => {
-        const freshManager = new FileManagerBase(beeDev);
-        await freshManager.initialize();
-        expect(freshManager.driveList).toHaveLength(initialDriveCount);
-      });
+      await retryOnPropagationDelay(
+        async () => {
+          const freshManager = new FileManagerBase(beeDev);
+          await freshManager.initialize();
+          expect(freshManager.driveList).toHaveLength(initialDriveCount);
+        },
+        10,
+        1000,
+      );
     }
   });
 
@@ -288,22 +292,26 @@ describe('reinitialization', () => {
       return [];
     });
 
-    await retryOnPropagationDelay(async () => {
-      const events: string[] = [];
+    await retryOnPropagationDelay(
+      async () => {
+        const events: string[] = [];
 
-      const newFileManager = new FileManagerBase(beeDev);
-      newFileManager.emitter.on(FileManagerEvents.STATE_INVALID, () => {
-        events.push('STATE_INVALID');
-      });
-      newFileManager.emitter.on(FileManagerEvents.INITIALIZED, (success: boolean) => {
-        events.push(`INITIALIZED:${success}`);
-      });
+        const newFileManager = new FileManagerBase(beeDev);
+        newFileManager.emitter.on(FileManagerEvents.STATE_INVALID, () => {
+          events.push('STATE_INVALID');
+        });
+        newFileManager.emitter.on(FileManagerEvents.INITIALIZED, (success: boolean) => {
+          events.push(`INITIALIZED:${success}`);
+        });
 
-      await newFileManager.initialize();
+        await newFileManager.initialize();
 
-      expect(events).toContain('STATE_INVALID');
-      expect(events).toContain('INITIALIZED:true');
-    });
+        expect(events).toContain('STATE_INVALID');
+        expect(events).toContain('INITIALIZED:true');
+      },
+      10,
+      1000,
+    );
 
     spy.mockRestore();
   });

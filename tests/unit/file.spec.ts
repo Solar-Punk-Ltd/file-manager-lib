@@ -47,26 +47,34 @@ describe('File operations', () => {
     });
   });
 
-  // TODO: extend this suite
   describe('downloadFiles', () => {
-    // TODO: create makeRecord util
-    function makeRecord(drive: DriveInfo, path: string, ref: string): FileRecord {
-      return {
-        type: NodeType.File,
-        batchId: DUMMY_BATCH_ID,
-        owner,
-        actPublisher,
-        topic: Topic.fromString(`dlf-${path}`).toString(),
-        driveId: drive.id,
-        path,
-        content: { reference: ref, historyRef: SWARM_ZERO_ADDRESS.toString() },
-        redundancyLevel: RedundancyLevel.OFF,
-      };
-    }
     it('fetches exactly the passed records with no drive traversal', async () => {
       const fm = await createInitializedFileManager();
       const drive = fm.driveList[0];
-      const records = [makeRecord(drive, 'a.txt', '1'.repeat(64)), makeRecord(drive, 'b.txt', '2'.repeat(64))];
+      const records: FileRecord[] = [
+        {
+          type: NodeType.File,
+          batchId: DUMMY_BATCH_ID,
+          owner,
+          actPublisher,
+          topic: Topic.fromString('dlf-a.txt').toString(),
+          driveId: drive.id,
+          path: 'a.txt',
+          content: { reference: '1'.repeat(64), historyRef: SWARM_ZERO_ADDRESS.toString() },
+          redundancyLevel: RedundancyLevel.OFF,
+        },
+        {
+          type: NodeType.File,
+          batchId: DUMMY_BATCH_ID,
+          owner,
+          actPublisher,
+          topic: Topic.fromString('dlf-b.txt').toString(),
+          driveId: drive.id,
+          path: 'b.txt',
+          content: { reference: '2'.repeat(64), historyRef: SWARM_ZERO_ADDRESS.toString() },
+          redundancyLevel: RedundancyLevel.OFF,
+        },
+      ];
 
       const downloadReadableDataSpy = jest.spyOn(Bee.prototype, 'downloadReadableData');
       const listFolderSpy = jest.spyOn(fm, 'listFolder');
@@ -92,6 +100,30 @@ describe('File operations', () => {
 
       expect(results.succeeded).toEqual([]);
       expect(downloadDataSpy).not.toHaveBeenCalled();
+    });
+
+    it('splits partial results: fetched records land in succeeded, the failing one in failed', async () => {
+      const fm = await createInitializedFileManager();
+      const drive = fm.driveList[0];
+      const good = seedDummyFile(drive, 'good.txt', '1'.repeat(64), owner, actPublisher);
+      const bad = seedDummyFile(drive, 'bad.txt', '2'.repeat(64), owner, actPublisher);
+
+      jest.spyOn(Bee.prototype, 'downloadReadableData').mockImplementation(async (ref: unknown) => {
+        if (ref === '2'.repeat(64)) {
+          throw new Error('boom');
+        }
+        return new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(SWARM_ZERO_ADDRESS.toUint8Array());
+            controller.close();
+          },
+        });
+      });
+
+      const results = await fm.downloadFiles([good, bad]);
+
+      expect(results.succeeded.map((r) => r.path)).toEqual(['good.txt']);
+      expect(results.failed).toEqual([{ path: 'bad.txt', error: 'boom' }]);
     });
   });
 
@@ -487,6 +519,21 @@ describe('File operations', () => {
       const drive = fm.driveList[0];
 
       await expect(fm.move('a.txt', 'a.txt', drive.id)).rejects.toThrow('Source and destination paths are identical');
+    });
+
+    it('rejects a move onto an existing destination and leaves both forks in place', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      const drive = fm.driveList[1];
+
+      await fm.uploadFile(drive.id, { path: 'a.json', sourcePath: 'package.json' });
+      await fm.uploadFile(drive.id, { path: 'b.json', sourcePath: 'package.json' });
+
+      await expect(fm.move('a.json', 'b.json', drive.id)).rejects.toThrow('Destination already exists: b.json');
+
+      const driveMantaray = (fm as any).store.getManifestCache(drive.topic) as MantarayNode;
+      expect(driveMantaray.find('a.json')).toBeTruthy();
+      expect(driveMantaray.find('b.json')).toBeTruthy();
     });
   });
 });

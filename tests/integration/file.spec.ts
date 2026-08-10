@@ -555,4 +555,40 @@ describe('move', () => {
 
     await expect(fileManager.move(sameFile, 'nosuchfolder/dest.txt', driveA.id)).rejects.toThrow(/not found/i);
   });
+
+  it('rejects a move onto an existing destination, leaving both files intact and downloadable', async () => {
+    const f1 = writeTempFile('it-move-collide-1.txt', 'Collide One');
+    const f2 = writeTempFile('it-move-collide-2.txt', 'Collide Two');
+    await fileManager.uploadFile(driveA.id, { path: f1, sourcePath: f1 });
+    await fileManager.uploadFile(driveA.id, { path: f2, sourcePath: f2 });
+
+    await expect(fileManager.move(f1, f2, driveA.id)).rejects.toThrow(/already exists/i);
+
+    const entries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA.id, '', ListDepth.Shallow));
+    expect(entries.some((e) => e.type === NodeType.File && e.path === f1)).toBe(true);
+    expect(entries.some((e) => e.type === NodeType.File && e.path === f2)).toBe(true);
+
+    const rec2 = fileManager.recordList.find((fr) => fr.path === f2)!;
+    const downloaded = await retryOnPropagationDelay(() => fileManager.downloadFile(rec2));
+    expect(Buffer.from(await streamToUint8Array(downloaded.result)).toString('utf-8')).toBe('Collide Two');
+  });
+
+  it('after a move the file downloads from the new path and is gone from the old path', async () => {
+    const srcFile = writeTempFile('it-move-oldnew.txt', 'Old New Content');
+    const up = await fileManager.uploadFiles(driveA.id, [{ path: 'oldp/f.txt', sourcePath: srcFile }], '');
+    expect(up.failed).toHaveLength(0);
+
+    await fileManager.createFolder(driveA.id, ROOT_PATH, 'newp');
+    await fileManager.move('oldp/f.txt', 'newp/f.txt', driveA.id);
+
+    const newDownloads = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveA.id, 'newp'));
+    expect(newDownloads.failed).toEqual([]);
+    const got = newDownloads.succeeded.find((d) => d.path === 'newp/f.txt');
+    expect(got).toBeDefined();
+    expect(Buffer.from(await streamToUint8Array(got!.result)).toString('utf-8')).toBe('Old New Content');
+
+    const oldDownloads = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveA.id, 'oldp'));
+    expect(oldDownloads.failed).toEqual([]);
+    expect(oldDownloads.succeeded).toEqual([]);
+  });
 });

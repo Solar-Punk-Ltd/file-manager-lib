@@ -5,7 +5,7 @@ import { createInitializedFileManager, retryOnPropagationDelay } from '../utils'
 import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
-import { DriveInfo, FileRecord, NodeStatus, NodeType } from '@/types';
+import { DriveInfo, FileRecord, ListDepth, NodeStatus, NodeType } from '@/types';
 import { ROOT_PATH } from '@/utils/constants';
 
 describe('Lifecycle management', () => {
@@ -147,5 +147,29 @@ describe('Lifecycle management', () => {
     const fi2 = fm2.recordList.find((fr) => fr.topic.toString() === topic)!;
 
     expect(BigInt(fi2.version!.toString())).toBe(beforeVer);
+  });
+
+  it('forgets only the targeted file, leaving the same-named file in the other folder', async () => {
+    const src = writeTempFile('it-forget-dup.txt', 'dup content');
+    const up = await fileManager.uploadFiles(
+      drive.id,
+      [
+        { path: 'fa/dup.txt', sourcePath: src },
+        { path: 'fb/dup.txt', sourcePath: src },
+      ],
+      '',
+    );
+    expect(up.failed).toHaveLength(0);
+
+    await fileManager.forget(drive.id, 'fa/dup.txt');
+
+    expect(fileManager.recordList.find((fr) => fr.path === 'fa/dup.txt')).toBeUndefined();
+    expect(fileManager.recordList.find((fr) => fr.path === 'fb/dup.txt')).toBeDefined();
+
+    const faEntries = await retryOnPropagationDelay(() => fileManager.listFolder(drive.id, 'fa', ListDepth.Shallow));
+    expect(faEntries.some((e) => e.type === NodeType.File)).toBe(false);
+
+    const fbEntries = await retryOnPropagationDelay(() => fileManager.listFolder(drive.id, 'fb', ListDepth.Shallow));
+    expect(fbEntries.some((e) => e.type === NodeType.File && e.path === 'fb/dup.txt')).toBe(true);
   });
 });

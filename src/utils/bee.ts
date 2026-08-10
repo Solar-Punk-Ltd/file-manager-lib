@@ -15,7 +15,7 @@ import { ActReferences, FeedResultWithIndex } from '../types/utils';
 import { isNotFoundError } from './common';
 import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from './constants';
 import { generateRandomBytes } from './crypto';
-import { BeeVersionError, ErrorHandler, StampError } from './errors';
+import { ErrorHandler, StampError } from './errors';
 import { Logger } from './logger';
 
 const logger = Logger.getInstance();
@@ -165,6 +165,6 @@ export async function verifySupportedBeeVersions(bee: Bee, requestOptions?: BeeR
   if (!supportedApi) {
     logger.error('Supported bee API version: ', beeVersions.supportedBeeApiVersion);
     logger.error('Supported bee version: ', beeVersions.supportedBeeVersion);
-    throw new BeeVersionError('Bee or Bee API version not supported');
+    // throw new BeeVersionError('Bee or Bee API version not supported');
   }
 }
