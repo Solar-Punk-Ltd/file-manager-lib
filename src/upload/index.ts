@@ -1,63 +1,85 @@
 import type {
   Bee,
   BeeRequestOptions,
-  CollectionUploadOptions,
   FileUploadOptions,
+  RedundancyLevel,
   RedundantUploadOptions,
 } from '@ethersphere/bee-js';
 import { isNode } from 'std-env';
 
-import type { DriveInfo, FileInfoOptions } from '../types';
-import type { BrowserUploadOptions, NodeUploadOptions, ReferenceWithHistory } from '../types/utils';
+import type { DriveInfo } from '../types/v2/info';
+import type { BrowserUploadOptions, NodeUploadOptions, UploadItem, UploadSource } from '../types/v2/upload';
+import type { ActReferences } from '../types/v2/utils';
+import { FileError } from '../utils/errors';
+
+export function assertUploadableSource(item: UploadItem): void {
+  if (isNode) {
+    if (!(item as NodeUploadOptions).sourcePath) {
+      throw new FileError('File source path is required.');
+    }
+    return;
+  }
+
+  if (!(item as BrowserUploadOptions).file) {
+    throw new FileError('File is required.');
+  }
+}
 
 interface ProcessedOptions {
   options: BrowserUploadOptions | NodeUploadOptions;
-  uploadOptions: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions;
-  file?: ReferenceWithHistory;
+  uploadOptions: RedundantUploadOptions | FileUploadOptions;
+  redundancyLevel: RedundancyLevel;
 }
 
 const processOptions = (
   isNode: boolean,
-  driveInfo: DriveInfo,
-  fileOptions: FileInfoOptions,
-  uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
+  item: UploadSource,
+  redundancyLevel: RedundancyLevel,
+  uploadOptions?: RedundantUploadOptions | FileUploadOptions,
 ): ProcessedOptions => {
-  const processedOptions = { ...uploadOptions, redundancyLevel: driveInfo.redundancyLevel };
+  const effectiveRedundancyLevel = uploadOptions?.redundancyLevel ?? redundancyLevel;
+  const processedOptions = { ...uploadOptions, act: true, redundancyLevel: effectiveRedundancyLevel };
 
-  let file: ReferenceWithHistory | undefined;
+  const options = isNode ? (item as NodeUploadOptions) : (item as BrowserUploadOptions);
 
-  if (fileOptions.file) {
-    file = {
-      reference: fileOptions.file.reference.toString(),
-      historyRef: fileOptions.file.historyRef.toString(),
-    };
-  }
-
-  const options = isNode ? (fileOptions as NodeUploadOptions) : (fileOptions as BrowserUploadOptions);
-
-  return { options, uploadOptions: processedOptions, file };
+  return { options, uploadOptions: processedOptions, redundancyLevel: effectiveRedundancyLevel };
 };
 
 export async function processUpload(
   bee: Bee,
   driveInfo: DriveInfo,
-  fileOptions: FileInfoOptions,
-  uploadOptions?: RedundantUploadOptions | FileUploadOptions | CollectionUploadOptions,
+  item: UploadSource,
+  redundancyLevel: RedundancyLevel,
+  uploadOptions?: RedundantUploadOptions | FileUploadOptions,
   requestOptions?: BeeRequestOptions,
-): Promise<ReferenceWithHistory> {
-  const processedOptions = processOptions(isNode, driveInfo, fileOptions, uploadOptions);
-
-  if (processedOptions.file) {
-    return processedOptions.file;
-  }
+): Promise<{ contentRefs: ActReferences; rLevel: RedundancyLevel }> {
+  const {
+    options,
+    uploadOptions: processedUploadOptions,
+    redundancyLevel: rLevel,
+  } = processOptions(isNode, item, redundancyLevel, uploadOptions);
 
   if (isNode) {
     const { processUploadNode } = await import('./upload.node');
-    const nodeOptions = processedOptions.options as NodeUploadOptions;
-    return processUploadNode(bee, driveInfo, nodeOptions, uploadOptions, requestOptions);
+    const contentRefs = await processUploadNode(
+      bee,
+      driveInfo,
+      options as NodeUploadOptions,
+      processedUploadOptions,
+      requestOptions,
+    );
+
+    return { contentRefs, rLevel };
   }
 
   const { processUploadBrowser } = await import('./upload.browser');
-  const browserOptions = processedOptions.options as BrowserUploadOptions;
-  return processUploadBrowser(bee, driveInfo, browserOptions, uploadOptions, requestOptions);
+  const contentRefs = await processUploadBrowser(
+    bee,
+    driveInfo,
+    options as BrowserUploadOptions,
+    processedUploadOptions,
+    requestOptions,
+  );
+
+  return { contentRefs, rLevel };
 }

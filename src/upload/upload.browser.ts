@@ -1,41 +1,24 @@
 import { BatchId, Bee, BeeRequestOptions, RedundantUploadOptions, UploadResult } from '@ethersphere/bee-js';
 
-import { BrowserUploadOptions, DriveInfo } from '../types';
-import { ReferenceWithHistory, WrappedUploadResult } from '../types/utils';
+import { DriveInfo } from '../types/v2/info';
+import { BrowserUploadOptions } from '../types/v2/upload';
+import { ActReferences } from '../types/v2/utils';
+import { FileError } from '../utils/errors';
 
-export async function uploadBrowser(
+async function uploadBrowser(
   bee: Bee,
   batchId: string | BatchId,
   browserOptions: BrowserUploadOptions,
   uploadOptions?: RedundantUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<UploadResult> {
-  const streamFilesOpts = uploadOptions ? { ...uploadOptions, act: false, actHistoryAddress: undefined } : undefined;
+  const result = await bee.uploadData(batchId, browserOptions.file, uploadOptions, requestOptions);
 
-  const uploadFilesRes = await bee.streamFiles(
-    batchId,
-    browserOptions.files,
-    browserOptions.onUploadProgress,
-    streamFilesOpts,
-    requestOptions,
-  );
-  let uploadPreviewRes: UploadResult | undefined;
-  if (browserOptions.preview) {
-    uploadPreviewRes = await bee.streamFiles(
-      batchId,
-      [browserOptions.preview],
-      browserOptions.onUploadProgress,
-      streamFilesOpts,
-      requestOptions,
-    );
+  if (result.tagUid !== undefined) {
+    browserOptions.onUploadProgress?.(result.tagUid);
   }
 
-  const wrappedData: WrappedUploadResult = {
-    uploadFilesRes: uploadFilesRes.reference.toString(),
-    uploadPreviewRes: uploadPreviewRes?.reference.toString(),
-  };
-
-  return await bee.uploadData(batchId, JSON.stringify(wrappedData), { ...uploadOptions, act: true }, requestOptions);
+  return result;
 }
 
 export async function processUploadBrowser(
@@ -44,9 +27,9 @@ export async function processUploadBrowser(
   browserOptions: BrowserUploadOptions,
   uploadOptions?: RedundantUploadOptions,
   requestOptions?: BeeRequestOptions,
-): Promise<ReferenceWithHistory> {
-  if (!browserOptions.files) {
-    throw new Error('Files are required.');
+): Promise<ActReferences> {
+  if (!browserOptions.file) {
+    throw new FileError('File is required.');
   }
 
   const uploadResult = await uploadBrowser(bee, driveInfo.batchId, browserOptions, uploadOptions, requestOptions);
@@ -54,5 +37,5 @@ export async function processUploadBrowser(
   return {
     reference: uploadResult.reference.toString(),
     historyRef: uploadResult.historyAddress.getOrThrow().toString(),
-  } as ReferenceWithHistory;
+  } as ActReferences;
 }
