@@ -1,4 +1,5 @@
 import { FileRecord } from './info';
+import { FailedResult } from './utils';
 
 export interface BrowserUploadOptions {
   file: File;
@@ -29,5 +30,5 @@ export interface UpdateItem {
 
 export interface UploadFilesResult {
   succeeded: FileRecord[];
-  failed: { path: string; error: string }[];
+  failed: FailedResult[];
 }
