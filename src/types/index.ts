@@ -17,6 +17,6 @@ export type {
   UploadSource,
   UploadFilesResult,
 } from './upload';
-export type { DownloadResource, DownloadResult } from './download';
-export type { ActReferences } from './utils';
+export type { DownloadFilesResult, DownloadResource, DownloadResult } from './download';
+export type { ActReferences, FailedResult } from './utils';
 export type { FileManager, FileManagerConfig } from './fileManager';

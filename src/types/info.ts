@@ -30,7 +30,7 @@ export interface NodeResource {
 
 export interface FileRecord extends NodeResource {
   type: NodeType.File;
-  driveId: string;
+  driveId?: string;
   path: string;
   content: ActReferences;
   timestamp?: number;

@@ -13,7 +13,7 @@ method for cancellation (`signal`) and retries; it is omitted from the descripti
 
 - [Class & construction](#class--construction)
 - [Lifecycle & bootstrap](#lifecycle--bootstrap) — `initialize`, `createAdminDrive`, `createDrive`
-- [Drives](#drives) — `destroyDrive`, `forgetDrive`
+- [Drives](#drives) — `forgetDrive`
 - [Files — write](#files--write) — `uploadFile`, `uploadFiles`, `updateFile`
 - [Files — read](#files--read) — `downloadFile`, `downloadFiles`, `downloadFolder`
 - [Folders](#folders) — `createFolder`, `listFolder`, `move`, `forget`
@@ -103,14 +103,6 @@ a freshly generated per-drive feed.
 
 ## Drives
 
-### `destroyDrive(driveId, requestOptions?): Promise<void>`
-
-Destroys a drive: dilutes its stamp and shortens its duration (min 24, max 47 hours depending on original TTL), and
-removes it from local state. Cannot target the admin drive.
-
-- **Emits**: `DRIVE_DESTROYED`.
-- **Throws**: `DriveError` (not initialized, not found, or admin drive); `SignerError`; `StampError`.
-
 ### `forgetDrive(driveId, requestOptions?): Promise<void>`
 
 Removes the drive and all of its file metadata from local state and persists the updated drive list. **Does not** touch
@@ -182,19 +174,19 @@ Downloads a single file the caller already holds as a `FileRecord`.
 - **Returns**: a single [`DownloadResult`](#downloadresult).
 - **Throws**: `DriveError` (not initialized); `SignerError`. Content-fetch failures are logged.
 
-### `downloadFiles(fileRecords, options?, requestOptions?): Promise<DownloadResult[]>`
+### `downloadFiles(fileRecords, options?, requestOptions?): Promise<DownloadFilesResult>`
 
 Downloads files whose `FileRecord`s the caller already holds — no drive traversal or re-resolution. Fetches exactly the
 passed records.
 
-- **Returns**: one `DownloadResult` per record.
+- **Returns**: one `DownloadFilesResult` marking per record success and failure.
 - **Throws**: `DriveError` (not initialized); `SignerError`. Per-record failures are logged.
 
-### `downloadFolder(driveId, path?, options?, requestOptions?): Promise<DownloadResult[]>`
+### `downloadFolder(driveId, path?, options?, requestOptions?): Promise<DownloadFilesResult[]>`
 
 Downloads every file in a folder subtree, resolved fresh via `listFolder`. `path` omitted ⇒ the whole drive.
 
-- **Returns**: one `DownloadResult` per file in the subtree.
+- **Returns**: one `DownloadFilesResult` marking per file success and failure in the subtree.
 - **Throws**: `DriveError` (not initialized, drive not found, or folder path missing); `SignerError`; `FileRecordError`
   (a folder feed is missing). Per-file failures are logged.
 
@@ -343,7 +335,6 @@ Emitted on the provided `EventEmitter` as `FileManagerEvents`:
 | `INITIALIZED`           | `initialize` (success)                             |
 | `STATE_INVALID`         | `initialize` (unparseable state)                   |
 | `DRIVE_CREATED`         | `createAdminDrive`, `createDrive`                  |
-| `DRIVE_DESTROYED`       | `destroyDrive`                                     |
 | `DRIVE_FORGOTTEN`       | `forgetDrive`                                      |
 | `FILE_UPLOADED`         | `uploadFile`, `uploadFiles` (per file)             |
 | `FILES_UPLOADED`        | `uploadFiles` (once, batch summary)                |
@@ -404,7 +395,8 @@ A file leaf. Its `content` is the ACT-wrapped content reference; version history
 ```ts
 interface FileRecord extends NodeResource {
   type: NodeType.File;
-  driveId: string;
+  // Not persisted: stripped before persist and hydrated. A record belongs to whichever drive's manifest references it
+  driveId?: string;
   path: string;
   content: ActReferences; // { reference, historyRef }
   timestamp?: number;
@@ -493,6 +485,15 @@ interface UpdateItem {
 interface UploadFilesResult {
   succeeded: FileRecord[];
   failed: { path: string; error: string }[];
+}
+```
+
+### `DownloadFilesResult`
+
+```ts
+interface DownloadFilesResult {
+  succeeded: DownloadResult[];
+  failed: FailedResult[];
 }
 ```
 

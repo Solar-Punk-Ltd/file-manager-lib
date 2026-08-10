@@ -58,8 +58,11 @@ export function assertFileRecord(value: unknown): asserts value is FileRecord {
     throw new TypeError('type property of FileRecord has to be NodeType.File!');
   }
 
-  new Identifier(fr.driveId);
   assertActReferences(fr.content);
+
+  if (fr.driveId !== undefined) {
+    new Identifier(fr.driveId);
+  }
 
   if (typeof fr.path !== 'string' || fr.path.length === 0) {
     throw new TypeError('path property of FileRecord has to be a non-empty string!');
