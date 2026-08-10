@@ -216,7 +216,7 @@ export class FileManagerBase {
 
   async forgetDrive(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<void> {
     const { publisher, stateFeedTopic } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     if (cachedDrive.isAdmin) {
       throw new DriveError('Cannot forget admin drive');
@@ -237,7 +237,7 @@ export class FileManagerBase {
   ): Promise<FileRecord> {
     requestOptions?.signal?.throwIfAborted();
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     assertUploadableSource(item);
 
@@ -312,7 +312,7 @@ export class FileManagerBase {
     requestOptions?.signal?.throwIfAborted();
 
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     if (!items.length) {
       throw new FileInfoError('uploadFiles requires at least one entry');
@@ -544,7 +544,7 @@ export class FileManagerBase {
   ): Promise<FileRecord> {
     requestOptions?.signal?.throwIfAborted();
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     const noMeta = !changes.customMetadata || Object.keys(changes.customMetadata).length === 0;
     if (noMeta && !changes.item) {
@@ -707,7 +707,7 @@ export class FileManagerBase {
     if (!versionToRestore.driveId) {
       throw new FileInfoError('Cannot restore: record has no driveId — obtain it via listFolder/getFileVersion first');
     }
-    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(versionToRestore.driveId).toString());
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(versionToRestore.driveId);
 
     const { feedIndex, feedIndexNext } = await getFeedData(
       this.bee,
@@ -764,7 +764,7 @@ export class FileManagerBase {
   ): Promise<FolderInfo> {
     requestOptions?.signal?.throwIfAborted();
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     if (!folderName || folderName.includes('/')) {
       throw new DriveError(`Invalid folder name ${folderName}`);
@@ -809,7 +809,7 @@ export class FileManagerBase {
     requestOptions?.signal?.throwIfAborted();
 
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const { cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+    const { cachedDrive } = this.findDriveOrThrow(driveId);
 
     const { host: startHost } = await this.store.resolveHost(cachedDrive, path, publisher, requestOptions);
     const startBasePath = normalizePath(path);
@@ -1105,7 +1105,7 @@ export class FileManagerBase {
   async forget(driveId: string | Identifier, path: string, requestOptions?: BeeRequestOptions): Promise<void> {
     requestOptions?.signal?.throwIfAborted();
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     if (!path || path === ROOT_PATH) {
       throw new DriveError('Cannot forget drive root');
@@ -1167,6 +1167,111 @@ export class FileManagerBase {
     // TODO: add tests to make sure that the correct file is removed in case of smae file names in different folders
     await this.pruneTrashOverlay(driveIx, (n) => n.topic === nodeTopic || n.path === path, requestOptions);
     this.emitter.emit(FileManagerEvents.FILE_FORGOTTEN, { record: forgotten, path });
+  }
+
+  // --- Trash operations ---
+
+  async trashFile(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
+    await this.setTrashState(
+      record.driveId,
+      { topic: record.topic, type: NodeType.File, path: record.path, version: record.version },
+      true,
+      requestOptions,
+    );
+    record.status = NodeStatus.Trashed;
+    this.emitter.emit(FileManagerEvents.FILE_TRASHED, { record });
+  }
+
+  async recoverFile(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
+    await this.setTrashState(
+      record.driveId,
+      { topic: record.topic, type: NodeType.File, path: record.path },
+      false,
+      requestOptions,
+    );
+    record.status = NodeStatus.Active;
+    this.emitter.emit(FileManagerEvents.FILE_RECOVERED, { record });
+  }
+
+  async trashFolder(folder: FolderInfo, requestOptions?: BeeRequestOptions): Promise<void> {
+    await this.setTrashState(
+      folder.driveId,
+      { topic: folder.topic, type: NodeType.Folder, path: folder.path },
+      true,
+      requestOptions,
+    );
+    folder.status = NodeStatus.Trashed;
+    this.emitter.emit(FileManagerEvents.FOLDER_TRASHED, { folder });
+  }
+
+  async recoverFolder(folder: FolderInfo, requestOptions?: BeeRequestOptions): Promise<void> {
+    await this.setTrashState(
+      folder.driveId,
+      { topic: folder.topic, type: NodeType.Folder, path: folder.path },
+      false,
+      requestOptions,
+    );
+    folder.status = NodeStatus.Active;
+    this.emitter.emit(FileManagerEvents.FOLDER_RECOVERED, { folder });
+  }
+
+  async listTrash(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<NodeEntry[]> {
+    requestOptions?.signal?.throwIfAborted();
+
+    const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+    const { cachedDrive } = this.findDriveOrThrow(driveId);
+
+    const entries = cachedDrive.trashedNodes ?? [];
+    const owner = this.signerAddress;
+    const trashedResults: NodeEntry[] = [];
+
+    await awaitAllPromisesBounded(
+      entries.map((entry) => async (): Promise<NodeEntry | null> => {
+        const version = entry.version ? new FeedIndex(entry.version).toBigInt() : undefined;
+
+        const feedData = await getFeedData(this.bee, new Topic(entry.topic), owner, version, requestOptions);
+
+        if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
+          this.logger.warn(`listTrash: feed not found for ${entry.path} — skipping`);
+          return null;
+        }
+
+        if (entry.type === NodeType.File) {
+          const fr = await this.store.getRecord(entry.topic, publisher, feedData, requestOptions);
+          fr.path = entry.path;
+          fr.status = NodeStatus.Trashed;
+          fr.driveId = cachedDrive.id;
+
+          return fr;
+        }
+
+        const manifestRef = feedData.payload.toJSON() as ActReferences;
+        assertActReferences(manifestRef);
+
+        return {
+          type: NodeType.Folder,
+          owner,
+          topic: entry.topic,
+          manifestRef,
+          batchId: cachedDrive.batchId,
+          redundancyLevel: cachedDrive.redundancyLevel,
+          actPublisher: publisher,
+          path: entry.path,
+          driveId: cachedDrive.id,
+          status: NodeStatus.Trashed,
+        };
+      }),
+      MAX_CONCURRENT_FEED_FETCHES,
+      (node) => {
+        if (node) trashedResults.push(node);
+      },
+      (reason, ix) => {
+        if (requestOptions?.signal?.aborted) return;
+        this.logger.error(`listTrash: failed to resolve ${entries[ix].path}: ${reason}`);
+      },
+    );
+
+    return trashedResults;
   }
 
   // --- Private helpers ---
@@ -1424,11 +1529,12 @@ export class FileManagerBase {
     this._adminStamp = adminStamp;
   }
 
-  private findDriveOrThrow(driveId: string): { driveIx: number; cachedDrive: DriveInfo } {
-    const driveIx = this.driveList.findIndex((d) => d.id === driveId);
+  private findDriveOrThrow(driveId: string | Identifier): { driveIx: number; cachedDrive: DriveInfo } {
+    const driveIdStr = new Identifier(driveId).toString();
+    const driveIx = this.driveList.findIndex((d) => d.id === driveIdStr);
 
     if (driveIx === -1) {
-      throw new DriveError(`Drive with id ${driveId.slice(0, 6)} not found`);
+      throw new DriveError(`Drive with id ${driveIdStr.slice(0, 6)} not found`);
     }
 
     const cachedDrive = this.driveList[driveIx];
@@ -1574,6 +1680,34 @@ export class FileManagerBase {
     } else {
       this.fileInfoList.push(fr);
     }
+  }
+
+  private async setTrashState(
+    driveId: string | undefined,
+    entry: TrashEntry,
+    isTrashed: boolean,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<DriveInfo> {
+    if (!driveId) {
+      throw new FileInfoError(`Drive ID missing for: ${entry.path}`);
+    }
+
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
+    const isAlreadyTrashed = getRecordStatus(cachedDrive, entry.topic) === NodeStatus.Trashed;
+
+    if (isTrashed && isAlreadyTrashed) {
+      throw new FileInfoError(`Already trashed: ${entry.path}`);
+    }
+    if (!isTrashed && !isAlreadyTrashed) {
+      throw new FileInfoError(`Not trashed, cannot recover: ${entry.path}`);
+    }
+
+    const current = cachedDrive.trashedNodes ?? [];
+    const withoutEntry = current.filter((n) => n.topic !== entry.topic);
+    cachedDrive.trashedNodes = isTrashed ? [...withoutEntry, entry] : withoutEntry;
+    await this.persistAdminDriveFork(driveIx, requestOptions);
+
+    return cachedDrive;
   }
 
   private async persistAdminDriveFork(driveIx: number, requestOptions?: BeeRequestOptions): Promise<void> {
