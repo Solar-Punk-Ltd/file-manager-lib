@@ -1115,6 +1115,10 @@ export class FileManagerBase {
     const nodeType = meta[MANIFEST_METADATA_NODE_TYPE] as NodeType | undefined;
     const nodeTopic = meta[MANIFEST_METADATA_NODE_TOPIC];
 
+    if (!nodeType || !nodeTopic) {
+      this.logger.warn(`forget: fork "${path}" missing node metadata - removing it with best-effort cleanup`);
+    }
+
     parentNode.removeFork(name);
     const newManifestRef = await this.store.saveMantarayNode(parentNode, parentHost, requestOptions);
 
@@ -1122,11 +1126,11 @@ export class FileManagerBase {
       this.driveList[driveIx].manifestRef = newManifestRef;
     }
 
-    if (nodeType === NodeType.Folder) {
-      if (nodeTopic) {
-        this.store.evict(nodeTopic);
-      }
+    if (nodeTopic) {
+      this.store.evict(nodeTopic);
+    }
 
+    if (nodeType === NodeType.Folder) {
       const prefix = path.endsWith('/') ? path : path + '/';
       for (let i = this.fileInfoList.length - 1; i >= 0; --i) {
         const f = this.fileInfoList[i];
@@ -1147,8 +1151,8 @@ export class FileManagerBase {
     if (fiIndex !== -1) {
       this.fileInfoList.splice(fiIndex, 1);
     }
-
-    await this.pruneTrashOverlay(driveIx, (n) => n.topic === nodeTopic, requestOptions);
+    // TODO: add tests to make sure that the correct file is removed in case of smae file names in different folders
+    await this.pruneTrashOverlay(driveIx, (n) => n.topic === nodeTopic || n.path === path, requestOptions);
     this.emitter.emit(FileManagerEvents.FILE_FORGOTTEN, { record: forgotten, path });
   }
 
