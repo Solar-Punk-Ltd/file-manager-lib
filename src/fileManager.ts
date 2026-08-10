@@ -1240,6 +1240,8 @@ export class FileManagerBase {
           const fr = await this.store.getRecord(entry.topic, publisher, feedData, requestOptions);
           fr.path = entry.path;
           fr.status = NodeStatus.Trashed;
+          fr.driveId = cachedDrive.id;
+
           return fr;
         }
 
@@ -1691,7 +1693,7 @@ export class FileManagerBase {
     }
 
     const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
-    const isAlreadyTrashed = getRecordStatus(cachedDrive, entry.topic) == NodeStatus.Trashed;
+    const isAlreadyTrashed = getRecordStatus(cachedDrive, entry.topic) === NodeStatus.Trashed;
 
     if (isTrashed && isAlreadyTrashed) {
       throw new FileInfoError(`Already trashed: ${entry.path}`);
