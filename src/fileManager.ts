@@ -41,7 +41,7 @@ import {
   ROOT_PATH,
 } from './utils/constants';
 import { generateRandomBytes } from './utils/crypto';
-import { DriveError, ErrorHandler, FileInfoError, SignerError, StampError } from './utils/errors';
+import { DriveError, ErrorHandler, FileInfoError, SignerError } from './utils/errors';
 import { FileManagerEvents } from './utils/events';
 import { Logger } from './utils/logger';
 import { assertActReferences, assertDriveInfoFromMetadata, assertReady } from './utils/v2/asserts';
@@ -192,46 +192,13 @@ export class FileManagerBase {
     }
 
     const batchIdStr = batchId.toString();
-    const fetchedStamp = await fetchStamp(this.bee, batchId);
+    const fetchedStamp = await fetchStamp(this.bee, batchId, requestOptions);
     verifyStampUsability(fetchedStamp, batchIdStr);
 
     return this.registerDrive(
       { name, batchId: batchIdStr, isAdmin: false, redundancyLevel: redundancyLevel ?? RedundancyLevel.OFF, publisher },
       requestOptions,
     );
-  }
-
-  async destroyDrive(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<void> {
-    const { publisher, stateFeedTopic } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-
-    const adminStamp = this.adminStamp;
-    if (!adminStamp) {
-      throw new StampError('Admin stamp not found');
-    }
-
-    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
-
-    if (cachedDrive.isAdmin || cachedDrive.batchId === adminStamp.batchID.toString()) {
-      throw new DriveError(`Cannot destroy admin drive / stamp, batchId: ${cachedDrive.batchId.slice(0, 6)}`);
-    }
-
-    const fetchedStamp = await fetchStamp(this.bee, cachedDrive.batchId, requestOptions);
-    const validStamp = verifyStampUsability(fetchedStamp, undefined, false);
-
-    if (cachedDrive.batchId !== validStamp.batchID.toString()) {
-      throw new StampError(
-        `Stamp ${validStamp.batchID.toString().slice(0, 6)} does not match drive stamp ${cachedDrive.batchId.toString().slice(0, 6)}`,
-      );
-    }
-
-    const ttlDays = validStamp.duration.toDays();
-    const halvings = Math.floor(Math.log2(ttlDays));
-
-    await this.bee.diluteBatch(cachedDrive.batchId, validStamp.depth + halvings, requestOptions);
-    await this.pruneDriveMetadata(cachedDrive, driveIx, stateFeedTopic, publisher, requestOptions);
-
-    this.logger.debug(`Drive destroyed: ${cachedDrive.name}`);
-    this.emitter.emit(FileManagerEvents.DRIVE_DESTROYED, { driveInfo: cachedDrive });
   }
 
   async forgetDrive(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<void> {
@@ -340,6 +307,7 @@ export class FileManagerBase {
 
     for (const entry of items) {
       assertValidRelativePath(entry.path);
+      assertUploadableSource(entry);
     }
 
     const destSegments = pathSegments(destinationPath);
@@ -420,7 +388,7 @@ export class FileManagerBase {
         throw new FileInfoError(`Folder fork missing topic: ${path}`);
       }
 
-      // Folder manifest reads always probe the feed head. A folder is a container and carries, no stored version
+      // Folder manifest reads always probe the feed head. A folder is a container and carries no stored version
       const { payload, feedIndex } = await getFeedData(
         this.bee,
         new Topic(folderTopic),
@@ -816,6 +784,7 @@ export class FileManagerBase {
 
     this.stateFeedTopic = new Topic(topicBytes.toUint8Array());
     this.logger.debug('Drive list feed successfully fetched');
+    this.emitter.emit(FileManagerEvents.STATE_INVALID, false);
 
     return true;
   }
@@ -905,6 +874,7 @@ export class FileManagerBase {
     await statefw.uploadPayload(batchId, JSON.stringify(topicState), { index: feedIndexNext });
 
     this.stateFeedTopic = newStateFeedTopic;
+    this.adminRedundancyLevel = redundancyLevel;
     this.store.setManifestCache(newStateFeedTopic.toString(), new MantarayNode());
     this.store.setNodeFeedIndex(newStateFeedTopic.toString(), 0n);
   }
@@ -1017,7 +987,7 @@ export class FileManagerBase {
   private findDriveOrThrow(driveId: string): { driveIx: number; cachedDrive: DriveInfo } {
     const driveIx = this.driveList.findIndex((d) => d.id === driveId);
 
-    if (driveIx == -1) {
+    if (driveIx === -1) {
       throw new DriveError(`Drive with id ${driveId.slice(0, 6)} not found`);
     }
 

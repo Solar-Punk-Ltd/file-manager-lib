@@ -48,14 +48,6 @@ Wraps Bee client, manages drives, file infos, ACT unwrapping, versioning, and ev
 
 Creates a new drive, persists it in admin drive list. **Events**: `DRIVE_CREATED`.
 
-### `destroyDrive(driveInfo, stamp): Promise<void>`
-
-- Cannot destroy admin drive.
-- Removes from in-memory and admin drive list.
-- Dilutes the **stamp** and shortens its duration (min. 24, max 47 hours)
-
-**Events**: `DRIVE_DESTROYED`.
-
 ---
 
 ## Files
@@ -174,7 +166,6 @@ Events are emitted on the provided `EventEmitter`:
 
 - `FILEMANAGER_INITIALIZED`
 - `DRIVE_CREATED`
-- `DRIVE_DESTROYED`
 - `FILE_UPLOADED`
 - `FILE_TRASHED`
 - `FILE_RECOVERED`

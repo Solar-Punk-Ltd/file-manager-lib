@@ -1,8 +1,8 @@
 # v2/api-file-write — file-write verbs
 
 Grows the three file-write methods onto `FileManagerBase`, copied from the final v2 `fileManager.ts`. No lying stubs;
-the class still does not `implements FileManager` (the `// TODO` stays until the final PR). No api-core / api-drive
-method was modified — only imports were added.
+the class still does not resolve `implements FileManager` (the `// TODO` stays until the final PR). No api-core /
+api-drive method was modified — only imports were added.
 
 ## Added — public methods
 

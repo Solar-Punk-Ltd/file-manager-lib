@@ -120,15 +120,6 @@ export interface FileManager {
   forgetFile(fileInfo: FileInfo): Promise<void>;
 
   /**
-   * Destroys a drive identified by the given batch ID.
-   * Dilutes the stamp and shortens its duration (min. 24, max 47 hours) depending on the original TTL.
-   * @param driveInfo - The drive to destroy.
-   * @emits FileManagerEvents.DRIVE_DESTROYED
-   * @returns A promise that resolves when the drive is destroyed.
-   */
-  destroyDrive(driveInfo: DriveInfo, stamp: PostageBatch): Promise<void>;
-
-  /**
    * Removes the drive and all of its file metadata from local state and persists the updated drive list.
    * Does NOT touch the underlying Swarm batch (no dilution).
    * @param driveInfo - The drive to forget.
