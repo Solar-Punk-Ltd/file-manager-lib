@@ -216,7 +216,7 @@ export class FileManagerBase {
 
   async forgetDrive(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<void> {
     const { publisher, stateFeedTopic } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     if (cachedDrive.isAdmin) {
       throw new DriveError('Cannot forget admin drive');
@@ -237,7 +237,7 @@ export class FileManagerBase {
   ): Promise<FileRecord> {
     requestOptions?.signal?.throwIfAborted();
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     assertUploadableSource(item);
 
@@ -312,7 +312,7 @@ export class FileManagerBase {
     requestOptions?.signal?.throwIfAborted();
 
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     if (!items.length) {
       throw new FileInfoError('uploadFiles requires at least one entry');
@@ -544,7 +544,7 @@ export class FileManagerBase {
   ): Promise<FileRecord> {
     requestOptions?.signal?.throwIfAborted();
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     const noMeta = !changes.customMetadata || Object.keys(changes.customMetadata).length === 0;
     if (noMeta && !changes.item) {
@@ -707,7 +707,7 @@ export class FileManagerBase {
     if (!versionToRestore.driveId) {
       throw new FileInfoError('Cannot restore: record has no driveId — obtain it via listFolder/getFileVersion first');
     }
-    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(versionToRestore.driveId).toString());
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(versionToRestore.driveId);
 
     const { feedIndex, feedIndexNext } = await getFeedData(
       this.bee,
@@ -764,7 +764,7 @@ export class FileManagerBase {
   ): Promise<FolderInfo> {
     requestOptions?.signal?.throwIfAborted();
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     if (!folderName || folderName.includes('/')) {
       throw new DriveError(`Invalid folder name ${folderName}`);
@@ -809,7 +809,7 @@ export class FileManagerBase {
     requestOptions?.signal?.throwIfAborted();
 
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const { cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+    const { cachedDrive } = this.findDriveOrThrow(driveId);
 
     const { host: startHost } = await this.store.resolveHost(cachedDrive, path, publisher, requestOptions);
     const startBasePath = normalizePath(path);
@@ -1105,7 +1105,7 @@ export class FileManagerBase {
   async forget(driveId: string | Identifier, path: string, requestOptions?: BeeRequestOptions): Promise<void> {
     requestOptions?.signal?.throwIfAborted();
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     if (!path || path === ROOT_PATH) {
       throw new DriveError('Cannot forget drive root');
@@ -1219,7 +1219,7 @@ export class FileManagerBase {
     requestOptions?.signal?.throwIfAborted();
 
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const { cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+    const { cachedDrive } = this.findDriveOrThrow(driveId);
 
     const entries = cachedDrive.trashedNodes ?? [];
     const owner = this.signerAddress;
@@ -1527,11 +1527,12 @@ export class FileManagerBase {
     this._adminStamp = adminStamp;
   }
 
-  private findDriveOrThrow(driveId: string): { driveIx: number; cachedDrive: DriveInfo } {
-    const driveIx = this.driveList.findIndex((d) => d.id === driveId);
+  private findDriveOrThrow(driveId: string | Identifier): { driveIx: number; cachedDrive: DriveInfo } {
+    const driveIdStr = new Identifier(driveId).toString();
+    const driveIx = this.driveList.findIndex((d) => d.id === driveIdStr);
 
     if (driveIx === -1) {
-      throw new DriveError(`Drive with id ${driveId.slice(0, 6)} not found`);
+      throw new DriveError(`Drive with id ${driveIdStr.slice(0, 6)} not found`);
     }
 
     const cachedDrive = this.driveList[driveIx];
@@ -1680,12 +1681,16 @@ export class FileManagerBase {
   }
 
   private async setTrashState(
-    driveId: string,
+    driveId: string | undefined,
     entry: TrashEntry,
     isTrashed: boolean,
     requestOptions?: BeeRequestOptions,
   ): Promise<DriveInfo> {
-    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+    if (!driveId) {
+      throw new FileInfoError(`Drive ID missing for: ${entry.path}`);
+    }
+
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
     const isAlreadyTrashed = getRecordStatus(cachedDrive, entry.topic) == NodeStatus.Trashed;
 
     if (isTrashed && isAlreadyTrashed) {
