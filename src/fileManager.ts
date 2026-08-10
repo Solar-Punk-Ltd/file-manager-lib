@@ -3,6 +3,7 @@ import {
   Bee,
   BeeRequestOptions,
   Bytes,
+  DownloadOptions,
   FeedIndex,
   FileUploadOptions,
   Identifier,
@@ -16,9 +17,10 @@ import {
   Topic,
 } from '@ethersphere/bee-js';
 
+import { DownloadFilesResult, DownloadResource, DownloadResult } from './types/v2/download';
 import { DriveInfo, FileRecord, FolderInfo, ManifestHost, NodeStatus, NodeType } from './types/v2/info';
 import { UpdateItem, UploadFilesResult, UploadItem } from './types/v2/upload';
-import { ActReferences } from './types/v2/utils';
+import { ActReferences, FailedResult } from './types/v2/utils';
 import {
   fetchStamp,
   getFeedData,
@@ -39,7 +41,7 @@ import {
   ROOT_PATH,
 } from './utils/constants';
 import { generateRandomBytes } from './utils/crypto';
-import { DriveError, ErrorHandler, FileInfoError, SignerError } from './utils/errors';
+import { DriveError, ErrorHandler, FileError, FileInfoError, SignerError } from './utils/errors';
 import { FileManagerEvents } from './utils/events';
 import { Logger } from './utils/logger';
 import { assertActReferences, assertDriveInfoFromMetadata, assertReady } from './utils/v2/asserts';
@@ -52,6 +54,7 @@ import {
   getDriveForkPath,
 } from './utils/v2/mantaray';
 import { assertValidRelativePath, pathSegments, splitPath } from './utils/v2/path';
+import { processDownload } from './download';
 import { EventEmitter, EventEmitterBase } from './eventEmitter';
 import { MantarayStore } from './mantarayStore';
 import { assertUploadableSource, processUpload } from './upload';
@@ -437,7 +440,7 @@ export class FileManagerBase {
     }
 
     const succeeded: FileRecord[] = [];
-    const failed: { path: string; error: string }[] = [];
+    const failed: FailedResult[] = [];
     const owner = this.signerAddress;
 
     await awaitAllPromisesBounded(
@@ -609,6 +612,127 @@ export class FileManagerBase {
     this.emitter.emit(FileManagerEvents.FILE_UPDATED, { record: fr });
 
     return fr;
+  }
+
+  // --- File read operations ---
+
+  // Download a single file the caller already holds as a FileRecord — convenience wrapper over
+  // downloadFiles(). Does not re-resolve against drive state (see downloadFiles).
+  async downloadFile(
+    fileRecord: FileRecord,
+    options?: DownloadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<DownloadResult> {
+    const { succeeded, failed } = await this.downloadFiles([fileRecord], options, requestOptions);
+
+    if (succeeded.length === 0) {
+      throw new FileError(`Failed to download ${fileRecord.path}: ${failed[0]?.error ?? 'unknown error'}`);
+    }
+
+    return succeeded[0];
+  }
+
+  /**
+   * Download files whose FileRecords the caller already holds — no drive traversal or hydration.
+   * Fetches exactly the passed records: it does NOT re-resolve them against current drive state,
+   * so the caller is responsible for record currency (a stale record fetches whatever it points at,
+   * e.g. an older version). For folder- or drive-based fetching that resolves fresh, use downloadFolder().
+   */
+  async downloadFiles(
+    fileRecords: FileRecord[],
+    options?: DownloadOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<DownloadFilesResult> {
+    requestOptions?.signal?.throwIfAborted();
+    assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+
+    if (fileRecords.length === 0) return { succeeded: [], failed: [] };
+
+    const resources: DownloadResource[] = fileRecords.map((fr) => ({
+      path: fr.path,
+      reference: fr.content.reference,
+      actHistoryAddress: fr.content.historyRef,
+      actPublisher: fr.actPublisher,
+    }));
+
+    return await processDownload(this.bee, resources, options, requestOptions);
+  }
+
+  // --- File version operations ---
+
+  async getFileVersion(
+    fr: FileRecord,
+    version?: string | FeedIndex,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<FileRecord> {
+    assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+
+    const localHead = this.fileInfoList.find((f) => f.topic === fr.topic);
+
+    if (localHead && localHead.version && version) {
+      const requested = new FeedIndex(version);
+      const cachedIdx = new FeedIndex(localHead.version);
+      if (cachedIdx.equals(requested)) {
+        return localHead;
+      }
+    }
+
+    const topic = new Topic(fr.topic);
+    const index = version !== undefined ? new FeedIndex(version).toBigInt() : undefined;
+    const feedData = await getFeedData(this.bee, topic, fr.owner, index, requestOptions);
+    if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
+      throw new FileInfoError(`File feed not found for topic: ${fr.topic.slice(0, 6)}`);
+    }
+
+    return this.store.getRecord(topic.toString(), fr.actPublisher, feedData, requestOptions);
+  }
+
+  async restoreFileVersion(versionToRestore: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
+    const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(versionToRestore.driveId).toString());
+
+    const { feedIndex, feedIndexNext } = await getFeedData(
+      this.bee,
+      new Topic(versionToRestore.topic),
+      versionToRestore.owner,
+      undefined,
+      requestOptions,
+    );
+    if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
+      throw new FileInfoError('Record feed not found');
+    }
+
+    if (!versionToRestore.version) {
+      throw new FileInfoError('Restore version has to be defined');
+    }
+
+    const versionToRestoreIndex = new FeedIndex(versionToRestore.version);
+    if (feedIndex.equals(versionToRestoreIndex)) {
+      throw new FileInfoError(
+        `Head Slot cannot be restored. Please select a version lesser than: ${versionToRestore.version}`,
+      );
+    }
+
+    const cached = this.fileInfoList.find((f) => f.topic === versionToRestore.topic);
+
+    const newVersion = feedIndexNext.toString();
+    const restored: FileRecord = {
+      ...versionToRestore,
+      path: cached?.path ?? versionToRestore.path,
+      version: newVersion,
+      content: {
+        reference: versionToRestore.content.reference,
+        historyRef: versionToRestore.content.historyRef,
+      },
+      timestamp: Date.now(),
+    };
+
+    await this.persistRecord(restored, requestOptions);
+    await this.syncForkVersion(cachedDrive, driveIx, restored.path, newVersion, publisher, requestOptions);
+
+    this.emitter.emit(FileManagerEvents.FILE_VERSION_RESTORED, {
+      restored,
+    });
   }
 
   // --- Private helpers ---
