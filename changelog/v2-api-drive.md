@@ -1,25 +1,24 @@
-# v2/api-drive — drive-teardown verbs
+# v2/api-drive — drive-teardown verb
 
-Grows two drive-lifecycle methods onto the minimal `FileManagerBase` from `v2/api-core`. Both are copied from the final
+Grows a drive-lifecycle method onto the minimal `FileManagerBase` from `v2/api-core`. Copied from the final
 v2 `fileManager.ts`; no lying stubs, and the class still does not `implements FileManager` (the
 `// TODO: restore implements FileManager` stays until the final PR).
 
 ## Added — public methods
 
-- **`destroyDrive(driveId, requestOptions?)`** — permanently tears a non-admin drive down. Refuses the admin drive and
-  the admin stamp, re-fetches and validates the drive's own stamp, then dilutes that batch (`diluteBatch` to
-  `depth + floor(log2(ttlDays))`) before pruning the drive from the admin manifest and caches. Emits `DRIVE_DESTROYED`.
 - **`forgetDrive(driveId, requestOptions?)`** — metadata-only removal: drops the drive fork from the admin manifest and
   clears local caches, leaving the underlying stamp/content untouched. Refuses the admin drive. Emits `DRIVE_FORGOTTEN`.
 
-Both events (`DRIVE_DESTROYED`, `DRIVE_FORGOTTEN`) already exist in `FileManagerEvents` (added in `v2/types`).
+`DRIVE_FORGOTTEN` already exists in `FileManagerEvents` (added in `v2/types`). Postage-batch lifecycle (creation,
+dilution, top-up) is deliberately out of scope for this library — stamp management belongs to the client; this library
+only validates stamps. There is no drive-teardown verb that touches the underlying batch.
 
 ## Added — private helpers (arrive with their first consumer)
 
 - **`findDriveOrThrow(driveId)`** — resolves a drive id to `{ driveIx, cachedDrive }` from `driveList` or throws
-  `DriveError`. First used here by both verbs.
-- **`pruneDriveMetadata(driveInfo, driveIndex, stateTopic, publisher, requestOptions?)`** — the shared teardown step for
-  both verbs: removes the drive's fork from the admin mantaray, re-saves the admin manifest, splices the drive out of
+  `DriveError`. First used here by `forgetDrive`.
+- **`pruneDriveMetadata(driveInfo, driveIndex, stateTopic, publisher, requestOptions?)`** — the teardown step for
+  `forgetDrive`: removes the drive's fork from the admin mantaray, re-saves the admin manifest, splices the drive out of
   `driveList`, evicts its store entry, and drops its records from `fileInfoList`.
 
 Both helpers reference only machinery already present in api-core (`store`, `adminHost`, `driveList`, `fileInfoList`,
@@ -33,8 +32,7 @@ lands.
 
 ## Imports
 
-Only `StampError` was added to the `./utils/errors` import (used by `destroyDrive` for the missing-stamp and
-stamp-mismatch guards). No api-core method was modified.
+No new imports beyond what api-core already carries. No api-core method was modified.
 
 ## Gate
 
