@@ -2,23 +2,20 @@ import {
   BatchId,
   Bee,
   BeeRequestOptions,
-  DownloadOptions,
   EthAddress,
   FeedIndex,
   PostageBatch,
-  PublicKey,
-  Reference,
+  PrivateKey,
+  RedundancyLevel,
   Topic,
 } from '@ethersphere/bee-js';
 
-import { WrappedUploadResult } from '../types/utils';
-import { FeedResultWithIndex } from '../types/v2/utils';
+import { ActReferences, FeedResultWithIndex } from '../types/utils';
 
-import { assertWrappedUploadResult } from './asserts';
 import { isNotFoundError } from './common';
 import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from './constants';
 import { generateRandomBytes } from './crypto';
-import { BeeVersionError, ErrorHandler, FileInfoError, StampError } from './errors';
+import { BeeVersionError, ErrorHandler, StampError } from './errors';
 import { Logger } from './logger';
 
 const logger = Logger.getInstance();
@@ -107,26 +104,48 @@ export async function buyStamp(
   });
 }
 
-export async function getWrappedData(
+export interface FeedTarget {
+  batchId: string;
+  topic: string;
+  redundancyLevel?: RedundancyLevel;
+  actHistoryAddress?: string;
+  index?: bigint;
+}
+
+export async function writeActFeed(
   bee: Bee,
-  ref: string | Reference,
-  actPublisher: string | PublicKey,
-  actHistoryAddress: string | Reference,
-  options?: DownloadOptions,
+  signer: PrivateKey,
+  payload: string | Uint8Array,
+  target: FeedTarget,
   requestOptions?: BeeRequestOptions,
-): Promise<WrappedUploadResult> {
-  try {
-    const rawData = await bee.downloadData(
-      ref.toString(),
-      { ...options, actPublisher, actHistoryAddress },
+): Promise<{ contentRefs: ActReferences; newIndex: bigint }> {
+  const upload = await bee.uploadData(
+    target.batchId,
+    payload,
+    { act: true, actHistoryAddress: target.actHistoryAddress, redundancyLevel: target.redundancyLevel },
+    requestOptions,
+  );
+  const contentRefs: ActReferences = {
+    reference: upload.reference.toString(),
+    historyRef: upload.historyAddress.getOrThrow().toString(),
+  };
+
+  let writeIndex = target.index;
+  if (writeIndex === undefined) {
+    const { feedIndexNext } = await getFeedData(
+      bee,
+      new Topic(target.topic),
+      signer.publicKey().address().toString(),
+      undefined,
       requestOptions,
     );
-    const wrappedResult = rawData.toJSON() as WrappedUploadResult;
-    assertWrappedUploadResult(wrappedResult);
-    return wrappedResult;
-  } catch (err) {
-    throw new FileInfoError('Failed to get wrapped data', err);
+    writeIndex = feedIndexNext.toBigInt();
   }
+
+  const fw = bee.makeFeedWriter(new Topic(target.topic).toUint8Array(), signer, requestOptions);
+  await fw.uploadPayload(target.batchId, JSON.stringify(contentRefs), { index: FeedIndex.fromBigInt(writeIndex) });
+
+  return { contentRefs, newIndex: writeIndex + 1n };
 }
 
 export async function fetchStamp(

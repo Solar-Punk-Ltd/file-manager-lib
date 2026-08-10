@@ -7,9 +7,9 @@ import type {
 } from '@ethersphere/bee-js';
 import { isNode } from 'std-env';
 
-import type { DriveInfo } from '../types/v2/info';
-import type { BrowserUploadOptions, NodeUploadOptions, UploadItem, UploadSource } from '../types/v2/upload';
-import type { ActReferences } from '../types/v2/utils';
+import type { DriveInfo } from '../types/info';
+import type { BrowserUploadOptions, NodeUploadOptions, UploadItem, UploadSource } from '../types/upload';
+import type { ActReferences } from '../types/utils';
 import { FileError } from '../utils/errors';
 
 export function assertUploadableSource(item: UploadItem): void {

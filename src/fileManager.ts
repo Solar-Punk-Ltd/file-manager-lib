@@ -17,7 +17,8 @@ import {
   Topic,
 } from '@ethersphere/bee-js';
 
-import { DownloadFilesResult, DownloadResource, DownloadResult } from './types/v2/download';
+import { DownloadFilesResult, DownloadResource, DownloadResult } from './types/download';
+import { FileManager, FileManagerConfig } from './types/fileManager';
 import {
   DriveInfo,
   FileRecord,
@@ -29,9 +30,10 @@ import {
   NodeStatus,
   NodeType,
   TrashEntry,
-} from './types/v2/info';
-import { UpdateItem, UploadFilesResult, UploadItem } from './types/v2/upload';
-import { ActReferences, FailedResult } from './types/v2/utils';
+} from './types/info';
+import { UpdateItem, UploadFilesResult, UploadItem } from './types/upload';
+import { ActReferences, FailedResult } from './types/utils';
+import { assertActReferences, assertDriveInfoFromMetadata, assertReady } from './utils/asserts';
 import {
   fetchStamp,
   getFeedData,
@@ -39,7 +41,7 @@ import {
   verifyStampUsability,
   verifySupportedBeeVersions,
 } from './utils/bee';
-import { settlePromises } from './utils/common';
+import { awaitAllPromisesBounded, getRecordStatus, joinPath, settlePromises } from './utils/common';
 import {
   ADMIN_STAMP_LABEL,
   FEED_INDEX_ZERO,
@@ -53,11 +55,9 @@ import {
   ROOT_PATH,
 } from './utils/constants';
 import { generateRandomBytes } from './utils/crypto';
-import { DriveError, ErrorHandler, FileError, FileInfoError, SignerError } from './utils/errors';
+import { DriveError, ErrorHandler, FileError, FileRecordError, SignerError } from './utils/errors';
 import { FileManagerEvents } from './utils/events';
 import { Logger } from './utils/logger';
-import { assertActReferences, assertDriveInfoFromMetadata, assertReady } from './utils/v2/asserts';
-import { awaitAllPromisesBounded, getRecordStatus, joinPath } from './utils/v2/common';
 import {
   driveForkMetadata,
   fileForkMetadata,
@@ -65,37 +65,45 @@ import {
   getAllNodeEntries,
   getDriveForkPath,
   getRlevel,
-} from './utils/v2/mantaray';
-import { assertValidRelativePath, normalizePath, pathSegments, splitPath } from './utils/v2/path';
+} from './utils/mantaray';
+import { assertValidRelativePath, normalizePath, pathSegments, splitPath } from './utils/path';
 import { processDownload } from './download';
 import { EventEmitter, EventEmitterBase } from './eventEmitter';
 import { MantarayStore } from './mantarayStore';
 import { assertUploadableSource, processUpload } from './upload';
 
-// TODO: restore `implements FileManager` when all methods land
-export class FileManagerBase {
+export class FileManagerBase implements FileManager {
   private bee: Bee;
   private signer: PrivateKey;
   private signerAddress: string;
   private publisher: PublicKey | undefined = undefined;
   private stateFeedTopic: Topic | undefined = undefined;
-  private _isInitialized: boolean = false;
   private isInitializing: boolean = false;
-  private _adminStamp: PostageBatch | undefined = undefined;
   private adminRedundancyLevel: RedundancyLevel = RedundancyLevel.OFF;
-
+  private uploadConcurrency: number;
+  private feedFetchConcurrency: number;
+  private _adminStamp: PostageBatch | undefined = undefined;
+  private _isInitialized: boolean = false;
+  private readonly _driveList: DriveInfo[] = [];
+  private readonly _recordList: FileRecord[] = [];
   private readonly store: MantarayStore;
   private readonly errorHandler = ErrorHandler.getInstance();
   private readonly logger = Logger.getInstance();
 
   // --- Public member getters ---
 
-  readonly driveList: DriveInfo[] = [];
-  readonly fileInfoList: FileRecord[] = [];
   readonly emitter: EventEmitter;
 
   get adminStamp(): PostageBatch | undefined {
     return this._adminStamp;
+  }
+
+  get driveList(): readonly DriveInfo[] {
+    return this._driveList;
+  }
+
+  get recordList(): readonly FileRecord[] {
+    return this._recordList;
   }
 
   get isInitialized(): boolean {
@@ -104,13 +112,15 @@ export class FileManagerBase {
 
   // --- Initialization ---
 
-  constructor(bee: Bee, emitter: EventEmitter = new EventEmitterBase()) {
+  constructor(bee: Bee, emitter: EventEmitter = new EventEmitterBase(), config?: FileManagerConfig) {
     this.bee = bee;
     if (!this.bee.signer) {
       throw new SignerError('Signer required');
     }
 
     this.emitter = emitter;
+    this.uploadConcurrency = Math.max(1, config?.uploadConcurrency ?? MAX_CONCURRENT_UPLOADS);
+    this.feedFetchConcurrency = Math.max(1, config?.feedFetchConcurrency ?? MAX_CONCURRENT_FEED_FETCHES);
     this.signer = this.bee.signer;
     this.signerAddress = this.signer.publicKey().address().toString();
     this.store = new MantarayStore(this.bee, this.signer);
@@ -315,7 +325,7 @@ export class FileManagerBase {
     const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     if (!items.length) {
-      throw new FileInfoError('uploadFiles requires at least one entry');
+      throw new FileRecordError('uploadFiles requires at least one entry');
     }
 
     for (const entry of items) {
@@ -398,7 +408,7 @@ export class FileManagerBase {
 
       const folderTopic = meta[MANIFEST_METADATA_NODE_TOPIC];
       if (!folderTopic) {
-        throw new FileInfoError(`Folder fork missing topic: ${path}`);
+        throw new FileRecordError(`Folder fork missing topic: ${path}`);
       }
 
       // Folder manifest reads always probe the feed head. A folder is a container and carries no stored version
@@ -461,7 +471,7 @@ export class FileManagerBase {
 
         const parentHost = hostMap.get(planned.parentPath);
         if (!parentHost) {
-          throw new FileInfoError(`Internal error: parent folder not resolved for path: ${planned.fullPath}`);
+          throw new FileRecordError(`Internal error: parent folder not resolved for path: ${planned.fullPath}`);
         }
 
         const { topic, version } = await getTopicAndVersion(this.bee, owner, undefined, undefined, requestOptions);
@@ -508,7 +518,7 @@ export class FileManagerBase {
 
         return record;
       }),
-      MAX_CONCURRENT_UPLOADS,
+      this.uploadConcurrency,
       (record) => succeeded.push(record),
       (reason, ix) => {
         if (requestOptions?.signal?.aborted) return;
@@ -548,7 +558,7 @@ export class FileManagerBase {
 
     const noMeta = !changes.customMetadata || Object.keys(changes.customMetadata).length === 0;
     if (noMeta && !changes.item) {
-      throw new FileInfoError('Neither a file/path nor customMetadata is provided');
+      throw new FileRecordError('Neither a file/path nor customMetadata is provided');
     }
 
     const owner = this.signerAddress;
@@ -562,7 +572,7 @@ export class FileManagerBase {
     );
 
     if (cached.driveId && cached.driveId !== cachedDrive.id) {
-      throw new FileInfoError(`Record ${record.topic.slice(0, 6)} does not belong to drive "${cachedDrive.name}"`);
+      throw new FileRecordError(`Record ${record.topic.slice(0, 6)} does not belong to drive "${cachedDrive.name}"`);
     }
     cached.driveId = cachedDrive.id;
 
@@ -679,7 +689,7 @@ export class FileManagerBase {
   ): Promise<FileRecord> {
     assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
 
-    const localHead = this.fileInfoList.find((f) => f.topic === fr.topic);
+    const localHead = this.recordList.find((f) => f.topic === fr.topic);
 
     if (localHead && localHead.version && version) {
       const requested = new FeedIndex(version);
@@ -693,7 +703,7 @@ export class FileManagerBase {
     const index = version !== undefined ? new FeedIndex(version).toBigInt() : undefined;
     const feedData = await getFeedData(this.bee, topic, fr.owner, index, requestOptions);
     if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
-      throw new FileInfoError(`File feed not found for topic: ${fr.topic.slice(0, 6)}`);
+      throw new FileRecordError(`File feed not found for topic: ${fr.topic.slice(0, 6)}`);
     }
 
     const versionRecord = await this.store.getRecord(topic.toString(), fr.actPublisher, feedData, requestOptions);
@@ -705,7 +715,9 @@ export class FileManagerBase {
   async restoreFileVersion(versionToRestore: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
     if (!versionToRestore.driveId) {
-      throw new FileInfoError('Cannot restore: record has no driveId — obtain it via listFolder/getFileVersion first');
+      throw new FileRecordError(
+        'Cannot restore: record has no driveId — obtain it via listFolder/getFileVersion first',
+      );
     }
     const { driveIx, cachedDrive } = this.findDriveOrThrow(versionToRestore.driveId);
 
@@ -717,21 +729,21 @@ export class FileManagerBase {
       requestOptions,
     );
     if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
-      throw new FileInfoError('Record feed not found');
+      throw new FileRecordError('Record feed not found');
     }
 
     if (!versionToRestore.version) {
-      throw new FileInfoError('Restore version has to be defined');
+      throw new FileRecordError('Restore version has to be defined');
     }
 
     const versionToRestoreIndex = new FeedIndex(versionToRestore.version);
     if (feedIndex.equals(versionToRestoreIndex)) {
-      throw new FileInfoError(
+      throw new FileRecordError(
         `Head Slot cannot be restored. Please select a version lesser than: ${versionToRestore.version}`,
       );
     }
 
-    const cached = this.fileInfoList.find((f) => f.topic === versionToRestore.topic);
+    const cached = this.recordList.find((f) => f.topic === versionToRestore.topic);
 
     const newVersion = feedIndexNext.toString();
     const restored: FileRecord = {
@@ -834,7 +846,7 @@ export class FileManagerBase {
 
           return getAllNodeEntries(mantarayNode).map((e) => ({ ...e, path: joinPath(item.basePath, e.path) }));
         }),
-        MAX_CONCURRENT_FEED_FETCHES,
+        this.feedFetchConcurrency,
         (entries) => headers.push(...entries),
         (reason) => {
           if (requestOptions?.signal?.aborted) return;
@@ -855,9 +867,9 @@ export class FileManagerBase {
           record.status = getRecordStatus(cachedDrive, e.topic);
           return record;
         }),
-        MAX_CONCURRENT_FEED_FETCHES,
+        this.feedFetchConcurrency,
         (record) => {
-          if (!this.fileInfoList.some((f) => f.topic === record.topic)) this.fileInfoList.push(record);
+          if (!this.recordList.some((f) => f.topic === record.topic)) this._recordList.push(record);
           results.push(record);
         },
         (reason, ix) => {
@@ -902,7 +914,7 @@ export class FileManagerBase {
             status: getRecordStatus(cachedDrive, e.topic),
           };
         }),
-        MAX_CONCURRENT_FEED_FETCHES,
+        this.feedFetchConcurrency,
         (folder) => {
           if (folder) {
             results.push(folder);
@@ -942,7 +954,7 @@ export class FileManagerBase {
     const normalized = normalizePath(path);
     const prefix = normalized ? normalized + '/' : '';
     const driveIdStr = new Identifier(driveId).toString();
-    const files = this.fileInfoList.filter((f) => f.driveId === driveIdStr && f.path.startsWith(prefix));
+    const files = this.recordList.filter((f) => f.driveId === driveIdStr && f.path.startsWith(prefix));
 
     return this.downloadFiles(files, options, requestOptions);
   }
@@ -1004,7 +1016,7 @@ export class FileManagerBase {
 
     const movedTopic = forkMetadata[MANIFEST_METADATA_NODE_TOPIC];
     if (movedTopic && getRecordStatus(cachedSource, movedTopic) === NodeStatus.Trashed) {
-      throw new FileInfoError('Cannot move a trashed file/folder; recover it first');
+      throw new FileRecordError('Cannot move a trashed file/folder; recover it first');
     }
 
     const { host: tgtParentHost, folder: tgtParentFolder } = await this.store.resolveHost(
@@ -1028,7 +1040,7 @@ export class FileManagerBase {
     if (isFile) {
       const fileTopic = forkMetadata[MANIFEST_METADATA_FILE_TOPIC];
       if (!fileTopic) {
-        throw new FileInfoError(`Fork at ${fromPath} has no file topic — cannot move`);
+        throw new FileRecordError(`Fork at ${fromPath} has no file topic — cannot move`);
       }
 
       const { record } = await this.loadRecord(fileTopic, this.signerAddress, publisher, undefined, requestOptions);
@@ -1069,7 +1081,7 @@ export class FileManagerBase {
       // reset the in-memory cache
       const fromPrefix = fromPath + '/';
       const toPrefix = toPath + '/';
-      for (const f of this.fileInfoList) {
+      for (const f of this.recordList) {
         if (f.driveId === sourceDriveIdStr && f.path.startsWith(fromPrefix)) {
           f.path = toPrefix + f.path.substring(fromPrefix.length);
           if (isCrossDrive) {
@@ -1121,7 +1133,7 @@ export class FileManagerBase {
 
     const fork = parentNode.find(name);
     if (!fork) {
-      throw new FileInfoError(`Path not found: ${path}`);
+      throw new FileRecordError(`Path not found: ${path}`);
     }
 
     const meta = fork.metadata ?? {};
@@ -1145,10 +1157,10 @@ export class FileManagerBase {
 
     if (nodeType === NodeType.Folder) {
       const prefix = path.endsWith('/') ? path : path + '/';
-      for (let i = this.fileInfoList.length - 1; i >= 0; --i) {
-        const f = this.fileInfoList[i];
+      for (let i = this.recordList.length - 1; i >= 0; --i) {
+        const f = this.recordList[i];
         if (f.driveId === cachedDrive.id && f.path.startsWith(prefix)) {
-          this.fileInfoList.splice(i, 1);
+          this._recordList.splice(i, 1);
         }
       }
 
@@ -1158,11 +1170,11 @@ export class FileManagerBase {
       return;
     }
 
-    const fiIndex = this.fileInfoList.findIndex((f) => f.driveId === cachedDrive.id && f.path === path);
+    const fiIndex = this.recordList.findIndex((f) => f.driveId === cachedDrive.id && f.path === path);
 
-    const forgotten = fiIndex !== -1 ? this.fileInfoList[fiIndex] : undefined;
+    const forgotten = fiIndex !== -1 ? this.recordList[fiIndex] : undefined;
     if (fiIndex !== -1) {
-      this.fileInfoList.splice(fiIndex, 1);
+      this._recordList.splice(fiIndex, 1);
     }
     // TODO: add tests to make sure that the correct file is removed in case of smae file names in different folders
     await this.pruneTrashOverlay(driveIx, (n) => n.topic === nodeTopic || n.path === path, requestOptions);
@@ -1261,7 +1273,7 @@ export class FileManagerBase {
           status: NodeStatus.Trashed,
         };
       }),
-      MAX_CONCURRENT_FEED_FETCHES,
+      this.feedFetchConcurrency,
       (node) => {
         if (node) trashedResults.push(node);
       },
@@ -1372,7 +1384,7 @@ export class FileManagerBase {
     adminMantaray.addFork(getDriveForkPath(newDrive.id), new Reference(newDrive.topic), driveForkMetadata(newDrive));
     await this.store.saveMantarayNode(adminMantaray, adminHost, requestOptions);
 
-    this.driveList.push(newDrive);
+    this._driveList.push(newDrive);
     this.emitter.emit(FileManagerEvents.DRIVE_CREATED, { driveInfo: newDrive });
 
     return newDrive;
@@ -1397,7 +1409,7 @@ export class FileManagerBase {
     }
 
     if (reset) {
-      this.driveList.length = 0;
+      this._driveList.length = 0;
       this.store.clear();
     }
 
@@ -1434,7 +1446,7 @@ export class FileManagerBase {
     if (!this.publisher) {
       throw new SignerError('Publisher not found');
     }
-    // TODO: possible performance improvement: store version next to stateFeedTopic
+
     const { payload, feedIndex, feedIndexNext } = await getFeedData(
       this.bee,
       this.stateFeedTopic,
@@ -1502,7 +1514,7 @@ export class FileManagerBase {
       }),
       (driveInfo) => {
         if (driveInfo) {
-          this.driveList.push(driveInfo);
+          this._driveList.push(driveInfo);
         }
       },
       (reason) =>
@@ -1563,12 +1575,12 @@ export class FileManagerBase {
     adminMantaray.removeFork(getDriveForkPath(driveInfo.id));
     await this.store.saveMantarayNode(adminMantaray, adminHost, requestOptions);
 
-    this.driveList.splice(driveIndex, 1);
+    this._driveList.splice(driveIndex, 1);
     this.store.evict(driveInfo.topic);
 
-    for (let i = this.fileInfoList.length - 1; i >= 0; --i) {
-      if (this.fileInfoList[i].driveId === driveInfo.id) {
-        this.fileInfoList.splice(i, 1);
+    for (let i = this.recordList.length - 1; i >= 0; --i) {
+      if (this.recordList[i].driveId === driveInfo.id) {
+        this._recordList.splice(i, 1);
       }
     }
   }
@@ -1650,18 +1662,18 @@ export class FileManagerBase {
     version?: bigint,
     requestOptions?: BeeRequestOptions,
   ): Promise<{ record: FileRecord; fromCache: boolean }> {
-    const cached = this.fileInfoList.find((f) => f.topic === topic);
+    const cached = this.recordList.find((f) => f.topic === topic);
     if (cached) {
       return { record: cached, fromCache: true };
     }
 
     const feedData = await getFeedData(this.bee, new Topic(topic), owner, version, requestOptions);
     if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
-      throw new FileInfoError(`File record not found for topic: ${topic.slice(0, 6)}`);
+      throw new FileRecordError(`File record not found for topic: ${topic.slice(0, 6)}`);
     }
 
     const loaded = await this.store.getRecord(topic, actPublisher, feedData, requestOptions);
-    this.fileInfoList.push(loaded);
+    this._recordList.push(loaded);
 
     return { record: loaded, fromCache: false };
   }
@@ -1671,14 +1683,14 @@ export class FileManagerBase {
       await this.store.saveRecord(fr, requestOptions);
     } catch (err: unknown) {
       this.errorHandler.handleError(err, `Failed to save record: ${fr.path}`);
-      throw new FileInfoError(`Failed to save record`, err);
+      throw new FileRecordError(`Failed to save record`, err);
     }
 
-    const existingIx = this.fileInfoList.findIndex((f) => f.topic === fr.topic);
+    const existingIx = this.recordList.findIndex((f) => f.topic === fr.topic);
     if (existingIx !== -1) {
-      this.fileInfoList[existingIx] = fr;
+      this._recordList[existingIx] = fr;
     } else {
-      this.fileInfoList.push(fr);
+      this._recordList.push(fr);
     }
   }
 
@@ -1689,17 +1701,17 @@ export class FileManagerBase {
     requestOptions?: BeeRequestOptions,
   ): Promise<DriveInfo> {
     if (!driveId) {
-      throw new FileInfoError(`Drive ID missing for: ${entry.path}`);
+      throw new FileRecordError(`Drive ID missing for: ${entry.path}`);
     }
 
     const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
     const isAlreadyTrashed = getRecordStatus(cachedDrive, entry.topic) === NodeStatus.Trashed;
 
     if (isTrashed && isAlreadyTrashed) {
-      throw new FileInfoError(`Already trashed: ${entry.path}`);
+      throw new FileRecordError(`Already trashed: ${entry.path}`);
     }
     if (!isTrashed && !isAlreadyTrashed) {
-      throw new FileInfoError(`Not trashed, cannot recover: ${entry.path}`);
+      throw new FileRecordError(`Not trashed, cannot recover: ${entry.path}`);
     }
 
     const current = cachedDrive.trashedNodes ?? [];

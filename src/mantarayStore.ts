@@ -9,20 +9,19 @@ import {
   Topic,
 } from '@ethersphere/bee-js';
 
-import { DriveInfo, FileRecord, FolderInfo, ManifestHost, NodeType } from './types/v2/info';
-import { ActReferences, FeedResultWithIndex } from './types/v2/utils';
-import { getFeedData } from './utils/bee';
+import { DriveInfo, FileRecord, FolderInfo, ManifestHost, NodeType } from './types/info';
+import { ActReferences, FeedResultWithIndex } from './types/utils';
+import { assertActReferences, assertFileRecord } from './utils/asserts';
+import { getFeedData, writeActFeed } from './utils/bee';
 import {
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
   ROOT_PATH,
 } from './utils/constants';
-import { DriveError, FileInfoError } from './utils/errors';
-import { assertActReferences, assertFileRecord } from './utils/v2/asserts';
-import { writeActFeed } from './utils/v2/bee';
-import { loadMantaray, saveNodeManifest } from './utils/v2/mantaray';
-import { pathSegments } from './utils/v2/path';
+import { DriveError, FileRecordError } from './utils/errors';
+import { loadMantaray, saveNodeManifest } from './utils/mantaray';
+import { pathSegments } from './utils/path';
 
 /**
  * Owns the two per-node caches and the resolve/load/save layer that reads and saves them.
@@ -168,7 +167,7 @@ export class MantarayStore {
     requestOptions?: BeeRequestOptions,
   ): Promise<FileRecord> {
     if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
-      throw new FileInfoError(`File record not found for topic: ${topic.slice(0, 6)}`);
+      throw new FileRecordError(`File record not found for topic: ${topic.slice(0, 6)}`);
     }
 
     const contentRefs = feedData.payload.toJSON() as ActReferences;
@@ -184,7 +183,7 @@ export class MantarayStore {
     assertFileRecord(record);
 
     if (topic !== record.topic) {
-      throw new FileInfoError(
+      throw new FileRecordError(
         `Feed topic ${topic.slice(0, 6)} != record.topic ${record.topic.slice(0, 6)} for: ${record.path}`,
       );
     }
@@ -285,7 +284,7 @@ export class MantarayStore {
 
       const nodeTopic = meta[MANIFEST_METADATA_NODE_TOPIC];
       if (!nodeTopic) {
-        throw new FileInfoError(`Folder fork missing topic: ${currentPath}`);
+        throw new FileRecordError(`Folder fork missing topic: ${currentPath}`);
       }
       // Probe the feed head. A folder is a container and carries no stored version
       const {
