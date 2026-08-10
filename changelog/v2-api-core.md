@@ -20,7 +20,7 @@ restored by the final PR.
 **Present now:** constructor + fields, getters (`adminStamp`, `isInitialized`), `initialize`, `createAdminDrive`,
 `createDrive`. Only methods with a working implementation land — no stubs.
 
-**Arriving in later PRs:** `destroyDrive`/`forgetDrive` (api-drive); `uploadFile`/`uploadFiles`/ `updateFile`
+**Arriving in later PRs:** `forgetDrive` (api-drive); `uploadFile`/`uploadFiles`/ `updateFile`
 (api-file-write); `downloadFile`/`downloadFiles`/`downloadFolder`/`getFileVersion`/ `restoreFileVersion`
 (api-file-read); `createFolder`/`listFolder`/`move`/`forget` (api-folder);
 `trashFile`/`recoverFile`/`listTrash`/`trashFolder`/`recoverFolder` (api-trash).
