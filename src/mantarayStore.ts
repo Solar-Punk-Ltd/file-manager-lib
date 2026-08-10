@@ -140,6 +140,7 @@ export class MantarayStore {
 
     const persistable: FileRecord = { ...record };
     delete persistable.status;
+    delete persistable.driveId;
 
     const { contentRefs, newIndex } = await writeActFeed(
       this.bee,

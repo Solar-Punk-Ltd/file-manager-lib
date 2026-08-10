@@ -561,9 +561,10 @@ export class FileManagerBase {
       requestOptions,
     );
 
-    if (cached.driveId !== cachedDrive.id) {
+    if (cached.driveId && cached.driveId !== cachedDrive.id) {
       throw new FileInfoError(`Record ${record.topic.slice(0, 6)} does not belong to drive "${cachedDrive.name}"`);
     }
+    cached.driveId = cachedDrive.id;
 
     // A cached record already holds the authoritative absolute path; keep it.
     if (!fromCache) {
@@ -695,11 +696,17 @@ export class FileManagerBase {
       throw new FileInfoError(`File feed not found for topic: ${fr.topic.slice(0, 6)}`);
     }
 
-    return this.store.getRecord(topic.toString(), fr.actPublisher, feedData, requestOptions);
+    const versionRecord = await this.store.getRecord(topic.toString(), fr.actPublisher, feedData, requestOptions);
+    versionRecord.driveId = fr.driveId;
+
+    return versionRecord;
   }
 
   async restoreFileVersion(versionToRestore: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+    if (!versionToRestore.driveId) {
+      throw new FileInfoError('Cannot restore: record has no driveId — obtain it via listFolder/getFileVersion first');
+    }
     const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(versionToRestore.driveId).toString());
 
     const { feedIndex, feedIndexNext } = await getFeedData(
@@ -844,6 +851,7 @@ export class FileManagerBase {
 
           const { record } = await this.loadRecord(e.topic, owner, actPublisher, version, requestOptions);
           record.path = e.path;
+          record.driveId = cachedDrive.id;
           record.status = getRecordStatus(cachedDrive, e.topic);
           return record;
         }),
@@ -939,6 +947,7 @@ export class FileManagerBase {
     return this.downloadFiles(files, options, requestOptions);
   }
 
+  // TODO: test move then download with new (ok) and old (fail) paths too
   async move(
     fromPath: string,
     toPath: string,
@@ -1010,6 +1019,12 @@ export class FileManagerBase {
       ? sourceNode
       : await this.store.getMantarayNode(tgtParentHost.topic, publisher, tgtParentHost.manifestRef, requestOptions);
 
+    // TODO: add test case for collision
+    const existing = targetMantaray.find(tgtName);
+    if (existing) {
+      throw new DriveError(`Destination already exists: ${toPath}`);
+    }
+
     if (isFile) {
       const fileTopic = forkMetadata[MANIFEST_METADATA_FILE_TOPIC];
       if (!fileTopic) {
@@ -1019,9 +1034,7 @@ export class FileManagerBase {
       const { record } = await this.loadRecord(fileTopic, this.signerAddress, publisher, undefined, requestOptions);
 
       record.path = tgtName;
-      if (isCrossDrive) {
-        record.driveId = effectiveTargetId;
-      }
+      record.driveId = effectiveTargetId;
 
       const newVersion = record.version !== undefined ? new FeedIndex(record.version) : FEED_INDEX_ZERO;
       record.version = newVersion.next().toString();
