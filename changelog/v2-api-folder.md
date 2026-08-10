@@ -16,7 +16,9 @@ where both file and folder handling are present, which is why the path-addressed
   the folder walk: hydrates the subtree via `listFolder`, filters `fileInfoList` by path prefix, and streams the leaves
   through `downloadFiles`. `path` `/` fetches the whole drive.
 - **`move(fromPath, toPath, sourceDriveId, targetDriveId?, requestOptions?)`** — moves a file or folder within a drive
-  or across drives (root move is rejected). Emits `FILE_MOVED`.
+  or across drives (root move is rejected). Rejects with `Destination already exists` when a node of that name is
+  already present at the target — checked before any feed writes, so a collision leaves no partial state. There is no
+  silent overwrite; callers `forget` the destination first if they intend to replace it. Emits `FILE_MOVED`.
 - **`forget(driveId, path, requestOptions?)`** — removes a file or folder fork from its parent manifest and clears the
   corresponding in-memory state (root forget is rejected). Emits `FILE_FORGOTTEN` / `FOLDER_FORGOTTEN`.
 
@@ -27,10 +29,10 @@ Both verbs are path-addressed and branch on the fork's `swarm-node-type` metadat
 - **`forget`**: on a **folder** fork it evicts the folder's cached manifest and drops every `fileInfoList` entry under
   the path prefix; on a **file** fork it removes the single cached record. Both branches then prune the drive's trash
   overlay of the affected entries.
-- **`move`**: on a **file** fork it re-resolves the record, rewrites its path (and `driveId` when cross-drive),
-  publishes a new version slot, and re-stamps the fork's version metadata; on a **folder** fork it re-parents the
-  sub-mantaray and rewrites the in-memory paths (and trash-overlay paths) of every descendant. Same-parent moves mutate
-  one manifest; cross-parent / cross-drive moves save both source and target manifests.
+- **`move`**: on a **file** fork it re-resolves the record, rewrites its path, re-stamps its ambient `driveId` from the
+  destination drive, publishes a new version slot, and re-stamps the fork's version metadata; on a **folder** fork it
+  re-parents the sub-mantaray and rewrites the in-memory paths (and trash-overlay paths) of every descendant.
+  Same-parent moves mutate one manifest; cross-parent / cross-drive moves save both source and target manifests.
 
 Both dispatch branches now resolve entirely against methods and helpers present on this chain.
 
@@ -53,6 +55,19 @@ engine's `getAllNodeEntries` (manifest fork listing) plus `MantarayStore.resolve
 `v2/api-trash` also depends on both of these for its trash / recover flow — ownership landing in this PR by first-use is
 a deliberate decision, not an accident. No other trash logic (trashing, recovering, listing) is implemented here; only
 what `move` / `forget` strictly need.
+
+## Ambient `driveId` — hydrated, not persisted
+
+A `FileRecord`'s `driveId` is now derived context, not stored state — a file belongs to whichever drive's manifest
+references it, so a persisted `driveId` would go stale the moment a file (or its folder) moves across drives. It is
+therefore stripped before a record is written and re-stamped from the drive being walked, exactly like `status`:
+
+- `listFolder` stamps `driveId` on every hydrated file record from the drive it is listing (parity with folder entries,
+  which already carried it).
+- `move` stamps `driveId` from the destination drive — unconditionally, not only on cross-drive moves — so a cross-drive
+  folder move stays O(1): descendant records need no re-persist, their `driveId` is simply re-derived on the next walk.
+
+In-memory records always carry a `driveId`; the persisted payload never does, and reads no longer require it.
 
 ## No folder- or drive-level version restore
 

@@ -30,6 +30,7 @@ import { pathSegments } from './utils/path';
 export class MantarayStore {
   private readonly signerAddress: string;
   private readonly nodeManifestCache: Map<string, MantarayNode> = new Map();
+  private readonly nodeManifestLoading: Map<string, Promise<MantarayNode>> = new Map();
   private readonly nodeFeedIndexCache: Map<string, bigint> = new Map();
   private readonly nodeRefCache: Map<string, ActReferences> = new Map();
 
@@ -80,21 +81,35 @@ export class MantarayStore {
     const cached = this.nodeManifestCache.get(topic);
     if (cached) return cached;
 
+    const inFlight = this.nodeManifestLoading.get(topic);
+    if (inFlight) return inFlight;
+
     if (!manifestRef) {
       throw new DriveError(`Node ${topic} has no manifestRef — cannot load manifest`);
     }
 
-    const raw = await this.bee.downloadData(
-      manifestRef.reference,
-      { actHistoryAddress: manifestRef.historyRef, actPublisher: publisher },
-      requestOptions,
-    );
-    const node = await loadMantaray(this.bee, new Reference(raw), undefined, requestOptions);
+    // Concurrent getMantarayNode calls for the same but not yet cached topic must share one load (and thus one MantarayNode instance) — otherwise
+    // each caller mutates its own copy and all but the last are dropped before the batched save.
+    const loadPromise = (async (): Promise<MantarayNode> => {
+      const raw = await this.bee.downloadData(
+        manifestRef.reference,
+        { actHistoryAddress: manifestRef.historyRef, actPublisher: publisher },
+        requestOptions,
+      );
+      const node = await loadMantaray(this.bee, new Reference(raw), undefined, requestOptions);
 
-    this.nodeManifestCache.set(topic, node);
-    this.nodeRefCache.set(topic, manifestRef);
+      this.nodeManifestCache.set(topic, node);
+      this.nodeRefCache.set(topic, manifestRef);
 
-    return node;
+      return node;
+    })();
+
+    this.nodeManifestLoading.set(topic, loadPromise);
+    try {
+      return await loadPromise;
+    } finally {
+      this.nodeManifestLoading.delete(topic);
+    }
   }
 
   async saveMantarayNode(
@@ -124,6 +139,7 @@ export class MantarayStore {
 
     const persistable: FileRecord = { ...record };
     delete persistable.status;
+    delete persistable.driveId;
 
     const { contentRefs, newIndex } = await writeActFeed(
       this.bee,
@@ -209,6 +225,7 @@ export class MantarayStore {
   /** Clear all cached state */
   evict(topic: string): void {
     this.nodeManifestCache.delete(topic);
+    this.nodeManifestLoading.delete(topic);
     this.nodeFeedIndexCache.delete(topic);
     this.nodeRefCache.delete(topic);
   }
@@ -216,6 +233,7 @@ export class MantarayStore {
   /** Drop all cached state */
   clear(): void {
     this.nodeManifestCache.clear();
+    this.nodeManifestLoading.clear();
     this.nodeFeedIndexCache.clear();
     this.nodeRefCache.clear();
   }

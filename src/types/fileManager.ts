@@ -12,7 +12,7 @@ import {
 
 import { EventEmitter } from '../eventEmitter';
 
-import { DownloadResult } from './download';
+import { DownloadFilesResult, DownloadResult } from './download';
 import { DriveInfo, FileRecord, FolderInfo, ListDepth, NodeEntry } from './info';
 import { UpdateItem, UploadFilesResult, UploadItem } from './upload';
 
@@ -165,7 +165,7 @@ export interface FileManager {
     path?: string,
     options?: DownloadOptions,
     requestOptions?: BeeRequestOptions,
-  ): Promise<DownloadResult[]>;
+  ): Promise<DownloadFilesResult>;
 
   /**
    * Downloads a single file the caller already holds as a FileRecord.
@@ -198,7 +198,7 @@ export interface FileManager {
     fileRecords: FileRecord[],
     options?: DownloadOptions,
     requestOptions?: BeeRequestOptions,
-  ): Promise<DownloadResult[]>;
+  ): Promise<DownloadFilesResult>;
 
   /**
    * Lists entries in a folder (or drive root) in the drive manifest.
@@ -290,18 +290,6 @@ export interface FileManager {
    * @throws {FileRecordError} If a folder feed is missing.
    */
   forget(driveId: string | Identifier, path: string, requestOptions?: BeeRequestOptions): Promise<void>;
-
-  /**
-   * Destroys a drive identified by the given drive ID.
-   * Dilutes the drive stamp and shortens its duration (min. 24, max 47 hours) depending on the original TTL.
-   * @param driveId - The ID of the drive to destroy.
-   * @emits FileManagerEvents.DRIVE_DESTROYED
-   * @returns A promise that resolves when the drive is destroyed.
-   * @throws {DriveError} If not initialized, driveId is not found, or the target is the admin drive.
-   * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {StampError} If the admin stamp is missing, or the drive's stamp cannot be fetched / is not usable.
-   */
-  destroyDrive(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
    * Removes the drive and all of its file metadata from local state and persists the updated drive list.

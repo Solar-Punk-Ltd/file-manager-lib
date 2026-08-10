@@ -18,10 +18,10 @@ implementation they shadowed is gone. v2 is now the one and only implementation:
 ## FileManager contract restored
 
 `src/types/fileManager.ts` is the v2 contract: `initialize`, drive verbs (`createAdminDrive`, `createDrive`,
-`destroyDrive`, `forgetDrive`), file write (`uploadFile`, `uploadFiles`, `updateFile`), file read (`downloadFile`,
-`downloadFiles`, `downloadFolder`), versioning (`getFileVersion`, `restoreFileVersion`), folder structure
-(`createFolder`, `listFolder`, `move`, `forget`), and trash (`trashFile`, `recoverFile`, `trashFolder`, `recoverFolder`,
-`listTrash`), plus the read-only members. The interface carries no sharing/grantee surface.
+`forgetDrive`), file write (`uploadFile`, `uploadFiles`, `updateFile`), file read (`downloadFile`, `downloadFiles`,
+`downloadFolder`), versioning (`getFileVersion`, `restoreFileVersion`), folder structure (`createFolder`, `listFolder`,
+`move`, `forget`), and trash (`trashFile`, `recoverFile`, `trashFolder`, `recoverFolder`, `listTrash`), plus the
+read-only members. The interface carries no sharing/grantee surface.
 
 `FileManagerBase implements FileManager` — the growing-class deferral is closed. Every interface member is implemented
 with a matching signature. The class exposes no public verb absent from the contract.

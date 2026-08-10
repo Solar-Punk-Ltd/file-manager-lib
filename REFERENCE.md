@@ -13,7 +13,7 @@ method for cancellation (`signal`) and retries; it is omitted from the descripti
 
 - [Class & construction](#class--construction)
 - [Lifecycle & bootstrap](#lifecycle--bootstrap) — `initialize`, `createAdminDrive`, `createDrive`
-- [Drives](#drives) — `destroyDrive`, `forgetDrive`
+- [Drives](#drives) — `forgetDrive`
 - [Files — write](#files--write) — `uploadFile`, `uploadFiles`, `updateFile`
 - [Files — read](#files--read) — `downloadFile`, `downloadFiles`, `downloadFolder`
 - [Folders](#folders) — `createFolder`, `listFolder`, `move`, `forget`
@@ -102,14 +102,6 @@ a freshly generated per-drive feed.
 ---
 
 ## Drives
-
-### `destroyDrive(driveId, requestOptions?): Promise<void>`
-
-Destroys a drive: dilutes its stamp and shortens its duration (min 24, max 47 hours depending on original TTL), and
-removes it from local state. Cannot target the admin drive.
-
-- **Emits**: `DRIVE_DESTROYED`.
-- **Throws**: `DriveError` (not initialized, not found, or admin drive); `SignerError`; `StampError`.
 
 ### `forgetDrive(driveId, requestOptions?): Promise<void>`
 
@@ -343,7 +335,6 @@ Emitted on the provided `EventEmitter` as `FileManagerEvents`:
 | `INITIALIZED`           | `initialize` (success)                             |
 | `STATE_INVALID`         | `initialize` (unparseable state)                   |
 | `DRIVE_CREATED`         | `createAdminDrive`, `createDrive`                  |
-| `DRIVE_DESTROYED`       | `destroyDrive`                                     |
 | `DRIVE_FORGOTTEN`       | `forgetDrive`                                      |
 | `FILE_UPLOADED`         | `uploadFile`, `uploadFiles` (per file)             |
 | `FILES_UPLOADED`        | `uploadFiles` (once, batch summary)                |
