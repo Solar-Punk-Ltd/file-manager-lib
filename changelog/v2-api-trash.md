@@ -38,8 +38,8 @@ invariant holds.
 
 ## Overlay helpers — shared with api-folder
 
-- **`setTrashState(driveId, entry, isTrashed, requestOptions?)`** — introduced here: guards double-trash /
-  double-recover, persists the admin drive fork, and updates the in-memory overlay.
+- **`setTrashState(driveId: string | undefined, entry, isTrashed, requestOptions?)`** — introduced here: guards
+  double-trash / double-recover, persists the admin drive fork, and updates the in-memory overlay.
 - **`persistAdminDriveFork`** and **`pruneTrashOverlay`** were already introduced in `v2/api-folder` (its `move` /
   `forget` mutate the same overlay) and are reused as-is here — shared ownership across the two PRs is deliberate.
 

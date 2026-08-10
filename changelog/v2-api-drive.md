@@ -16,7 +16,7 @@ only validates stamps. There is no drive-teardown verb that touches the underlyi
 ## Added — private helpers (arrive with their first consumer)
 
 - **`findDriveOrThrow(driveId)`** — resolves a drive id to `{ driveIx, cachedDrive }` from `driveList` or throws
-  `DriveError`. First used here by `forgetDrive`.
+  `DriveError` and verifies the driveId format. First used here by `forgetDrive`.
 - **`pruneDriveMetadata(driveInfo, driveIndex, stateTopic, publisher, requestOptions?)`** — the teardown step for
   `forgetDrive`: removes the drive's fork from the admin mantaray, re-saves the admin manifest, splices the drive out of
   `driveList`, evicts its store entry, and drops its records from `fileInfoList`.
