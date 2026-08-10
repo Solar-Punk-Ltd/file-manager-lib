@@ -2,6 +2,7 @@ import { Bee, FeedIndex } from '@ethersphere/bee-js';
 import path from 'path';
 
 import {
+  buyStampSerialized,
   createInitializedFileManager,
   DEFAULT_BATCH_AMOUNT,
   DEFAULT_BATCH_DEPTH,
@@ -14,7 +15,6 @@ import { ensureUniqueSignerWithStamp, setupUserDrive, tempFileRegistry } from '.
 import { FileManagerBase } from '@/fileManager';
 import { DriveInfo, ListDepth, NodeType } from '@/types';
 import { FileManagerEvents } from '@/utils';
-import { buyStamp } from '@/utils/bee';
 import { FEED_INDEX_ZERO, ROOT_PATH } from '@/utils/constants';
 
 describe('uploadFile', () => {
@@ -183,8 +183,9 @@ describe('uploadFiles', () => {
       ]),
     );
 
-    const downloadedA = downloadResults.find((d) => d.path === 'roundtrip-a.txt');
-    const downloadedB = downloadResults.find((d) => d.path === 'roundtrip-b.txt');
+    expect(downloadResults.failed).toEqual([]);
+    const downloadedA = downloadResults.succeeded.find((d) => d.path === 'roundtrip-a.txt');
+    const downloadedB = downloadResults.succeeded.find((d) => d.path === 'roundtrip-b.txt');
     expect(downloadedA).toBeDefined();
     expect(downloadedB).toBeDefined();
 
@@ -227,7 +228,12 @@ describe('uploadFiles', () => {
     const nestedFile = path.join(nestedDir, 'note.txt');
     writeTempDir(nestedDir, { 'note.txt': 'Init nested docs content' });
 
-    const driveBatchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'initNestedFolderStamp');
+    const driveBatchId = await buyStampSerialized(
+      bee,
+      DEFAULT_BATCH_AMOUNT,
+      DEFAULT_BATCH_DEPTH,
+      'initNestedFolderStamp',
+    );
     await fileManager.createDrive(driveBatchId, 'init-nested-drive');
     const drive = fileManager.driveList.find((d) => d.name === 'init-nested-drive')!;
     expect(drive).toBeDefined();
@@ -247,8 +253,9 @@ describe('uploadFiles', () => {
     expect(rootEntries.some((e) => e.type === NodeType.Folder && e.path.endsWith('docs'))).toBe(true);
 
     const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(drive.id, '/'));
-    const downloadedRoot = downloadResults.find((d) => d.path === 'root.txt');
-    const downloadedNested = downloadResults.find((d) => d.path === 'docs/note.txt');
+    const downloadedRoot = downloadResults.succeeded.find((d) => d.path === 'root.txt');
+    const downloadedNested = downloadResults.succeeded.find((d) => d.path === 'docs/note.txt');
+    expect(downloadResults.failed).toEqual([]);
     expect(downloadedRoot).toBeDefined();
     expect(downloadedNested).toBeDefined();
     expect(Buffer.from(await streamToUint8Array(downloadedRoot!.result)).toString('utf-8')).toBe(
@@ -369,10 +376,11 @@ describe('downloadFile and downloadFiles', () => {
     expect(result.failed).toHaveLength(0);
 
     const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(drive.id, '/'));
-    expect(downloadResults.map((d) => d.path).sort()).toEqual(['all-a.txt', 'all-b.txt']);
+    expect(downloadResults.failed).toEqual([]);
+    expect(downloadResults.succeeded.map((d) => d.path).sort()).toEqual(['all-a.txt', 'all-b.txt']);
 
-    const downloadedA = downloadResults.find((d) => d.path === 'all-a.txt');
-    const downloadedB = downloadResults.find((d) => d.path === 'all-b.txt');
+    const downloadedA = downloadResults.succeeded.find((d) => d.path === 'all-a.txt');
+    const downloadedB = downloadResults.succeeded.find((d) => d.path === 'all-b.txt');
     expect(Buffer.from(await streamToUint8Array(downloadedA!.result)).toString('utf-8')).toBe('Download All A');
     expect(Buffer.from(await streamToUint8Array(downloadedB!.result)).toString('utf-8')).toBe('Download All B');
   });
@@ -398,13 +406,19 @@ describe('downloadFile and downloadFiles', () => {
   });
 
   it('returns an empty array when the drive has no files', async () => {
-    const emptyBatchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'downloadEmptyIntegration');
+    const emptyBatchId = await buyStampSerialized(
+      bee,
+      DEFAULT_BATCH_AMOUNT,
+      DEFAULT_BATCH_DEPTH,
+      'downloadEmptyIntegration',
+    );
     await fileManager.createDrive(emptyBatchId, 'download-empty-drive');
     const emptyDrive = fileManager.driveList.find((d) => d.name === 'download-empty-drive')!;
     expect(emptyDrive).toBeDefined();
 
     const downloadResults = await fileManager.downloadFolder(emptyDrive.id, '/');
-    expect(downloadResults).toEqual([]);
+    expect(downloadResults.succeeded).toEqual([]);
+    expect(downloadResults.failed).toEqual([]);
   });
 });
 
@@ -418,8 +432,8 @@ describe('move', () => {
   beforeAll(async () => {
     const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
     bee = beeDev;
-    const batchIdA = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'moveIntegrationA');
-    const batchIdB = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'moveIntegrationB');
+    const batchIdA = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'moveIntegrationA');
+    const batchIdB = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'moveIntegrationB');
     fileManager = await createInitializedFileManager(bee, ownerStamp);
 
     await fileManager.createDrive(batchIdA, 'move-a');
@@ -456,8 +470,9 @@ describe('move', () => {
     expect(BigInt(moved.version!.toString())).toBe(beforeVersion + 1n);
 
     const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveA.id, '/'));
-    const downloaded = downloadResults.find((d) => d.path === 'it-move-b.txt');
+    const downloaded = downloadResults.succeeded.find((d) => d.path === 'it-move-b.txt');
     expect(downloaded).toBeDefined();
+    expect(downloadResults.failed).toEqual([]);
     expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Move Content A');
   });
 
@@ -477,8 +492,9 @@ describe('move', () => {
     expect(archiveEntries.some((e) => e.type === NodeType.File && e.path === 'archive/doc.txt')).toBe(true);
 
     const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveA.id, 'archive'));
-    const downloaded = downloadResults.find((d) => d.path === 'archive/doc.txt');
+    const downloaded = downloadResults.succeeded.find((d) => d.path === 'archive/doc.txt');
     expect(downloaded).toBeDefined();
+    expect(downloadResults.failed).toEqual([]);
     expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Archive Me');
   });
 
@@ -502,8 +518,9 @@ describe('move', () => {
     expect(folderEntries.some((e) => e.path === inboxFilePath)).toBe(false);
 
     const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveA.id, '/'));
-    const downloaded = downloadResults.find((d) => d.path === 'note.txt');
+    const downloaded = downloadResults.succeeded.find((d) => d.path === 'note.txt');
     expect(downloaded).toBeDefined();
+    expect(downloadResults.failed).toEqual([]);
     expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Inbox Note');
   });
 
@@ -523,8 +540,9 @@ describe('move', () => {
     expect(moved).toBeDefined();
 
     const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveB.id, '/'));
-    const downloaded = downloadResults.find((d) => d.path === xFile);
+    const downloaded = downloadResults.succeeded.find((d) => d.path === xFile);
     expect(downloaded).toBeDefined();
+    expect(downloadResults.failed).toEqual([]);
     expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Cross Drive Content');
   });
 

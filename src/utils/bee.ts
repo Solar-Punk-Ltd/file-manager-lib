@@ -86,24 +86,6 @@ export async function getTopicAndVersion(
   return { topic, version: feedIndexNext.toString() };
 }
 
-export async function buyStamp(
-  bee: Bee,
-  amount: string | bigint,
-  depth: number,
-  label?: string,
-  requestOptions?: BeeRequestOptions,
-): Promise<BatchId> {
-  const stamp = (await bee.getPostageBatches(requestOptions)).find((b) => b.label === label);
-  if (stamp && stamp.usable) {
-    return stamp.batchID;
-  }
-
-  return await bee.createPostageBatch(amount, depth, {
-    waitForUsable: true,
-    label,
-  });
-}
-
 export interface FeedTarget {
   batchId: string;
   topic: string;

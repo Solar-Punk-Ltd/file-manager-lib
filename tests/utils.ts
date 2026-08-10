@@ -1,4 +1,4 @@
-import { BatchId, Bee, PrivateKey, RedundancyLevel } from '@ethersphere/bee-js';
+import { BatchId, Bee, BeeRequestOptions, PrivateKey, RedundancyLevel } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
@@ -64,6 +64,52 @@ export async function retryOnPropagationDelay<T>(fn: () => Promise<T>, attempts 
       if (i < attempts - 1) {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
       }
+    }
+  }
+  throw lastError;
+}
+
+async function buyStamp(
+  bee: Bee,
+  amount: string | bigint,
+  depth: number,
+  label?: string,
+  requestOptions?: BeeRequestOptions,
+): Promise<BatchId> {
+  const stamp = (await bee.getPostageBatches(requestOptions)).find((b) => b.label === label);
+  if (stamp && stamp.usable) {
+    return stamp.batchID;
+  }
+
+  return await bee.createPostageBatch(amount, depth, {
+    waitForUsable: true,
+    label,
+  });
+}
+
+// Stamp creation is an on-chain op; a Bee node rejects simultaneous ones
+const ON_CHAIN_BUSY = /simultaneous on-chain operations|too many requests|\b429\b/i;
+
+export async function buyStampSerialized(
+  bee: Bee,
+  amount: string | bigint,
+  depth: number,
+  label?: string,
+  requestOptions?: BeeRequestOptions,
+  attempts = 20,
+): Promise<BatchId> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await buyStamp(bee, amount, depth, label, requestOptions);
+    } catch (err: unknown) {
+      lastError = err;
+      const haystack = `${(err as any)?.message ?? ''} ${(err as any)?.status ?? ''} ${(err as any)?.code ?? ''}`;
+      if (i === attempts - 1 || !ON_CHAIN_BUSY.test(haystack)) {
+        throw err;
+      }
+      const base = 500 * (i + 1);
+      await new Promise((resolve) => setTimeout(resolve, base + Math.floor(Math.random() * base)));
     }
   }
   throw lastError;

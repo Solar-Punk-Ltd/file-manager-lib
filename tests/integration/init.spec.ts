@@ -1,6 +1,7 @@
 import { BatchId, Bee, BeeResponseError, PrivateKey, PublicKey, RedundancyLevel, Reference } from '@ethersphere/bee-js';
 
 import {
+  buyStampSerialized,
   createInitializedFileManager,
   DEFAULT_BATCH_AMOUNT,
   DEFAULT_BATCH_DEPTH,
@@ -15,7 +16,7 @@ import { FileManagerBase } from '@/fileManager';
 import { ActReferences } from '@/types';
 import { ADMIN_STAMP_LABEL, FILEMANAGER_STATE_TOPIC, FileManagerEvents, StampError } from '@/utils';
 import { assertActReferences } from '@/utils/asserts';
-import { buyStamp, getFeedData } from '@/utils/bee';
+import { getFeedData } from '@/utils/bee';
 import { SWARM_ZERO_ADDRESS } from '@/utils/constants';
 import { generateRandomBytes } from '@/utils/crypto';
 
@@ -215,7 +216,7 @@ describe('reinitialization', () => {
     const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
     const fileManager = await createInitializedFileManager(beeDev, ownerStamp);
 
-    const userBatchId = await buyStamp(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'userDrive');
+    const userBatchId = await buyStampSerialized(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'userDrive');
     await fileManager.createDrive(userBatchId, 'User Drive');
 
     const drivesBeforeReinit = fileManager.driveList;
@@ -258,7 +259,7 @@ describe('reinitialization', () => {
 
     await fileManager.initialize();
 
-    const newBatchId = await buyStamp(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'afterReinit');
+    const newBatchId = await buyStampSerialized(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'afterReinit');
     await fileManager.createDrive(newBatchId, 'Post Reinit Drive');
 
     const drives = fileManager.driveList;
@@ -311,8 +312,8 @@ describe('reinitialization', () => {
     const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
     const fileManager = await createInitializedFileManager(beeDev, ownerStamp);
 
-    const batch1 = await buyStamp(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'drive1');
-    const batch2 = await buyStamp(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'drive2');
+    const batch1 = await buyStampSerialized(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'drive1');
+    const batch2 = await buyStampSerialized(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'drive2');
 
     await fileManager.createDrive(batch1, 'Drive 1');
     await fileManager.createDrive(batch2, 'Drive 2');

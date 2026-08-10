@@ -44,7 +44,7 @@ describe('Folder operations', () => {
       );
 
       expect(downloadReadableDataSpy).toHaveBeenCalledTimes(2);
-      expect(results.map((r) => r.path).sort()).toEqual(['a.txt', 'b.txt']);
+      expect(results.succeeded.map((r) => r.path).sort()).toEqual(['a.txt', 'b.txt']);
     });
 
     it('downloadFolder does not download files belonging to a different drive', async () => {
@@ -56,11 +56,12 @@ describe('Folder operations', () => {
 
       const downloadReadableDataSpy = jest.spyOn(Bee.prototype, 'downloadReadableData');
 
-      const results = await fm.downloadFolder(drive.id, '/');
+      const downloadResults = await fm.downloadFolder(drive.id, '/');
 
       expect(downloadReadableDataSpy).toHaveBeenCalledTimes(1);
-      expect(results).toHaveLength(1);
-      expect(results[0].path).toBe('mine.txt');
+      expect(downloadResults.failed).toEqual([]);
+      expect(downloadResults.succeeded).toHaveLength(1);
+      expect(downloadResults.succeeded[0].path).toBe('mine.txt');
     });
   });
 

@@ -16,7 +16,7 @@ module.exports = {
     '^@/(.*)$': '<rootDir>/src/$1',
   },
   coverageProvider: 'v8',
-  collectCoverage: true,
+  collectCoverage: false,
   coverageDirectory: '<rootDir>/tests/coverage',
   coverageReporters: ['lcov'],
   collectCoverageFrom: ['./src/**'],

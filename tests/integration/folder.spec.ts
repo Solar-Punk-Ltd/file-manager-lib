@@ -1,12 +1,17 @@
 import { BatchId, Identifier } from '@ethersphere/bee-js';
 
-import { DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, retryOnPropagationDelay, streamToUint8Array } from '../utils';
+import {
+  buyStampSerialized,
+  DEFAULT_BATCH_AMOUNT,
+  DEFAULT_BATCH_DEPTH,
+  retryOnPropagationDelay,
+  streamToUint8Array,
+} from '../utils';
 
 import { ensureUniqueSignerWithStamp, setupUserDrive, tempFileRegistry } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
 import { DriveInfo, ListDepth, NodeType } from '@/types';
-import { buyStamp } from '@/utils/bee';
 import { ROOT_PATH } from '@/utils/constants';
 
 describe('Folder operations', () => {
@@ -111,7 +116,8 @@ describe('Folder operations', () => {
       expect(filePaths).not.toContain('it-downloadFolder-dest-src.txt');
 
       const downloads = await retryOnPropagationDelay(() => fileManager.downloadFolder(drive.id, '/'));
-      const got = downloads.find((d) => d.path === 'inbox/reports/q1.txt');
+      const got = downloads.succeeded.find((d) => d.path === 'inbox/reports/q1.txt');
+      expect(downloads.failed).toEqual([]);
       expect(got).toBeDefined();
       expect(Buffer.from(await streamToUint8Array(got!.result)).toString('utf-8')).toBe('destination compose content');
     });
@@ -123,7 +129,7 @@ describe('Folder operations', () => {
     beforeAll(async () => {
       const { bee: beeDev } = await ensureUniqueSignerWithStamp();
 
-      moveBatchId = await buyStamp(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'movestamp');
+      moveBatchId = await buyStampSerialized(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'movestamp');
     });
 
     it('moves a folder as a unit, composing correct descendant paths at read time', async () => {
@@ -166,7 +172,8 @@ describe('Folder operations', () => {
       expect(movedFi.path).toBe('backup/src/inner.txt');
 
       const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveA.id, 'backup/src'));
-      const downloaded = downloadResults.find((d) => d.path === 'backup/src/inner.txt');
+      expect(downloadResults.failed).toEqual([]);
+      const downloaded = downloadResults.succeeded.find((d) => d.path === 'backup/src/inner.txt');
       expect(downloaded).toBeDefined();
       expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Inner File Content');
     });

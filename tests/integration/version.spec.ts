@@ -1,12 +1,18 @@
 import { Bee, FeedIndex, PrivateKey, Topic } from '@ethersphere/bee-js';
 
-import { DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, retryOnPropagationDelay, streamToUint8Array } from '../utils';
+import {
+  buyStampSerialized,
+  DEFAULT_BATCH_AMOUNT,
+  DEFAULT_BATCH_DEPTH,
+  retryOnPropagationDelay,
+  streamToUint8Array,
+} from '../utils';
 
 import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
 import { DriveInfo, FileRecord } from '@/types';
-import { buyStamp, getFeedData } from '@/utils/bee';
+import { getFeedData } from '@/utils/bee';
 import { FEED_INDEX_ZERO, ROOT_PATH } from '@/utils/constants';
 
 describe('Version control', () => {
@@ -90,7 +96,12 @@ describe('Version control', () => {
   it('updateFile throws when the record belongs to a different drive', async () => {
     const base = await ensureBase();
 
-    const otherBatch = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, `mismatchStamp-${Date.now()}`);
+    const otherBatch = await buyStampSerialized(
+      bee,
+      DEFAULT_BATCH_AMOUNT,
+      DEFAULT_BATCH_DEPTH,
+      `mismatchStamp-${Date.now()}`,
+    );
     await fileManager.createDrive(otherBatch, `other-drive-${Date.now()}`);
     const otherDrive = fileManager.driveList.at(-1)!;
 
@@ -170,7 +181,15 @@ describe('Version control', () => {
     writeTempFile(NAME, 'Version 2 content');
     await fileManager.updateFile(drive.id, latestFi, { item: { sourcePath: NAME } });
 
-    const count = await getFeedData(bee, new Topic(v0Fi.topic), signer.publicKey().address().toString());
+    // Raw feed reads are eventually consistent; under parallel node load the last write may not be
+    // visible immediately. Retry until the feed reflects all three writes (v0 + two updates).
+    const count = await retryOnPropagationDelay(async () => {
+      const c = await getFeedData(bee, new Topic(v0Fi.topic), signer.publicKey().address().toString());
+      if (c.feedIndexNext.toBigInt() !== initialVersion + 3n) {
+        throw new Error(`feed not yet propagated: feedIndexNext=${c.feedIndexNext.toBigInt()}`);
+      }
+      return c;
+    }, 10);
     expect(count.feedIndexNext.toBigInt()).toEqual(initialVersion + 3n);
 
     const v0 = await fileManager.getFileVersion(v0Fi, FEED_INDEX_ZERO);
@@ -190,11 +209,14 @@ describe('Version control', () => {
 
     await fileManager.restoreFileVersion(base);
 
-    const { feedIndex: current } = await getFeedData(
-      bee,
-      new Topic(base.topic),
-      signer.publicKey().address().toString(),
-    );
+    // Eventually consistent: retry until the restore's new head slot is visible.
+    const { feedIndex: current } = await retryOnPropagationDelay(async () => {
+      const fd = await getFeedData(bee, new Topic(base.topic), signer.publicKey().address().toString());
+      if (fd.feedIndex.toBigInt() !== initialVersion + 2n) {
+        throw new Error(`restore not yet propagated: feedIndex=${fd.feedIndex.toBigInt()}`);
+      }
+      return fd;
+    }, 10);
 
     expect(BigInt(current.toBigInt())).toBe(initialVersion + 2n);
 
@@ -275,8 +297,9 @@ describe('Version control', () => {
     const downloadResults = await retryOnPropagationDelay(() =>
       fileManager.downloadFolder(drive.id, 'restore-move-dest'),
     );
-    const downloaded = downloadResults.find((d) => d.path === destPath);
+    const downloaded = downloadResults.succeeded.find((d) => d.path === destPath);
     expect(downloaded).toBeDefined();
+    expect(downloadResults.failed).toEqual([]);
     expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Restore Move V0 Content');
   });
 });

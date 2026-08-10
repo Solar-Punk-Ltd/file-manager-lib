@@ -123,8 +123,9 @@ describe('Version control', () => {
     it('fails fast when the drive is not found, without touching the feed', async () => {
       (getFeedData as jest.Mock).mockClear();
 
+      expect(dummyFi).toBeDefined();
       await expect(fm.restoreFileVersion({ ...dummyFi, version: '2' })).rejects.toThrow(
-        `Drive with id ${dummyFi.driveId.slice(0, 6)} not found`,
+        `Drive with id ${dummyFi.driveId!.slice(0, 6)} not found`,
       );
 
       expect(getFeedData).not.toHaveBeenCalled();

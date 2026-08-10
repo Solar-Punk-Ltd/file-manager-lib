@@ -193,7 +193,8 @@ describe('Abort signal handling', () => {
       );
 
       expect(result).toBeDefined();
-      expect(Array.isArray(result)).toBe(true);
+      expect(Array.isArray(result.succeeded)).toBe(true);
+      expect(Array.isArray(result.failed)).toBe(true);
     });
 
     it('should handle multiple downloads with different abort controllers', async () => {
@@ -224,7 +225,8 @@ describe('Abort signal handling', () => {
       );
 
       expect(result).toBeDefined();
-      expect(Array.isArray(result)).toBe(true);
+      expect(Array.isArray(result.succeeded)).toBe(true);
+      expect(Array.isArray(result.failed)).toBe(true);
     });
   });
 

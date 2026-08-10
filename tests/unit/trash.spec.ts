@@ -50,7 +50,7 @@ describe('Lifecycle management', () => {
 
     it('trashFile throws when the drive is not found', async () => {
       const ghost: FileRecord = { ...fileRecord, driveId: Identifier.fromString('ghost-drive').toString() };
-      await expect(fm.trashFile(ghost)).rejects.toThrow(`Drive with id ${ghost.driveId.slice(0, 6)} not found`);
+      await expect(fm.trashFile(ghost)).rejects.toThrow(`Drive with id ${ghost.driveId!.slice(0, 6)} not found`);
     });
   });
 

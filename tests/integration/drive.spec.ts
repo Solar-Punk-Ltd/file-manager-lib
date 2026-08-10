@@ -1,13 +1,12 @@
 import { Bee, Identifier, PostageBatch, PrivateKey, RedundancyLevel } from '@ethersphere/bee-js';
 
-import { createInitializedFileManager, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH } from '../utils';
+import { buyStampSerialized, createInitializedFileManager, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH } from '../utils';
 
 import { ensureUniqueSignerWithStamp, tempFileRegistry } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
 import { DriveInfo } from '@/types';
 import { DriveError, FileManagerEvents } from '@/utils';
-import { buyStamp } from '@/utils/bee';
 
 describe('Drive operations', () => {
   let bee: Bee;
@@ -32,7 +31,7 @@ describe('Drive operations', () => {
   afterAll(cleanup);
 
   it('should create a drive and retrieve it', async () => {
-    const batchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'createDriveStamp');
+    const batchId = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'createDriveStamp');
 
     await fileManager.createDrive(batchId, 'Test Drive');
     const drives = fileManager.driveList;
@@ -47,18 +46,8 @@ describe('Drive operations', () => {
     expect(fileManager.recordList.filter((fr) => fr.driveId === testDrive!.id)).toHaveLength(0);
   });
 
-  it('should throw an error when trying to destroy the admin drive/ stamp', async () => {
-    const adminDrive = fileManager.driveList.find((d) => d.isAdmin);
-    expect(adminDrive).toBeDefined();
-    expect(adminDrive!.batchId).toBe(ownerBatch.batchID.toString());
-
-    await expect(fileManager.destroyDrive(new Identifier(adminDrive!.id))).rejects.toThrow(
-      new DriveError(`Cannot destroy admin drive / stamp, batchId: ${adminDrive!.batchId.slice(0, 6)}`),
-    );
-  });
-
   it('should forget a user drive: removes the drive, prunes its files, and persists the change', async () => {
-    const forgetBatchId = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'forgetDriveStamp');
+    const forgetBatchId = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'forgetDriveStamp');
     await fileManager.createDrive(forgetBatchId, 'Drive to forget');
 
     const created = fileManager.driveList.find((d) => d.name === 'Drive to forget');

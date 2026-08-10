@@ -47,13 +47,14 @@ describe('End-to-End User Workflow', () => {
 
     const downloadResults = await retryOnPropagationDelay(async () => {
       const results = await fileManager.downloadFolder(drive.id, 'it-e2e-project');
-      if (results.length < 2) {
-        throw new Error(`Expected 2 download results, got ${results.length}`);
+      if (results.succeeded.length < 2) {
+        throw new Error(`Expected 2 download results, got ${results.succeeded.length}`);
       }
       return results;
     });
-    const downloadedReport = downloadResults.find((d) => d.path === 'it-e2e-project/report.txt');
-    const downloadedNote = downloadResults.find((d) => d.path === 'it-e2e-project/note.txt');
+    expect(downloadResults.failed).toEqual([]);
+    const downloadedReport = downloadResults.succeeded.find((d) => d.path === 'it-e2e-project/report.txt');
+    const downloadedNote = downloadResults.succeeded.find((d) => d.path === 'it-e2e-project/note.txt');
     expect(downloadedReport).toBeDefined();
     expect(downloadedNote).toBeDefined();
     expect(Buffer.from(await streamToUint8Array(downloadedReport!.result)).toString('utf-8')).toBe('Report V2');
@@ -85,10 +86,14 @@ describe('End-to-End User Workflow', () => {
     expect(fileEntries.map((e) => e.path).sort()).toEqual(['gallery-v2/a.txt', 'gallery-v2/b.txt', 'gallery-v2/c.txt']);
 
     const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(drive.id, 'gallery-v2'));
-    expect(downloadResults).toHaveLength(3);
+    expect(downloadResults.failed).toEqual([]);
+    expect(downloadResults.succeeded).toHaveLength(3);
     const contents = Object.fromEntries(
       await Promise.all(
-        downloadResults.map(async (d) => [d.path, Buffer.from(await streamToUint8Array(d.result)).toString('utf-8')]),
+        downloadResults.succeeded.map(async (d) => [
+          d.path,
+          Buffer.from(await streamToUint8Array(d.result)).toString('utf-8'),
+        ]),
       ),
     );
     expect(contents['gallery-v2/a.txt']).toBe('V1 File A');

@@ -79,7 +79,7 @@ describe('File operations', () => {
         undefined,
       );
       expect(downloadReadableDataSpy).toHaveBeenCalledTimes(2);
-      expect(results.map((r) => r.path).sort()).toEqual(['a.txt', 'b.txt']);
+      expect(results.succeeded.map((r) => r.path).sort()).toEqual(['a.txt', 'b.txt']);
 
       expect(listFolderSpy).not.toHaveBeenCalled();
     });
@@ -90,7 +90,7 @@ describe('File operations', () => {
 
       const results = await fm.downloadFiles([]);
 
-      expect(results).toEqual([]);
+      expect(results.succeeded).toEqual([]);
       expect(downloadDataSpy).not.toHaveBeenCalled();
     });
   });

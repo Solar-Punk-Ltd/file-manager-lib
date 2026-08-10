@@ -4,6 +4,7 @@ import path from 'path';
 
 import {
   BEE_URL,
+  buyStampSerialized,
   createInitializedFileManager,
   DEFAULT_BATCH_AMOUNT,
   DEFAULT_BATCH_DEPTH,
@@ -12,7 +13,6 @@ import {
 
 import { FileManagerBase } from '@/fileManager';
 import { DriveInfo } from '@/types';
-import { buyStamp } from '@/utils/bee';
 import { ADMIN_STAMP_LABEL } from '@/utils/constants';
 import { generateRandomBytes } from '@/utils/crypto';
 
@@ -32,7 +32,7 @@ export async function ensureUniqueSignerWithStamp(isNewSigner: boolean = true): 
 
   if (!globalAdminStamp) {
     try {
-      globalAdminStamp = await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, ADMIN_STAMP_LABEL);
+      globalAdminStamp = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, ADMIN_STAMP_LABEL);
     } catch (error: any) {
       console.error('Failed to create/find owner stamp:', error);
       throw error;
@@ -57,16 +57,16 @@ export interface UserDriveFixture {
 
 export async function setupUserDrive(
   driveName: string,
-  opts: { stampLabel?: string; reuseOwnerStamp?: boolean } = {},
+  opts: { stampLabel?: string; reuseOwnerStamp?: boolean } = { reuseOwnerStamp: true },
 ): Promise<UserDriveFixture> {
-  const { stampLabel = driveName, reuseOwnerStamp = false } = opts;
+  const { stampLabel = driveName, reuseOwnerStamp } = opts;
 
   const { bee, ownerStamp, signer } = await ensureUniqueSignerWithStamp();
   const fileManager = await createInitializedFileManager(bee, ownerStamp);
 
   const batchId = reuseOwnerStamp
     ? ownerStamp
-    : await buyStamp(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, stampLabel);
+    : await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, stampLabel);
 
   await fileManager.createDrive(batchId, driveName);
   const drive = fileManager.driveList.find((d) => d.name === driveName);
