@@ -6,7 +6,6 @@ import {
   DownloadOptions,
   FeedIndex,
   FileUploadOptions,
-  GetGranteesResult,
   PostageBatch,
   RedundancyLevel,
   RedundantUploadOptions,
@@ -14,7 +13,7 @@ import {
 
 import { EventEmitter } from '../eventEmitter';
 
-import { DriveInfo, FileInfo, ShareItem } from './info';
+import { DriveInfo, FileInfo } from './info';
 import { FileInfoOptions } from './utils';
 
 /**
@@ -139,37 +138,6 @@ export interface FileManager {
   forgetDrive(driveInfo: DriveInfo): Promise<void>;
 
   /**
-   * Shares a file information with the specified recipients.
-   * @param fileInfo - Information about the file(s) to share.
-   * @param targetOverlays - An array of target overlays.
-   * @param recipients - An array of recipient overlay addresses.
-   * @param message - Optional message to include with the share.
-   * @emits FileManagerEvents.SHARE_MESSAGE_SENT
-   * @returns A promise that resolves when the file is shared.
-   */
-  share(fileInfo: FileInfo, targetOverlays: string[], recipients: string[], message?: string): Promise<void>;
-
-  /**
-   * Subscribes to the shared inbox with the given topic and callback.
-   * @param topic - The topic to subscribe to.
-   * @param callback - Optional callback function to handle incoming shared items.
-   * @returns A promise that resolves when the subscription is successful.
-   */
-  subscribeToSharedInbox(topic: string, callback?: (data: ShareItem) => void): Promise<void>;
-
-  /**
-   * Unsubscribes from the shared inbox.
-   */
-  unsubscribeFromSharedInbox(): void;
-
-  /**
-   * Retrieves the grantees of a file.
-   * @param fileInfo - Information about the file.
-   * @returns A promise that resolves to list of grantee public keys.
-   */
-  getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult>;
-
-  /**
    * Returns a specific version of a file.
    *
    * @param fileInfo - The base FileInfo containing topic and owner fields.
@@ -205,12 +173,6 @@ export interface FileManager {
    * @returns An array of file information objects.
    */
   fileInfoList: FileInfo[];
-
-  /**
-   * Retrieves a list of items shared with the user.
-   * @returns An array of shared items.
-   */
-  sharedWithMe: ShareItem[];
 
   /**
    * Event emitter for handling file manager events.

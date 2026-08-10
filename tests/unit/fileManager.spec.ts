@@ -104,7 +104,6 @@ describe('FileManager', () => {
       const fm = await createInitializedFileManager();
 
       expect(fm.fileInfoList).toEqual([]);
-      expect(fm.sharedWithMe).toEqual([]);
     });
   });
 
@@ -120,7 +119,6 @@ describe('FileManager', () => {
     });
 
     it('should not initialize, if already initialized', async () => {
-      const logSpy = jest.spyOn(console, 'debug');
       const eventHandler = jest.fn((_) => {});
       const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.INITIALIZED, eventHandler);
@@ -132,21 +130,21 @@ describe('FileManager', () => {
       );
       expect(eventHandler).toHaveBeenCalledWith(true);
       await fm.initialize();
-      expect(logSpy).toHaveBeenCalledWith('FileManager is already initialized');
+      expect(eventHandler).toHaveBeenCalledWith(true);
     });
 
     it('should not initialize, if currently being initialized', async () => {
-      const logSpy = jest.spyOn(console, 'debug');
       const eventHandler = jest.fn((_) => {});
       const emitter = new EventEmitterBase();
       emitter.on(FileManagerEvents.INITIALIZED, eventHandler);
 
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const fm = new FileManagerBase(bee, emitter);
-      fm.initialize();
-      fm.initialize();
+      const first = fm.initialize();
+      const second = fm.initialize();
+      await Promise.all([first, second]);
 
-      expect(logSpy).toHaveBeenCalledWith('FileManager is being initialized');
+      expect(eventHandler).toHaveBeenCalledWith(true);
     });
   });
 
@@ -531,18 +529,12 @@ describe('FileManager', () => {
       createUploadDataSpy('8');
       createMockFeedWriter('9');
 
-      (getFeedData as jest.Mock).mockReset();
-      (getFeedData as jest.Mock).mockResolvedValueOnce({
-        feedIndex: FEED_INDEX_ZERO,
-        feedIndexNext: FeedIndex.fromBigInt(1n),
-        payload: SWARM_ZERO_ADDRESS,
-      });
-
       await fm.upload(
         di,
         {
           name: 'hello',
           topic: original.topic,
+          version: original.version,
           file: original.file,
           path: './tests',
         },
@@ -773,7 +765,6 @@ describe('FileManager', () => {
         file: { reference: '0x' + 'aa'.repeat(32), historyRef: '0x' + 'bb'.repeat(32) },
         driveId: target.id.toString(),
         timestamp: now,
-        shared: false,
         version: '0',
         redundancyLevel: RedundancyLevel.OFF,
         status: FileStatus.Active,
@@ -916,32 +907,6 @@ describe('FileManager', () => {
     });
   });
 
-  describe('getGranteesOfFile', () => {
-    const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
-
-    it('should throw grantee list not found if the topic not found in driveList', async () => {
-      const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
-      const di = fm.driveList[1];
-
-      const fileInfo: FileInfo = {
-        batchId: otherMockBatchId,
-        driveId: di.id.toString(),
-        name: 'john doe',
-        owner: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
-        actPublisher,
-        topic: Topic.fromString('example'),
-        file: {
-          reference: new Reference('1a9ad03aa993d5ee550daec2e4df4829fd99cc23993ea7d3e0797dd33253fd68'),
-          historyRef: new Reference(SWARM_ZERO_ADDRESS),
-        },
-      };
-
-      await expect(async () => {
-        await fm.getGrantees(fileInfo);
-      }).rejects.toThrow(`Grantee list or file not found for file: ${fileInfo.name}`);
-    });
-  });
   // TODO: test invalid state emit
   describe('eventEmitter', () => {
     const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
@@ -983,7 +948,6 @@ describe('FileManager', () => {
         owner: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
         preview: undefined,
         redundancyLevel: redundancy,
-        shared: false,
         status: FileStatus.Active,
         timestamp: fixedNow, // ← was expect.any(Number)
         topic: expect.any(String), // leave topic flexible

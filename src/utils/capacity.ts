@@ -15,13 +15,12 @@ const REFERENCE_WRAPPER_SIZE = getEncodedSize(
 const INFOFEED_WRAPPER_SIZE = getEncodedSize(
   JSON.stringify({
     topic: SWARM_ZERO_ADDRESS.toString(),
-    eGranteeRef: SWARM_ZERO_ADDRESS.toString(),
   } as WrappedFileInfoFeed),
 );
 const FEED_OVERHEAD_SIZE = FeedIndex.MINUS_ONE.toString().length + Topic.LENGTH;
 const DUMMY_SIGNER = new PrivateKey('634fb5a872396d9693e5c9f9d7233cfa93f395c093371017ff44aa9ae6564cdd');
 const DUMMY_STAMP = new BatchId('ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51');
-// Estimate overhead for ACT: circa 250 bytes per history entry (storageRefSize, historyRefSize, eGranteeRef, keypairs etc.)
+// Estimate overhead for ACT: circa 250 bytes per history entry (storageRefSize, historyRefSize, keypairs etc.)
 const ACT_OVERHEAD_SIZE = 250;
 // shall be about 304 bytes with an upper limit of 40 on the name length
 const dummyId = SWARM_ZERO_ADDRESS;

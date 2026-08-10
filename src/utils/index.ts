@@ -3,12 +3,12 @@ export { ADMIN_STAMP_LABEL, FILEMANAGER_STATE_TOPIC } from './constants';
 export {
   BeeVersionError,
   DriveError,
+  ErrorHandler,
   FileError,
   FileInfoError,
-  GranteeError,
-  SendShareMessageError,
+  FileManagerError,
+  FolderError,
   SignerError,
   StampError,
-  SubscriptionError,
 } from './errors';
 export { estimateDriveListMetadataSize, estimateFileInfoMetadataSize } from './capacity';

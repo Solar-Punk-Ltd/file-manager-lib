@@ -109,7 +109,6 @@ export function createMockDriveInfo(): DriveInfo {
     infoFeedList: [
       {
         topic: Topic.fromString('1'),
-        eGranteeRef: SWARM_ZERO_ADDRESS.toString(),
       },
     ],
     isAdmin: false,

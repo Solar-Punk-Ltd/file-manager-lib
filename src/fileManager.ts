@@ -5,10 +5,8 @@ import {
   Bytes,
   CollectionUploadOptions,
   DownloadOptions,
-  EthAddress,
   FeedIndex,
   FileUploadOptions,
-  GetGranteesResult,
   Identifier,
   PostageBatch,
   PrivateKey,
@@ -19,28 +17,28 @@ import {
   Topic,
 } from '@ethersphere/bee-js';
 
-import { FeedResultWithIndex, ReferenceWithHistory, StateTopicInfo } from './types/utils';
+import { FileManager } from './types/fileManager';
+import { DriveInfo, FileInfo, FileStatus } from './types/info';
+import { FeedResultWithIndex, FileInfoOptions, ReferenceWithHistory, StateTopicInfo } from './types/utils';
 import { assertDriveInfo, assertFileInfo, assertStateTopicInfo } from './utils/asserts';
-import { fetchStamp, getFeedData, getWrappedData } from './utils/bee';
-import { settlePromises, verifyStampUsability } from './utils/common';
-import { FEED_INDEX_ZERO } from './utils/constants';
+import {
+  fetchStamp,
+  getFeedData,
+  getTopicAndVersion,
+  getWrappedData,
+  verifyStampUsability,
+  verifySupportedBeeVersions,
+} from './utils/bee';
+import { settlePromises } from './utils/common';
+import { ADMIN_STAMP_LABEL, FEED_INDEX_ZERO, FILEMANAGER_STATE_TOPIC } from './utils/constants';
 import { generateRandomBytes } from './utils/crypto';
+import { DriveError, ErrorHandler, FileInfoError, SignerError, StampError } from './utils/errors';
+import { FileManagerEvents } from './utils/events';
+import { Logger } from './utils/logger';
 import { getForksMap, loadMantaray } from './utils/mantaray';
 import { processDownload } from './download';
 import { EventEmitter, EventEmitterBase } from './eventEmitter';
-import { DriveInfo, FileInfo, FileInfoOptions, FileManager, FileStatus, ShareItem } from './types';
 import { processUpload } from './upload';
-import {
-  ADMIN_STAMP_LABEL,
-  BeeVersionError,
-  DriveError,
-  FileInfoError,
-  FILEMANAGER_STATE_TOPIC,
-  FileManagerEvents,
-  GranteeError,
-  SignerError,
-  StampError,
-} from './utils';
 
 export class FileManagerBase implements FileManager {
   private bee: Bee;
@@ -53,9 +51,11 @@ export class FileManagerBase implements FileManager {
   private isInitializing: boolean = false;
   private _adminStamp: PostageBatch | undefined = undefined;
 
+  private readonly errorHandler = ErrorHandler.getInstance();
+  private readonly logger = Logger.getInstance();
+
   readonly driveList: DriveInfo[] = [];
   readonly fileInfoList: FileInfo[] = [];
-  readonly sharedWithMe: ShareItem[] = [];
   readonly emitter: EventEmitter;
 
   get adminStamp(): PostageBatch | undefined {
@@ -75,24 +75,24 @@ export class FileManagerBase implements FileManager {
 
   async initialize(): Promise<void> {
     if (this.isInitialized) {
-      console.debug('FileManager is already initialized');
+      this.logger.debug('FileManager is already initialized');
 
       this.emitter.emit(FileManagerEvents.INITIALIZED, true);
       return;
     }
 
     if (this.isInitializing) {
-      console.debug('FileManager is being initialized');
+      this.logger.debug('FileManager is being initialized');
       return;
     }
 
     this.isInitializing = true;
 
     try {
-      await this.verifySupportedVersions();
+      await verifySupportedBeeVersions(this.bee);
       await this.initPublisher();
 
-      console.debug('Trying to load state from Swarm.');
+      this.logger.debug('Trying to load state from Swarm.');
 
       const success = await this.tryToFetchAdminState();
       if (success) {
@@ -102,29 +102,14 @@ export class FileManagerBase implements FileManager {
 
       this.isInitialized = true;
       this.emitter.emit(FileManagerEvents.INITIALIZED, true);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (error: any) {
-      console.error(`Failed to initialize FileManager: ${error.message || error}`);
+    } catch (err: unknown) {
+      this.errorHandler.handleError(err, 'FileManagerBase.initialize');
       this.isInitialized = false;
       this.emitter.emit(FileManagerEvents.INITIALIZED, false);
     } finally {
       this.isInitializing = false;
     }
   }
-
-  // verifies if the bee and bee-api versions are supported
-  private async verifySupportedVersions(): Promise<void> {
-    const beeVersions = await this.bee.getVersions();
-    console.debug(`Bee version: ${beeVersions.beeVersion}`);
-    console.debug(`Bee API version: ${beeVersions.beeApiVersion}`);
-    const supportedApi = await this.bee.isSupportedApiVersion();
-    if (!supportedApi) {
-      console.error('Supported bee API version: ', beeVersions.supportedBeeApiVersion);
-      console.error('Supported bee version: ', beeVersions.supportedBeeVersion);
-      throw new BeeVersionError('Bee or Bee API version not supported');
-    }
-  }
-
   // fetches the node public key neccessary for ACT handling
   private async initPublisher(): Promise<void> {
     this.publisher = (await this.bee.getNodeAddresses()).publicKey;
@@ -138,7 +123,7 @@ export class FileManagerBase implements FileManager {
     const { payload, feedIndex } = await getFeedData(this.bee, FILEMANAGER_STATE_TOPIC, this.signerAddress);
 
     if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
-      console.debug('State not found.');
+      this.logger.debug('State not found.');
       return false;
     }
 
@@ -146,9 +131,8 @@ export class FileManagerBase implements FileManager {
     try {
       stateTopicInfo = payload.toJSON() as StateTopicInfo;
       assertStateTopicInfo(stateTopicInfo);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (error: any) {
-      console.error(`Failed to fetch admin state: ${error.message || error}`);
+    } catch (err: unknown) {
+      this.errorHandler.handleError(err, 'FileManagerBase.tryToFetchAdminState: fetch admin state');
       this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
       return false;
     }
@@ -162,15 +146,14 @@ export class FileManagerBase implements FileManager {
         actHistoryAddress: topicHistoryRef,
         actPublisher: this.publisher,
       });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (error: any) {
-      console.error(`Failed to decrypt admin state: ${error.message || error}`);
+    } catch (err: unknown) {
+      this.errorHandler.handleError(err, 'FileManagerBase.tryToFetchAdminState: decrypt admin state');
       this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
       return false;
     }
 
     this.stateFeedTopic = new Topic(topicBytes.toUint8Array());
-    console.debug('Drive list feed successfully fetched');
+    this.logger.debug('Drive list feed successfully fetched');
 
     return true;
   }
@@ -186,7 +169,7 @@ export class FileManagerBase implements FileManager {
     }
 
     if (resetState) {
-      console.warn('Resetting existing admin state.');
+      this.logger.warn('Resetting existing admin state.');
     }
 
     const batchStr = batchId.toString();
@@ -209,7 +192,7 @@ export class FileManagerBase implements FileManager {
 
     this.stateFeedTopic = newStateFeedTopic;
     this.driveListNextIndex = 0n;
-    console.debug('Drive list feed topic successfully set');
+    this.logger.debug('Drive list feed topic successfully set');
     this.emitter.emit(FileManagerEvents.STATE_INVALID, false);
   }
 
@@ -220,7 +203,7 @@ export class FileManagerBase implements FileManager {
     }
 
     if (!this.stateFeedTopic) {
-      console.debug('Drive list topic not initialized');
+      this.logger.debug('Drive list topic not initialized');
       this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
       return;
     }
@@ -228,7 +211,7 @@ export class FileManagerBase implements FileManager {
     const { feedIndexNext, payload, feedIndex } = await getFeedData(this.bee, this.stateFeedTopic, this.signerAddress);
 
     if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
-      console.debug('Invalid drive list');
+      this.logger.debug('Invalid drive list');
       this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
       return;
     }
@@ -245,9 +228,11 @@ export class FileManagerBase implements FileManager {
     for (const item of driveListData) {
       try {
         assertDriveInfo(item);
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } catch (error: any) {
-        console.error(`Invalid DriveInfo item: ${JSON.stringify(item)}, skipping it\n${error.message || error}`);
+      } catch (err: unknown) {
+        this.errorHandler.handleError(
+          err,
+          `FileManagerBase.initDriveList: invalid DriveInfo item, skipping: ${JSON.stringify(item)}`,
+        );
         continue;
       }
 
@@ -256,7 +241,7 @@ export class FileManagerBase implements FileManager {
         await this.fetchAndSetAdminStamp(batchIdStr);
 
         if (!this.adminStamp) {
-          console.error(
+          this.logger.error(
             `Admin stamp with batchId: ${batchIdStr.slice(
               0,
               6,
@@ -272,7 +257,7 @@ export class FileManagerBase implements FileManager {
       this.driveList.push(item);
     }
 
-    console.debug('DriveInfo list fetched successfully.');
+    this.logger.debug('DriveInfo list fetched successfully.');
   }
 
   private async pruneDriveMetadata(driveInfo: DriveInfo): Promise<void> {
@@ -301,7 +286,7 @@ export class FileManagerBase implements FileManager {
     }
 
     if (this.driveList.length === 0) {
-      console.debug('Drive list is empty, skipping file info list initialization');
+      this.logger.debug('Drive list is empty, skipping file info list initialization');
       return;
     }
 
@@ -324,10 +309,8 @@ export class FileManagerBase implements FileManager {
               assertFileInfo(unwrappedFileInfoData);
 
               return unwrappedFileInfoData;
-
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            } catch (error: any) {
-              console.error(`Invalid FileInfo item, skipping it: ${error.message || error}`);
+            } catch (err: unknown) {
+              this.errorHandler.handleError(err, 'FileManagerBase.initFileInfoList: invalid FileInfo item, skipping');
               return null;
             }
           };
@@ -343,7 +326,7 @@ export class FileManagerBase implements FileManager {
       }
     });
 
-    console.debug('FileInfo lists fetched successfully.');
+    this.logger.debug('FileInfo lists fetched successfully.');
   }
 
   async createDrive(
@@ -378,7 +361,7 @@ export class FileManagerBase implements FileManager {
     }
 
     if (isAdmin) {
-      console.debug('Creating admin drive with name: ', ADMIN_STAMP_LABEL);
+      this.logger.debug('Creating admin drive with name: ', ADMIN_STAMP_LABEL);
       driveName = ADMIN_STAMP_LABEL;
       await this.createNewDriveListTopic(batchId.toString(), resetState);
     } else {
@@ -472,7 +455,12 @@ export class FileManagerBase implements FileManager {
     }
 
     const owner = this.signerAddress;
-    const { topic, version } = await this.getTopicAndVersion(owner, fileOptions.topic, fileOptions.version);
+    const { topic, version } = await getTopicAndVersion(
+      this.bee,
+      owner,
+      fileOptions.version,
+      fileOptions.topic?.toString(),
+    );
 
     const file = await processUpload(this.bee, driveInfo, fileOptions, uploadOptions, requestOptions);
 
@@ -485,7 +473,6 @@ export class FileManagerBase implements FileManager {
       file,
       driveId: driveInfo.id.toString(),
       timestamp: new Date().getTime(),
-      shared: false,
       preview: undefined,
       version,
       customMetadata: fileOptions.customMetadata,
@@ -519,36 +506,9 @@ export class FileManagerBase implements FileManager {
       return;
     }
 
-    // overwrite the existing grantee reference if it exists, as they do not have access to the new version
     this.driveList[driveIndex].infoFeedList[infoIx] = {
       topic,
-      eGranteeRef: undefined,
     };
-  }
-
-  private async getTopicAndVersion(
-    address: string | EthAddress,
-    currentTopic?: string | Topic,
-    currentVersion?: string,
-  ): Promise<{ topic: string; version: string }> {
-    let version: string | undefined;
-    let topic: string;
-
-    if (!currentTopic) {
-      const randomTopic = generateRandomBytes(Topic.LENGTH);
-      version = FEED_INDEX_ZERO.toString();
-      topic = new Topic(randomTopic).toString();
-    } else {
-      version = currentVersion;
-      topic = currentTopic.toString();
-    }
-
-    if (!version) {
-      const { feedIndexNext } = await getFeedData(this.bee, new Topic(topic), address);
-      version = feedIndexNext.toString();
-    }
-
-    return { topic, version: version ? version : FEED_INDEX_ZERO.toString() };
   }
 
   async getVersion(fi: FileInfo, version?: string | FeedIndex): Promise<FileInfo> {
@@ -585,7 +545,9 @@ export class FileManagerBase implements FileManager {
 
     const versionToRestoreIndex = new FeedIndex(versionToRestore.version);
     if (feedIndex.equals(versionToRestoreIndex)) {
-      console.debug(`Head Slot cannot be restored. Please select a version lesser than: ${versionToRestore.version}`);
+      this.logger.debug(
+        `Head Slot cannot be restored. Please select a version lesser than: ${versionToRestore.version}`,
+      );
       return;
     }
 
@@ -629,9 +591,8 @@ export class FileManagerBase implements FileManager {
         reference: uploadInfoRes.reference.toString(),
         historyRef: uploadInfoRes.historyAddress.getOrThrow().toString(),
       };
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (error: any) {
-      throw new FileInfoError(`Failed to save fileinfo: ${error.message || error}`);
+    } catch (err: unknown) {
+      throw new FileInfoError('Failed to save fileinfo', err);
     }
   }
 
@@ -649,9 +610,8 @@ export class FileManagerBase implements FileManager {
       await fw.uploadPayload(fi.batchId, fileInfoState, {
         index: fi.version !== undefined ? new FeedIndex(fi.version) : undefined,
       });
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (error: any) {
-      throw new FileInfoError(`Failed to save wrapped fileInfo feed: ${error.message || error}`);
+    } catch (err: unknown) {
+      throw new FileInfoError('Failed to save wrapped fileInfo feed', err);
     }
   }
 
@@ -704,9 +664,8 @@ export class FileManagerBase implements FileManager {
       });
 
       this.driveListNextIndex += 1n;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } catch (error: any) {
-      throw new DriveError(`Failed to save drive list: ${error.message || error}`);
+    } catch (err: unknown) {
+      throw new DriveError('Failed to save drive list', err);
     }
   }
 
@@ -795,9 +754,9 @@ export class FileManagerBase implements FileManager {
     const logText = `Admin stamp with batchId: ${batchId.toString().slice(0, 6)}...`;
 
     if (adminStamp.usable) {
-      console.debug(`${logText} found and set.`);
+      this.logger.debug(`${logText} found and set.`);
     } else {
-      console.warn(`${logText} is unusable.`);
+      this.logger.warn(`${logText} is unusable.`);
     }
 
     this._adminStamp = adminStamp;
@@ -823,7 +782,7 @@ export class FileManagerBase implements FileManager {
     await this.bee.diluteBatch(driveInfo.batchId.toString(), stamp.depth + halvings);
     await this.pruneDriveMetadata(driveInfo);
 
-    console.debug(`Drive destroyed: ${driveInfo.name}`);
+    this.logger.debug(`Drive destroyed: ${driveInfo.name}`);
     this.emitter.emit(FileManagerEvents.DRIVE_DESTROYED, { driveInfo });
   }
 
@@ -833,39 +792,7 @@ export class FileManagerBase implements FileManager {
     }
 
     await this.pruneDriveMetadata(driveInfo);
-    console.debug(`Drive forgotten (metadata only): ${driveInfo.name}`);
+    this.logger.debug(`Drive forgotten (metadata only): ${driveInfo.name}`);
     this.emitter.emit(FileManagerEvents.DRIVE_FORGOTTEN, { driveInfo });
-  }
-
-  // eslint-disable-next-line require-await
-  async getGrantees(fileInfo: FileInfo): Promise<GetGranteesResult> {
-    const driveIx = this.driveList.findIndex((d) => d.id.toString() === fileInfo.driveId);
-    if (driveIx === -1) {
-      throw new GranteeError(`Drive not found for file: ${fileInfo.name}`);
-    }
-
-    const info = this.driveList[driveIx].infoFeedList?.find((wf) => wf.topic === fileInfo.topic);
-    if (!info || !info.eGranteeRef) {
-      throw new GranteeError(`Grantee list or file not found for file: ${fileInfo.name}`);
-    }
-
-    return this.bee.getGrantees(info.eGranteeRef);
-  }
-
-  // eslint-disable-next-line require-await
-  async subscribeToSharedInbox(_topic: string, _callback?: (_data: ShareItem) => void): Promise<void> {
-    /** no-op */
-    return;
-  }
-
-  unsubscribeFromSharedInbox(): void {
-    /** no-op */
-    return;
-  }
-
-  // eslint-disable-next-line require-await
-  async share(_fileInfo: FileInfo, _targetOverlays: string[], _recipients: string[], _message?: string): Promise<void> {
-    /** no-op */
-    return;
   }
 }

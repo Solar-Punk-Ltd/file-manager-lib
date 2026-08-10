@@ -29,3 +29,8 @@ coverage/
 *.pid
 tests/**/bee-dev/
 **.tgz
+
+*.md
+!README.md
+!changelog/*.md
+memory/

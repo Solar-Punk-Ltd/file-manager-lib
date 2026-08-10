@@ -1,8 +1,24 @@
 import { FeedIndex, NULL_ADDRESS, Reference, Topic } from '@ethersphere/bee-js';
 
 export const FILEMANAGER_STATE_TOPIC = Topic.fromString('filemanager-state');
-export const SHARED_INBOX_TOPIC = Topic.fromString('shared-inbox');
-export const SHARED_WITH_ME_TOPIC = 'shared-with-me';
 export const ADMIN_STAMP_LABEL = 'admin';
 export const SWARM_ZERO_ADDRESS = new Reference(NULL_ADDRESS);
 export const FEED_INDEX_ZERO = FeedIndex.fromBigInt(0n);
+export const ROOT_PATH = '/';
+export const MAX_CONCURRENT_FEED_FETCHES = 10;
+export const MAX_CONCURRENT_UPLOADS = 2;
+export const DRIVE_FORK_PREFIX = '/drive';
+export const MANIFEST_METADATA_FILE_TOPIC = 'swarm-file-topic';
+export const MANIFEST_METADATA_NODE_TOPIC = 'swarm-node-topic';
+export const MANIFEST_METADATA_NODE_TYPE = 'swarm-node-type';
+export const MANIFEST_METADATA_REDUNDANCY_LEVEL = 'swarm-redundancy-level';
+export const MANIFEST_METADATA_NODE_OWNER = 'swarm-node-owner';
+export const MANIFEST_METADATA_NODE_ACT_PUBLISHER = 'swarm-node-act-publisher';
+export const MANIFEST_METADATA_NODE_VERSION = 'swarm-node-version';
+export const MANIFEST_METADATA_DRIVE_ID = 'swarm-drive-id';
+export const MANIFEST_METADATA_DRIVE_NAME = 'swarm-drive-name';
+export const MANIFEST_METADATA_DRIVE_OWNER = 'swarm-drive-owner';
+export const MANIFEST_METADATA_DRIVE_IS_ADMIN = 'swarm-drive-is-admin';
+export const MANIFEST_METADATA_DRIVE_BATCH_ID = 'swarm-drive-batch-id';
+export const MANIFEST_METADATA_DRIVE_ACT_PUBLISHER = 'swarm-drive-act-publisher';
+export const MANIFEST_METADATA_DRIVE_TRASHED_NODES = 'swarm-drive-trashed-nodes';
