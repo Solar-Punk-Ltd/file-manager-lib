@@ -1,6 +1,6 @@
 import { Bytes, FeedIndex, Identifier, MantarayNode, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 
-import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
+import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID, makeUploadSource } from '../utils';
 
 import { applyDefaultMocks, createMockNodeAddresses, seedRecords } from './mock';
 
@@ -23,7 +23,7 @@ describe('Lifecycle management', () => {
 
     fm = await createInitializedFileManager();
     drive = fm.driveList[0];
-    await fm.uploadFile(drive.id, { path: 'notes.txt', sourcePath: 'package.json' });
+    await fm.uploadFile(drive.id, { path: 'notes.txt', ...makeUploadSource('package.json') });
     fileRecord = fm.recordList.find((f) => f.path === 'notes.txt')!;
   });
 
@@ -151,7 +151,7 @@ describe('Lifecycle management', () => {
     });
 
     it('removes a file fork and its recordList entry, emitting FILE_FORGOTTEN', async () => {
-      await fm.uploadFile(drive.id, { path: 'package.json', sourcePath: 'package.json' });
+      await fm.uploadFile(drive.id, { path: 'package.json', ...makeUploadSource('package.json') });
       const uploaded = fm.recordList.find((f) => f.path === 'package.json')!;
       expect(uploaded).toBeDefined();
 
@@ -203,8 +203,8 @@ describe('Lifecycle management', () => {
         },
       });
 
-      await fm.uploadFile(drive.id, { path: 'A/dup.txt', sourcePath: 'package.json' });
-      await fm.uploadFile(drive.id, { path: 'B/dup.txt', sourcePath: 'package.json' });
+      await fm.uploadFile(drive.id, { path: 'A/dup.txt', ...makeUploadSource('package.json') });
+      await fm.uploadFile(drive.id, { path: 'B/dup.txt', ...makeUploadSource('package.json') });
 
       const inB = fm.recordList.find((f) => f.path === 'B/dup.txt')!;
       expect(fm.recordList.find((f) => f.path === 'A/dup.txt')).toBeDefined();

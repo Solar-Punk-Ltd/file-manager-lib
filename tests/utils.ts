@@ -1,6 +1,7 @@
 import { BatchId, Bee, BeeRequestOptions, PrivateKey, RedundancyLevel } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
+import { isNode } from 'std-env';
 
 import { EventEmitter } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
@@ -18,6 +19,12 @@ export const DUMMY_BATCH_ID = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4
 
 export function getTestFile(relativePath: string): string {
   return fs.readFileSync(path.resolve(__dirname, relativePath), 'utf-8');
+}
+
+export const IS_BROWSER = !isNode;
+
+export function makeUploadSource(sourcePath: string): { sourcePath: string } | { file: File } {
+  return IS_BROWSER ? { file: new Blob(['test content']) as unknown as File } : { sourcePath };
 }
 
 export async function readFilesOrDirectory(fullPath: string, name?: string): Promise<string[]> {

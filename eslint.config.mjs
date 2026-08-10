@@ -87,6 +87,7 @@ export default [
         ReadableStream: 'readonly',
         AbortController: 'readonly',
         Response: 'readonly',
+        Blob: 'readonly',
       },
     },
   },
