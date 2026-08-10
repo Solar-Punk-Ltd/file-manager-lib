@@ -13,16 +13,16 @@ transitional transport bridges added in `v2/transport` are removed with the v1 m
 
 ## Growing-class approach
 
-Only the bootstrap + drive-creation surface lands here. The class intentionally does **not** `implements FileManager`
-yet (a subset can't satisfy the full interface): `// TODO: restore \`implements FileManager\` when all methods land` —
-restored by the final PR.
+Only the bootstrap + drive-creation surface lands here. The class intentionally does **not** resolve
+`implement FileManager` yet (a subset can't satisfy the full interface): `// TODO: restore \`implements FileManager\`
+when all methods land` — restored by the final PR.
 
 **Present now:** constructor + fields, getters (`adminStamp`, `isInitialized`), `initialize`, `createAdminDrive`,
 `createDrive`. Only methods with a working implementation land — no stubs.
 
-**Arriving in later PRs:** `forgetDrive` (api-drive); `uploadFile`/`uploadFiles`/ `updateFile`
-(api-file-write); `downloadFile`/`downloadFiles`/`downloadFolder`/`getFileVersion`/ `restoreFileVersion`
-(api-file-read); `createFolder`/`listFolder`/`move`/`forget` (api-folder);
+**Arriving in later PRs:** `forgetDrive` (api-drive); `uploadFile`/`uploadFiles`/ `updateFile` (api-file-write);
+`downloadFile`/`downloadFiles`/`downloadFolder`/`getFileVersion`/ `restoreFileVersion` (api-file-read);
+`createFolder`/`listFolder`/`move`/`forget` (api-folder);
 `trashFile`/`recoverFile`/`listTrash`/`trashFolder`/`recoverFolder` (api-trash).
 
 ## Two-feed bootstrap

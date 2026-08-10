@@ -1,7 +1,7 @@
 # v2/api-drive — drive-teardown verb
 
-Grows a drive-lifecycle method onto the minimal `FileManagerBase` from `v2/api-core`. Copied from the final
-v2 `fileManager.ts`; no lying stubs, and the class still does not `implements FileManager` (the
+Grows a drive-lifecycle method onto the minimal `FileManagerBase` from `v2/api-core`. Copied from the final v2
+`fileManager.ts`; no lying stubs, and the class still does not resolve `implement FileManager` (the
 `// TODO: restore implements FileManager` stays until the final PR).
 
 ## Added — public methods

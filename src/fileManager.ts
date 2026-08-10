@@ -304,6 +304,7 @@ export class FileManagerBase {
 
     for (const entry of items) {
       assertValidRelativePath(entry.path);
+      assertUploadableSource(entry);
     }
 
     const destSegments = pathSegments(destinationPath);
@@ -384,7 +385,7 @@ export class FileManagerBase {
         throw new FileInfoError(`Folder fork missing topic: ${path}`);
       }
 
-      // Folder manifest reads always probe the feed head. A folder is a container and carries, no stored version
+      // Folder manifest reads always probe the feed head. A folder is a container and carries no stored version
       const { payload, feedIndex } = await getFeedData(
         this.bee,
         new Topic(folderTopic),
