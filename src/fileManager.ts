@@ -170,6 +170,19 @@ export class FileManagerBase {
     );
   }
 
+  async forgetDrive(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<void> {
+    const { publisher, stateFeedTopic } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
+    const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(driveId).toString());
+
+    if (cachedDrive.isAdmin) {
+      throw new DriveError('Cannot forget admin drive');
+    }
+
+    await this.pruneDriveMetadata(cachedDrive, driveIx, stateFeedTopic, publisher, requestOptions);
+    this.logger.debug(`Drive forgotten (metadata only): ${cachedDrive.name}`);
+    this.emitter.emit(FileManagerEvents.DRIVE_FORGOTTEN, { driveInfo: cachedDrive });
+  }
+
   // --- Private helpers ---
 
   private async initPublisher(requestOptions?: BeeRequestOptions): Promise<void> {
@@ -423,6 +436,49 @@ export class FileManagerBase {
     }
 
     this._adminStamp = adminStamp;
+  }
+
+  private findDriveOrThrow(driveId: string): { driveIx: number; cachedDrive: DriveInfo } {
+    const driveIx = this.driveList.findIndex((d) => d.id === driveId);
+
+    if (driveIx === -1) {
+      throw new DriveError(`Drive with id ${driveId.slice(0, 6)} not found`);
+    }
+
+    const cachedDrive = this.driveList[driveIx];
+
+    return { driveIx, cachedDrive };
+  }
+
+  private async pruneDriveMetadata(
+    driveInfo: DriveInfo,
+    driveIndex: number,
+    stateTopic: string,
+    publisher: string,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void> {
+    if (!this.adminStamp) {
+      throw new DriveError('Admin stamp not found');
+    }
+
+    const adminMantaray = this.store.getManifestCache(stateTopic);
+    if (!adminMantaray) {
+      throw new DriveError('Admin manifest not loaded — initialize first.');
+    }
+
+    const adminHost = this.adminHost(publisher);
+
+    adminMantaray.removeFork(getDriveForkPath(driveInfo.id));
+    await this.store.saveMantarayNode(adminMantaray, adminHost, requestOptions);
+
+    this.driveList.splice(driveIndex, 1);
+    this.store.evict(driveInfo.topic);
+
+    for (let i = this.fileInfoList.length - 1; i >= 0; --i) {
+      if (this.fileInfoList[i].driveId === driveInfo.id) {
+        this.fileInfoList.splice(i, 1);
+      }
+    }
   }
 
   private adminHost(publisher: string): ManifestHost {
