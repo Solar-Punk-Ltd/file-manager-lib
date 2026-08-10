@@ -30,7 +30,6 @@ export interface NodeResource {
 
 export interface FileRecord extends NodeResource {
   type: NodeType.File;
-  // Not persisted: stripped before persist and hydrated. A record belongs to whichever drive's manifest references it
   driveId?: string;
   path: string;
   content: ActReferences;

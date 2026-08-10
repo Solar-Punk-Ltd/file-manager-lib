@@ -154,7 +154,7 @@ export interface FileManager {
    * @param path - Absolute path of the folder; omitted = the whole drive.
    * @param options - Optional download options.
    * @param requestOptions - Additional Bee request options.
-   * @returns A promise that resolves to an array of DownloadResult, one per file in the subtree.
+   * @returns A promise that resolves to DownloadFilesResult, marking per file success and failure in the subtree.
    * @throws {DriveError} If not initialized, driveId is not found, or the folder path does not exist.
    * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileRecordError} If a folder feed is missing.
@@ -175,6 +175,7 @@ export interface FileManager {
    * @returns A promise that resolves to a single DownloadResult.
    * @throws {DriveError} If the FileManager is not initialized.
    * @throws {SignerError} If the publisher/signer is unavailable.
+   * @throws {FileError} If the content fetch fails.
    *   Note: content-fetch failures are logged, not thrown.
    */
   downloadFile(
@@ -189,7 +190,7 @@ export interface FileManager {
    * @param fileRecords - The FileRecords to fetch content for.
    * @param options - Optional download options.
    * @param requestOptions - Additional Bee request options.
-   * @returns A promise that resolves to an array of DownloadResult, one per record.
+   * @returns A promise that resolves to a DownloadFilesResult.
    * @throws {DriveError} If the FileManager is not initialized.
    * @throws {SignerError} If the publisher/signer is unavailable.
    *   Note: per-record fetch failures are logged, not thrown.

@@ -174,19 +174,19 @@ Downloads a single file the caller already holds as a `FileRecord`.
 - **Returns**: a single [`DownloadResult`](#downloadresult).
 - **Throws**: `DriveError` (not initialized); `SignerError`. Content-fetch failures are logged.
 
-### `downloadFiles(fileRecords, options?, requestOptions?): Promise<DownloadResult[]>`
+### `downloadFiles(fileRecords, options?, requestOptions?): Promise<DownloadFilesResult>`
 
 Downloads files whose `FileRecord`s the caller already holds — no drive traversal or re-resolution. Fetches exactly the
 passed records.
 
-- **Returns**: one `DownloadResult` per record.
+- **Returns**: one `DownloadFilesResult` marking per record success and failure.
 - **Throws**: `DriveError` (not initialized); `SignerError`. Per-record failures are logged.
 
-### `downloadFolder(driveId, path?, options?, requestOptions?): Promise<DownloadResult[]>`
+### `downloadFolder(driveId, path?, options?, requestOptions?): Promise<DownloadFilesResult[]>`
 
 Downloads every file in a folder subtree, resolved fresh via `listFolder`. `path` omitted ⇒ the whole drive.
 
-- **Returns**: one `DownloadResult` per file in the subtree.
+- **Returns**: one `DownloadFilesResult` marking per file success and failure in the subtree.
 - **Throws**: `DriveError` (not initialized, drive not found, or folder path missing); `SignerError`; `FileRecordError`
   (a folder feed is missing). Per-file failures are logged.
 
@@ -395,7 +395,8 @@ A file leaf. Its `content` is the ACT-wrapped content reference; version history
 ```ts
 interface FileRecord extends NodeResource {
   type: NodeType.File;
-  driveId: string;
+  // Not persisted: stripped before persist and hydrated. A record belongs to whichever drive's manifest references it
+  driveId?: string;
   path: string;
   content: ActReferences; // { reference, historyRef }
   timestamp?: number;
@@ -484,6 +485,15 @@ interface UpdateItem {
 interface UploadFilesResult {
   succeeded: FileRecord[];
   failed: { path: string; error: string }[];
+}
+```
+
+### `DownloadFilesResult`
+
+```ts
+interface DownloadFilesResult {
+  succeeded: DownloadResult[];
+  failed: FailedResult[];
 }
 ```
 
