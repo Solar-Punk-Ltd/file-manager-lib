@@ -959,7 +959,6 @@ export class FileManagerBase implements FileManager {
     return this.downloadFiles(files, options, requestOptions);
   }
 
-  // TODO: test move then download with new (ok) and old (fail) paths too
   async move(
     fromPath: string,
     toPath: string,
@@ -1031,7 +1030,6 @@ export class FileManagerBase implements FileManager {
       ? sourceNode
       : await this.store.getMantarayNode(tgtParentHost.topic, publisher, tgtParentHost.manifestRef, requestOptions);
 
-    // TODO: add test case for collision
     const existing = targetMantaray.find(tgtName);
     if (existing) {
       throw new DriveError(`Destination already exists: ${toPath}`);
@@ -1176,7 +1174,6 @@ export class FileManagerBase implements FileManager {
     if (fiIndex !== -1) {
       this._recordList.splice(fiIndex, 1);
     }
-    // TODO: add tests to make sure that the correct file is removed in case of smae file names in different folders
     await this.pruneTrashOverlay(driveIx, (n) => n.topic === nodeTopic || n.path === path, requestOptions);
     this.emitter.emit(FileManagerEvents.FILE_FORGOTTEN, { record: forgotten, path });
   }
@@ -1606,6 +1603,7 @@ export class FileManagerBase implements FileManager {
       path: parentPath === ROOT_PATH || !parentPath ? folderName : `${parentPath}/${folderName}`,
       driveId: driveInfo.id,
       actPublisher: publisher,
+      status: NodeStatus.Active,
     };
 
     const folderNode = new MantarayNode();

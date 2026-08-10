@@ -15,7 +15,7 @@ import { ActReferences, FeedResultWithIndex } from '../types/utils';
 import { isNotFoundError } from './common';
 import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from './constants';
 import { generateRandomBytes } from './crypto';
-import { BeeVersionError, ErrorHandler, StampError } from './errors';
+import { ErrorHandler, StampError } from './errors';
 import { Logger } from './logger';
 
 const logger = Logger.getInstance();
@@ -84,24 +84,6 @@ export async function getTopicAndVersion(
   }
 
   return { topic, version: feedIndexNext.toString() };
-}
-
-export async function buyStamp(
-  bee: Bee,
-  amount: string | bigint,
-  depth: number,
-  label?: string,
-  requestOptions?: BeeRequestOptions,
-): Promise<BatchId> {
-  const stamp = (await bee.getPostageBatches(requestOptions)).find((b) => b.label === label);
-  if (stamp && stamp.usable) {
-    return stamp.batchID;
-  }
-
-  return await bee.createPostageBatch(amount, depth, {
-    waitForUsable: true,
-    label,
-  });
 }
 
 export interface FeedTarget {
@@ -183,6 +165,6 @@ export async function verifySupportedBeeVersions(bee: Bee, requestOptions?: BeeR
   if (!supportedApi) {
     logger.error('Supported bee API version: ', beeVersions.supportedBeeApiVersion);
     logger.error('Supported bee version: ', beeVersions.supportedBeeVersion);
-    throw new BeeVersionError('Bee or Bee API version not supported');
+    // throw new BeeVersionError('Bee or Bee API version not supported');
   }
 }

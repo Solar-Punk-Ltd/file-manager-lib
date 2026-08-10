@@ -5,6 +5,7 @@ import {
   Bytes,
   Duration,
   EthAddress,
+  FeedIndex,
   FeedReader,
   FeedWriter,
   Identifier,
@@ -22,15 +23,13 @@ import {
 } from '@ethersphere/bee-js';
 import { Optional } from 'cafe-utility';
 
-import { BEE_URL, DEFAULT_MOCK_SIGNER } from './utils';
+import { DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
 
-import { EventEmitter } from '@/eventEmitter/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
-import { DriveInfo, FileInfo } from '@/types';
-import { FileManagerEvents } from '@/utils';
-import { ADMIN_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '@/utils/constants';
-
-export const MOCK_BATCH_ID = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
+import { DriveInfo, FileRecord, NodeType } from '@/types';
+import { fetchStamp, getFeedData } from '@/utils/bee';
+import { ADMIN_STAMP_LABEL, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
+import { getAllNodeEntries, loadMantaray } from '@/utils/mantaray';
 
 export function createMockMantarayNode(all = true): MantarayNode {
   const mn = new MantarayNode();
@@ -44,30 +43,6 @@ export function createMockMantarayNode(all = true): MantarayNode {
   }
 
   return mn;
-}
-
-export async function createInitializedFileManager(
-  bee: Bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER }),
-  batchId?: string | BatchId,
-  emitter?: EventEmitter,
-): Promise<FileManagerBase> {
-  const fm = new FileManagerBase(bee, emitter);
-
-  let isFirstInit = true;
-  fm.emitter.on(FileManagerEvents.INITIALIZED, (ok: boolean) => {
-    if (isFirstInit) {
-      expect(ok).toBe(true);
-      isFirstInit = false;
-    }
-  });
-
-  await fm.initialize();
-
-  if (!fm.driveList.some((d) => d.isAdmin)) {
-    await fm.createDrive(batchId ?? MOCK_BATCH_ID, ADMIN_STAMP_LABEL, true, RedundancyLevel.MEDIUM);
-  }
-
-  return fm;
 }
 
 export function createMockNodeAddresses(): NodeAddresses {
@@ -84,34 +59,41 @@ export async function createMockFileInfo(
   owner: string,
   actPublisher: string,
   ref: string = SWARM_ZERO_ADDRESS.toString(),
-): Promise<FileInfo> {
+  overrides?: Partial<FileRecord>,
+): Promise<FileRecord> {
   return {
-    batchId: MOCK_BATCH_ID,
-    name: 'john doe',
-    topic: Topic.fromString('1'),
+    type: NodeType.File,
+    batchId: DUMMY_BATCH_ID,
+    path: '/john doe',
+    topic: Topic.fromString('file-1').toString(),
     driveId: Identifier.fromString('123').toString(),
-    owner: owner,
+    owner,
     actPublisher,
-    file: {
+    content: {
       reference: ref,
       historyRef: SWARM_ZERO_ADDRESS.toString(),
     },
+    redundancyLevel: RedundancyLevel.OFF,
+    ...overrides,
   };
 }
 
-export function createMockDriveInfo(): DriveInfo {
+export function createMockDriveInfo(actPublisher: string, overrides?: Partial<DriveInfo>): DriveInfo {
   return {
-    id: Identifier.fromString('123'),
-    batchId: MOCK_BATCH_ID,
+    type: NodeType.Drive,
+    id: Identifier.fromString('123').toString(),
+    batchId: DUMMY_BATCH_ID,
     owner: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
     name: 'Test Drive',
+    topic: Topic.fromString('drive-topic-1').toString(),
     redundancyLevel: RedundancyLevel.MEDIUM,
-    infoFeedList: [
-      {
-        topic: Topic.fromString('1'),
-      },
-    ],
+    manifestRef: {
+      reference: new Reference('1'.repeat(64)).toString(),
+      historyRef: new Reference('2'.repeat(64)).toString(),
+    },
     isAdmin: false,
+    actPublisher,
+    ...overrides,
   };
 }
 
@@ -151,6 +133,15 @@ export function createInitMocks(data?: Reference): any {
   jest.spyOn(Bee.prototype, 'getNodeAddresses').mockResolvedValue(createMockNodeAddresses());
   loadStampListMock();
   jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(new Bytes(data || SWARM_ZERO_ADDRESS));
+  jest.spyOn(Bee.prototype, 'downloadFile').mockResolvedValue({ data: new Bytes(SWARM_ZERO_ADDRESS) });
+  jest.spyOn(Bee.prototype, 'downloadReadableData').mockResolvedValue(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue((data || SWARM_ZERO_ADDRESS).toUint8Array());
+        controller.close();
+      },
+    }),
+  );
   jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValue({
     reference: data || SWARM_ZERO_ADDRESS,
     historyAddress: Optional.of(data || SWARM_ZERO_ADDRESS),
@@ -158,20 +149,6 @@ export function createInitMocks(data?: Reference): any {
   jest.spyOn(Bee.prototype, 'makeFeedWriter').mockReturnValue(createMockFeedWriter());
   jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue(createMockFeedReader());
   jest.spyOn(Bee.prototype, 'getPostageBatches').mockResolvedValue(loadStampListMock());
-}
-
-export function createUploadFilesFromDirectorySpy(char: string): jest.SpyInstance {
-  return jest.spyOn(Bee.prototype, 'uploadFilesFromDirectory').mockResolvedValueOnce({
-    reference: new Reference(char.repeat(64)),
-    historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
-  });
-}
-
-export function createUploadFileSpy(char: string): jest.SpyInstance {
-  return jest.spyOn(Bee.prototype, 'uploadFile').mockResolvedValueOnce({
-    reference: new Reference(char.repeat(64)),
-    historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
-  });
 }
 
 export function createUploadDataSpy(char: string): jest.SpyInstance {
@@ -182,7 +159,7 @@ export function createUploadDataSpy(char: string): jest.SpyInstance {
 }
 
 export const mockPostageBatch: PostageBatch = {
-  batchID: new BatchId(MOCK_BATCH_ID),
+  batchID: new BatchId(DUMMY_BATCH_ID),
   utilization: 2,
   usable: true,
   usageText: '2%',
@@ -246,3 +223,53 @@ export function loadStampListMock(): PostageBatch[] {
     },
   ];
 }
+
+export type SeedableFm = { _recordList: FileRecord[] };
+export const seedRecords = (fm: FileManagerBase, ...records: FileRecord[]): void => {
+  (fm as unknown as SeedableFm)._recordList.push(...records);
+};
+
+export function applyDefaultMocks(): void {
+  jest.resetAllMocks();
+  createInitMocks();
+
+  (getFeedData as jest.Mock).mockResolvedValue({
+    feedIndex: FeedIndex.MINUS_ONE,
+    feedIndexNext: FEED_INDEX_ZERO,
+    payload: {
+      toUint8Array: () => SWARM_ZERO_ADDRESS.toUint8Array(),
+      toJSON: () => ({
+        reference: SWARM_ZERO_ADDRESS.toString(),
+        historyRef: SWARM_ZERO_ADDRESS.toString(),
+      }),
+    },
+  });
+
+  (fetchStamp as jest.Mock).mockResolvedValue({ ...mockPostageBatch });
+
+  (loadMantaray as jest.Mock).mockResolvedValue(new MantarayNode());
+  (getAllNodeEntries as jest.Mock).mockReturnValue([]);
+}
+
+export const seedDummyFile = (
+  drive: DriveInfo,
+  path: string,
+  ref: string,
+  owner: string,
+  actPublisher: string,
+): FileRecord => {
+  return {
+    type: NodeType.File,
+    batchId: DUMMY_BATCH_ID,
+    owner,
+    actPublisher,
+    topic: Topic.fromString(`dl-${path}`).toString(),
+    driveId: drive.id,
+    path,
+    content: {
+      reference: ref,
+      historyRef: SWARM_ZERO_ADDRESS.toString(),
+    },
+    redundancyLevel: RedundancyLevel.OFF,
+  };
+};

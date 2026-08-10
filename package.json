@@ -19,11 +19,10 @@
     "build:cjs": "tsc -p tsconfig.cjs.json",
     "build:esm": "tsc -p tsconfig.esm.json",
     "build:types": "tsc --emitDeclarationOnly --declaration --outDir dist/types",
-    "test": "jest --config=jest.config.ts --runInBand --verbose --silent",
-    "test:keep": "cross-env KEEP_BEE_DIRS=true pnpm run test",
-    "test:ut": "cross-env KEEP_BEE_DIRS=true pnpm run test --selectProjects=unit",
-    "test:it": "cross-env KEEP_BEE_DIRS=true pnpm run test --selectProjects=integration",
-    "test:coverage": "jest --coverage",
+    "test": "jest --config=jest.config.ts --maxWorkers=4 --verbose --silent",
+    "test:ut": "pnpm run test --selectProjects=unit",
+    "test:it": "pnpm run test --selectProjects=integration",
+    "test:coverage": "pnpm run test --coverage",
     "lint": "eslint . --report-unused-disable-directives --no-cache --max-warnings=5",
     "lint:fix": "pnpm run lint --fix",
     "check:types": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.cjs.json --noEmit && tsc -p tsconfig.esm.json --noEmit",
@@ -55,9 +54,15 @@
     "cafe-utility": "^36.2.0",
     "std-env": "^3.10.0"
   },
+  "overrides": {
+    "@ethersphere/bee-factory": {
+      "@ethersphere/bee-js": "npm:@solarpunkltd/bee-js@0.0.0-fmv2.1"
+    }
+  },
   "devDependencies": {
     "@commitlint/cli": "^20.4.1",
     "@commitlint/config-conventional": "^20.4.1",
+    "@ethersphere/bee-factory": "^1.1.1",
     "@eslint/js": "^9.39.2",
     "@types/event-emitter": "^0.3.5",
     "@types/fs-extra": "^11.0.4",
@@ -65,7 +70,6 @@
     "@types/node": "^25.1.0",
     "@typescript-eslint/eslint-plugin": "^8.54.0",
     "@typescript-eslint/parser": "^8.54.0",
-    "cross-env": "^10.1.0",
     "depcheck": "^1.4.7",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
