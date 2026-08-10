@@ -7,10 +7,12 @@ method was modified — only imports were added.
 ## Added — public methods
 
 - **`downloadFile(fileRecord, options?, requestOptions?)`** — convenience wrapper: downloads a single caller-held record
-  via `downloadFiles` and returns its one result.
+  via `downloadFiles` and returns its `DownloadResult`, **throwing `FileError`** if that download did not succeed (so the
+  `Promise<DownloadResult>` contract is honored). Mirrors `uploadFile`'s singular-throws shape.
 - **`downloadFiles(fileRecords, options?, requestOptions?)`** — downloads exactly the passed records with no drive
   traversal or re-resolution (caller owns record currency). Maps each record to a `DownloadResource` and delegates to
-  transport `processDownload`.
+  transport `processDownload`. Returns a partial-tolerant `DownloadFilesResult { succeeded, failed }`, mirroring
+  `uploadFiles` — per-file failures land in `failed` instead of being dropped.
 - **`getFileVersion(fr, version?, requestOptions?)`** — resolves a specific version from the file's own feed
   (short-circuits to the in-memory head when the cached version matches), returning the `FileRecord` for that slot.
   Read-only — no persistence.
@@ -22,7 +24,9 @@ method was modified — only imports were added.
 
 Content download is not re-implemented here. `downloadFiles` builds `DownloadResource[]` (from `./types/v2/download`)
 and calls transport's `processDownload` (from `./download`), which fans out over `bee.downloadReadableData` and returns
-`DownloadResult[]`. `DownloadOptions` comes from bee-js.
+`DownloadFilesResult { succeeded, failed }`. `DownloadOptions` comes from bee-js. Because `downloadReadableData` resolves
+at stream-open, `succeeded` means the stream opened — a failure while draining surfaces on the consumer's stream, not in
+`failed`. Aborts are not recorded as per-file failures; the post-settle abort check surfaces them instead.
 
 ## Core helpers reused (already present)
 

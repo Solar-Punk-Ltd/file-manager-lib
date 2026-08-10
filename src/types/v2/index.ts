@@ -17,5 +17,5 @@ export type {
   UploadSource,
   UploadFilesResult,
 } from './upload';
-export type { DownloadResource, DownloadResult } from './download';
-export type { ActReferences, FeedPayloadResult, FeedReferenceResult, FeedResultWithIndex } from './utils';
+export type { DownloadFilesResult, DownloadResource, DownloadResult } from './download';
+export type { ActReferences, FeedPayloadResult, FeedReferenceResult, FeedResultWithIndex, FailedResult } from './utils';
