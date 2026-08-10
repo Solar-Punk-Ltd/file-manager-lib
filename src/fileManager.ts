@@ -820,7 +820,7 @@ export class FileManagerBase {
         visitedNodes.map((item) => async (): Promise<NodeHeader[]> => {
           const mantarayNode = await this.store.getMantarayNode(
             item.host.topic,
-            publisher,
+            item.host.actPublisher ?? publisher,
             item.host.manifestRef,
             requestOptions,
           );
@@ -929,12 +929,12 @@ export class FileManagerBase {
   ): Promise<DownloadFilesResult> {
     requestOptions?.signal?.throwIfAborted();
     assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-
     await this.listFolder(driveId, path, ListDepth.Deep, undefined, requestOptions);
 
     const normalized = normalizePath(path);
     const prefix = normalized ? normalized + '/' : '';
-    const files = this.fileInfoList.filter((f) => f.driveId === driveId.toString() && f.path.startsWith(prefix));
+    const driveIdStr = new Identifier(driveId).toString();
+    const files = this.fileInfoList.filter((f) => f.driveId === driveIdStr && f.path.startsWith(prefix));
 
     return this.downloadFiles(files, options, requestOptions);
   }
@@ -948,9 +948,8 @@ export class FileManagerBase {
   ): Promise<void> {
     requestOptions?.signal?.throwIfAborted();
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const { driveIx: sourceDriveIx, cachedDrive: cachedSource } = this.findDriveOrThrow(
-      new Identifier(sourceDriveId).toString(),
-    );
+    const sourceDriveIdStr = new Identifier(sourceDriveId).toString();
+    const { driveIx: sourceDriveIx, cachedDrive: cachedSource } = this.findDriveOrThrow(sourceDriveIdStr);
 
     // disable drive move
     if (!fromPath || fromPath === ROOT_PATH) {
@@ -960,13 +959,15 @@ export class FileManagerBase {
       throw new DriveError('Invalid destination path');
     }
 
-    const isCrossDrive = !!targetDriveId && targetDriveId !== sourceDriveId;
-    const effectiveTargetId = (targetDriveId ?? sourceDriveId).toString();
+    const targetDriveIdStr = targetDriveId ? new Identifier(targetDriveId).toString() : undefined;
+
+    const isCrossDrive = !!targetDriveIdStr && targetDriveIdStr !== sourceDriveIdStr;
+    const effectiveTargetId = targetDriveIdStr ?? sourceDriveIdStr;
 
     let cachedTargetDrive: DriveInfo = cachedSource;
     let cachedTargetDriveIx = sourceDriveIx;
-    if (targetDriveId) {
-      const { driveIx, cachedDrive } = this.findDriveOrThrow(new Identifier(targetDriveId).toString());
+    if (targetDriveIdStr) {
+      const { driveIx, cachedDrive } = this.findDriveOrThrow(targetDriveIdStr);
       cachedTargetDrive = cachedDrive;
       cachedTargetDriveIx = driveIx;
     }
@@ -1056,7 +1057,7 @@ export class FileManagerBase {
       const fromPrefix = fromPath + '/';
       const toPrefix = toPath + '/';
       for (const f of this.fileInfoList) {
-        if (f.driveId === sourceDriveId.toString() && f.path.startsWith(fromPrefix)) {
+        if (f.driveId === sourceDriveIdStr && f.path.startsWith(fromPrefix)) {
           f.path = toPrefix + f.path.substring(fromPrefix.length);
           if (isCrossDrive) {
             f.driveId = effectiveTargetId;
