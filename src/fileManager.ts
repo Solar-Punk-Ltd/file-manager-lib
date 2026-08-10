@@ -161,7 +161,7 @@ export class FileManagerBase {
     }
 
     const batchIdStr = batchId.toString();
-    const fetchedStamp = await fetchStamp(this.bee, batchId);
+    const fetchedStamp = await fetchStamp(this.bee, batchId, requestOptions);
     verifyStampUsability(fetchedStamp, batchIdStr);
 
     return this.registerDrive(
@@ -271,6 +271,7 @@ export class FileManagerBase {
 
     this.stateFeedTopic = new Topic(topicBytes.toUint8Array());
     this.logger.debug('Drive list feed successfully fetched');
+    this.emitter.emit(FileManagerEvents.STATE_INVALID, false);
 
     return true;
   }
@@ -360,6 +361,7 @@ export class FileManagerBase {
     await statefw.uploadPayload(batchId, JSON.stringify(topicState), { index: feedIndexNext });
 
     this.stateFeedTopic = newStateFeedTopic;
+    this.adminRedundancyLevel = redundancyLevel;
     this.store.setManifestCache(newStateFeedTopic.toString(), new MantarayNode());
     this.store.setNodeFeedIndex(newStateFeedTopic.toString(), 0n);
   }
