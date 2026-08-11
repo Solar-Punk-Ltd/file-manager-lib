@@ -2,10 +2,8 @@
   "ignores": [
     "@commitlint/*",
     "@ethersphere/bee-factory",
-    "rimraf",
     "ts-node",
     "@types/*",
-    "@babel/*",
     "eslint*",
     "@eslint/*",
     "ts-jest",
