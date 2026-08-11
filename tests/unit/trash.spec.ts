@@ -1,10 +1,11 @@
-import { Bytes, FeedIndex, Identifier, type MantarayNode, RedundancyLevel, Topic } from '@ethersphere/bee-js';
+import { Bee, Bytes, FeedIndex, Identifier, type MantarayNode, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 
 import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID, makeUploadSource } from '../utils';
 
 import { applyDefaultMocks, createMockNodeAddresses, seedRecords } from './mock';
 
 import { type FileManagerBase } from '@/fileManager';
+import { type MantarayStore } from '@/mantarayStore';
 import { type DriveInfo, type FileRecord, type FolderInfo, NodeStatus, NodeType } from '@/types';
 import { FileManagerEvents } from '@/utils';
 import { getFeedData } from '@/utils/bee';
@@ -141,6 +142,30 @@ describe('Lifecycle management', () => {
       expect(trashed[0].path).toBe(fileRecord.path);
 
       spyFetch.mockRestore();
+    });
+
+    it('does not repoint the cached refs at the slot the entry was trashed at', async () => {
+      await fm.trashFile(fileRecord);
+
+      const store = (fm as any).store as MantarayStore;
+      const headRefs = { reference: 'a'.repeat(64), historyRef: 'b'.repeat(64) };
+      store.setNodeRef(fileRecord.topic, headRefs);
+
+      (getFeedData as jest.Mock).mockResolvedValue({
+        feedIndex: FeedIndex.fromBigInt(0n),
+        feedIndexNext: FeedIndex.fromBigInt(1n),
+        payload: { toJSON: () => ({ reference: 'c'.repeat(64), historyRef: 'd'.repeat(64) }) },
+      });
+      jest
+        .spyOn(Bee.prototype, 'downloadData')
+        .mockResolvedValue(
+          new Bytes(new TextEncoder().encode(JSON.stringify({ ...fileRecord, driveId: undefined, status: undefined }))),
+        );
+
+      const trashed = await fm.listTrash(drive.id);
+
+      expect(trashed).toHaveLength(1);
+      expect(store.getNodeRef(fileRecord.topic)).toEqual(headRefs);
     });
   });
 

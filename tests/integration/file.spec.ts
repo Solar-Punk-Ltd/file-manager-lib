@@ -269,6 +269,20 @@ describe('uploadFiles', () => {
     await expect(fileManager.uploadFiles(drive.id, [], '')).rejects.toThrow(/at least one entry/i);
   });
 
+  it('defaults destinationPath to the drive root when omitted', async () => {
+    const src = writeTempFile('it-uploadmany-default-dest.txt', 'Default destination content');
+
+    const result = await fileManager.uploadFiles(drive.id, [{ path: 'defaultdest/x.txt', sourcePath: src }]);
+
+    expect(result.failed).toHaveLength(0);
+    expect(result.succeeded.map((r) => r.path)).toEqual(['defaultdest/x.txt']);
+
+    const downloads = await retryOnPropagationDelay(() => fileManager.downloadFolder(drive.id, 'defaultdest'));
+    const got = downloads.succeeded.find((d) => d.path === 'defaultdest/x.txt');
+    expect(got).toBeDefined();
+    expect(Buffer.from(await streamToUint8Array(got!.result)).toString('utf-8')).toBe('Default destination content');
+  });
+
   it('rejects a batch containing two entries that resolve to the same destination', async () => {
     const srcFile = writeTempFile('it-uploadmany-dup-src.txt', 'dup batch content');
 

@@ -2,10 +2,12 @@ import {
   BatchId,
   Bee,
   BeeResponseError,
+  FeedIndex,
   type PrivateKey,
   type PublicKey,
   RedundancyLevel,
   Reference,
+  Topic,
 } from '@ethersphere/bee-js';
 
 import {
@@ -25,7 +27,7 @@ import { type ActReferences } from '@/types';
 import { ADMIN_STAMP_LABEL, FILEMANAGER_STATE_TOPIC, FileManagerEvents, StampError } from '@/utils';
 import { assertActReferences } from '@/utils/asserts';
 import { getFeedData } from '@/utils/bee';
-import { SWARM_ZERO_ADDRESS } from '@/utils/constants';
+import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 import { generateRandomBytes } from '@/utils/crypto';
 
 describe('Initialization and construction', () => {
@@ -121,6 +123,21 @@ describe('Initialization and construction', () => {
       expect(error).toBeInstanceOf(BeeResponseError);
       expect((error as BeeResponseError).status).toBe(404);
     }
+  });
+
+  it('reports an empty feed for an unwritten topic, and Bee reports it as a 404', async () => {
+    const unwritten = new Topic(generateRandomBytes(Topic.LENGTH));
+    const address = signer.publicKey().address();
+
+    await expect(bee.makeFeedReader(unwritten.toUint8Array(), address).downloadPayload()).rejects.toMatchObject({
+      status: 404,
+    });
+
+    const { feedIndex, feedIndexNext, payload } = await getFeedData(bee, unwritten, address.toString());
+
+    expect(feedIndex.equals(FeedIndex.MINUS_ONE)).toBe(true);
+    expect(feedIndexNext.equals(FEED_INDEX_ZERO)).toBe(true);
+    expect(payload).toBe(SWARM_ZERO_ADDRESS);
   });
 
   it('should not reinitialize if already initialized', async () => {

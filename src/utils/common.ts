@@ -39,9 +39,20 @@ export const getRecordStatus = (drive: DriveInfo, topic: string): NodeStatus => 
   return isFoundInTrash ? NodeStatus.Trashed : NodeStatus.Active;
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function isNotFoundError(error: any): boolean {
-  return error.stack?.includes('404') || error.message?.includes('Not Found') || error.message?.includes('404');
+const HTTP_NOT_FOUND = 404;
+
+const toStatusCode = (value: unknown): number | undefined => {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value);
+  return undefined;
+};
+
+export function isNotFoundError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+
+  const { status, response } = error as { status?: unknown; response?: { status?: unknown } };
+
+  return toStatusCode(status) === HTTP_NOT_FOUND || toStatusCode(response?.status) === HTTP_NOT_FOUND;
 }
 
 export async function settlePromises<T>(

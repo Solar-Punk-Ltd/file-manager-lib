@@ -35,6 +35,7 @@ import {
   MANIFEST_METADATA_FILE_TOPIC,
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
+  ROOT_PATH,
   SWARM_ZERO_ADDRESS,
 } from '@/utils/constants';
 
@@ -311,6 +312,36 @@ describe('File operations', () => {
   });
 
   describe('uploadFiles', () => {
+    it('defaults destinationPath to the drive root when omitted', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      const di = fm.driveList[1];
+
+      const result = await fm.uploadFiles(di.id, [{ path: 'root-default.txt', ...makeUploadSource('package.json') }]);
+
+      expect(result.failed).toHaveLength(0);
+      expect(result.succeeded.map((r) => r.path)).toEqual(['root-default.txt']);
+
+      const driveMantaray = (fm as any).store.getManifestCache(di.topic) as MantarayNode;
+      expect(driveMantaray.find('root-default.txt')).toBeTruthy();
+    });
+
+    it('treats an omitted destinationPath the same as an explicit root', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      const di = fm.driveList[1];
+
+      const omitted = await fm.uploadFiles(di.id, [{ path: 'omitted.txt', ...makeUploadSource('package.json') }]);
+      const explicit = await fm.uploadFiles(
+        di.id,
+        [{ path: 'explicit.txt', ...makeUploadSource('package.json') }],
+        ROOT_PATH,
+      );
+
+      expect(omitted.succeeded[0].path).toBe('omitted.txt');
+      expect(explicit.succeeded[0].path).toBe('explicit.txt');
+    });
+
     it('rejects a batch whose entries resolve to the same destination path', async () => {
       const fm = await createInitializedFileManager();
       await fm.createDrive(otherMockBatchId, 'Test Drive');
@@ -483,7 +514,13 @@ describe('File operations', () => {
 
       await fm.updateFile(di.id, record, { customMetadata: { note: 'hi' } });
 
-      expect(getRecordSpy).toHaveBeenCalledWith(record.topic, record.actPublisher, expect.anything(), undefined);
+      expect(getRecordSpy).toHaveBeenCalledWith(
+        record.topic,
+        record.actPublisher,
+        expect.anything(),
+        { isHeadRead: true },
+        undefined,
+      );
       const rehydrated = fm.recordList.filter((f) => f.topic === record.topic);
       expect(rehydrated).toHaveLength(1);
       expect(rehydrated[0].version).toBe(FeedIndex.fromBigInt(1n).toString());

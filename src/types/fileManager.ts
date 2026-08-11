@@ -106,7 +106,10 @@ export interface FileManager {
    * are collected rather than aborting the whole batch.
    * @param driveId - The ID of the drive to upload into.
    * @param items - The files to upload, each with a path relative to destinationPath.
-   * @param destinationPath - Absolute path of the destination folder, or '/' for the drive root.
+   * Aborting rejects as soon as the signal is seen and no manifest is saved,
+   * @param driveId - The ID of the drive to upload into.
+   * @param items - The files to upload, each with a path relative to destinationPath.
+   * @param destinationPath - Absolute path of the destination folder; defaults to the drive root.
    * @param uploadOptions - File-related upload options.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FOLDER_CREATED (per folder created)
@@ -118,7 +121,7 @@ export interface FileManager {
    * @throws {DriveError} If not initialized, driveId is not found, or a path segment is a file (not a folder).
    * @throws {SignerError} If the publisher/signer is unavailable.
    *   Note: per-file content-upload failures are collected in `failed`, not thrown — as is an item
-   *   whose destination name is already taken in the drive.
+   *   whose destination name is already taken in the drive. An aborted signal rejects instead.
    */
   uploadFiles(
     driveId: string | Identifier,
@@ -157,7 +160,7 @@ export interface FileManager {
   /**
    * Downloads every file in a folder subtree of a drive (resolved fresh via  {@link listFolder}).
    * @param driveId - The ID of drive to download from.
-   * @param path - Absolute path of the folder; omitted = the whole drive.
+   * @param path - Absolute path of the folder; defaults to the drive root.
    * @param options - Optional download options.
    * @param requestOptions - Additional Bee request options.
    * @returns A promise that resolves to DownloadFilesResult, marking per file success and failure in the subtree.

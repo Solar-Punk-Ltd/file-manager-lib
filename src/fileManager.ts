@@ -323,7 +323,7 @@ export class FileManagerBase implements FileManager {
   async uploadFiles(
     driveId: string | Identifier,
     items: UploadItem[],
-    destinationPath: string,
+    destinationPath: string = ROOT_PATH,
     uploadOptions?: RedundantUploadOptions | FileUploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<UploadFilesResult> {
@@ -451,6 +451,7 @@ export class FileManagerBase implements FileManager {
     }
 
     const dirtyHosts = new Map<string, ManifestHost>();
+    const createdFolderTopics: string[] = [];
 
     for (const { path, parentPath, folderName } of missingFolders) {
       const parentHost = hostMap.get(parentPath);
@@ -469,6 +470,7 @@ export class FileManagerBase implements FileManager {
       );
 
       hostMap.set(path, folderInfo);
+      createdFolderTopics.push(folderInfo.topic);
       dirtyHosts.set(parentHost.topic, parentHost);
 
       this.emitter.emit(FileManagerEvents.FOLDER_CREATED, { folderInfo });
@@ -480,7 +482,7 @@ export class FileManagerBase implements FileManager {
 
     await awaitAllPromisesBounded(
       plannedFiles.map((planned) => async (): Promise<FileRecord> => {
-        // Between-files abort is benign — completed files are valid standalone nodes.
+        // Stop starting files as soon as the caller aborts
         requestOptions?.signal?.throwIfAborted();
 
         const parentHost = hostMap.get(planned.parentPath);
@@ -546,8 +548,10 @@ export class FileManagerBase implements FileManager {
       },
     );
 
-    // Batched saves. Run-to-completion, interrupting them mid-flight would tear state
-    requestOptions?.signal?.throwIfAborted();
+    if (requestOptions?.signal?.aborted) {
+      this.discardUploadBatch(succeeded, [...dirtyHosts.keys(), ...createdFolderTopics]);
+      requestOptions.signal.throwIfAborted();
+    }
 
     for (const host of dirtyHosts.values()) {
       const mantarayNode = await this.store.getMantarayNode(host.topic, publisher, host.manifestRef, requestOptions);
@@ -730,7 +734,13 @@ export class FileManagerBase implements FileManager {
       throw new FileRecordError(`File feed not found for topic: ${fr.topic.slice(0, 6)}`);
     }
 
-    const versionRecord = await this.store.getRecord(topic.toString(), fr.actPublisher, feedData, requestOptions);
+    const versionRecord = await this.store.getRecord(
+      topic.toString(),
+      fr.actPublisher,
+      feedData,
+      { isHeadRead: version === undefined },
+      requestOptions,
+    );
     versionRecord.driveId = fr.driveId;
     versionRecord.path = localHead?.path ?? fr.path;
 
@@ -987,7 +997,7 @@ export class FileManagerBase implements FileManager {
   // via listFolder), then fetches them. path '/' the whole drive.
   async downloadFolder(
     driveId: string | Identifier,
-    path: string,
+    path: string = ROOT_PATH,
     options?: DownloadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<DownloadFilesResult> {
@@ -1290,7 +1300,13 @@ export class FileManagerBase implements FileManager {
         }
 
         if (entry.type === NodeType.File) {
-          const fr = await this.store.getRecord(entry.topic, publisher, feedData, requestOptions);
+          const fr = await this.store.getRecord(
+            entry.topic,
+            publisher,
+            feedData,
+            { isHeadRead: entry.version === undefined },
+            requestOptions,
+          );
           fr.path = entry.path;
           fr.status = NodeStatus.Trashed;
           fr.driveId = cachedDrive.id;
@@ -1342,6 +1358,20 @@ export class FileManagerBase implements FileManager {
     this._driveList.length = 0;
     this._recordList.length = 0;
     this.store.clear();
+  }
+
+  private discardUploadBatch(records: FileRecord[], mutatedTopics: string[]): void {
+    for (const record of records) {
+      const ix = this.recordList.findIndex((f) => f.topic === record.topic);
+      if (ix !== -1) {
+        this._recordList.splice(ix, 1);
+      }
+      this.store.evict(record.topic);
+    }
+
+    for (const topic of mutatedTopics) {
+      this.store.evict(topic);
+    }
   }
 
   private async tryToFetchAdminState(requestOptions?: BeeRequestOptions): Promise<boolean> {
@@ -1747,7 +1777,7 @@ export class FileManagerBase implements FileManager {
       throw new FileRecordError(`File record not found for topic: ${topic.slice(0, 6)}`);
     }
 
-    const loaded = await this.store.getRecord(topic, actPublisher, feedData, requestOptions);
+    const loaded = await this.store.getRecord(topic, actPublisher, feedData, { isHeadRead: true }, requestOptions);
     this._recordList.push(loaded);
 
     return { record: loaded, fromCache: false };

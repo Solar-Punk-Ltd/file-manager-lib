@@ -130,6 +130,23 @@ describe('Folder operations', () => {
   });
 
   describe('downloadFolder', () => {
+    it('defaults to the whole drive when path is omitted', async () => {
+      const src = writeTempFile('it-downloadFolder-defaultpath.txt', 'default path content');
+      const up = await fileManager.uploadFiles(drive.id, [{ path: 'defaultpath/deep/y.txt', sourcePath: src }], '');
+      expect(up.failed).toHaveLength(0);
+
+      const downloads = await retryOnPropagationDelay(async () => {
+        const res = await fileManager.downloadFolder(drive.id);
+        if (!res.succeeded.some((d) => d.path === 'defaultpath/deep/y.txt')) {
+          throw new Error('nested upload not yet propagated');
+        }
+        return res;
+      });
+
+      const got = downloads.succeeded.find((d) => d.path === 'defaultpath/deep/y.txt');
+      expect(Buffer.from(await streamToUint8Array(got!.result)).toString('utf-8')).toBe('default path content');
+    });
+
     it('composes destinationPath with a relative item path — placement differs from destination and source', async () => {
       const srcFile = writeTempFile('it-downloadFolder-dest-src.txt', 'destination compose content');
 

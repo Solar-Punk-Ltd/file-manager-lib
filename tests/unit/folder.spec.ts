@@ -56,6 +56,21 @@ describe('Folder operations', () => {
       expect(results.succeeded.map((r) => r.path).sort()).toEqual(['a.txt', 'b.txt']);
     });
 
+    it('defaults to the whole drive when path is omitted', async () => {
+      const fm = await createInitializedFileManager();
+      const drive = fm.driveList[0];
+      seedRecords(
+        fm,
+        seedDummyFile(drive, 'a.txt', '1'.repeat(64), owner, actPublisher),
+        seedDummyFile(drive, 'nested/b.txt', '2'.repeat(64), owner, actPublisher),
+      );
+
+      const results = await fm.downloadFolder(drive.id);
+
+      expect(results.failed).toEqual([]);
+      expect(results.succeeded.map((r) => r.path).sort()).toEqual(['a.txt', 'nested/b.txt']);
+    });
+
     it('downloadFolder does not download files belonging to a different drive', async () => {
       const fm = await createInitializedFileManager();
       const drive = fm.driveList[0];

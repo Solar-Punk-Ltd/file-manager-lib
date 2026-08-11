@@ -1,5 +1,6 @@
 import {
   BatchId,
+  Bee,
   Bytes,
   FeedIndex,
   Identifier,
@@ -14,6 +15,7 @@ import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID, make
 import { applyDefaultMocks, createMockNodeAddresses, seedRecords } from './mock';
 
 import { type FileManagerBase } from '@/fileManager';
+import { type MantarayStore } from '@/mantarayStore';
 import { type FileRecord, NodeType } from '@/types';
 import { type FeedResultWithIndex } from '@/types/utils';
 import { FileManagerEvents } from '@/utils';
@@ -38,6 +40,8 @@ describe('Version control', () => {
     version: FeedIndex.fromBigInt(0n).toString(),
     redundancyLevel: RedundancyLevel.OFF,
   };
+
+  const recordBytes = (record: FileRecord): Bytes => new Bytes(new TextEncoder().encode(JSON.stringify(record)));
 
   beforeEach(async () => {
     applyDefaultMocks();
@@ -64,6 +68,7 @@ describe('Version control', () => {
         dummyFi.topic,
         new PublicKey(actPublisher).toCompressedHex(),
         rawMock,
+        { isHeadRead: false },
         undefined,
       );
       expect(got).toBe(fakeFi);
@@ -132,6 +137,50 @@ describe('Version control', () => {
       expect(got.path).toBe('moved/x.txt');
 
       spyFetch.mockRestore();
+    });
+
+    it('leaves the cached head refs alone when an older version is read', async () => {
+      const headRefs = { reference: 'a'.repeat(64), historyRef: 'b'.repeat(64) };
+      const oldRefs = { reference: 'c'.repeat(64), historyRef: 'd'.repeat(64) };
+
+      seedRecords(fm, { ...dummyFi, version: FeedIndex.fromBigInt(5n).toString() });
+      const store = (fm as any).store as MantarayStore;
+      store.setNodeRef(dummyTopic, headRefs);
+
+      (getFeedData as jest.Mock).mockResolvedValue({
+        feedIndex: FEED_INDEX_ZERO,
+        feedIndexNext: FeedIndex.fromBigInt(1n),
+        payload: { toJSON: () => oldRefs },
+      });
+      jest
+        .spyOn(Bee.prototype, 'downloadData')
+        .mockResolvedValue(recordBytes({ ...dummyFi, version: FEED_INDEX_ZERO.toString() }));
+
+      const got = await fm.getFileVersion(dummyFi, FEED_INDEX_ZERO);
+
+      expect(got.content).toEqual(dummyFi.content);
+      expect(store.getNodeRef(dummyTopic)).toEqual(headRefs);
+    });
+
+    it('refreshes the cached refs when the head itself is read', async () => {
+      const staleRefs = { reference: 'a'.repeat(64), historyRef: 'b'.repeat(64) };
+      const headRefs = { reference: 'c'.repeat(64), historyRef: 'd'.repeat(64) };
+
+      const store = (fm as any).store as MantarayStore;
+      store.setNodeRef(dummyTopic, staleRefs);
+
+      (getFeedData as jest.Mock).mockResolvedValue({
+        feedIndex: FeedIndex.fromBigInt(7n),
+        feedIndexNext: FeedIndex.fromBigInt(8n),
+        payload: { toJSON: () => headRefs },
+      });
+      jest
+        .spyOn(Bee.prototype, 'downloadData')
+        .mockResolvedValue(recordBytes({ ...dummyFi, version: FeedIndex.fromBigInt(7n).toString() }));
+
+      await fm.getFileVersion(dummyFi);
+
+      expect(store.getNodeRef(dummyTopic)).toEqual(headRefs);
     });
   });
 

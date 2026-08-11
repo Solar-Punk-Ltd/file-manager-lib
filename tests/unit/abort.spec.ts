@@ -1,6 +1,7 @@
-import { BatchId, Bee, MantarayNode, RedundancyLevel, Topic } from '@ethersphere/bee-js';
+import { BatchId, Bee, type BeeRequestOptions, MantarayNode, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 
 import {
+  BEE_URL,
   createInitializedFileManager,
   DEFAULT_MOCK_SIGNER,
   DUMMY_BATCH_ID,
@@ -10,8 +11,10 @@ import {
 
 import { applyDefaultMocks, createMockDriveInfo, createMockNodeAddresses, seedRecords } from './mock';
 
-import { type FileRecord, ListDepth, NodeType } from '@/types';
-import { DriveError } from '@/utils';
+import { EventEmitterBase } from '@/eventEmitter';
+import { FileManagerBase } from '@/fileManager';
+import { type DriveInfo, type FileRecord, ListDepth, NodeType } from '@/types';
+import { DriveError, FileManagerEvents } from '@/utils';
 import { SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
 describe('Abort signal handling', () => {
@@ -85,6 +88,121 @@ describe('Abort signal handling', () => {
         signal: controller.signal,
       }),
     ).resolves.not.toThrow();
+  });
+
+  describe('uploadFiles', () => {
+    async function sequentialFm(): Promise<FileManagerBase> {
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const fm = new FileManagerBase(bee, new EventEmitterBase(), { uploadConcurrency: 1 });
+      await fm.initialize();
+      await fm.createAdminDrive(DUMMY_BATCH_ID, RedundancyLevel.MEDIUM);
+      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      return fm;
+    }
+
+    it('rejects immediately when the signal is already aborted', async () => {
+      const fm = await sequentialFm();
+      const di = fm.driveList[1];
+
+      const controller = new AbortController();
+      controller.abort();
+
+      const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
+      uploadDataSpy.mockClear();
+
+      await expect(
+        fm.uploadFiles(di.id, [{ path: 'pre-aborted.txt', ...makeUploadSource('package.json') }], '', undefined, {
+          signal: controller.signal,
+        }),
+      ).rejects.toThrow();
+
+      expect(uploadDataSpy).not.toHaveBeenCalled();
+    });
+
+    it('stops paying for the rest of the batch as soon as the signal fires', async () => {
+      const fm = await sequentialFm();
+      const di = fm.driveList[1];
+
+      const controller = new AbortController();
+      fm.emitter.on(FileManagerEvents.FILE_UPLOADED, () => controller.abort());
+
+      const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
+      uploadDataSpy.mockClear();
+
+      await expect(
+        fm.uploadFiles(
+          di.id,
+          [
+            { path: 'first.txt', ...makeUploadSource('package.json') },
+            { path: 'never-one.txt', ...makeUploadSource('package.json') },
+            { path: 'never-two.txt', ...makeUploadSource('package.json') },
+          ],
+          '',
+          undefined,
+          { signal: controller.signal },
+        ),
+      ).rejects.toThrow();
+
+      const uploadedPayloads = uploadDataSpy.mock.calls.length;
+      expect(uploadedPayloads).toBeGreaterThan(0);
+      expect(uploadedPayloads).toBeLessThanOrEqual(2);
+    });
+
+    it('discards the aborted batch from local state instead of leaving it half-applied', async () => {
+      const fm = await sequentialFm();
+      const di = fm.driveList[1];
+
+      const controller = new AbortController();
+      fm.emitter.on(FileManagerEvents.FILE_UPLOADED, () => controller.abort());
+
+      const recordsBefore = fm.recordList.length;
+      const manifestRefBefore = { ...di.manifestRef } as Required<DriveInfo>['manifestRef'];
+
+      await expect(
+        fm.uploadFiles(
+          di.id,
+          [
+            { path: 'aborted-one.txt', ...makeUploadSource('package.json') },
+            { path: 'aborted-two.txt', ...makeUploadSource('package.json') },
+          ],
+          '',
+          undefined,
+          { signal: controller.signal },
+        ),
+      ).rejects.toThrow();
+
+      expect(fm.recordList).toHaveLength(recordsBefore);
+      expect(fm.recordList.some((fr) => fr.path.startsWith('aborted-'))).toBe(false);
+
+      expect((fm as any).store.getManifestCache(di.topic)).toBeUndefined();
+
+      expect(fm.driveList[1].manifestRef).toEqual(manifestRefBefore);
+    });
+
+    it('saves the batch normally when the signal never fires', async () => {
+      const fm = await sequentialFm();
+      const di = fm.driveList[1];
+
+      const controller = new AbortController();
+      const saveManifestSpy = jest.spyOn((fm as any).store, 'saveMantarayNode');
+
+      const result = await fm.uploadFiles(
+        di.id,
+        [{ path: 'clean.txt', ...makeUploadSource('package.json') }],
+        '',
+        undefined,
+        { signal: controller.signal },
+      );
+
+      expect(result.failed).toHaveLength(0);
+      expect(result.succeeded.map((r) => r.path)).toEqual(['clean.txt']);
+      expect(saveManifestSpy).toHaveBeenCalledTimes(1);
+      const finalizeOptions = saveManifestSpy.mock.calls[0][2] as BeeRequestOptions | undefined;
+      expect(finalizeOptions?.signal).toBe(controller.signal);
+
+      const driveMantaray = (fm as any).store.getManifestCache(di.topic) as MantarayNode;
+      expect(driveMantaray.find('clean.txt')).toBeTruthy();
+    });
   });
 
   it('throw if listFolder is called on a non-existent drive', async () => {

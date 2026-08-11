@@ -164,6 +164,7 @@ export class MantarayStore {
     topic: string,
     actPublisher: string,
     feedData: FeedResultWithIndex,
+    options: { isHeadRead: boolean },
     requestOptions?: BeeRequestOptions,
   ): Promise<FileRecord> {
     if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
@@ -189,8 +190,11 @@ export class MantarayStore {
     }
 
     record.version = feedData.feedIndex.toString();
-    this.nodeRefCache.set(topic, contentRefs);
-    this.nodeFeedIndexCache.set(topic, new FeedIndex(record.version).next().toBigInt());
+
+    if (options.isHeadRead) {
+      this.nodeRefCache.set(topic, contentRefs);
+      this.nodeFeedIndexCache.set(topic, new FeedIndex(record.version).next().toBigInt());
+    }
 
     return record;
   }

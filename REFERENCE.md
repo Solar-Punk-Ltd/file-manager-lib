@@ -145,7 +145,7 @@ created as needed; each touched parent manifest is saved once at the end. **Part
 are collected, not thrown.
 
 - **items** [`UploadItem[]`](#uploaditem) — each with a `path` relative to `destinationPath`.
-- **destinationPath?** — absolute destination folder, or `'/'` for the drive root.
+- **destinationPath?** — absolute destination folder; defaults to the drive root.
 - **Returns**: [`UploadFilesResult`](#uploadfilesresult) — `{ succeeded, failed }`.
 - **Emits**: `FOLDER_CREATED` (per folder created), `FILE_UPLOADED` (per file), `FILES_UPLOADED` (once, batch summary).
 - **Throws**: `FileRecordError` (no items, invalid item path, two items resolving to the same destination, or a malformed
@@ -153,6 +153,12 @@ are collected, not thrown.
   content-upload failures go into `failed`, as does an item whose destination name is already taken.
 
 Existing folders along the way are reused; existing **files** are not overwritten (see `uploadFile` above).
+
+**Abort semantics.** Aborting wins immediately: the batch stops starting files, no manifest is saved, and the call
+rejects. The batch's own in-memory state is discarded with it — the records it persisted are removed from `recordList`
+and every manifest it mutated is evicted from the store — so the drive is left exactly as it was and nothing from the
+aborted batch can be committed later by an unrelated save. Content and record feeds written before the abort are spent
+but unreferenced; re-upload those files to place them.
 
 ### `updateFile(driveId, record, changes, uploadOptions?, requestOptions?): Promise<FileRecord>`
 
