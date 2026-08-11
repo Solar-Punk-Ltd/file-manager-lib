@@ -181,6 +181,7 @@ export function parseTrashedNodes(raw?: string): TrashEntry[] {
       .map((e) => ({
         topic: e.topic as string,
         type: (e.type as NodeType) ?? NodeType.File,
+        version: typeof e.version === 'string' ? (e.version as string) : undefined,
         path: typeof e.path === 'string' ? (e.path as string) : '',
       }));
   } catch {
