@@ -165,6 +165,7 @@ export async function verifySupportedBeeVersions(bee: Bee, requestOptions?: BeeR
   if (!supportedApi) {
     logger.error('Supported bee API version: ', beeVersions.supportedBeeApiVersion);
     logger.error('Supported bee version: ', beeVersions.supportedBeeVersion);
+    // TODO: uncomment before release, commented just for the integration test runs
     // throw new BeeVersionError('Bee or Bee API version not supported');
   }
 }

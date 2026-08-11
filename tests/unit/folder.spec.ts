@@ -9,14 +9,14 @@ import {
   Topic,
 } from '@ethersphere/bee-js';
 
-import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
+import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID, makeUploadSource } from '../utils';
 
 import { applyDefaultMocks, createMockDriveInfo, createMockNodeAddresses, seedDummyFile, seedRecords } from './mock';
 
 import { ListDepth, type NodeHeader, NodeType } from '@/types';
 import { FileManagerEvents } from '@/utils';
 import { getFeedData } from '@/utils/bee';
-import { SWARM_ZERO_ADDRESS } from '@/utils/constants';
+import { MANIFEST_METADATA_NODE_TOPIC, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
 describe('Folder operations', () => {
   const otherMockBatchId = new BatchId('4'.repeat(64));
@@ -230,6 +230,62 @@ describe('Folder operations', () => {
       const drive = fm.driveList[0];
 
       await expect(fm.createFolder(drive.id, '', 'a/b')).rejects.toThrow('Invalid folder name');
+    });
+
+    it('rejects a duplicate folder name instead of returning a folder absent from the tree', async () => {
+      const fm = await createInitializedFileManager();
+      const drive = fm.driveList[0];
+
+      const first = await fm.createFolder(drive.id, '', 'Documents');
+
+      await expect(fm.createFolder(drive.id, '', 'Documents')).rejects.toThrow(/Node already exists at "Documents"/);
+
+      const driveMantaray = (fm as any).store.getManifestCache(drive.topic) as MantarayNode;
+      expect(driveMantaray.find('Documents')?.metadata?.[MANIFEST_METADATA_NODE_TOPIC]).toBe(first.topic);
+    });
+
+    it('does not mint a folder feed for a rejected duplicate', async () => {
+      const fm = await createInitializedFileManager();
+      const drive = fm.driveList[0];
+
+      await fm.createFolder(drive.id, '', 'Documents');
+
+      const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
+      uploadDataSpy.mockClear();
+
+      await expect(fm.createFolder(drive.id, '', 'Documents')).rejects.toThrow(/already exists/);
+
+      expect(uploadDataSpy).not.toHaveBeenCalled();
+    });
+
+    it('rejects a folder name already taken by a file', async () => {
+      const fm = await createInitializedFileManager();
+      const drive = fm.driveList[0];
+
+      await fm.uploadFile(drive.id, { path: 'notes', ...makeUploadSource('package.json') });
+
+      await expect(fm.createFolder(drive.id, '', 'notes')).rejects.toThrow(/Node already exists at "notes"/);
+    });
+
+    it('reports the full path of the conflict for a nested parent', async () => {
+      const fm = await createInitializedFileManager();
+      const drive = fm.driveList[0];
+
+      await fm.createFolder(drive.id, '', 'outer');
+
+      (getFeedData as jest.Mock).mockResolvedValue({
+        feedIndex: FeedIndex.fromBigInt(0n),
+        feedIndexNext: FeedIndex.fromBigInt(1n),
+        payload: {
+          toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
+        },
+      });
+
+      await fm.createFolder(drive.id, 'outer', 'inner');
+
+      await expect(fm.createFolder(drive.id, 'outer', 'inner')).rejects.toThrow(
+        /Node already exists at "outer\/inner"/,
+      );
     });
   });
 

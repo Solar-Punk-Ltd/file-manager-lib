@@ -94,6 +94,41 @@ describe('Folder operations', () => {
     });
   });
 
+  describe('createFolder', () => {
+    it('rejects a duplicate folder name and leaves exactly one folder in the listing', async () => {
+      const first = await fileManager.createFolder(drive.id, ROOT_PATH, 'dupfolder');
+
+      await expect(fileManager.createFolder(drive.id, ROOT_PATH, 'dupfolder')).rejects.toThrow(/already exists/i);
+
+      const entries = await retryOnPropagationDelay(() =>
+        fileManager.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow),
+      );
+      const matches = entries.filter((e) => e.type === NodeType.Folder && e.path === 'dupfolder');
+      expect(matches).toHaveLength(1);
+      expect(matches[0].topic.toString()).toBe(first.topic.toString());
+    });
+
+    it('rejects a folder name already taken by a file', async () => {
+      const srcFile = writeTempFile('it-createfolder-collide.txt', 'collide content');
+      await fileManager.uploadFile(drive.id, { path: 'collide', sourcePath: srcFile });
+
+      await expect(fileManager.createFolder(drive.id, ROOT_PATH, 'collide')).rejects.toThrow(/already exists/i);
+    });
+
+    it('rejects a duplicate nested folder without disturbing the existing subtree', async () => {
+      const srcFile = writeTempFile('it-createfolder-nested.txt', 'nested content');
+      const seed = await fileManager.uploadFiles(drive.id, [{ path: 'outer/inner/keep.txt', sourcePath: srcFile }], '');
+      expect(seed.failed).toHaveLength(0);
+
+      await expect(fileManager.createFolder(drive.id, 'outer', 'inner')).rejects.toThrow(/already exists/i);
+
+      const entries = await retryOnPropagationDelay(() =>
+        fileManager.listFolder(drive.id, 'outer/inner', ListDepth.Shallow),
+      );
+      expect(entries.some((e) => e.type === NodeType.File && e.path === 'outer/inner/keep.txt')).toBe(true);
+    });
+  });
+
   describe('downloadFolder', () => {
     it('composes destinationPath with a relative item path — placement differs from destination and source', async () => {
       const srcFile = writeTempFile('it-downloadFolder-dest-src.txt', 'destination compose content');

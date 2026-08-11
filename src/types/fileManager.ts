@@ -21,7 +21,8 @@ import { type UpdateItem, type UploadFilesResult, type UploadItem } from './uplo
  */
 export interface FileManager {
   /**
-   * Initializes the file manager.
+   * Initializes the file manager. Never rejects: failures are reported as `INITIALIZED false`, and
+   * all partial state is rolled back so the call can simply be retried.
    * @emits FileManagerEvents.INITIALIZED
    * @emits FileManagerEvents.STATE_INVALID
    * @returns A promise that resolves when the initialization is complete.
@@ -83,10 +84,12 @@ export interface FileManager {
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FILE_UPLOADED
    * @returns The newly-created FileRecord.
-   * @throws {DriveError} If not initialized, driveId is not found, or the target folder path does not exist.
+   * @throws {DriveError} If not initialized, driveId is not found, the target folder path does not
+   *   exist, or a node already occupies `item.path` (fork keys are names, so names are unique
+   *   within a folder — re-version with {@link updateFile} or relocate with {@link move}).
    * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileError} If the source is a directory, a node source path does not exist, or the content upload fails.
-   * @throws {FileRecordError} If a folder along the path has no feed.
+   * @throws {FileRecordError} If `item.path` is invalid or a folder along the path has no feed.
    */
   uploadFile(
     driveId: string | Identifier,
@@ -110,10 +113,12 @@ export interface FileManager {
    * @emits FileManagerEvents.FILE_UPLOADED (per file uploaded)
    * @emits FileManagerEvents.FILES_UPLOADED (once, with the batch summary)
    * @returns The succeeded FileRecords and any per-file failures.
-   * @throws {FileRecordError} If no items are given, an item path is invalid, or a folder fork is malformed.
+   * @throws {FileRecordError} If no items are given, an item path is invalid, two items resolve to
+   *   the same destination path, or a folder fork is malformed.
    * @throws {DriveError} If not initialized, driveId is not found, or a path segment is a file (not a folder).
    * @throws {SignerError} If the publisher/signer is unavailable.
-   *   Note: per-file content-upload failures are collected in `failed`, not thrown.
+   *   Note: per-file content-upload failures are collected in `failed`, not thrown — as is an item
+   *   whose destination name is already taken in the drive.
    */
   uploadFiles(
     driveId: string | Identifier,
@@ -135,8 +140,9 @@ export interface FileManager {
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FILE_UPDATED
    * @returns The newly-written FileRecord for the updated version.
-   * @throws {FileRecordError} If neither new content (`item`) nor `customMetadata` is provided.
-   * @throws {DriveError} If not initialized or driveId is not found.
+   * @throws {FileRecordError} If neither new content (`item`) nor `customMetadata` is provided, or
+   *   the fork at the record's path belongs to a different node.
+   * @throws {DriveError} If not initialized, driveId is not found, or the record's fork is missing.
    * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileError} If the content upload fails.
    */
@@ -306,8 +312,8 @@ export interface FileManager {
   /**
    * Returns a specific version of a file.
    *
-   * @param record - The base FileRecord containing topic and owner fields.
-   * @param version - Optional desired version slot as a FeedIndex or hex/string. If omitted, fetches latest.
+   * @param record - The base FileRecord containing topic, owner and the node's current path.
+   * @param version - Optional desired version slot as a FeedIndex or its 16-hex-character string. If omitted, fetches latest.
    * @returns The FileRecord corresponding to the requested version, either cached or fetched.
    * @throws {DriveError} If the FileManager is not initialized.
    * @throws {SignerError} If the publisher/signer is unavailable.
@@ -325,9 +331,11 @@ export interface FileManager {
    * @param versionToRestore - The FileRecord instance representing the version to restore.
    * @param requestOptions - Optional BeeRequestOptions for upload operations.
    * @emits FileManagerEvents.FILE_VERSION_RESTORED
-   * @throws {DriveError} If the FileManager is not initialized.
+   * @throws {DriveError} If the FileManager is not initialized, or the file's fork cannot be found
+   *   at its current path.
    * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {FileRecordError} If the feed is not found, the restore version is undefined, or it is the current head.
+   * @throws {FileRecordError} If the feed is not found, the restore version is undefined, it is the
+   *   current head, or the fork at the resolved path belongs to a different node.
    */
   restoreFileVersion(versionToRestore: FileRecord, requestOptions?: BeeRequestOptions): Promise<void>;
 
@@ -362,7 +370,8 @@ export interface FileManager {
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FOLDER_CREATED
    * @returns The FolderInfo for the newly created folder.
-   * @throws {DriveError} If not initialized, driveId is not found, the folder name is invalid, or the parent path does not exist.
+   * @throws {DriveError} If not initialized, driveId is not found, the folder name is invalid, the
+   *   parent path does not exist, or a node already occupies that name in the parent.
    * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileRecordError} If a folder feed is missing.
    */

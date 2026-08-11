@@ -127,9 +127,15 @@ multi-file/folder uploads use
 - **uploadOptions?** `RedundantUploadOptions | FileUploadOptions`.
 - **Returns**: the newly-created `FileRecord`.
 - **Emits**: `FILE_UPLOADED`.
-- **Throws**: `DriveError` (not initialized, drive not found, or target folder path missing); `SignerError`; `FileError`
-  (source is a directory, node source path missing, or content upload failed); `FileRecordError` (a folder along the
-  path has no feed).
+- **Throws**: `DriveError` (not initialized, drive not found, target folder path missing, or a node already occupies
+  `item.path`); `SignerError`; `FileError` (source is a directory, node source path missing, or content upload failed);
+  `FileRecordError` (invalid `item.path`, or a folder along the path has no feed).
+
+Names are fork keys, so they are unique within a folder: uploading onto an occupied name is rejected rather than
+silently replacing it. Re-version with [`updateFile`](#updatefiledriveid-record-changes-uploadoptions-requestoptions-promisefilerecord),
+relocate with [`move`](#movefrompath-topath-sourcedriveid-targetdriveid-requestoptions-promisevoid), or drop the
+existing node with [`forget`](#forgetdriveid-path-requestoptions-promisevoid) first. `item.path` must have a non-empty
+leaf and no `.`/`..` segments; it is validated before any content is uploaded.
 
 ### `uploadFiles(driveId, items, destinationPath?, uploadOptions?, requestOptions?): Promise<UploadFilesResult>`
 
@@ -142,8 +148,11 @@ are collected, not thrown.
 - **destinationPath?** — absolute destination folder, or `'/'` for the drive root.
 - **Returns**: [`UploadFilesResult`](#uploadfilesresult) — `{ succeeded, failed }`.
 - **Emits**: `FOLDER_CREATED` (per folder created), `FILE_UPLOADED` (per file), `FILES_UPLOADED` (once, batch summary).
-- **Throws**: `FileRecordError` (no items, invalid item path, or malformed folder fork); `DriveError` (not initialized,
-  drive not found, or a path segment is a file); `SignerError`. Per-file content-upload failures go into `failed`.
+- **Throws**: `FileRecordError` (no items, invalid item path, two items resolving to the same destination, or a malformed
+  folder fork); `DriveError` (not initialized, drive not found, or a path segment is a file); `SignerError`. Per-file
+  content-upload failures go into `failed`, as does an item whose destination name is already taken.
+
+Existing folders along the way are reused; existing **files** are not overwritten (see `uploadFile` above).
 
 ### `updateFile(driveId, record, changes, uploadOptions?, requestOptions?): Promise<FileRecord>`
 
@@ -199,12 +208,15 @@ Downloads every file in a folder subtree, resolved fresh via `listFolder`. `path
 Creates a new empty folder (a nested mantaray) within a drive.
 
 - **parentPath** — absolute path of the parent, or `'/'` for the drive root.
-- **folderName** — must not contain `/`.
+- **folderName** — must not contain `/`, and must not already be taken by a file or folder in the parent.
 - **redundancyLevel?** — inherits from parent or drive if omitted.
 - **Returns**: the new `FolderInfo`.
 - **Emits**: `FOLDER_CREATED`.
-- **Throws**: `DriveError` (not initialized, drive not found, invalid name, or parent path missing); `SignerError`;
-  `FileRecordError` (a folder feed is missing).
+- **Throws**: `DriveError` (not initialized, drive not found, invalid name, parent path missing, or the name is already
+  taken); `SignerError`; `FileRecordError` (a folder feed is missing).
+
+`mkdir` semantics, not upsert: a duplicate name is rejected before a feed is minted for it. `uploadFiles` differs
+deliberately — it reuses an existing folder on the way to a file rather than failing.
 
 ### `listFolder(driveId, path, depth?, maxDepth?, requestOptions?): Promise<NodeEntry[]>`
 
@@ -249,9 +261,11 @@ structural change publishes a new manifest slot.
 
 Returns a specific version of a file.
 
-- **record** — base `FileRecord` (provides `topic` + `owner`).
-- **version?** `string | FeedIndex` — desired slot; latest if omitted.
-- **Returns**: the `FileRecord` for that version (cached or fetched).
+- **record** — base `FileRecord` (provides `topic`, `owner` and the node's current path).
+- **version?** `string | FeedIndex` — desired slot; latest if omitted. A `string` must be the 16-hex-character
+  `FeedIndex` form (`FeedIndex.fromBigInt(0n).toString()`), not a decimal like `'0'`.
+- **Returns**: the `FileRecord` for that version (cached or fetched). Its `path` is the node's **current** absolute
+  location, not the leaf stored in the requested slot — restoring a version restores content, never location.
 - **Throws**: `DriveError` (not initialized); `SignerError`; `FileRecordError` (file feed not found).
 
 ### `restoreFileVersion(versionToRestore, requestOptions?): Promise<void>`
@@ -260,8 +274,9 @@ Restores a previous version as the new head of the file's feed. Per-file only �
 folder/drive-level restore.
 
 - **Emits**: `FILE_VERSION_RESTORED`.
-- **Throws**: `DriveError` (not initialized); `SignerError`; `FileRecordError` (feed not found, restore version
-  undefined, or it is already the current head).
+- **Throws**: `DriveError` (not initialized, or no fork at the file's current path); `SignerError`; `FileRecordError`
+  (feed not found, restore version undefined, it is already the current head, or the fork at that path belongs to a
+  different node).
 
 ---
 

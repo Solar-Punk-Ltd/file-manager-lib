@@ -1,4 +1,4 @@
-import { type RedundancyLevel } from '@ethersphere/bee-js';
+import { type MantarayNode, type RedundancyLevel } from '@ethersphere/bee-js';
 
 import { type ActReferences } from './utils';
 
@@ -74,4 +74,13 @@ export interface NodeHeader {
   version?: string;
   head?: ActReferences;
   rawMetadata: Record<string, string>;
+}
+
+export interface ResolvedFileFork {
+  host: ManifestHost;
+  folder: FolderInfo | null;
+  node: MantarayNode;
+  filename: string;
+  targetAddress: Uint8Array;
+  metadata: Record<string, string>;
 }

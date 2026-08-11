@@ -1,4 +1,4 @@
-import { Bee } from '@ethersphere/bee-js';
+import { Bee, FeedIndex, Topic } from '@ethersphere/bee-js';
 
 import { BEE_URL, createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
 
@@ -7,7 +7,9 @@ import { applyDefaultMocks, mockPostageBatch } from './mock';
 import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
 import { FileManagerEvents, SignerError } from '@/utils';
-import { ADMIN_STAMP_LABEL } from '@/utils/constants';
+import { getFeedData } from '@/utils/bee';
+import { ADMIN_STAMP_LABEL, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
+import { getAllNodeEntries } from '@/utils/mantaray';
 
 describe('Initialization and construction', () => {
   beforeEach(async () => {
@@ -79,6 +81,58 @@ describe('Initialization and construction', () => {
 
       expect(fm.driveList.length).toBeGreaterThan(0);
       expect(fm.recordList).toHaveLength(0);
+    });
+
+    it('reports failure and rolls partial state back, leaving the instance retryable', async () => {
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const emitter = new EventEmitterBase();
+      const events: boolean[] = [];
+      emitter.on(FileManagerEvents.INITIALIZED, (ok: boolean) => events.push(ok));
+
+      const fm = new FileManagerBase(bee, emitter);
+      jest.spyOn(Bee.prototype, 'getNodeAddresses').mockRejectedValueOnce(new Error('bee offline'));
+
+      await fm.initialize();
+
+      expect(events).toEqual([false]);
+      expect(fm.isInitialized).toBe(false);
+      expect(fm.driveList).toHaveLength(0);
+      expect(fm.recordList).toHaveLength(0);
+
+      await fm.initialize();
+
+      expect(events).toEqual([false, true]);
+      expect(fm.isInitialized).toBe(true);
+    });
+
+    it('recovers from a failure raised after the admin manifest was already cached', async () => {
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const emitter = new EventEmitterBase();
+      const events: boolean[] = [];
+      emitter.on(FileManagerEvents.INITIALIZED, (ok: boolean) => events.push(ok));
+
+      // A resolvable state feed, so initialize() gets as far as loading the admin manifest.
+      (getFeedData as jest.Mock).mockResolvedValue({
+        feedIndex: FEED_INDEX_ZERO,
+        feedIndexNext: FeedIndex.fromBigInt(1n),
+        payload: {
+          toUint8Array: () => Topic.fromString('state-feed').toUint8Array(),
+          toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
+        },
+      });
+
+      const fm = new FileManagerBase(bee, emitter);
+      (getAllNodeEntries as jest.Mock).mockImplementationOnce(() => {
+        throw new Error('corrupt admin manifest');
+      });
+
+      await fm.initialize();
+      expect(events).toEqual([false]);
+      expect(fm.isInitialized).toBe(false);
+
+      await fm.initialize();
+      expect(events).toEqual([false, true]);
+      expect(fm.isInitialized).toBe(true);
     });
   });
 

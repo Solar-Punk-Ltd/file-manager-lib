@@ -120,7 +120,7 @@ swarm-cli stamp buy --amount 100000000000 --depth 20 --label admin
 ## Quick Start
 
 ```ts
-import { Bee } from '@ethersphere/bee-js';
+import { Bee, FeedIndex } from '@ethersphere/bee-js';
 import { FileManagerBase, ListDepth } from '@solarpunkltd/file-manager-lib';
 
 // bee must be constructed with a signer
@@ -159,7 +159,8 @@ const record = fm.recordList.find((r) => r.path === 'docs/readme.md')!;
 const { result } = await fm.downloadFile(record);
 
 // 7. re-version, move, restore
-const v0 = await fm.getFileVersion(record, '0');
+//    a version is a feed slot index — pass a FeedIndex, not a plain number string
+const v0 = await fm.getFileVersion(record, FeedIndex.fromBigInt(0n));
 await fm.restoreFileVersion(v0);
 await fm.move('docs/readme.md', 'docs/README.md', drive.id);
 ```

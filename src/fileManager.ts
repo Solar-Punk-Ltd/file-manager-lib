@@ -29,6 +29,7 @@ import {
   type NodeHeader,
   NodeStatus,
   NodeType,
+  type ResolvedFileFork,
   type TrashEntry,
 } from './types/info';
 import { type UpdateItem, type UploadFilesResult, type UploadItem } from './types/upload';
@@ -66,7 +67,7 @@ import {
   getDriveForkPath,
   getRlevel,
 } from './utils/mantaray';
-import { assertValidRelativePath, normalizePath, pathSegments, splitPath } from './utils/path';
+import { assertValidNodePath, assertValidRelativePath, normalizePath, pathSegments, splitPath } from './utils/path';
 import { processDownload } from './download';
 import { type EventEmitter, EventEmitterBase } from './eventEmitter';
 import { MantarayStore } from './mantarayStore';
@@ -154,14 +155,17 @@ export class FileManagerBase implements FileManager {
       }
 
       this._isInitialized = true;
-      this.emitter.emit(FileManagerEvents.INITIALIZED, true);
     } catch (err: unknown) {
+      this.resetState();
       this.errorHandler.handleError(err, 'Failed to initialize FileManager');
-      this._isInitialized = false;
       this.emitter.emit(FileManagerEvents.INITIALIZED, false);
+
+      return;
     } finally {
       this.isInitializing = false;
     }
+
+    this.emitter.emit(FileManagerEvents.INITIALIZED, true);
   }
 
   // --- Drive operations ---
@@ -250,6 +254,7 @@ export class FileManagerBase implements FileManager {
     const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     assertUploadableSource(item);
+    assertValidNodePath(item.path);
 
     // Resolve the parent folder up front so the new fork inherits the parent's redundancy level.
     const { parentPath, name: filename } = splitPath(item.path);
@@ -260,6 +265,16 @@ export class FileManagerBase implements FileManager {
       publisher,
       requestOptions,
     );
+
+    const mantarayNode = await this.store.getMantarayNode(
+      targetHost.topic,
+      publisher,
+      targetHost.manifestRef,
+      requestOptions,
+    );
+    if (mantarayNode.find(filename)) {
+      throw new DriveError(`Node already exists at "${item.path}" — use updateFile to re-version a file`);
+    }
 
     const owner = this.signerAddress;
     const { topic, version } = await getTopicAndVersion(this.bee, owner, undefined, undefined, requestOptions);
@@ -291,13 +306,6 @@ export class FileManagerBase implements FileManager {
     await this.persistRecord(record, requestOptions);
     // In-memory copy is the caller-known absolute path — no walk needed here.
     record.path = item.path;
-
-    const mantarayNode = await this.store.getMantarayNode(
-      targetHost.topic,
-      publisher,
-      targetHost.manifestRef,
-      requestOptions,
-    );
 
     mantarayNode.addFork(filename, new Reference(record.topic), fileForkMetadata(record));
 
@@ -346,6 +354,7 @@ export class FileManagerBase implements FileManager {
 
     const plannedFiles: PlannedFile[] = [];
     const neededFolderPaths = new Set<string>();
+    const plannedPaths = new Set<string>();
 
     for (const item of items) {
       const relSegments = pathSegments(item.path);
@@ -353,6 +362,11 @@ export class FileManagerBase implements FileManager {
       const folderSegments = relSegments.slice(0, -1);
       const fullPath = [...destSegments, ...relSegments].join('/');
       const parentPath = [...destSegments, ...folderSegments].join('/');
+
+      if (plannedPaths.has(fullPath)) {
+        throw new FileRecordError(`Duplicate destination path in batch: "${fullPath}"`);
+      }
+      plannedPaths.add(fullPath);
 
       plannedFiles.push({ item, fullPath, filename, parentPath });
 
@@ -474,6 +488,17 @@ export class FileManagerBase implements FileManager {
           throw new FileRecordError(`Internal error: parent folder not resolved for path: ${planned.fullPath}`);
         }
 
+        const parentMantaray = await this.store.getMantarayNode(
+          parentHost.topic,
+          publisher,
+          parentHost.manifestRef,
+          requestOptions,
+        );
+
+        if (parentMantaray.find(planned.filename)) {
+          throw new DriveError(`Node already exists at "${planned.fullPath}" — use updateFile to re-version a file`);
+        }
+
         const { topic, version } = await getTopicAndVersion(this.bee, owner, undefined, undefined, requestOptions);
 
         const { contentRefs, rLevel } = await processUpload(
@@ -505,12 +530,6 @@ export class FileManagerBase implements FileManager {
         // In-memory copy is stamped with the already-planned absolute path — no walk needed here.
         record.path = planned.fullPath;
 
-        const parentMantaray = await this.store.getMantarayNode(
-          parentHost.topic,
-          publisher,
-          parentHost.manifestRef,
-          requestOptions,
-        );
         parentMantaray.addFork(planned.filename, new Reference(record.topic), fileForkMetadata(record));
         dirtyHosts.set(parentHost.topic, parentHost);
 
@@ -588,7 +607,8 @@ export class FileManagerBase implements FileManager {
 
     const { topic, version } = await getTopicAndVersion(this.bee, owner, cached.version, record.topic, requestOptions);
 
-    const { name: filename } = splitPath(cached.path);
+    const resolvedFork = await this.resolveFileFork(cachedDrive, cached.path, cached.topic, publisher, requestOptions);
+    const filename = resolvedFork.filename;
 
     const mergedMetadata = changes.customMetadata
       ? { ...cached.customMetadata, ...changes.customMetadata }
@@ -631,7 +651,7 @@ export class FileManagerBase implements FileManager {
     };
 
     await this.persistRecord(fr, requestOptions);
-    await this.syncForkVersion(cachedDrive, driveIx, cached.path, version, publisher, requestOptions);
+    await this.commitForkVersion(driveIx, resolvedFork, version, requestOptions);
 
     fr.path = cached.path;
 
@@ -712,6 +732,7 @@ export class FileManagerBase implements FileManager {
 
     const versionRecord = await this.store.getRecord(topic.toString(), fr.actPublisher, feedData, requestOptions);
     versionRecord.driveId = fr.driveId;
+    versionRecord.path = localHead?.path ?? fr.path;
 
     return versionRecord;
   }
@@ -749,10 +770,19 @@ export class FileManagerBase implements FileManager {
 
     const cached = this.recordList.find((f) => f.topic === versionToRestore.topic);
 
+    const restoredPath = cached?.path ?? versionToRestore.path;
+    const resolvedFork = await this.resolveFileFork(
+      cachedDrive,
+      restoredPath,
+      versionToRestore.topic,
+      publisher,
+      requestOptions,
+    );
+
     const newVersion = feedIndexNext.toString();
     const restored: FileRecord = {
       ...versionToRestore,
-      path: cached?.path ?? versionToRestore.path,
+      path: restoredPath,
       version: newVersion,
       content: {
         reference: versionToRestore.content.reference,
@@ -762,7 +792,7 @@ export class FileManagerBase implements FileManager {
     };
 
     await this.persistRecord(restored, requestOptions);
-    await this.syncForkVersion(cachedDrive, driveIx, restored.path, newVersion, publisher, requestOptions);
+    await this.commitForkVersion(driveIx, resolvedFork, newVersion, requestOptions);
 
     this.emitter.emit(FileManagerEvents.FILE_VERSION_RESTORED, {
       restored,
@@ -792,6 +822,16 @@ export class FileManagerBase implements FileManager {
       publisher,
       requestOptions,
     );
+
+    const existingParentNode = await this.store.getMantarayNode(
+      parentHost.topic,
+      publisher,
+      parentHost.manifestRef,
+      requestOptions,
+    );
+    if (existingParentNode.find(folderName)) {
+      throw new DriveError(`Node already exists at "${joinPath(normalizePath(parentPath), folderName)}"`);
+    }
 
     const { folder, node: parentNode } = await this.createFolderNode(
       cachedDrive,
@@ -1293,6 +1333,17 @@ export class FileManagerBase implements FileManager {
     this.publisher = (await this.bee.getNodeAddresses(requestOptions)).publicKey;
   }
 
+  private resetState(): void {
+    this._isInitialized = false;
+    this.publisher = undefined;
+    this.stateFeedTopic = undefined;
+    this._adminStamp = undefined;
+    this.adminRedundancyLevel = RedundancyLevel.OFF;
+    this._driveList.length = 0;
+    this._recordList.length = 0;
+    this.store.clear();
+  }
+
   private async tryToFetchAdminState(requestOptions?: BeeRequestOptions): Promise<boolean> {
     if (!this.publisher) {
       throw new SignerError('Publisher not found');
@@ -1626,14 +1677,13 @@ export class FileManagerBase implements FileManager {
     return { folder: fi, node: parentNode };
   }
 
-  private async syncForkVersion(
+  private async resolveFileFork(
     drive: DriveInfo,
-    driveIx: number,
     absolutePath: string,
-    newVersion: string,
+    expectedTopic: string,
     publisher: string,
     requestOptions?: BeeRequestOptions,
-  ): Promise<void> {
+  ): Promise<ResolvedFileFork> {
     const { parentPath, name: filename } = splitPath(absolutePath);
 
     const {
@@ -1646,13 +1696,36 @@ export class FileManagerBase implements FileManager {
       throw new DriveError(`Path not found: ${absolutePath}`);
     }
 
-    const forkMetadata = { ...(fileFork.metadata ?? {}) };
-    forkMetadata[MANIFEST_METADATA_NODE_VERSION] = newVersion;
-    parentNode.removeFork(filename);
-    parentNode.addFork(filename, fileFork.targetAddress, forkMetadata);
+    const metadata = { ...(fileFork.metadata ?? {}) };
+    if (metadata[MANIFEST_METADATA_NODE_TOPIC] !== expectedTopic) {
+      throw new FileRecordError(
+        `Fork at ${absolutePath} belongs to a different node than ${expectedTopic.slice(0, 6)} — refusing to write its version`,
+      );
+    }
 
-    const newManifestRef = await this.store.saveMantarayNode(parentNode, parentHost, requestOptions);
-    if (!parentFolder) {
+    return {
+      host: parentHost,
+      folder: parentFolder,
+      node: parentNode,
+      filename,
+      targetAddress: fileFork.targetAddress,
+      metadata,
+    };
+  }
+
+  // Re-stamps a resolved fork's cached version so it tracks the file's new feed head
+  private async commitForkVersion(
+    driveIx: number,
+    fork: ResolvedFileFork,
+    newVersion: string,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void> {
+    const forkMetadata = { ...fork.metadata, [MANIFEST_METADATA_NODE_VERSION]: newVersion };
+    fork.node.removeFork(fork.filename);
+    fork.node.addFork(fork.filename, fork.targetAddress, forkMetadata);
+
+    const newManifestRef = await this.store.saveMantarayNode(fork.node, fork.host, requestOptions);
+    if (!fork.folder) {
       this.driveList[driveIx].manifestRef = newManifestRef;
     }
   }

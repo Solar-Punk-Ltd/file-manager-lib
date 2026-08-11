@@ -1,6 +1,15 @@
-import { Bytes, FeedIndex, Identifier, PublicKey, RedundancyLevel, Topic } from '@ethersphere/bee-js';
+import {
+  BatchId,
+  Bytes,
+  FeedIndex,
+  Identifier,
+  type MantarayNode,
+  PublicKey,
+  RedundancyLevel,
+  Topic,
+} from '@ethersphere/bee-js';
 
-import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
+import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID, makeUploadSource } from '../utils';
 
 import { applyDefaultMocks, createMockNodeAddresses, seedRecords } from './mock';
 
@@ -9,7 +18,7 @@ import { type FileRecord, NodeType } from '@/types';
 import { type FeedResultWithIndex } from '@/types/utils';
 import { FileManagerEvents } from '@/utils';
 import { getFeedData } from '@/utils/bee';
-import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
+import { FEED_INDEX_ZERO, MANIFEST_METADATA_NODE_VERSION, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
 describe('Version control', () => {
   const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
@@ -86,6 +95,44 @@ describe('Version control', () => {
         `File feed not found for topic: ${dummyFi.topic.slice(0, 6)}`,
       );
     });
+
+    it('stamps the passed record’s absolute path over the leaf stored in the slot', async () => {
+      const storedSlot = { ...dummyFi, version: FeedIndex.fromBigInt(1n).toString(), path: 'x.txt' };
+      const spyFetch = jest.spyOn((fm as any).store, 'getRecord').mockResolvedValue(storedSlot);
+
+      (getFeedData as jest.Mock).mockResolvedValue({
+        feedIndex: FeedIndex.fromBigInt(1n),
+        feedIndexNext: FeedIndex.fromBigInt(2n),
+        payload: new Bytes(SWARM_ZERO_ADDRESS.toUint8Array()),
+      });
+
+      const got = await fm.getFileVersion({ ...dummyFi, path: 'nested/deep/x.txt' }, FeedIndex.fromBigInt(1n));
+
+      expect(got.path).toBe('nested/deep/x.txt');
+
+      spyFetch.mockRestore();
+    });
+
+    it('prefers the cached head’s path, so a version fetched after a move keeps the new location', async () => {
+      seedRecords(fm, { ...dummyFi, path: 'moved/x.txt', version: FeedIndex.fromBigInt(5n).toString() });
+
+      const spyFetch = jest
+        .spyOn((fm as any).store, 'getRecord')
+        .mockResolvedValue({ ...dummyFi, version: FEED_INDEX_ZERO.toString(), path: 'x.txt' });
+
+      (getFeedData as jest.Mock).mockResolvedValue({
+        feedIndex: FEED_INDEX_ZERO,
+        feedIndexNext: FeedIndex.fromBigInt(1n),
+        payload: new Bytes(SWARM_ZERO_ADDRESS.toUint8Array()),
+      });
+
+      // An older slot than the cached head, so the cache shortcut does not apply.
+      const got = await fm.getFileVersion({ ...dummyFi, path: 'stale/x.txt' }, FEED_INDEX_ZERO);
+
+      expect(got.path).toBe('moved/x.txt');
+
+      spyFetch.mockRestore();
+    });
   });
 
   describe('restoreFileVersion', () => {
@@ -129,6 +176,59 @@ describe('Version control', () => {
       );
 
       expect(getFeedData).not.toHaveBeenCalled();
+    });
+
+    it('refuses to stamp a version onto a same-named fork belonging to a different node', async () => {
+      await fm.createDrive(new BatchId('4'.repeat(64)), 'Version Drive');
+      const di = fm.driveList[1];
+      await fm.uploadFile(di.id, { path: 'report.pdf', ...makeUploadSource('package.json') });
+      const victim = fm.recordList.find((fr) => fr.path === 'report.pdf')!;
+
+      const impostor: FileRecord = {
+        ...dummyFi,
+        driveId: di.id,
+        topic: Topic.fromString('impostor-topic').toString(),
+        path: 'report.pdf',
+        version: FEED_INDEX_ZERO.toString(),
+      };
+
+      (getFeedData as jest.Mock).mockResolvedValue({
+        feedIndex: FeedIndex.fromBigInt(3n),
+        feedIndexNext: FeedIndex.fromBigInt(4n),
+        payload: {
+          toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
+        },
+      });
+
+      const saveRecordSpy = jest.spyOn((fm as any).store, 'saveRecord');
+
+      await expect(fm.restoreFileVersion(impostor)).rejects.toThrow(/belongs to a different node/);
+
+      // Validated before the feed write, and the victim's fork version is untouched.
+      expect(saveRecordSpy).not.toHaveBeenCalled();
+      const driveMantaray = (fm as any).store.getManifestCache(di.topic) as MantarayNode;
+      expect(driveMantaray.find('report.pdf')?.metadata?.[MANIFEST_METADATA_NODE_VERSION]).toBe(victim.version);
+    });
+
+    it('throws when the file has no fork at its resolved path, without advancing the feed', async () => {
+      await fm.createDrive(new BatchId('5'.repeat(64)), 'Ghost Drive');
+      const di = fm.driveList[1];
+
+      (getFeedData as jest.Mock).mockResolvedValue({
+        feedIndex: FeedIndex.fromBigInt(3n),
+        feedIndexNext: FeedIndex.fromBigInt(4n),
+        payload: {
+          toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
+        },
+      });
+
+      const saveRecordSpy = jest.spyOn((fm as any).store, 'saveRecord');
+
+      await expect(
+        fm.restoreFileVersion({ ...dummyFi, driveId: di.id, path: 'gone.txt', version: FEED_INDEX_ZERO.toString() }),
+      ).rejects.toThrow('Path not found: gone.txt');
+
+      expect(saveRecordSpy).not.toHaveBeenCalled();
     });
   });
 });

@@ -17,8 +17,17 @@ export function splitPath(path: string): { parentPath: string; name: string } {
   };
 }
 
-export function assertValidRelativePath(path: string): void {
-  if (!path || path.startsWith('/') || path.includes('..') || path.endsWith('/')) {
+export function assertValidNodePath(path: string): void {
+  const segments = pathSegments(path);
+  if (!path || path.endsWith('/') || segments.length === 0 || segments.some((s) => s === '.' || s === '..')) {
     throw new FileRecordError(`Invalid path: "${path}"`);
   }
+}
+
+export function assertValidRelativePath(path: string): void {
+  if (path.startsWith('/')) {
+    throw new FileRecordError(`Invalid path: "${path}"`);
+  }
+
+  assertValidNodePath(path);
 }

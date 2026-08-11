@@ -1,4 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import { Logger } from '../utils/logger';
+
+const logger = Logger.getInstance();
+
 type Listener<T = any> = (data: T) => void;
 
 interface Events {
@@ -43,6 +47,13 @@ export class EventEmitterBase implements EventEmitter {
 
   public emit<T = any>(event: string, data: T): void {
     if (!this.events[event]) return;
-    this.events[event].forEach((listener) => listener(data));
+    this.events[event].forEach((listener) => {
+      try {
+        listener(data);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+        logger.error(`EventEmitter: listener for "${event}" threw and was ignored: ${message}`);
+      }
+    });
   }
 }

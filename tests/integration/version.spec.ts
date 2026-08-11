@@ -1,7 +1,8 @@
-import { type Bee, FeedIndex, type PrivateKey, Topic } from '@ethersphere/bee-js';
+import { type BatchId, type Bee, FeedIndex, type PrivateKey, Topic } from '@ethersphere/bee-js';
 
 import {
   buyStampSerialized,
+  createInitializedFileManager,
   DEFAULT_BATCH_AMOUNT,
   DEFAULT_BATCH_DEPTH,
   retryOnPropagationDelay,
@@ -11,7 +12,7 @@ import {
 import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
-import { type DriveInfo, type FileRecord } from '@/types';
+import { type DriveInfo, type FileRecord, ListDepth } from '@/types';
 import { getFeedData } from '@/utils/bee';
 import { FEED_INDEX_ZERO, ROOT_PATH } from '@/utils/constants';
 
@@ -20,6 +21,7 @@ describe('Version control', () => {
   let fileManager: FileManagerBase;
   let drive: DriveInfo;
   let signer: PrivateKey;
+  let ownerStamp: BatchId;
   const { writeTempFile, cleanup } = tempFileRegistry();
 
   // helper to ensure at least one base FileRecord exists.
@@ -34,7 +36,9 @@ describe('Version control', () => {
   };
 
   beforeAll(async () => {
-    ({ bee, fileManager, drive, signer } = await setupUserDrive('versioncontrol', { stampLabel: 'versioningStamp' }));
+    ({ bee, fileManager, drive, signer, ownerStamp } = await setupUserDrive('versioncontrol', {
+      stampLabel: 'versioningStamp',
+    }));
   });
 
   afterAll(cleanup);
@@ -301,5 +305,71 @@ describe('Version control', () => {
     expect(downloaded).toBeDefined();
     expect(downloadResults.failed).toEqual([]);
     expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Restore Move V0 Content');
+  });
+
+  it('restores an old version from a cold instance without disturbing a same-named file at the root', async () => {
+    const NAME = `cold-restore-${Date.now()}.txt`;
+    const src = writeTempFile(NAME, 'Cold V0');
+    await fileManager.uploadFile(drive.id, { path: NAME, sourcePath: src });
+    const base = fileManager.recordList.find((f) => f.path === NAME)!;
+    const topic = base.topic.toString();
+
+    writeTempFile(NAME, 'Cold V1');
+    await fileManager.updateFile(drive.id, base, { item: { sourcePath: src } });
+
+    await fileManager.createFolder(drive.id, ROOT_PATH, 'coldsub');
+    const destPath = 'coldsub/moved.txt';
+    await fileManager.move(NAME, destPath, drive.id);
+
+    // A decoy now occupies the leaf name that the old version's payload still records.
+    const decoySrc = writeTempFile(`decoy-${NAME}`, 'Decoy Content');
+    await fileManager.uploadFile(drive.id, { path: NAME, sourcePath: decoySrc });
+    const decoy = fileManager.recordList.find((f) => f.path === NAME)!;
+    expect(decoy.topic.toString()).not.toBe(topic);
+
+    const movedRecord = await retryOnPropagationDelay(async () => {
+      const reader = await createInitializedFileManager(bee, ownerStamp);
+      const entries = await reader.listFolder(drive.id, 'coldsub', ListDepth.Shallow);
+      const found = entries.find((e) => e.path === destPath);
+      if (!found) {
+        throw new Error('move not yet propagated to a fresh instance');
+      }
+      return found as FileRecord;
+    });
+
+    // A cold instance: it never listed the drive, so nothing hydrates the record's absolute path
+    // except the record the caller hands in.
+    const coldFm = await createInitializedFileManager(bee, ownerStamp);
+    expect(coldFm.recordList.find((f) => f.topic.toString() === topic)).toBeUndefined();
+
+    const v0 = await coldFm.getFileVersion(movedRecord, FEED_INDEX_ZERO);
+    expect(v0.version).toBe(FEED_INDEX_ZERO.toString());
+    expect(v0.path).toBe(destPath);
+
+    await coldFm.restoreFileVersion(v0);
+
+    // The restore landed on the moved file.
+    const restoredContent = await retryOnPropagationDelay(async () => {
+      const downloads = await coldFm.downloadFolder(drive.id, 'coldsub');
+      const got = downloads.succeeded.find((d) => d.path === destPath);
+      if (!got) {
+        throw new Error('restored file not yet downloadable');
+      }
+      return Buffer.from(await streamToUint8Array(got.result)).toString('utf-8');
+    });
+    expect(restoredContent).toBe('Cold V0');
+
+    // The decoy sharing the leaf name kept its own topic, version and bytes.
+    const verifier = await createInitializedFileManager(bee, ownerStamp);
+    const rootEntries = await retryOnPropagationDelay(() =>
+      verifier.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow),
+    );
+    const decoySeen = rootEntries.find((e) => e.path === NAME);
+    expect(decoySeen).toBeDefined();
+    expect(decoySeen!.topic.toString()).toBe(decoy.topic.toString());
+    expect(decoySeen!.version).toBe(decoy.version);
+
+    const decoyDownload = await verifier.downloadFile(decoySeen as FileRecord);
+    expect(Buffer.from(await streamToUint8Array(decoyDownload.result)).toString('utf-8')).toBe('Decoy Content');
   });
 });

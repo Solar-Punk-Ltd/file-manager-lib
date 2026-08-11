@@ -158,6 +158,41 @@ describe('Initialization and construction', () => {
     expect(adminStampAfter).toBeDefined();
     expect(adminStampAfter?.batchID.toString()).toBe(adminStampBefore?.batchID.toString());
   });
+
+  it('initializes against a real node even when the INITIALIZED listener throws', async () => {
+    const fm = new FileManagerBase(bee);
+    fm.emitter.on(FileManagerEvents.INITIALIZED, () => {
+      throw new Error('consumer handler blew up');
+    });
+
+    await fm.initialize();
+
+    expect(fm.isInitialized).toBe(true);
+    expect(fm.driveList.some((d) => d.isAdmin)).toBe(true);
+  });
+
+  it('rolls state back after a failed initialize, so a retry against the real node succeeds', async () => {
+    const fm = new FileManagerBase(bee);
+    const events: boolean[] = [];
+    fm.emitter.on(FileManagerEvents.INITIALIZED, (ok: boolean) => events.push(ok));
+
+    const spy = jest
+      .spyOn(Bee.prototype, 'getNodeAddresses')
+      .mockRejectedValueOnce(new Error('transient node failure'));
+
+    await fm.initialize();
+    expect(events).toEqual([false]);
+    expect(fm.isInitialized).toBe(false);
+    expect(fm.driveList).toHaveLength(0);
+    expect(fm.recordList).toHaveLength(0);
+
+    spy.mockRestore();
+
+    await fm.initialize();
+    expect(events).toEqual([false, true]);
+    expect(fm.isInitialized).toBe(true);
+    expect(fm.driveList.some((d) => d.isAdmin)).toBe(true);
+  });
 });
 
 describe('reinitialization', () => {
