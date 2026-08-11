@@ -1,8 +1,14 @@
-import { BatchId, Bee, BeeRequestOptions, RedundantUploadOptions, UploadResult } from '@ethersphere/bee-js';
+import {
+  type BatchId,
+  type Bee,
+  type BeeRequestOptions,
+  type RedundantUploadOptions,
+  type UploadResult,
+} from '@ethersphere/bee-js';
 
-import { DriveInfo } from '../types/info';
-import { BrowserUploadOptions } from '../types/upload';
-import { ActReferences } from '../types/utils';
+import { type DriveInfo } from '../types/info';
+import { type BrowserUploadOptions } from '../types/upload';
+import { type ActReferences } from '../types/utils';
 
 async function uploadBrowser(
   bee: Bee,

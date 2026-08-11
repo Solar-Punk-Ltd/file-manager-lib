@@ -1,4 +1,4 @@
-import { Bee, FeedIndex } from '@ethersphere/bee-js';
+import { type Bee, FeedIndex } from '@ethersphere/bee-js';
 import path from 'path';
 
 import {
@@ -12,8 +12,8 @@ import {
 
 import { ensureUniqueSignerWithStamp, setupUserDrive, tempFileRegistry } from './setup/utils';
 
-import { FileManagerBase } from '@/fileManager';
-import { DriveInfo, ListDepth, NodeType } from '@/types';
+import { type FileManagerBase } from '@/fileManager';
+import { type DriveInfo, ListDepth, NodeType } from '@/types';
 import { FileManagerEvents } from '@/utils';
 import { FEED_INDEX_ZERO, ROOT_PATH } from '@/utils/constants';
 
@@ -29,20 +29,22 @@ describe('uploadFile', () => {
   afterAll(cleanup);
 
   it('uploads a new file and adds it to the file record list at version 0', async () => {
-    const name = writeTempFile('it-upload-new.txt', 'New Content');
-    await fileManager.uploadFile(drive.id, { path: name, sourcePath: name });
+    const name = 'it-upload-new.txt';
+    const src = writeTempFile(name, 'New Content');
+    await fileManager.uploadFile(drive.id, { path: name, sourcePath: src });
     const record = fileManager.recordList.find((fr) => fr.path === name);
     expect(record).toBeDefined();
     expect(record!.version).toEqual(FEED_INDEX_ZERO.toString());
   });
 
   it('throws when uploading a directory — directories must go through uploadFiles', async () => {
-    const dirPath = writeTempDir('it-upload-integration-dir', { 'inner.txt': 'Inner Content' });
+    const dirName = 'it-upload-integration-dir';
+    const dirPath = writeTempDir(dirName, { 'inner.txt': 'Inner Content' });
 
-    await expect(fileManager.uploadFile(drive.id, { path: dirPath, sourcePath: dirPath })).rejects.toThrow(
+    await expect(fileManager.uploadFile(drive.id, { path: dirName, sourcePath: dirPath })).rejects.toThrow(
       'Cannot upload a directory - use uploadFiles',
     );
-    expect(fileManager.recordList.some((fr) => fr.path === dirPath)).toBe(false);
+    expect(fileManager.recordList.some((fr) => fr.path === dirName)).toBe(false);
   });
 });
 
@@ -197,8 +199,8 @@ describe('uploadFiles', () => {
 
   it('fails fast without writing anything when a needed folder path is blocked by an existing file', async () => {
     const blockerPath = 'it-uploadmany-blocker';
-    writeTempFile(blockerPath, 'blocker content');
-    await fileManager.uploadFile(drive.id, { path: blockerPath, sourcePath: blockerPath });
+    const blockerSrc = writeTempFile(blockerPath, 'blocker content');
+    await fileManager.uploadFile(drive.id, { path: blockerPath, sourcePath: blockerSrc });
 
     const innerFile = writeTempFile('it-uploadmany-inner-src.txt', 'inner content');
 
@@ -224,9 +226,8 @@ describe('uploadFiles', () => {
 
   it('uploads a nested folder with files and fetches them back', async () => {
     const rootFile = writeTempFile('it-init-nested-root.txt', 'Init nested root content');
-    const nestedDir = 'it-init-nested-docs';
-    const nestedFile = path.join(nestedDir, 'note.txt');
-    writeTempDir(nestedDir, { 'note.txt': 'Init nested docs content' });
+    const nestedDirPath = writeTempDir('it-init-nested-docs', { 'note.txt': 'Init nested docs content' });
+    const nestedFile = path.join(nestedDirPath, 'note.txt');
 
     const driveBatchId = await buyStampSerialized(
       bee,
@@ -279,26 +280,28 @@ describe('updateFile', () => {
   afterAll(cleanup);
 
   it('re-versions a file with new bytes via update(), keeping the topic and advancing the version', async () => {
-    const name = writeTempFile('it-upload-versions.txt', 'v0');
-    await fileManager.uploadFile(drive.id, { path: name, sourcePath: name });
+    const name = 'it-upload-versions.txt';
+    const src = writeTempFile(name, 'v0');
+    await fileManager.uploadFile(drive.id, { path: name, sourcePath: src });
     const firstInfo = fileManager.recordList.find((fr) => fr.path === name)!;
     expect(firstInfo).toBeDefined();
 
     writeTempFile(name, 'v1');
-    await fileManager.updateFile(drive.id, firstInfo, { item: { sourcePath: name } });
+    await fileManager.updateFile(drive.id, firstInfo, { item: { sourcePath: src } });
     const secondInfo = fileManager.recordList.find((fr) => fr.topic.toString() === firstInfo.topic.toString())!;
     expect(secondInfo.topic.toString()).toEqual(firstInfo.topic.toString());
     expect(secondInfo.version).toEqual(new FeedIndex(firstInfo.version!).next().toString());
 
     writeTempFile(name, 'v2');
-    await fileManager.updateFile(drive.id, secondInfo, { item: { sourcePath: name } });
+    await fileManager.updateFile(drive.id, secondInfo, { item: { sourcePath: src } });
     const thirdInfo = fileManager.recordList.find((fr) => fr.topic.toString() === firstInfo.topic.toString())!;
     expect(thirdInfo.version).toEqual(new FeedIndex(secondInfo.version!).next().toString());
   });
 
   it('metadata-only update() keeps the same content ref across versions', async () => {
-    const name = writeTempFile('it-upload-metadata.txt', 'Metadata Content');
-    await fileManager.uploadFile(drive.id, { path: name, sourcePath: name });
+    const name = 'it-upload-metadata.txt';
+    const src = writeTempFile(name, 'Metadata Content');
+    await fileManager.uploadFile(drive.id, { path: name, sourcePath: src });
     const firstInfo = fileManager.recordList.find((fr) => fr.path === name)!;
     expect(firstInfo).toBeDefined();
 
@@ -314,23 +317,25 @@ describe('updateFile', () => {
   });
 
   it('should upload a single file and update the file record list', async () => {
-    const tempFile = writeTempFile('it-upload-single-file.txt', 'Single File Content');
+    const name = 'it-upload-single-file.txt';
+    const src = writeTempFile(name, 'Single File Content');
     await fileManager.uploadFile(drive.id, {
-      path: tempFile,
-      sourcePath: tempFile,
+      path: name,
+      sourcePath: src,
     });
     const recordList = fileManager.recordList;
-    const uploadedInfo = recordList.find((fr) => fr.path === tempFile);
+    const uploadedInfo = recordList.find((fr) => fr.path === name);
     expect(uploadedInfo).toBeDefined();
   });
 
   it('does not create a second record when bumping to a new version', async () => {
-    const name = writeTempFile('it-upload-bump.txt', 'Bump Content');
-    await fileManager.uploadFile(drive.id, { path: name, sourcePath: name });
+    const name = 'it-upload-bump.txt';
+    const src = writeTempFile(name, 'Bump Content');
+    await fileManager.uploadFile(drive.id, { path: name, sourcePath: src });
     const original = fileManager.recordList.find((fr) => fr.path === name)!;
     expect(original).toBeDefined();
 
-    await fileManager.updateFile(drive.id, original, { item: { sourcePath: name } });
+    await fileManager.updateFile(drive.id, original, { item: { sourcePath: src } });
 
     const entries = fileManager.recordList.filter((fr) => fr.topic.toString() === original.topic.toString());
     expect(entries).toHaveLength(1);
@@ -338,9 +343,10 @@ describe('updateFile', () => {
   });
 
   it('rejects a directory as the update() content source', async () => {
-    const name = writeTempFile('it-update-dir-src.txt', 'Src Content');
+    const name = 'it-update-dir-src.txt';
+    const src = writeTempFile(name, 'Src Content');
     const dirPath = writeTempDir('it-update-dir-src', {});
-    await fileManager.uploadFile(drive.id, { path: name, sourcePath: name });
+    await fileManager.uploadFile(drive.id, { path: name, sourcePath: src });
     const record = fileManager.recordList.find((fr) => fr.path === name)!;
 
     await expect(fileManager.updateFile(drive.id, record, { item: { sourcePath: dirPath } })).rejects.toThrow(
@@ -450,8 +456,9 @@ describe('move', () => {
   afterAll(cleanup);
 
   it('renames a file within the drive root, preserving content and bumping the version', async () => {
-    const fileA = writeTempFile('it-move-a.txt', 'Move Content A');
-    await fileManager.uploadFile(driveA.id, { path: fileA, sourcePath: fileA });
+    const fileA = 'it-move-a.txt';
+    const src = writeTempFile(fileA, 'Move Content A');
+    await fileManager.uploadFile(driveA.id, { path: fileA, sourcePath: src });
 
     const before = fileManager.recordList.find((fr) => fr.path === fileA)!;
     expect(before).toBeDefined();
@@ -477,8 +484,9 @@ describe('move', () => {
   });
 
   it('moves a root file into a newly created folder', async () => {
-    const docFile = writeTempFile('it-move-doc.txt', 'Archive Me');
-    await fileManager.uploadFile(driveA.id, { path: docFile, sourcePath: docFile });
+    const docFile = 'it-move-doc.txt';
+    const src = writeTempFile(docFile, 'Archive Me');
+    await fileManager.uploadFile(driveA.id, { path: docFile, sourcePath: src });
     await fileManager.createFolder(driveA.id, ROOT_PATH, 'archive');
 
     await fileManager.move(docFile, 'archive/doc.txt', driveA.id);
@@ -502,10 +510,10 @@ describe('move', () => {
     const folderName = 'it-move-inbox';
     await fileManager.createFolder(driveA.id, ROOT_PATH, folderName);
 
-    writeTempDir(folderName, { 'note.txt': 'Inbox Note' });
+    const inboxDir = writeTempDir(folderName, { 'note.txt': 'Inbox Note' });
     const inboxFilePath = path.join(folderName, 'note.txt');
 
-    await fileManager.uploadFile(driveA.id, { path: inboxFilePath, sourcePath: inboxFilePath });
+    await fileManager.uploadFile(driveA.id, { path: inboxFilePath, sourcePath: path.join(inboxDir, 'note.txt') });
 
     await fileManager.move(inboxFilePath, 'note.txt', driveA.id);
 
@@ -525,8 +533,9 @@ describe('move', () => {
   });
 
   it('moves a file across drives, updating driveId and remaining downloadable from the target', async () => {
-    const xFile = writeTempFile('it-move-x.txt', 'Cross Drive Content');
-    await fileManager.uploadFile(driveA.id, { path: xFile, sourcePath: xFile });
+    const xFile = 'it-move-x.txt';
+    const src = writeTempFile(xFile, 'Cross Drive Content');
+    await fileManager.uploadFile(driveA.id, { path: xFile, sourcePath: src });
 
     await fileManager.move(xFile, xFile, driveA.id, driveB.id);
 
@@ -549,18 +558,21 @@ describe('move', () => {
   it('rejects invalid move calls', async () => {
     await expect(fileManager.move('it-move-nonexistent.txt', 'dest.txt', driveA.id)).rejects.toThrow(/not found/i);
 
-    const sameFile = writeTempFile('it-move-same.txt', 'Same Path Content');
-    await fileManager.uploadFile(driveA.id, { path: sameFile, sourcePath: sameFile });
+    const sameFile = 'it-move-same.txt';
+    const sameSrc = writeTempFile(sameFile, 'Same Path Content');
+    await fileManager.uploadFile(driveA.id, { path: sameFile, sourcePath: sameSrc });
     await expect(fileManager.move(sameFile, sameFile, driveA.id)).rejects.toThrow(/identical/i);
 
     await expect(fileManager.move(sameFile, 'nosuchfolder/dest.txt', driveA.id)).rejects.toThrow(/not found/i);
   });
 
   it('rejects a move onto an existing destination, leaving both files intact and downloadable', async () => {
-    const f1 = writeTempFile('it-move-collide-1.txt', 'Collide One');
-    const f2 = writeTempFile('it-move-collide-2.txt', 'Collide Two');
-    await fileManager.uploadFile(driveA.id, { path: f1, sourcePath: f1 });
-    await fileManager.uploadFile(driveA.id, { path: f2, sourcePath: f2 });
+    const f1 = 'it-move-collide-1.txt';
+    const f2 = 'it-move-collide-2.txt';
+    const src1 = writeTempFile(f1, 'Collide One');
+    const src2 = writeTempFile(f2, 'Collide Two');
+    await fileManager.uploadFile(driveA.id, { path: f1, sourcePath: src1 });
+    await fileManager.uploadFile(driveA.id, { path: f2, sourcePath: src2 });
 
     await expect(fileManager.move(f1, f2, driveA.id)).rejects.toThrow(/already exists/i);
 

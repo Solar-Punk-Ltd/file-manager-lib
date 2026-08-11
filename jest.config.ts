@@ -1,4 +1,4 @@
-const browserSetup = '<rootDir>/tests/platform.browser.ts';
+const browserSetup = '<rootDir>/tests/platform-browser.ts';
 
 const tsProject = {
   preset: 'ts-jest',

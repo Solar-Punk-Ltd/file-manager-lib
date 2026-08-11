@@ -1,32 +1,32 @@
 import {
   BatchId,
   Bee,
-  BeeVersions,
+  type BeeVersions,
   Bytes,
   Duration,
   EthAddress,
   FeedIndex,
-  FeedReader,
-  FeedWriter,
+  type FeedReader,
+  type FeedWriter,
   Identifier,
   MantarayNode,
-  NodeAddresses,
-  NumberString,
+  type NodeAddresses,
+  type NumberString,
   PeerAddress,
-  PostageBatch,
+  type PostageBatch,
   PublicKey,
   RedundancyLevel,
   Reference,
   Size,
   Topic,
-  UploadResult,
+  type UploadResult,
 } from '@ethersphere/bee-js';
 import { Optional } from 'cafe-utility';
 
 import { DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
 
-import { FileManagerBase } from '@/fileManager';
-import { DriveInfo, FileRecord, NodeType } from '@/types';
+import { type FileManagerBase } from '@/fileManager';
+import { type DriveInfo, type FileRecord, NodeType } from '@/types';
 import { fetchStamp, getFeedData } from '@/utils/bee';
 import { ADMIN_STAMP_LABEL, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 import { getAllNodeEntries, loadMantaray } from '@/utils/mantaray';

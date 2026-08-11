@@ -1,11 +1,11 @@
-import { Bee, Identifier, PostageBatch, PrivateKey, RedundancyLevel } from '@ethersphere/bee-js';
+import { type Bee, Identifier, type PostageBatch, type PrivateKey, RedundancyLevel } from '@ethersphere/bee-js';
 
 import { buyStampSerialized, createInitializedFileManager, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH } from '../utils';
 
 import { ensureUniqueSignerWithStamp, tempFileRegistry } from './setup/utils';
 
-import { FileManagerBase } from '@/fileManager';
-import { DriveInfo } from '@/types';
+import { type FileManagerBase } from '@/fileManager';
+import { type DriveInfo } from '@/types';
 import { DriveError, FileManagerEvents } from '@/utils';
 
 describe('Drive operations', () => {

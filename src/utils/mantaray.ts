@@ -1,15 +1,22 @@
 import {
-  Bee,
-  BeeRequestOptions,
-  DownloadOptions,
+  type Bee,
+  type BeeRequestOptions,
+  type DownloadOptions,
   MantarayNode,
-  PrivateKey,
+  type PrivateKey,
   RedundancyLevel,
-  Reference,
+  type Reference,
 } from '@ethersphere/bee-js';
 
-import { DriveInfo, FileRecord, FolderInfo, ManifestHost, NodeHeader, NodeType } from '../types/info';
-import { ActReferences } from '../types/utils';
+import {
+  type DriveInfo,
+  type FileRecord,
+  type FolderInfo,
+  type ManifestHost,
+  type NodeHeader,
+  NodeType,
+} from '../types/info';
+import { type ActReferences } from '../types/utils';
 
 import { writeActFeed } from './bee';
 import {

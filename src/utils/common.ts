@@ -1,4 +1,4 @@
-import { DriveInfo, NodeStatus } from '../types/info';
+import { type DriveInfo, NodeStatus } from '../types/info';
 
 import { Logger } from './logger';
 

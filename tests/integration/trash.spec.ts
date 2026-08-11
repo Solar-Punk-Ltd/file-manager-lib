@@ -1,11 +1,11 @@
-import { BatchId, Bee, Identifier } from '@ethersphere/bee-js';
+import { type BatchId, type Bee, Identifier } from '@ethersphere/bee-js';
 
 import { createInitializedFileManager, retryOnPropagationDelay } from '../utils';
 
 import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
-import { DriveInfo, FileRecord, ListDepth, NodeStatus, NodeType } from '@/types';
+import { type DriveInfo, type FileRecord, ListDepth, NodeStatus, NodeType } from '@/types';
 import { ROOT_PATH } from '@/utils/constants';
 
 describe('Lifecycle management', () => {
@@ -15,6 +15,7 @@ describe('Lifecycle management', () => {
   let testFi: FileRecord;
   let drive: DriveInfo;
   const TEST_NAME = 'trash-restore-forget.txt';
+  let testSrc: string;
   const { writeTempFile, cleanup } = tempFileRegistry();
 
   beforeAll(async () => {
@@ -25,8 +26,8 @@ describe('Lifecycle management', () => {
       ownerStamp: adminBatch,
     } = await setupUserDrive('fileoperations', { stampLabel: 'fileOpsIntegration' }));
 
-    writeTempFile(TEST_NAME, 'file ops content');
-    await fileManager.uploadFile(drive.id, { path: TEST_NAME, sourcePath: TEST_NAME });
+    testSrc = writeTempFile(TEST_NAME, 'file ops content');
+    await fileManager.uploadFile(drive.id, { path: TEST_NAME, sourcePath: testSrc });
 
     testFi = fileManager.recordList.find((fr) => fr.path === TEST_NAME)!;
     expect(testFi).toBeDefined();
@@ -111,7 +112,7 @@ describe('Lifecycle management', () => {
   });
 
   it('should never duplicate FileRecord entries when trashing/recovering', async () => {
-    await fileManager.uploadFile(drive.id, { path: TEST_NAME, sourcePath: TEST_NAME });
+    await fileManager.uploadFile(drive.id, { path: TEST_NAME, sourcePath: testSrc });
 
     const freshFi = fileManager.recordList.find((fr) => fr.path === TEST_NAME)!;
     const topic = freshFi.topic.toString();

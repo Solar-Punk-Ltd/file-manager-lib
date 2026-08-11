@@ -1,10 +1,11 @@
-import { Bee, PublicKey } from '@ethersphere/bee-js';
+import { type Bee, type PublicKey } from '@ethersphere/bee-js';
+import path from 'path';
 import { setTimeout } from 'timers';
 
 import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
-import { FileManagerBase } from '@/fileManager';
-import { DriveInfo, FileRecord, FolderInfo, ListDepth } from '@/types';
+import { type FileManagerBase } from '@/fileManager';
+import { type DriveInfo, type FileRecord, type FolderInfo, ListDepth } from '@/types';
 import { ROOT_PATH } from '@/utils/constants';
 
 describe('Abort signal handling', () => {
@@ -25,15 +26,20 @@ describe('Abort signal handling', () => {
     const successFile = 'it-abort-success.txt';
     const multi1File = 'it-abort-multi-1.txt';
     const multi2File = 'it-abort-multi-2.txt';
+    let preAbortSrc: string;
+    let midAbortSrc: string;
+    let successSrc: string;
+    let multi1Src: string;
+    let multi2Src: string;
 
     beforeAll(() => {
       // Larger files (1MB) give abort tests enough time to actually cancel mid-flight.
       const largeData = Buffer.alloc(1 * 1024 * 1024, 'x');
-      writeTempFile(preAbortFile, largeData);
-      writeTempFile(midAbortFile, largeData);
-      writeTempFile(successFile, 'This file should upload successfully');
-      writeTempFile(multi1File, 'Content 1');
-      writeTempFile(multi2File, 'Content 2');
+      preAbortSrc = writeTempFile(preAbortFile, largeData);
+      midAbortSrc = writeTempFile(midAbortFile, largeData);
+      successSrc = writeTempFile(successFile, 'This file should upload successfully');
+      multi1Src = writeTempFile(multi1File, 'Content 1');
+      multi2Src = writeTempFile(multi2File, 'Content 2');
     });
 
     it('should throw an AbortError when upload is aborted with pre-aborted signal', async () => {
@@ -42,7 +48,7 @@ describe('Abort signal handling', () => {
 
       const uploadPromise = fileManager.uploadFile(
         drive.id,
-        { path: preAbortFile, sourcePath: preAbortFile },
+        { path: preAbortFile, sourcePath: preAbortSrc },
         undefined,
         {
           signal: controller.signal,
@@ -64,7 +70,7 @@ describe('Abort signal handling', () => {
       // Start upload and abort after a short delay
       const uploadPromise = fileManager.uploadFile(
         drive.id,
-        { path: midAbortFile, sourcePath: midAbortFile },
+        { path: midAbortFile, sourcePath: midAbortSrc },
         undefined,
         {
           signal: controller.signal,
@@ -85,7 +91,7 @@ describe('Abort signal handling', () => {
       const controller = new AbortController();
 
       // Upload with signal that is NOT aborted
-      await fileManager.uploadFile(drive.id, { path: successFile, sourcePath: successFile }, undefined, {
+      await fileManager.uploadFile(drive.id, { path: successFile, sourcePath: successSrc }, undefined, {
         signal: controller.signal,
       });
 
@@ -103,7 +109,7 @@ describe('Abort signal handling', () => {
       // First upload should fail (aborted)
       const firstUploadPromise = fileManager.uploadFile(
         drive.id,
-        { path: multi1File, sourcePath: multi1File },
+        { path: multi1File, sourcePath: multi1Src },
         undefined,
         {
           signal: controller1.signal,
@@ -119,7 +125,7 @@ describe('Abort signal handling', () => {
       }
 
       // Second upload should succeed (not aborted)
-      await fileManager.uploadFile(drive.id, { path: multi2File, sourcePath: multi2File }, undefined, {
+      await fileManager.uploadFile(drive.id, { path: multi2File, sourcePath: multi2Src }, undefined, {
         signal: controller2.signal,
       });
 
@@ -135,8 +141,8 @@ describe('Abort signal handling', () => {
 
     beforeAll(async () => {
       // Upload a 1MB file to download later (large enough for reliable abort timing)
-      writeTempFile(downloadTestFile, Buffer.alloc(1 * 1024 * 1024, 'x'));
-      await fileManager.uploadFile(drive.id, { path: downloadTestFile, sourcePath: downloadTestFile });
+      const src = writeTempFile(downloadTestFile, Buffer.alloc(1 * 1024 * 1024, 'x'));
+      await fileManager.uploadFile(drive.id, { path: downloadTestFile, sourcePath: src });
       const fr = fileManager.recordList.find((fr) => fr.path === downloadTestFile);
       expect(fr).toBeDefined();
       uploadedFileInfo = fr!;
@@ -238,8 +244,11 @@ describe('Abort signal handling', () => {
     beforeAll(async () => {
       folderInfo = await fileManager.createFolder(drive.id, ROOT_PATH, folderName);
 
-      writeTempDir(folderName, { 'it-abort-listfolder-file.txt': 'listFolder abort test content' });
-      await fileManager.uploadFile(drive.id, { path: fileInFolder, sourcePath: fileInFolder });
+      const dir = writeTempDir(folderName, { 'it-abort-listfolder-file.txt': 'listFolder abort test content' });
+      await fileManager.uploadFile(drive.id, {
+        path: fileInFolder,
+        sourcePath: path.join(dir, 'it-abort-listfolder-file.txt'),
+      });
     });
 
     it('should throw error when listFolder is aborted with pre-aborted signal', async () => {

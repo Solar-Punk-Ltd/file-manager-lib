@@ -4,7 +4,7 @@ import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } fro
 
 import { applyDefaultMocks, createMockDriveInfo, createMockNodeAddresses, seedRecords } from './mock';
 
-import { DriveInfo, NodeType } from '@/types';
+import { type DriveInfo, NodeType } from '@/types';
 import { DriveError, FileManagerEvents } from '@/utils';
 import { ADMIN_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 

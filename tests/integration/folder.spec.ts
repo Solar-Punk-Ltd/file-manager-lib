@@ -1,4 +1,4 @@
-import { BatchId, Identifier } from '@ethersphere/bee-js';
+import { type BatchId, Identifier } from '@ethersphere/bee-js';
 
 import {
   buyStampSerialized,
@@ -10,8 +10,8 @@ import {
 
 import { ensureUniqueSignerWithStamp, setupUserDrive, tempFileRegistry } from './setup/utils';
 
-import { FileManagerBase } from '@/fileManager';
-import { DriveInfo, ListDepth, NodeType } from '@/types';
+import { type FileManagerBase } from '@/fileManager';
+import { type DriveInfo, ListDepth, NodeType } from '@/types';
 import { ROOT_PATH } from '@/utils/constants';
 
 describe('Folder operations', () => {

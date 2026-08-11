@@ -1,7 +1,7 @@
-import { Bee, BeeRequestOptions, DownloadOptions } from '@ethersphere/bee-js';
+import { type Bee, type BeeRequestOptions, type DownloadOptions } from '@ethersphere/bee-js';
 
-import { DownloadFilesResult, DownloadResource, DownloadResult } from '../types/download';
-import { FailedResult } from '../types/utils';
+import { type DownloadFilesResult, type DownloadResource, type DownloadResult } from '../types/download';
+import { type FailedResult } from '../types/utils';
 import { settlePromises } from '../utils/common';
 import { Logger } from '../utils/logger';
 

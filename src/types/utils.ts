@@ -1,4 +1,4 @@
-import { Bytes, FeedIndex, Reference } from '@ethersphere/bee-js';
+import { type Bytes, type FeedIndex, type Reference } from '@ethersphere/bee-js';
 
 export interface ActReferences {
   reference: string;

@@ -1,16 +1,16 @@
 import {
-  BatchId,
-  Bee,
-  BeeRequestOptions,
-  EthAddress,
+  type BatchId,
+  type Bee,
+  type BeeRequestOptions,
+  type EthAddress,
   FeedIndex,
-  PostageBatch,
-  PrivateKey,
-  RedundancyLevel,
+  type PostageBatch,
+  type PrivateKey,
+  type RedundancyLevel,
   Topic,
 } from '@ethersphere/bee-js';
 
-import { ActReferences, FeedResultWithIndex } from '../types/utils';
+import { type ActReferences, type FeedResultWithIndex } from '../types/utils';
 
 import { isNotFoundError } from './common';
 import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from './constants';

@@ -1,38 +1,38 @@
 import {
-  BatchId,
-  Bee,
-  BeeRequestOptions,
-  Bytes,
-  DownloadOptions,
+  type BatchId,
+  type Bee,
+  type BeeRequestOptions,
+  type Bytes,
+  type DownloadOptions,
   FeedIndex,
-  FileUploadOptions,
+  type FileUploadOptions,
   Identifier,
   MantarayNode,
-  PostageBatch,
-  PrivateKey,
-  PublicKey,
+  type PostageBatch,
+  type PrivateKey,
+  type PublicKey,
   RedundancyLevel,
-  RedundantUploadOptions,
+  type RedundantUploadOptions,
   Reference,
   Topic,
 } from '@ethersphere/bee-js';
 
-import { DownloadFilesResult, DownloadResource, DownloadResult } from './types/download';
-import { FileManager, FileManagerConfig } from './types/fileManager';
+import { type DownloadFilesResult, type DownloadResource, type DownloadResult } from './types/download';
+import { type FileManager, type FileManagerConfig } from './types/fileManager';
 import {
-  DriveInfo,
-  FileRecord,
-  FolderInfo,
+  type DriveInfo,
+  type FileRecord,
+  type FolderInfo,
   ListDepth,
-  ManifestHost,
-  NodeEntry,
-  NodeHeader,
+  type ManifestHost,
+  type NodeEntry,
+  type NodeHeader,
   NodeStatus,
   NodeType,
-  TrashEntry,
+  type TrashEntry,
 } from './types/info';
-import { UpdateItem, UploadFilesResult, UploadItem } from './types/upload';
-import { ActReferences, FailedResult } from './types/utils';
+import { type UpdateItem, type UploadFilesResult, type UploadItem } from './types/upload';
+import { type ActReferences, type FailedResult } from './types/utils';
 import { assertActReferences, assertDriveInfoFromMetadata, assertReady } from './utils/asserts';
 import {
   fetchStamp,
@@ -68,7 +68,7 @@ import {
 } from './utils/mantaray';
 import { assertValidRelativePath, normalizePath, pathSegments, splitPath } from './utils/path';
 import { processDownload } from './download';
-import { EventEmitter, EventEmitterBase } from './eventEmitter';
+import { type EventEmitter, EventEmitterBase } from './eventEmitter';
 import { MantarayStore } from './mantarayStore';
 import { assertUploadableSource, processUpload } from './upload';
 

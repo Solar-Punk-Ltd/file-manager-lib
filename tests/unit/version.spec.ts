@@ -4,9 +4,9 @@ import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } fro
 
 import { applyDefaultMocks, createMockNodeAddresses, seedRecords } from './mock';
 
-import { FileManagerBase } from '@/fileManager';
-import { FileRecord, NodeType } from '@/types';
-import { FeedResultWithIndex } from '@/types/utils';
+import { type FileManagerBase } from '@/fileManager';
+import { type FileRecord, NodeType } from '@/types';
+import { type FeedResultWithIndex } from '@/types/utils';
 import { FileManagerEvents } from '@/utils';
 import { getFeedData } from '@/utils/bee';
 import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';

@@ -1,4 +1,13 @@
-import { BatchId, Bee, Bytes, FeedIndex, MantarayNode, RedundancyLevel, Reference, Topic } from '@ethersphere/bee-js';
+import {
+  BatchId,
+  Bee,
+  Bytes,
+  FeedIndex,
+  type MantarayNode,
+  RedundancyLevel,
+  Reference,
+  Topic,
+} from '@ethersphere/bee-js';
 
 import {
   createInitializedFileManager,
@@ -12,13 +21,13 @@ import {
   applyDefaultMocks,
   createMockDriveInfo,
   createMockNodeAddresses,
-  SeedableFm,
+  type SeedableFm,
   seedDummyFile,
   seedRecords,
 } from './mock';
 
-import { FileManagerBase } from '@/fileManager';
-import { DriveInfo, FileRecord, NodeStatus, NodeType } from '@/types';
+import { type FileManagerBase } from '@/fileManager';
+import { type DriveInfo, type FileRecord, NodeStatus, NodeType } from '@/types';
 import { FileError, FileManagerEvents, FileRecordError } from '@/utils';
 import { getFeedData } from '@/utils/bee';
 import {
@@ -547,7 +556,7 @@ describe('File operations', () => {
 
   describe('upload source validation', () => {
     it('isDir throws when the path does not exist (node fs)', async () => {
-      const { isDir } = await import('@/utils/fs/fs.node');
+      const { isDir } = await import('@/utils/fs/fs-node');
       await expect(isDir('definitely-missing-path-xyz-123')).rejects.toThrow(/does not exist/);
     });
 

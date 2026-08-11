@@ -1,10 +1,19 @@
-import { BatchId, Bee, Bytes, FeedIndex, Identifier, MantarayNode, RedundancyLevel, Topic } from '@ethersphere/bee-js';
+import {
+  BatchId,
+  Bee,
+  Bytes,
+  FeedIndex,
+  Identifier,
+  type MantarayNode,
+  RedundancyLevel,
+  Topic,
+} from '@ethersphere/bee-js';
 
 import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
 
 import { applyDefaultMocks, createMockDriveInfo, createMockNodeAddresses, seedDummyFile, seedRecords } from './mock';
 
-import { ListDepth, NodeHeader, NodeType } from '@/types';
+import { ListDepth, type NodeHeader, NodeType } from '@/types';
 import { FileManagerEvents } from '@/utils';
 import { getFeedData } from '@/utils/bee';
 import { SWARM_ZERO_ADDRESS } from '@/utils/constants';

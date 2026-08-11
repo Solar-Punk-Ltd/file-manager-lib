@@ -1,8 +1,24 @@
-import { BatchId, EthAddress, Identifier, PublicKey, RedundancyLevel, Reference, Topic } from '@ethersphere/bee-js';
+import {
+  BatchId,
+  EthAddress,
+  Identifier,
+  PublicKey,
+  type RedundancyLevel,
+  Reference,
+  Topic,
+} from '@ethersphere/bee-js';
 import { Types } from 'cafe-utility';
 
-import { DriveInfo, FileRecord, FolderInfo, NodeResource, NodeStatus, NodeType, TrashEntry } from '../types/info';
-import { ActReferences } from '../types/utils';
+import {
+  type DriveInfo,
+  type FileRecord,
+  type FolderInfo,
+  type NodeResource,
+  NodeStatus,
+  NodeType,
+  type TrashEntry,
+} from '../types/info';
+import { type ActReferences } from '../types/utils';
 
 import {
   MANIFEST_METADATA_DRIVE_ACT_PUBLISHER,
