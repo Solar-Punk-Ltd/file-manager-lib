@@ -16,7 +16,6 @@ import {
   type NodeResource,
   NodeStatus,
   NodeType,
-  type TrashEntry,
 } from '../types/info';
 import { type ActReferences } from '../types/utils';
 
@@ -27,7 +26,6 @@ import {
   MANIFEST_METADATA_DRIVE_IS_ADMIN,
   MANIFEST_METADATA_DRIVE_NAME,
   MANIFEST_METADATA_DRIVE_OWNER,
-  MANIFEST_METADATA_DRIVE_TRASHED_NODES,
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
 } from './constants';
@@ -169,40 +167,10 @@ export function assertDriveInfoFromMetadata(meta: Record<string, string>): Drive
     redundancyLevel,
     topic,
     actPublisher,
-    trashedNodes: parseTrashedNodes(meta[MANIFEST_METADATA_DRIVE_TRASHED_NODES]),
   };
   assertDriveInfo(driveInfo);
 
   return driveInfo;
-}
-
-export function parseTrashedNodes(raw?: string): TrashEntry[] {
-  if (!raw) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return (parsed as unknown[])
-      .filter(
-        (e): e is Record<string, unknown> =>
-          Types.isStrictlyObject(e) &&
-          typeof (e as Record<string, unknown>).topic === 'string' &&
-          ((e as Record<string, unknown>).topic as string).length > 0,
-      )
-      .map((e) => ({
-        topic: e.topic as string,
-        type: (e.type as NodeType) ?? NodeType.File,
-        version: typeof e.version === 'string' ? (e.version as string) : undefined,
-        path: typeof e.path === 'string' ? (e.path as string) : '',
-      }));
-  } catch {
-    return [];
-  }
 }
 
 interface FMReadyState {

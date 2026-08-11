@@ -1,6 +1,7 @@
-import { type DriveInfo, NodeStatus } from '../types/info';
+import { NodeStatus } from '../types/info';
 
 import { Logger } from './logger';
+import { isTrashPath } from './path';
 
 const logger = Logger.getInstance();
 
@@ -34,9 +35,8 @@ export const joinPath = (base: string, name: string): string => {
   return base ? `${base}/${name}` : name;
 };
 
-export const getRecordStatus = (drive: DriveInfo, topic: string): NodeStatus => {
-  const isFoundInTrash = !!drive.trashedNodes?.some((n) => n.topic === topic);
-  return isFoundInTrash ? NodeStatus.Trashed : NodeStatus.Active;
+export const getRecordStatus = (recordPath: string): NodeStatus => {
+  return isTrashPath(recordPath) ? NodeStatus.Trashed : NodeStatus.Active;
 };
 
 const HTTP_NOT_FOUND = 404;

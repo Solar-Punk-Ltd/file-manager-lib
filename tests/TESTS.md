@@ -15,7 +15,7 @@ and troubleshoot it. It covers both **unit** and **integration** tests (includin
   `unit-node` and `unit-browser` execute the same specs, the latter adding `tests/platform-browser.ts` to shim browser
   globals so the platform-split code is exercised both ways.
 - **Integration tests** run against real Bee nodes provisioned by **`@ethersphere/bee-factory`** and exercise ACT
-  encryption, per‑file feeds, mantaray drive manifests, versioning and the trash overlay end‑to‑end.
+  encryption, per‑file feeds, mantaray drive manifests, versioning and the reserved `.trash` folder end‑to‑end.
 - The runner uses **`--maxWorkers=4`**; integration steps lean on the 5-minute `testTimeout` + propagation retries
   rather than serial execution.
 - `testTimeout` is **5 minutes** per test (integration steps wait on chunk propagation).
@@ -145,8 +145,8 @@ Each domain area lives in its own spec file, mirrored across `unit/` and `integr
 - **Drives are mantaray manifests.** A drive's file tree is a mantaray whose forks carry per-file metadata; per-file
   version history lives in each file's own Swarm feed.
 - **ACT** wraps content per file (`content.historyRef`, `actPublisher`).
-- **Trash is an owner-private overlay** on the admin drive: status is _derived_ on load (not stored on the file's own
-  feed), so a fresh instance re-derives Active/Trashed via `listFolder`.
+- **Trash is a reserved `.trash` folder** at the drive root: trashing relocates the node's fork into it keyed by topic,
+  so status is _derived_ from a node's location and a fresh instance sees it by walking the tree.
 - `FileManagerConfig` lets clients cap `uploadConcurrency` and `feedFetchConcurrency`.
 - Sharing / grantees are **not** part of v2 and are not tested.
 
@@ -171,9 +171,10 @@ Executed against live bee-factory nodes.
 - **`version.spec.ts`** — _Version control_: invalid index rejection, sequential slot indices, cold-cache lazy
   hydration, drive-mismatch guard, independently downloadable version bytes, cached-head fast path, restoring a prior
   version as the new head, no-op restore of the head, and restore keeping the current (post-move) location.
-- **`trash.spec.ts`** — _Lifecycle management_: trash (soft-delete) and recover round-trip through the owner-private
-  overlay (status re-derived by a fresh instance, **no** version bump), `forget` (hard-delete), and no-duplicate-topic
-  guarantees.
+- **`trash.spec.ts`** — _Lifecycle management_: trash/recover round-trips through the `.trash` folder (a fresh instance
+  stops listing the node and finds it via `listTrash`, **no** version bump), folder trash carrying its subtree,
+  same-named nodes kept apart, recover to an explicit destination after the origin was forgotten, the write guards,
+  `emptyTrash`, and `forget` (hard de-reference).
 - **`abort.spec.ts`** — _Abort signal handling_: `AbortSignal` forwarding for `uploadFile`, `downloadFiles`, and
   `listFolder` — pre-aborted, mid-flight cancel, and clean completion when not aborted.
 - **`e2e.spec.ts`** — _End-to-End User Workflow_: in-place folder update (one file changes, siblings untouched), adding
@@ -201,8 +202,8 @@ Key strategies:
 - **`folder.spec.ts`** — `downloadFolder`, `listFolder`, `createFolder`, `move`.
 - **`version.spec.ts`** — `getFileVersion` (indexed vs. head, cache reuse, missing-feed error), `restoreFileVersion`
   (head restore is a no-op / emits no event).
-- **`trash.spec.ts`** — _Lifecycle management_ → `trashFile`, `recoverFile`, `trashFolder`, `listTrash`, `forget` (event
-  emission and overlay bookkeeping).
+- **`trash.spec.ts`** — _Lifecycle management_ → `trash`, `recover`, `listTrash`, `emptyTrash`, `forget` (fork
+  relocation, origin stamping and event emission).
 - **`events.spec.ts`** — _Events and emitter_: deterministic `FILE_UPLOADED` payloads (system time pinned via
   `jest.useFakeTimers()`), `INITIALIZED` fired once per cold init.
 - **`abort.spec.ts`** — abort-signal plumbing at the unit level.

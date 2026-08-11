@@ -12,7 +12,8 @@ models a full, versioned, access-controlled filesystem on top of Swarm's content
   address.
 - **Versioning** — every structural change publishes a new feed slot, so drives, folders and files all gain automatic
   history. Restore any file version to head.
-- **Trash / recover / forget** — soft-delete via an owner-private overlay, or hard-delete a node from the manifest.
+- **Trash / recover / forget** — soft-delete by relocating a node into the drive's reserved `.trash` folder, or
+  hard-delete it from the manifest.
 - **Move** — relocate files and folders within or across drives.
 - **Browser + Node.js** — one unified API; the byte source differs (`file` vs `sourcePath`).
 
@@ -67,7 +68,7 @@ flowchart TD
 | File fork → per-file feed                    | file (inode) with history   | Stable identity + full version chain             |
 | Fork metadata map (`swarm-node-*`)           | inode metadata              | Owner, type, version, ACT publisher, path        |
 | New feed slot on every structural change     | filesystem snapshot         | Automatic drive/folder/file version history      |
-| Trash overlay (owner-private admin metadata) | recycle bin / `.Trash`      | Soft-delete without mutating data or the subtree |
+| Reserved `.trash` folder per drive           | recycle bin / `.Trash`      | Soft-delete without mutating data or the subtree |
 
 ### Key design points
 

@@ -35,6 +35,7 @@ export interface FileRecord extends NodeResource {
   content: ActReferences;
   timestamp?: number;
   customMetadata?: Record<string, string>;
+  trashedFrom?: string;
 }
 
 export interface ManifestHost extends NodeResource {
@@ -42,25 +43,18 @@ export interface ManifestHost extends NodeResource {
   version?: never;
 }
 
-export interface TrashEntry {
-  topic: string;
-  type: NodeType;
-  path: string;
-  version?: string;
-}
-
 export interface DriveInfo extends ManifestHost {
   type: NodeType.Drive;
   id: string;
   name: string;
   isAdmin: boolean;
-  trashedNodes?: TrashEntry[];
 }
 
 export interface FolderInfo extends ManifestHost {
   type: NodeType.Folder;
   path: string;
   driveId: string;
+  trashedFrom?: string;
 }
 
 export type NodeEntry = FileRecord | FolderInfo;

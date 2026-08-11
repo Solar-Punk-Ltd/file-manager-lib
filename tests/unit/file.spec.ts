@@ -37,6 +37,7 @@ import {
   MANIFEST_METADATA_NODE_TYPE,
   ROOT_PATH,
   SWARM_ZERO_ADDRESS,
+  TRASH_FOLDER_NAME,
 } from '@/utils/constants';
 
 describe('File operations', () => {
@@ -605,22 +606,21 @@ describe('File operations', () => {
       expect(driveMantaray.find('renamed.json')).toBeTruthy();
     });
 
-    it('refuses to move a trashed node until it is recovered', async () => {
+    it('cannot reach a trashed node, and refuses the trash folder as an endpoint', async () => {
       const fm = await createInitializedFileManager();
       await fm.createDrive(otherMockBatchId, 'Test Drive');
       const drive = fm.driveList[1];
 
       await fm.uploadFile(drive.id, { path: 'package.json', ...makeUploadSource('package.json') });
       const original = fm.recordList.find((fr) => fr.path === 'package.json')!;
-      await fm.trashFile(original);
+      await fm.trash(drive.id, 'package.json');
 
-      await expect(fm.move('package.json', 'renamed.json', drive.id)).rejects.toThrow(
-        'Cannot move a trashed file/folder; recover it first',
+      await expect(fm.move('package.json', 'renamed.json', drive.id)).rejects.toThrow('Path not found: package.json');
+      await expect(fm.move(`${TRASH_FOLDER_NAME}/${original.topic}`, 'renamed.json', drive.id)).rejects.toThrow(
+        /reserved/,
       );
 
-      // The guard fires before any manifest mutation — the fork stays put.
       const driveMantaray = (fm as any).store.getManifestCache(drive.topic) as MantarayNode;
-      expect(driveMantaray.find('package.json')).toBeTruthy();
       expect(driveMantaray.find('renamed.json')).toBeFalsy();
     });
 

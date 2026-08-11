@@ -14,6 +14,7 @@ export enum FileManagerEvents {
   FOLDER_TRASHED = 'folder-trashed',
   FOLDER_RECOVERED = 'folder-recovered',
   FOLDER_CREATED = 'folder-created',
+  TRASH_EMPTIED = 'trash-emptied',
   FILES_UPLOADED = 'files-uploaded',
   STATE_INVALID = 'state-invalid',
 }

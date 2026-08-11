@@ -18,7 +18,7 @@ method for cancellation (`signal`) and retries; it is omitted from the descripti
 - [Files — read](#files--read) — `downloadFile`, `downloadFiles`, `downloadFolder`
 - [Folders](#folders) — `createFolder`, `listFolder`, `move`, `forget`
 - [Versioning](#versioning) — `getFileVersion`, `restoreFileVersion`
-- [Trash](#trash) — `trashFile`, `recoverFile`, `trashFolder`, `recoverFolder`, `listTrash`
+- [Trash](#trash) — `trash`, `recover`, `listTrash`, `emptyTrash`
 - [Getters](#getters) — `adminStamp`, `driveList`, `recordList`, `emitter`, `isInitialized`
 - [Events](#events)
 - [Types](#types)
@@ -41,7 +41,7 @@ constructor(bee: Bee, emitter?: EventEmitter, config?: FileManagerConfig)
 - **config** _(optional)_ — concurrency tuning, see [`FileManagerConfig`](#filemanagerconfig).
 
 Wraps the Bee client and owns the on-Swarm drive/folder/file tree, ACT wrapping, per-file version feeds, the
-owner-private trash overlay, and event emission.
+trash relocation, and event emission.
 
 ### `FileManagerConfig`
 
@@ -227,7 +227,7 @@ deliberately — it reuses an existing folder on the way to a file rather than f
 ### `listFolder(driveId, path, depth?, maxDepth?, requestOptions?): Promise<NodeEntry[]>`
 
 Lists entries in a folder (or drive root) from the drive manifest, hydrating and caching any file entries into
-`recordList`. Trashed nodes (and everything under a trashed folder) are hidden.
+`recordList`. The reserved `.trash` folder is omitted from the drive root and cannot be listed here — use `listTrash`.
 
 - **path** — absolute folder path, or `'/'` for the drive root.
 - **depth?** [`ListDepth`](#enums) — `Shallow` (one level, default) or `Deep` (full BFS).
@@ -288,47 +288,54 @@ folder/drive-level restore.
 
 ## Trash
 
-Soft-delete is an **owner-private overlay** on the drive's admin metadata (`trashedNodes`), keyed by node topic. It
-never touches a node's own feed, content, or subtree, and is not visible to anyone but the owner. Status is derived from
-the overlay, not persisted onto records.
+Trash is a **reserved `.trash` folder** at the drive root, not a metadata overlay. Trashing relocates a node's fork into
+it — keyed by the node's own topic, so same-named nodes never collide — and stamps the path it came from onto the moved
+fork. The node's feed, version and content are untouched, and a folder's subtree rides along unread, so any trash or
+recover is two manifest writes regardless of depth.
 
-### `trashFile(record, requestOptions?): Promise<void>`
+Trashed nodes leave the active namespace completely: `listFolder` omits `.trash` from the drive root and refuses to
+descend into it, `downloadFolder` skips trashed files, and `updateFile` / `uploadFile` / `createFolder` / `move` refuse
+any path under `.trash`. The folder is created lazily on the first trash, so a drive that never trashes anything carries
+no trash node at all.
 
-Soft-deletes a file: records it in the trash overlay so it is hidden from the active list. Metadata-only.
+### `trash(driveId, path, requestOptions?): Promise<void>`
 
-- **Emits**: `FILE_TRASHED`.
-- **Throws**: `DriveError` (not initialized or drive not found); `SignerError`; `FileRecordError` (already trashed).
+Soft-deletes the file or folder at `path`. Bare and path-addressed — it dispatches on the resolved node type.
 
-### `recoverFile(record, requestOptions?): Promise<void>`
+- **Emits**: `FILE_TRASHED` or `FOLDER_TRASHED`, with `{ driveId, path, trashedPath }` (plus `record` for a file).
+- **Throws**: `DriveError` (not initialized, drive not found, path is the drive root or under `.trash`, or path not
+  found); `SignerError`; `FileRecordError` (fork missing node metadata).
 
-Recovers a trashed file back into the active list (removes it from the overlay).
+### `recover(driveId, trashedPath, toPath?, requestOptions?): Promise<string>`
 
-- **Emits**: `FILE_RECOVERED`.
-- **Throws**: `DriveError`; `SignerError`; `FileRecordError` (not currently trashed).
+Restores a trashed node to `toPath`, or to the location stamped on it when `toPath` is omitted. Restores **location
+only** — content and version are whatever they were.
 
-### `trashFolder(folder, requestOptions?): Promise<void>`
+The stamped origin can go stale: if that folder has since been forgotten, moved or trashed, resolution fails and the
+caller passes an explicit `toPath`. An occupied destination is refused, never overwritten.
 
-Soft-deletes a folder by recording **only the folder's own topic** — no propagation. The subtree is untouched and costs
-a single overlay entry regardless of depth. `listFolder` hides the folder and stops descending; contents reappear on
-recover.
+- **Returns**: the path the node was restored to.
+- **Emits**: `FILE_RECOVERED` or `FOLDER_RECOVERED`.
+- **Throws**: `DriveError` (`trashedPath` is not `.trash/<topic>`, destination invalid/occupied, or the destination's
+  parent no longer exists); `SignerError`; `FileRecordError` (not in the trash, or no stamped origin and no `toPath`).
 
-- **Emits**: `FOLDER_TRASHED`.
-- **Throws**: `DriveError`; `SignerError`; `FileRecordError` (already trashed).
+### `listTrash(driveId, depth?, maxDepth?, requestOptions?): Promise<NodeEntry[]>`
 
-### `recoverFolder(folder, requestOptions?): Promise<void>`
+Walks `.trash` with the same machinery as `listFolder`, so `depth` controls the cost: `Shallow` (default) returns the
+trashed roots only, `Deep` descends into trashed folders. Returns `[]` for a drive with no trash node.
 
-Recovers a trashed folder (removes its topic from the overlay); its never-modified subtree becomes visible again.
+Entries carry `status = trashed`, `path` = their real location under `.trash`, and `trashedFrom` = where they came from.
 
-- **Emits**: `FOLDER_RECOVERED`.
-- **Throws**: `DriveError`; `SignerError`; `FileRecordError` (not currently trashed).
+- **Returns**: the trashed nodes; pass a `path` back to `recover`.
+- **Throws**: `DriveError` (not initialized or drive not found); `SignerError`.
 
-### `listTrash(driveId, requestOptions?): Promise<NodeEntry[]>`
+### `emptyTrash(driveId, requestOptions?): Promise<number>`
 
-Lists a drive's trashed nodes (files and folders), hydrated into full `NodeEntry` objects with `status = trashed`. Reads
-straight from the overlay with no tree walk, so cost is proportional to the number of trashed roots, not drive size.
-Recovery is honored per topic, so visibility also requires ancestors to be recovered.
+De-references every trashed node in one manifest write. Like `forget`, the content stays on Swarm until its stamp
+expires — this drops references, it does not delete data.
 
-- **Returns**: the trashed files and folders; pass one back to `recoverFile` / `recoverFolder`.
+- **Returns**: how many nodes were de-referenced.
+- **Emits**: `TRASH_EMPTIED`.
 - **Throws**: `DriveError` (not initialized or drive not found); `SignerError`.
 
 ---
@@ -362,14 +369,15 @@ Emitted on the provided `EventEmitter` as `FileManagerEvents`:
 | `FILE_UPDATED`          | `updateFile`                                       |
 | `FILE_DOWNLOADED`       | download path                                      |
 | `FILE_MOVED`            | `move`                                             |
-| `FILE_TRASHED`          | `trashFile`                                        |
-| `FILE_RECOVERED`        | `recoverFile`                                      |
+| `FILE_TRASHED`          | `trash` (file)                                     |
+| `FILE_RECOVERED`        | `recover` (file)                                   |
 | `FILE_FORGOTTEN`        | `forget` (file)                                    |
 | `FILE_VERSION_RESTORED` | `restoreFileVersion`                               |
 | `FOLDER_CREATED`        | `createFolder`, `uploadFiles` (per folder created) |
-| `FOLDER_TRASHED`        | `trashFolder`                                      |
-| `FOLDER_RECOVERED`      | `recoverFolder`                                    |
+| `FOLDER_TRASHED`        | `trash` (folder)                                   |
+| `FOLDER_RECOVERED`      | `recover` (folder)                                 |
 | `FOLDER_FORGOTTEN`      | `forget` (folder)                                  |
+| `TRASH_EMPTIED`         | `emptyTrash`                                       |
 
 ---
 
@@ -429,7 +437,7 @@ interface FileRecord extends NodeResource {
 
 ### `DriveInfo`
 
-A drive = a mantaray host with an id, name, and the owner-private trash overlay.
+A drive = a mantaray host with an id and a name.
 
 ```ts
 interface DriveInfo extends ManifestHost {
@@ -437,7 +445,6 @@ interface DriveInfo extends ManifestHost {
   id: string;
   name: string;
   isAdmin: boolean;
-  trashedNodes?: TrashEntry[];
 }
 ```
 
@@ -450,6 +457,7 @@ interface FolderInfo extends ManifestHost {
   type: NodeType.Folder;
   path: string;
   driveId: string;
+  trashedFrom?: string;
 }
 ```
 
@@ -469,17 +477,6 @@ interface ManifestHost extends NodeResource {
 
 ```ts
 type NodeEntry = FileRecord | FolderInfo; // discriminate on `.type`
-```
-
-### `TrashEntry`
-
-```ts
-interface TrashEntry {
-  topic: string;
-  type: NodeType;
-  path: string;
-  version?: string;
-}
 ```
 
 ### `UploadItem`
@@ -565,7 +562,7 @@ Each manifest fork carries a metadata map that mirrors inode metadata. Keys are 
 | `MANIFEST_METADATA_DRIVE_IS_ADMIN`      | `swarm-drive-is-admin`      | drive | Admin-drive flag                          |
 | `MANIFEST_METADATA_DRIVE_BATCH_ID`      | `swarm-drive-batch-id`      | drive | Backing postage batch                     |
 | `MANIFEST_METADATA_DRIVE_ACT_PUBLISHER` | `swarm-drive-act-publisher` | drive | Drive-level ACT publisher                 |
-| `MANIFEST_METADATA_DRIVE_TRASHED_NODES` | `swarm-drive-trashed-nodes` | drive | Serialised owner-private trash overlay    |
+| `MANIFEST_METADATA_TRASHED_FROM`        | `swarm-trashed-from`        | trash | Path the node was trashed from            |
 
 ---
 

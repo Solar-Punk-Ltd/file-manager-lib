@@ -305,37 +305,30 @@ describe('Folder operations', () => {
   });
 
   describe('move', () => {
-    it('refreshes trashed descendants overlay paths on a same-drive folder move', async () => {
+    it('rewrites descendant record paths on a same-drive folder move', async () => {
       const fm = await createInitializedFileManager();
       const drive = fm.driveList[0];
       await fm.createFolder(drive.id, '', 'Docs');
-
-      const descendantTopic = Topic.fromString('doc-a').toString();
-      drive.trashedNodes = [{ topic: descendantTopic, type: NodeType.File, path: 'Docs/a.txt' }];
+      seedRecords(fm, seedDummyFile(drive, 'Docs/a.txt', SWARM_ZERO_ADDRESS.toString(), owner, actPublisher));
 
       await fm.move('Docs', 'Archive', drive.id);
 
-      expect(drive.trashedNodes).toEqual([{ topic: descendantTopic, type: NodeType.File, path: 'Archive/a.txt' }]);
+      expect(fm.recordList.some((f) => f.path === 'Archive/a.txt')).toBe(true);
+      expect(fm.recordList.some((f) => f.path === 'Docs/a.txt')).toBe(false);
     });
 
-    it('relocates trashed descendants to the target drive on a cross-drive folder move', async () => {
+    it('moves descendant records to the target drive on a cross-drive folder move', async () => {
       const fm = await createInitializedFileManager();
       await fm.createDrive(otherMockBatchId, 'Target Drive');
       const source = fm.driveList[0];
       const target = fm.driveList[1];
       await fm.createFolder(source.id, '', 'Docs');
-
-      const descendantTopic = Topic.fromString('doc-a').toString();
-      source.trashedNodes = [{ topic: descendantTopic, type: NodeType.File, path: 'Docs/a.txt' }];
+      seedRecords(fm, seedDummyFile(source, 'Docs/a.txt', SWARM_ZERO_ADDRESS.toString(), owner, actPublisher));
 
       await fm.move('Docs', 'Archive', source.id, target.id);
 
-      expect(source.trashedNodes).toEqual([]);
-      expect(target.trashedNodes).toContainEqual({
-        topic: descendantTopic,
-        type: NodeType.File,
-        path: 'Archive/a.txt',
-      });
+      const moved = fm.recordList.find((f) => f.path === 'Archive/a.txt')!;
+      expect(moved.driveId).toBe(target.id);
     });
 
     it('throws when trying to move the drive root', async () => {

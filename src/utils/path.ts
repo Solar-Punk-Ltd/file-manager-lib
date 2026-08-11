@@ -1,5 +1,5 @@
-import { ROOT_PATH } from './constants';
-import { FileRecordError } from './errors';
+import { ROOT_PATH, TRASH_FOLDER_NAME } from './constants';
+import { DriveError, FileRecordError } from './errors';
 
 export function pathSegments(path: string): string[] {
   return path.split('/').filter(Boolean);
@@ -30,4 +30,18 @@ export function assertValidRelativePath(path: string): void {
   }
 
   assertValidNodePath(path);
+}
+
+export function isTrashPath(path: string): boolean {
+  return pathSegments(path)[0] === TRASH_FOLDER_NAME;
+}
+
+export function assertNotTrashPath(path: string): void {
+  if (isTrashPath(path)) {
+    throw new DriveError(`"${TRASH_FOLDER_NAME}" is reserved — use trash/recover and listTrash`);
+  }
+}
+
+export function trashPathOf(topic: string): string {
+  return `${TRASH_FOLDER_NAME}/${topic}`;
 }
