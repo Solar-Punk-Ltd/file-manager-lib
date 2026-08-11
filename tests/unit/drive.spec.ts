@@ -6,7 +6,7 @@ import { applyDefaultMocks, createMockDriveInfo, createMockNodeAddresses, seedRe
 
 import { type DriveInfo, NodeType } from '@/types';
 import { DriveError, FileManagerEvents } from '@/utils';
-import { ADMIN_STAMP_LABEL, SWARM_ZERO_ADDRESS } from '@/utils/constants';
+import { ADMIN_DRIVE_NAME, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
 describe('Drive operations', () => {
   const otherMockBatchId = new BatchId('4'.repeat(64));
@@ -22,7 +22,7 @@ describe('Drive operations', () => {
       const fm = await createInitializedFileManager();
       const di = fm.driveList[0];
       expect(di).toBeDefined();
-      expect(di.name).toBe(ADMIN_STAMP_LABEL);
+      expect(di.name).toBe(ADMIN_DRIVE_NAME);
       expect(di.batchId).toBe(DUMMY_BATCH_ID.toString());
       expect(di.id).toHaveLength(64);
       expect(di.owner).toBe(owner);

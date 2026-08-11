@@ -8,7 +8,7 @@ import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
 import { FileManagerEvents, SignerError } from '@/utils';
 import { getFeedData } from '@/utils/bee';
-import { ADMIN_STAMP_LABEL, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
+import { ADMIN_DRIVE_NAME, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 import { getAllNodeEntries } from '@/utils/mantaray';
 
 describe('Initialization and construction', () => {
@@ -146,7 +146,7 @@ describe('Initialization and construction', () => {
         {
           ...mockPostageBatch,
           usable: true,
-          label: ADMIN_STAMP_LABEL,
+          label: ADMIN_DRIVE_NAME,
         },
       ]);
 
@@ -216,7 +216,7 @@ describe('Initialization and construction', () => {
         {
           ...mockPostageBatch,
           usable: false,
-          label: ADMIN_STAMP_LABEL,
+          label: ADMIN_DRIVE_NAME,
         },
       ]);
 
@@ -277,7 +277,7 @@ describe('Initialization and construction', () => {
         {
           ...mockPostageBatch,
           usable: false,
-          label: ADMIN_STAMP_LABEL,
+          label: ADMIN_DRIVE_NAME,
         },
       ]);
 

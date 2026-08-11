@@ -24,7 +24,7 @@ import { ensureUniqueSignerWithStamp } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
 import { type ActReferences } from '@/types';
-import { ADMIN_STAMP_LABEL, FILEMANAGER_STATE_TOPIC, FileManagerEvents, StampError } from '@/utils';
+import { FILEMANAGER_STATE_TOPIC, FileManagerEvents, StampError } from '@/utils';
 import { assertActReferences } from '@/utils/asserts';
 import { getFeedData } from '@/utils/bee';
 import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
@@ -341,7 +341,7 @@ describe('reinitialization', () => {
       return batches.map((b) => ({
         ...b,
         usable: true,
-        label: b.label === ADMIN_STAMP_LABEL ? 'admin' : b.label,
+        label: b.label,
       }));
     });
 

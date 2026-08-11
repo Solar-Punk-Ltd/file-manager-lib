@@ -1,7 +1,7 @@
 import { FeedIndex, NULL_ADDRESS, Reference, Topic } from '@ethersphere/bee-js';
 
 export const FILEMANAGER_STATE_TOPIC = Topic.fromString('filemanager-state');
-export const ADMIN_STAMP_LABEL = 'admin';
+export const ADMIN_DRIVE_NAME = 'admin';
 export const SWARM_ZERO_ADDRESS = new Reference(NULL_ADDRESS);
 export const FEED_INDEX_ZERO = FeedIndex.fromBigInt(0n);
 export const ROOT_PATH = '/';

@@ -43,7 +43,7 @@ import {
 } from './utils/bee';
 import { awaitAllPromisesBounded, getRecordStatus, joinPath, settlePromises } from './utils/common';
 import {
-  ADMIN_STAMP_LABEL,
+  ADMIN_DRIVE_NAME,
   FEED_INDEX_ZERO,
   FILEMANAGER_STATE_TOPIC,
   MANIFEST_METADATA_FILE_TOPIC,
@@ -202,14 +202,14 @@ export class FileManagerBase implements FileManager {
     const batchIdStr = batchId.toString();
     const level = redundancyLevel ?? RedundancyLevel.OFF;
 
-    this.logger.debug('Creating admin drive with name: ', ADMIN_STAMP_LABEL);
+    this.logger.debug('Creating admin drive with name: ', ADMIN_DRIVE_NAME);
     await this.fetchAndSetAdminStamp(batchIdStr, requestOptions);
     verifyStampUsability(this.adminStamp, batchIdStr);
 
     await this.establishAdminState(batchIdStr, level, reset, requestOptions);
 
     return this.registerDrive(
-      { name: ADMIN_STAMP_LABEL, batchId: batchIdStr, isAdmin: true, redundancyLevel: level, publisher },
+      { name: ADMIN_DRIVE_NAME, batchId: batchIdStr, isAdmin: true, redundancyLevel: level, publisher },
       requestOptions,
     );
   }
