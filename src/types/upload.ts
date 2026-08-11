@@ -1,5 +1,5 @@
-import { FileRecord } from './info';
-import { FailedResult } from './utils';
+import { type FileRecord } from './info';
+import { type FailedResult } from './utils';
 
 export interface BrowserUploadOptions {
   file: File;

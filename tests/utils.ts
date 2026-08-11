@@ -1,9 +1,9 @@
-import { BatchId, Bee, BeeRequestOptions, PrivateKey, RedundancyLevel } from '@ethersphere/bee-js';
+import { type BatchId, Bee, type BeeRequestOptions, PrivateKey, RedundancyLevel } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 import { isNode } from 'std-env';
 
-import { EventEmitter } from '@/eventEmitter';
+import { type EventEmitter } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
 import { FileManagerEvents } from '@/utils';
 

@@ -60,7 +60,7 @@ export async function processUpload(
   } = processOptions(isNode, item, redundancyLevel, uploadOptions);
 
   if (isNode) {
-    const { processUploadNode } = await import('./upload.node');
+    const { processUploadNode } = await import('./upload-node');
     const contentRefs = await processUploadNode(
       bee,
       driveInfo,
@@ -72,7 +72,7 @@ export async function processUpload(
     return { contentRefs, rLevel };
   }
 
-  const { processUploadBrowser } = await import('./upload.browser');
+  const { processUploadBrowser } = await import('./upload-browser');
   const contentRefs = await processUploadBrowser(
     bee,
     driveInfo,

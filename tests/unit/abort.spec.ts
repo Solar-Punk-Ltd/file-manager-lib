@@ -10,7 +10,7 @@ import {
 
 import { applyDefaultMocks, createMockDriveInfo, createMockNodeAddresses, seedRecords } from './mock';
 
-import { FileRecord, ListDepth, NodeType } from '@/types';
+import { type FileRecord, ListDepth, NodeType } from '@/types';
 import { DriveError } from '@/utils';
 import { SWARM_ZERO_ADDRESS } from '@/utils/constants';
 

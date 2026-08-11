@@ -1,9 +1,11 @@
+import path from 'path';
+
 import { retryOnPropagationDelay, streamToUint8Array } from '../utils';
 
 import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
-import { FileManagerBase } from '@/fileManager';
-import { DriveInfo, ListDepth, NodeType } from '@/types';
+import { type FileManagerBase } from '@/fileManager';
+import { type DriveInfo, ListDepth, NodeType } from '@/types';
 
 describe('End-to-End User Workflow', () => {
   let fileManager: FileManagerBase;
@@ -34,11 +36,11 @@ describe('End-to-End User Workflow', () => {
     expect(reportFi).toBeDefined();
     expect(noteFi).toBeDefined();
 
-    // Update just one file in place — mirror the manifest path on disk since Node's upload()
-    // re-upload path doubles as both the fs source and the manifest fork identity.
-    writeTempDir('it-e2e-project', { 'report.txt': 'Report V2' });
+    // Update just one file in place: rewrite the on-disk source and point the update at it. The
+    // manifest fork identity comes from reportFi; the disk source is independent of the drive path.
+    const projectDir = writeTempDir('it-e2e-project', { 'report.txt': 'Report V2' });
 
-    await fileManager.updateFile(drive.id, reportFi, { item: { sourcePath: 'it-e2e-project/report.txt' } });
+    await fileManager.updateFile(drive.id, reportFi, { item: { sourcePath: path.join(projectDir, 'report.txt') } });
 
     const projectEntries = await retryOnPropagationDelay(() =>
       fileManager.listFolder(drive.id, 'it-e2e-project', ListDepth.Shallow),

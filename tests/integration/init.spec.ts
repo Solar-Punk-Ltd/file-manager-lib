@@ -1,4 +1,12 @@
-import { BatchId, Bee, BeeResponseError, PrivateKey, PublicKey, RedundancyLevel, Reference } from '@ethersphere/bee-js';
+import {
+  BatchId,
+  Bee,
+  BeeResponseError,
+  type PrivateKey,
+  type PublicKey,
+  RedundancyLevel,
+  Reference,
+} from '@ethersphere/bee-js';
 
 import {
   buyStampSerialized,
@@ -13,7 +21,7 @@ import {
 import { ensureUniqueSignerWithStamp } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
-import { ActReferences } from '@/types';
+import { type ActReferences } from '@/types';
 import { ADMIN_STAMP_LABEL, FILEMANAGER_STATE_TOPIC, FileManagerEvents, StampError } from '@/utils';
 import { assertActReferences } from '@/utils/asserts';
 import { getFeedData } from '@/utils/bee';

@@ -28,6 +28,7 @@ yalc.lock
 coverage/
 *.pid
 tests/**/bee-dev/
+tests/integration/tmp/
 **.tgz
 
 *.md

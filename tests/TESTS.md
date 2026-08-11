@@ -9,19 +9,23 @@ and troubleshoot it. It covers both **unit** and **integration** tests (includin
 
 ## At a glance
 
-- **Jest** with two **projects** (`unit` and `integration`), both running under **ts-jest** in a Node environment.
-- **Unit tests** mock all Swarm/Bee internals and focus on `FileManagerBase` behavior — no network.
+- **Jest** with three **projects** (`unit-node`, `unit-browser`, `integration`), all under **ts-jest** in a Node
+  environment.
+- **Unit tests** mock all Swarm/Bee internals and focus on `FileManagerBase` behavior — no network. They run **twice**:
+  `unit-node` and `unit-browser` execute the same specs, the latter adding `tests/platform-browser.ts` to shim browser
+  globals so the platform-split code is exercised both ways.
 - **Integration tests** run against real Bee nodes provisioned by **`@ethersphere/bee-factory`** and exercise ACT
   encryption, per‑file feeds, mantaray drive manifests, versioning and the trash overlay end‑to‑end.
-- Tests run **serially** (`--runInBand`) to avoid shared Bee/port conflicts.
+- The runner uses **`--maxWorkers=4`**; integration steps lean on the 5-minute `testTimeout` + propagation retries
+  rather than serial execution.
 - `testTimeout` is **5 minutes** per test (integration steps wait on chunk propagation).
-- Coverage is collected by default (`v8` provider) into `tests/coverage`.
+- Coverage is **opt-in** via `pnpm run test:coverage` (`v8` provider) into `tests/coverage`.
 
 ---
 
 ## Prerequisites
 
-- **Node.js** — a recent LTS (matching the version bee-js targets).
+- **Node.js** — **≥ 22** (matches `engines.node`).
 - **Docker** — required for integration tests. `bee-factory` spins up a local Bee cluster in containers.
 - **`@ethersphere/bee-factory`** — a dev/test dependency. The integration project's `globalSetup` starts it and
   `globalTeardown` stops it automatically; you don't start Bee manually.
@@ -36,12 +40,16 @@ Unit tests need none of the above — they never touch the network.
 ## Running tests
 
 ```bash
-# Everything (unit + integration), serial + verbose
+# Everything (unit-node + unit-browser + integration), verbose
 pnpm test
 
-# Only unit / only integration
+# Only unit (both envs) / only integration
 pnpm run test:ut
 pnpm run test:it
+
+# A single unit env
+pnpm run test:ut:node
+pnpm run test:ut:browser
 
 # Coverage
 pnpm run test:coverage
@@ -49,10 +57,11 @@ pnpm run test:coverage
 
 Scripts exposed by `package.json`:
 
-- **`pnpm test`** → `jest --config=jest.config.ts --runInBand --verbose --silent`
-- **`pnpm run test:ut`** → runs `pnpm test --selectProjects=unit`
-- **`pnpm run test:it`** → runs `pnpm test --selectProjects=integration`
-- **`pnpm run test:coverage`** → `jest --coverage`
+- **`pnpm test`** → `jest --config=jest.config.ts --maxWorkers=4 --verbose --silent`
+- **`pnpm run test:ut`** → `test --selectProjects=unit-node` then `test --selectProjects=unit-browser`
+- **`pnpm run test:ut:node`** / **`pnpm run test:ut:browser`** → a single unit env
+- **`pnpm run test:it`** → `test --selectProjects=integration`
+- **`pnpm run test:coverage`** → `test --coverage`
 
 Everything is configured in `jest.config.ts`, including the `@/*` → `src/*` path mapping used throughout the specs.
 
@@ -64,6 +73,7 @@ Everything is configured in `jest.config.ts`, including the `@/*` → `src/*` pa
 tests/
 ├─ TESTS.md
 ├─ utils.ts                     # shared: URLs, signers, batch params, createInitializedFileManager, retry/stream helpers
+├─ platform-browser.ts          # unit-browser setupFilesAfterEnv — shims browser globals (File/Blob/…)
 ├─ unit/
 │   ├─ setup.ts                 # setupFilesAfterEnv — centralizes jest.mock() for @/utils/bee & @/utils/mantaray
 │   ├─ mock.ts                  # applyDefaultMocks, mock factories, seedRecords, unit createInitializedFileManager
@@ -120,8 +130,11 @@ Each domain area lives in its own spec file, mirrored across `unit/` and `integr
 - `setupUserDrive(driveName, { stampLabel?, reuseOwnerStamp? })` — the standard `beforeAll` fixture: ensures a signer,
   initializes a `FileManagerBase` (with admin drive), buys a stamp, creates the named user drive, and returns
   `{ bee, fileManager, drive, ownerStamp, batchId, signer }`.
-- `tempFileRegistry()` — returns `{ writeTempFile, writeTempDir, cleanup }`. All on-disk fixtures are written through it
-  and removed in a single `afterAll(cleanup)`, so **no temporary file survives the run** even if a test throws.
+- `tempFileRegistry()` — returns `{ writeTempFile, writeTempDir, cleanup }`. All on-disk fixtures are written under
+  **`tests/integration/tmp/`** (gitignored + npmignored, never the repo root), and removed in a single
+  `afterAll(cleanup)`, so **no temporary file survives the run** even if a test throws. `writeTempFile` / `writeTempDir`
+  return the **absolute** on-disk path — feed that to `sourcePath`, and keep the logical drive `path` separate (they are
+  decoupled: the disk fixture lives in `tmp/`, the drive path is whatever you upload it as).
 
 ---
 
@@ -220,8 +233,9 @@ Emitted events live in `FileManagerEvents` (`src/utils/events.ts`): `FILE_UPLOAD
   afterAll(cleanup);
   ```
 
-- **On-disk fixtures** — always create them via `writeTempFile` / `writeTempDir` so `afterAll(cleanup)` removes them.
-  Never call `fs.writeFileSync`/`mkdirSync` directly in a spec.
+- **On-disk fixtures** — always create them via `writeTempFile` / `writeTempDir` (they write under
+  `tests/integration/tmp/` and return the absolute source path to pass as `sourcePath`). Never call
+  `fs.writeFileSync`/`mkdirSync` directly in a spec, and never reuse the drive `path` string as the `sourcePath`.
 
 - **ACT download parameters** — pass `actHistoryAddress` and `actPublisher` from the same context that uploaded:
 

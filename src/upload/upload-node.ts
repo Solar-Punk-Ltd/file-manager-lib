@@ -1,8 +1,14 @@
-import { BatchId, Bee, BeeRequestOptions, FileUploadOptions, UploadResult } from '@ethersphere/bee-js';
+import {
+  type BatchId,
+  type Bee,
+  type BeeRequestOptions,
+  type FileUploadOptions,
+  type UploadResult,
+} from '@ethersphere/bee-js';
 
-import { DriveInfo } from '../types/info';
-import { NodeUploadOptions } from '../types/upload';
-import { ActReferences } from '../types/utils';
+import { type DriveInfo } from '../types/info';
+import { type NodeUploadOptions } from '../types/upload';
+import { type ActReferences } from '../types/utils';
 import { ErrorHandler, FileError } from '../utils/errors';
 
 const errorHandler = ErrorHandler.getInstance();
@@ -30,7 +36,7 @@ async function uploadFile(
   uploadOptions?: FileUploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<UploadResult> {
-  const { isDir } = await import('../utils/fs/fs.node');
+  const { isDir } = await import('../utils/fs/fs-node');
   const isPathDir = await isDir(resolvedPath);
 
   if (isPathDir) {
@@ -38,7 +44,7 @@ async function uploadFile(
   }
 
   try {
-    const { readFile } = await import('../utils/fs/fs.node');
+    const { readFile } = await import('../utils/fs/fs-node');
     const { data } = await readFile(resolvedPath);
 
     return await bee.uploadData(batchId, data, uploadOptions, requestOptions);

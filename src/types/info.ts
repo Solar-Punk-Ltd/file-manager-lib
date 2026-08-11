@@ -1,6 +1,6 @@
-import { RedundancyLevel } from '@ethersphere/bee-js';
+import { type RedundancyLevel } from '@ethersphere/bee-js';
 
-import { ActReferences } from './utils';
+import { type ActReferences } from './utils';
 
 export enum NodeStatus {
   Active = 'active',

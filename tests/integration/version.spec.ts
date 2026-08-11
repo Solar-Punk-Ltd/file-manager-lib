@@ -1,4 +1,4 @@
-import { Bee, FeedIndex, PrivateKey, Topic } from '@ethersphere/bee-js';
+import { type Bee, FeedIndex, type PrivateKey, Topic } from '@ethersphere/bee-js';
 
 import {
   buyStampSerialized,
@@ -11,7 +11,7 @@ import {
 import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
-import { DriveInfo, FileRecord } from '@/types';
+import { type DriveInfo, type FileRecord } from '@/types';
 import { getFeedData } from '@/utils/bee';
 import { FEED_INDEX_ZERO, ROOT_PATH } from '@/utils/constants';
 
@@ -23,13 +23,13 @@ describe('Version control', () => {
   const { writeTempFile, cleanup } = tempFileRegistry();
 
   // helper to ensure at least one base FileRecord exists.
-  // Flat, cwd-relative name: upload()'s `path` doubles as both the on-disk source and the
-  // top-level drive manifest fork name, so it must resolve with zero intermediate segments.
+  // Flat drive-manifest fork name (`name`) with the on-disk source (`src`) kept separate: the
+  // disk fixture lives under tests/integration/tmp/ while the manifest fork stays a bare leaf.
   const ensureBase = async (name = `versioned-file-${Date.now()}`, di: DriveInfo = drive): Promise<FileRecord> => {
     const existing = fileManager.recordList.find((f) => f.path === name);
     if (existing) return existing;
-    writeTempFile(name, 'seed');
-    await fileManager.uploadFile(di.id, { path: name, sourcePath: name });
+    const src = writeTempFile(name, 'seed');
+    await fileManager.uploadFile(di.id, { path: name, sourcePath: src });
     return fileManager.recordList.at(-1)!;
   };
 
@@ -47,15 +47,15 @@ describe('Version control', () => {
 
   it('handles sequential uploads with proper slot indices', async () => {
     const name = `parallel-${Date.now()}`;
-    writeTempFile(name, 'v0');
-    await fileManager.uploadFile(drive.id, { path: name, sourcePath: name });
+    const src = writeTempFile(name, 'v0');
+    await fileManager.uploadFile(drive.id, { path: name, sourcePath: src });
     const base = fileManager.recordList.at(-1)!;
 
     let latestVersion = BigInt(base.version!.toString());
 
     for (const i of [1, 2, 3]) {
       writeTempFile(name, `v${i}`);
-      await fileManager.updateFile(drive.id, base, { item: { sourcePath: name } });
+      await fileManager.updateFile(drive.id, base, { item: { sourcePath: src } });
 
       latestVersion = BigInt(i);
     }
@@ -74,8 +74,8 @@ describe('Version control', () => {
 
   it('updateFile lazy-loads the record on a cold cache (fresh instance, no prior listing)', async () => {
     const NAME = `cold-update-${Date.now()}`;
-    writeTempFile(NAME, 'cold v0');
-    await fileManager.uploadFile(drive.id, { path: NAME, sourcePath: NAME });
+    const src = writeTempFile(NAME, 'cold v0');
+    await fileManager.uploadFile(drive.id, { path: NAME, sourcePath: src });
     const base = fileManager.recordList.find((fr) => fr.path === NAME)!;
     expect(base.version).toBe(FEED_INDEX_ZERO.toString());
 
@@ -85,7 +85,7 @@ describe('Version control', () => {
     expect(fm2.recordList.find((fr) => fr.topic === base.topic)).toBeUndefined();
 
     writeTempFile(NAME, 'cold v1');
-    const updated = await fm2.updateFile(drive.id, base, { item: { sourcePath: NAME } });
+    const updated = await fm2.updateFile(drive.id, base, { item: { sourcePath: src } });
 
     // Re-versioned via lazy hydration; the record is now present in the fresh instance's cache.
     expect(updated.version).toBe(FeedIndex.fromBigInt(1n).toString());
@@ -113,12 +113,12 @@ describe('Version control', () => {
 
   it('getFileVersion returns independently downloadable, version-correct bytes', async () => {
     const NAME = `version-bytes-${Date.now()}`;
-    writeTempFile(NAME, 'Version bytes v0');
-    await fileManager.uploadFile(drive.id, { path: NAME, sourcePath: NAME });
+    const src = writeTempFile(NAME, 'Version bytes v0');
+    await fileManager.uploadFile(drive.id, { path: NAME, sourcePath: src });
     const v0Fi = fileManager.recordList.at(-1)!;
 
     writeTempFile(NAME, 'Version bytes v1');
-    await fileManager.updateFile(drive.id, v0Fi, { item: { sourcePath: NAME } });
+    await fileManager.updateFile(drive.id, v0Fi, { item: { sourcePath: src } });
 
     const v0 = await fileManager.getFileVersion(v0Fi, FEED_INDEX_ZERO);
     const head = await fileManager.getFileVersion(v0Fi);
@@ -168,18 +168,18 @@ describe('Version control', () => {
   it('uploads multiple versions, counts them, fetches an old version and downloads it', async () => {
     const NAME = `versioned-file-${Date.now()}`;
     const content = 'Version 0 content';
-    writeTempFile(NAME, content);
-    await fileManager.uploadFile(drive.id, { path: NAME, sourcePath: NAME });
+    const src = writeTempFile(NAME, content);
+    await fileManager.uploadFile(drive.id, { path: NAME, sourcePath: src });
     const v0Fi = fileManager.recordList.at(-1)!;
     const initialVersion = BigInt(v0Fi.version!);
 
     writeTempFile(NAME, 'Version 1 content');
-    await fileManager.updateFile(drive.id, v0Fi, { item: { sourcePath: NAME } });
+    await fileManager.updateFile(drive.id, v0Fi, { item: { sourcePath: src } });
 
     const countAfterV1 = await getFeedData(bee, new Topic(v0Fi.topic), signer.publicKey().address().toString());
     const latestFi = await fileManager.getFileVersion(v0Fi, countAfterV1.feedIndex);
     writeTempFile(NAME, 'Version 2 content');
-    await fileManager.updateFile(drive.id, latestFi, { item: { sourcePath: NAME } });
+    await fileManager.updateFile(drive.id, latestFi, { item: { sourcePath: src } });
 
     // Raw feed reads are eventually consistent; under parallel node load the last write may not be
     // visible immediately. Retry until the feed reflects all three writes (v0 + two updates).
@@ -198,14 +198,14 @@ describe('Version control', () => {
   });
 
   it('can restore a prior version and make it the new head', async () => {
-    // Re-upload must reuse the exact path ensureBase() uploaded with — see ensureBase() comment above.
+    // Re-upload must reuse the exact drive path ensureBase() uploaded with — see ensureBase() comment above.
     const NAME = 'restore-file';
     const base = await ensureBase(NAME);
     const initialVersion = BigInt(base.version!.toString());
     const firstRef = base.content.reference;
 
-    writeTempFile(NAME, 'second');
-    await fileManager.updateFile(drive.id, base, { item: { sourcePath: NAME } });
+    const src = writeTempFile(NAME, 'second');
+    await fileManager.updateFile(drive.id, base, { item: { sourcePath: src } });
 
     await fileManager.restoreFileVersion(base);
 
@@ -229,8 +229,8 @@ describe('Version control', () => {
   it('restoring on a single version file reaffirms the head', async () => {
     const NAME = 'noop-restore';
     const base = await ensureBase(NAME);
-    writeTempFile(NAME, 'B');
-    await fileManager.updateFile(drive.id, base, { item: { sourcePath: NAME } });
+    const src = writeTempFile(NAME, 'B');
+    await fileManager.updateFile(drive.id, base, { item: { sourcePath: src } });
 
     const currentHead = await fileManager.getFileVersion(base, base.version);
 
@@ -257,13 +257,13 @@ describe('Version control', () => {
 
   it("restoring an old version keeps the current (post-move) location, not the version's recorded path", async () => {
     const NAME = 'restore-move-file.txt';
-    writeTempFile(NAME, 'Restore Move V0 Content');
-    await fileManager.uploadFile(drive.id, { path: NAME, sourcePath: NAME });
+    const src = writeTempFile(NAME, 'Restore Move V0 Content');
+    await fileManager.uploadFile(drive.id, { path: NAME, sourcePath: src });
     const base = fileManager.recordList.at(-1)!;
     const topic = base.topic.toString();
 
     writeTempFile(NAME, 'Restore Move V1 Content');
-    await fileManager.updateFile(drive.id, base, { item: { sourcePath: NAME } });
+    await fileManager.updateFile(drive.id, base, { item: { sourcePath: src } });
 
     await fileManager.createFolder(drive.id, ROOT_PATH, 'restore-move-dest');
     const destPath = 'restore-move-dest/restore-move-file.txt';

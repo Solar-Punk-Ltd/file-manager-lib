@@ -1,4 +1,4 @@
-import { BatchId, Bee, PrivateKey } from '@ethersphere/bee-js';
+import { type BatchId, Bee, PrivateKey } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 
@@ -11,8 +11,8 @@ import {
   DEFAULT_MOCK_SIGNER,
 } from '../../utils';
 
-import { FileManagerBase } from '@/fileManager';
-import { DriveInfo } from '@/types';
+import { type FileManagerBase } from '@/fileManager';
+import { type DriveInfo } from '@/types';
 import { ADMIN_STAMP_LABEL } from '@/utils/constants';
 import { generateRandomBytes } from '@/utils/crypto';
 
@@ -81,6 +81,8 @@ export interface TempFileRegistry {
   cleanup: () => void;
 }
 
+const TMP_DIR = path.resolve(__dirname, '../tmp');
+
 export function tempFileRegistry(): TempFileRegistry {
   const paths: string[] = [];
   const track = (p: string): string => {
@@ -90,17 +92,20 @@ export function tempFileRegistry(): TempFileRegistry {
 
   return {
     writeTempFile(name, content) {
-      fs.writeFileSync(name, content);
-      return track(name);
+      const full = path.join(TMP_DIR, name);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, content);
+      return track(full);
     },
     writeTempDir(dir, files) {
-      fs.mkdirSync(dir, { recursive: true });
+      const root = path.join(TMP_DIR, dir);
+      fs.mkdirSync(root, { recursive: true });
       for (const [relativePath, content] of Object.entries(files)) {
-        const full = path.join(dir, relativePath);
+        const full = path.join(root, relativePath);
         fs.mkdirSync(path.dirname(full), { recursive: true });
         fs.writeFileSync(full, content);
       }
-      return track(dir);
+      return track(root);
     },
     cleanup() {
       for (const p of paths) {

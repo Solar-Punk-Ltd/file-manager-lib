@@ -1,20 +1,20 @@
 import {
-  BatchId,
-  BeeRequestOptions,
-  DownloadOptions,
-  FeedIndex,
-  FileUploadOptions,
-  Identifier,
-  PostageBatch,
-  RedundancyLevel,
-  RedundantUploadOptions,
+  type BatchId,
+  type BeeRequestOptions,
+  type DownloadOptions,
+  type FeedIndex,
+  type FileUploadOptions,
+  type Identifier,
+  type PostageBatch,
+  type RedundancyLevel,
+  type RedundantUploadOptions,
 } from '@ethersphere/bee-js';
 
-import { EventEmitter } from '../eventEmitter';
+import { type EventEmitter } from '../eventEmitter';
 
-import { DownloadFilesResult, DownloadResult } from './download';
-import { DriveInfo, FileRecord, FolderInfo, ListDepth, NodeEntry } from './info';
-import { UpdateItem, UploadFilesResult, UploadItem } from './upload';
+import { type DownloadFilesResult, type DownloadResult } from './download';
+import { type DriveInfo, type FileRecord, type FolderInfo, type ListDepth, type NodeEntry } from './info';
+import { type UpdateItem, type UploadFilesResult, type UploadItem } from './upload';
 
 /**
  * Interface representing a file manager with various file, folder and drive operations.

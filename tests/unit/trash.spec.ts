@@ -1,11 +1,11 @@
-import { Bytes, FeedIndex, Identifier, MantarayNode, RedundancyLevel, Topic } from '@ethersphere/bee-js';
+import { Bytes, FeedIndex, Identifier, type MantarayNode, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 
 import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID, makeUploadSource } from '../utils';
 
 import { applyDefaultMocks, createMockNodeAddresses, seedRecords } from './mock';
 
-import { FileManagerBase } from '@/fileManager';
-import { DriveInfo, FileRecord, FolderInfo, NodeStatus, NodeType } from '@/types';
+import { type FileManagerBase } from '@/fileManager';
+import { type DriveInfo, type FileRecord, type FolderInfo, NodeStatus, NodeType } from '@/types';
 import { FileManagerEvents } from '@/utils';
 import { getFeedData } from '@/utils/bee';
 import { SWARM_ZERO_ADDRESS } from '@/utils/constants';

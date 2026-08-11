@@ -49,13 +49,12 @@ export default [
   {
     ignores: [
       '**/node_modules/**',
-      '**/dist/**',
+      'dist/**',
       'eslint.config.mjs',
       'eslint-compat.cjs',
       'commitlint.config.cjs',
-      'tests/fixtures/**',
-      'tests/**/bee-dev/**',
-      '**/coverage/**',
+      'tests/coverage/**',
+      'tsup.config.ts',
     ],
   },
   {
@@ -103,6 +102,7 @@ export default [
       'simple-import-sort': simpleImportSort,
     },
     rules: {
+      '@typescript-eslint/consistent-type-imports': ['error', { fixStyle: 'inline-type-imports' }],
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/explicit-function-return-type': 'error',
       '@typescript-eslint/no-non-null-assertion': 'error',

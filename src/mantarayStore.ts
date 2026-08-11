@@ -1,16 +1,16 @@
 import {
-  Bee,
-  BeeRequestOptions,
+  type Bee,
+  type BeeRequestOptions,
   FeedIndex,
-  MantarayNode,
-  PrivateKey,
-  RedundancyLevel,
+  type MantarayNode,
+  type PrivateKey,
+  type RedundancyLevel,
   Reference,
   Topic,
 } from '@ethersphere/bee-js';
 
-import { DriveInfo, FileRecord, FolderInfo, ManifestHost, NodeType } from './types/info';
-import { ActReferences, FeedResultWithIndex } from './types/utils';
+import { type DriveInfo, type FileRecord, type FolderInfo, type ManifestHost, NodeType } from './types/info';
+import { type ActReferences, type FeedResultWithIndex } from './types/utils';
 import { assertActReferences, assertFileRecord } from './utils/asserts';
 import { getFeedData, writeActFeed } from './utils/bee';
 import {

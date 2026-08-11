@@ -1,6 +1,6 @@
-import { PublicKey } from '@ethersphere/bee-js';
+import { type PublicKey } from '@ethersphere/bee-js';
 
-import { FailedResult } from './utils';
+import { type FailedResult } from './utils';
 
 export interface DownloadResource {
   path: string;

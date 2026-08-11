@@ -89,7 +89,9 @@ flowchart TD
 pnpm install @solarpunkltd/file-manager-lib
 ```
 
-Peer dependency: `@ethersphere/bee-js`.
+Requires **Node.js ≥ 22**. Peer dependency: `@ethersphere/bee-js`. The package ships dual **ESM + CJS** builds with
+separate **Node** and **browser** bundles, selected automatically via `package.json` `exports` conditions — bundlers get
+a `fs`/`path`-free browser build.
 
 ---
 
@@ -205,7 +207,7 @@ when each fires.
 
 From `package.json`:
 
-- `pnpm run build` → compile Node + browser + types.
+- `pnpm run build` → bundle Node + browser (ESM + CJS) + type declarations via **tsup**.
 - `pnpm run test` → run Jest tests (see [tests/TESTS.md](tests/TESTS.md)).
 - `pnpm run lint` / `pnpm run lint:fix` → linting.
 - `pnpm init:husky` → husky init.
