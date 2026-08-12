@@ -395,7 +395,7 @@ Emitted on the provided `EventEmitter` as `FileManagerEvents`:
 event whose payloads are the same shape: the drive id, the operation's paths, and the node itself — a
 [`FileRecord`](#filerecord) as `record` or a [`FolderInfo`](#folderinfo) as `folderInfo`. `record` is `undefined` when
 the file was never hydrated into `recordList`; `folderInfo` is composed from the fork's metadata, so it carries no
-`manifestRef`. `FILE_DOWNLOADED` is declared in the enum but not currently emitted.
+`manifestRef`.
 
 ---
 
