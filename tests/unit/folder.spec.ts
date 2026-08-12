@@ -1,13 +1,4 @@
-import {
-  BatchId,
-  Bee,
-  Bytes,
-  FeedIndex,
-  Identifier,
-  type MantarayNode,
-  RedundancyLevel,
-  Topic,
-} from '@ethersphere/bee-js';
+import { Bee, Bytes, FeedIndex, Identifier, type MantarayNode, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 
 import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID, makeUploadSource } from '../utils';
 
@@ -19,7 +10,6 @@ import { getFeedData } from '@/utils/bee';
 import { MANIFEST_METADATA_NODE_TOPIC, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
 describe('Folder operations', () => {
-  const otherMockBatchId = new BatchId('4'.repeat(64));
   const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
   const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
 
@@ -315,20 +305,6 @@ describe('Folder operations', () => {
 
       expect(fm.recordList.some((f) => f.path === 'Archive/a.txt')).toBe(true);
       expect(fm.recordList.some((f) => f.path === 'Docs/a.txt')).toBe(false);
-    });
-
-    it('moves descendant records to the target drive on a cross-drive folder move', async () => {
-      const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Target Drive');
-      const source = fm.driveList[0];
-      const target = fm.driveList[1];
-      await fm.createFolder(source.id, '', 'Docs');
-      seedRecords(fm, seedDummyFile(source, 'Docs/a.txt', SWARM_ZERO_ADDRESS.toString(), owner, actPublisher));
-
-      await fm.move('Docs', 'Archive', source.id, target.id);
-
-      const moved = fm.recordList.find((f) => f.path === 'Archive/a.txt')!;
-      expect(moved.driveId).toBe(target.id);
     });
 
     it('throws when trying to move the drive root', async () => {

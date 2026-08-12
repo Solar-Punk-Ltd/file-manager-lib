@@ -135,7 +135,7 @@ multi-file/folder uploads use
 Names are fork keys, so they are unique within a folder: uploading onto an occupied name is rejected rather than
 silently replacing it. Re-version with
 [`updateFile`](#updatefiledriveid-record-changes-uploadoptions-requestoptions-promisefilerecord), relocate with
-[`move`](#movefrompath-topath-sourcedriveid-targetdriveid-requestoptions-promisevoid), or drop the existing node with
+[`move`](#movefrompath-topath-sourcedriveid-requestoptions-promisevoid), or drop the existing node with
 [`forget`](#forgetdriveid-path-requestoptions-promisevoid) first. `item.path` must have a non-empty leaf and no `.`/`..`
 segments; it is validated before any content is uploaded.
 
@@ -166,9 +166,8 @@ but unreferenced; re-upload those files to place them.
 ### `updateFile(driveId, record, changes, uploadOptions?, requestOptions?): Promise<FileRecord>`
 
 Re-versions or changes metadata of an **existing** file. Reuses the file's feed topic, writes a new feed slot, and never
-touches the drive manifest (no rename — use
-[`move`](#movefrompath-topath-sourcedriveid-targetdriveid-requestoptions-promisevoid) to relocate). Everything derives
-from `record`, including the ACT-history continuation reference.
+touches the drive manifest (no rename — use [`move`](#movefrompath-topath-sourcedriveid-requestoptions-promisevoid) to
+relocate). Everything derives from `record`, including the ACT-history continuation reference.
 
 - **record** — the existing file's `FileRecord` (the single source of truth).
 - **changes** [`UpdateItem`](#updateitem) — `item` present ⇒ new bytes; absent ⇒ metadata-only. `customMetadata` is
@@ -240,16 +239,19 @@ Lists entries in a folder (or drive root) from the drive manifest, hydrating and
 - **Throws**: `DriveError` (not initialized, drive not found, or a path segment missing); `FolderError` (`path` is the
   reserved `.trash` folder, or `maxDepth` is not positive); `SignerError`; `FileRecordError` (a folder feed is missing).
 
-### `move(fromPath, toPath, sourceDriveId, targetDriveId?, requestOptions?): Promise<void>`
+### `move(fromPath, toPath, sourceDriveId, requestOptions?): Promise<void>`
 
-Moves a file or folder from one path to another, within a drive or across drives. Path-addressed and dispatches on node
-type, so it works for both files and folders.
+Moves a file or folder from one path to another **within a single drive**. Path-addressed and dispatches on node type,
+so it works for both files and folders.
 
-- **targetDriveId?** — for cross-drive moves; defaults to `sourceDriveId`.
 - **Emits**: `FILE_MOVED`.
-- **Throws**: `DriveError` (not initialized, source/target drive not found, or a folder along either path missing);
-  `FolderError` (source is root, invalid destination, source == destination, source not found, destination occupied, or
-  either path under `.trash`); `SignerError`; `FileRecordError` (a folder feed or the source record is missing).
+- **Throws**: `DriveError` (not initialized, drive not found, or a folder along either path missing); `FolderError`
+  (source is root, invalid destination, source == destination, source not found, destination occupied, or either path
+  under `.trash`); `SignerError`; `FileRecordError` (a folder feed or the source record is missing).
+
+There is no cross-drive move: a relocated node keeps its drive's `batchId`, so a file "in" another drive would still be
+paid for — and die — with the original stamp. Both paths are resolved against `sourceDriveId`, so a path from another
+drive simply is not found. To relocate content between drives, `forget` it and re-upload to the target.
 
 ### `forget(driveId, path, requestOptions?): Promise<void>`
 
@@ -368,26 +370,32 @@ Both list getters are `readonly` — treat them as snapshots and mutate state on
 
 Emitted on the provided `EventEmitter` as `FileManagerEvents`:
 
-| Event                   | Fired by                                           |
-| ----------------------- | -------------------------------------------------- |
-| `INITIALIZED`           | `initialize` (success)                             |
-| `STATE_INVALID`         | `initialize` (unparseable state)                   |
-| `DRIVE_CREATED`         | `createAdminDrive`, `createDrive`                  |
-| `DRIVE_FORGOTTEN`       | `forgetDrive`                                      |
-| `FILE_UPLOADED`         | `uploadFile`, `uploadFiles` (per file)             |
-| `FILES_UPLOADED`        | `uploadFiles` (once, batch summary)                |
-| `FILE_UPDATED`          | `updateFile`                                       |
-| `FILE_DOWNLOADED`       | download path                                      |
-| `FILE_MOVED`            | `move`                                             |
-| `FILE_TRASHED`          | `trash` (file)                                     |
-| `FILE_RECOVERED`        | `recover` (file)                                   |
-| `FILE_FORGOTTEN`        | `forget` (file)                                    |
-| `FILE_VERSION_RESTORED` | `restoreFileVersion`                               |
-| `FOLDER_CREATED`        | `createFolder`, `uploadFiles` (per folder created) |
-| `FOLDER_TRASHED`        | `trash` (folder)                                   |
-| `FOLDER_RECOVERED`      | `recover` (folder)                                 |
-| `FOLDER_FORGOTTEN`      | `forget` (folder)                                  |
-| `TRASH_EMPTIED`         | `emptyTrash`                                       |
+| Event                   | Fired by                                           | Payload                                              |
+| ----------------------- | -------------------------------------------------- | ---------------------------------------------------- |
+| `INITIALIZED`           | `initialize` (success or failure)                  | `boolean`                                            |
+| `STATE_INVALID`         | `initialize` (unparseable state)                   | `boolean`                                            |
+| `DRIVE_CREATED`         | `createAdminDrive`, `createDrive`                  | `{ driveInfo }`                                      |
+| `DRIVE_FORGOTTEN`       | `forgetDrive`                                      | `{ driveInfo }`                                      |
+| `FILE_UPLOADED`         | `uploadFile`, `uploadFiles` (per file)             | `{ record }`                                         |
+| `FILES_UPLOADED`        | `uploadFiles` (once, batch summary)                | `{ succeeded, failed }`                              |
+| `FILE_UPDATED`          | `updateFile`                                       | `{ record }`                                         |
+| `FILE_VERSION_RESTORED` | `restoreFileVersion`                               | `{ restored }`                                       |
+| `FILE_MOVED`            | `move` (file)                                      | `{ driveId, fromPath, toPath, record }`              |
+| `FOLDER_MOVED`          | `move` (folder)                                    | `{ driveId, fromPath, toPath, folderInfo }`          |
+| `FILE_TRASHED`          | `trash` (file)                                     | `{ driveId, path, trashedPath, record }`             |
+| `FOLDER_TRASHED`        | `trash` (folder)                                   | `{ driveId, path, trashedPath, folderInfo }`         |
+| `FILE_RECOVERED`        | `recover` (file)                                   | `{ driveId, trashedPath, restoredPath, record }`     |
+| `FOLDER_RECOVERED`      | `recover` (folder)                                 | `{ driveId, trashedPath, restoredPath, folderInfo }` |
+| `FILE_FORGOTTEN`        | `forget` (file)                                    | `{ driveId, path, record }`                          |
+| `FOLDER_FORGOTTEN`      | `forget` (folder)                                  | `{ driveId, path, folderInfo }`                      |
+| `FOLDER_CREATED`        | `createFolder`, `uploadFiles` (per folder created) | `{ folderInfo }`                                     |
+| `TRASH_EMPTIED`         | `emptyTrash`                                       | `{ driveId, count }`                                 |
+
+`move` / `trash` / `recover` / `forget` are path-addressed and dispatch on node type, so each emits a file **or** folder
+event whose payloads are the same shape: the drive id, the operation's paths, and the node itself — a
+[`FileRecord`](#filerecord) as `record` or a [`FolderInfo`](#folderinfo) as `folderInfo`. `record` is `undefined` when
+the file was never hydrated into `recordList`; `folderInfo` is composed from the fork's metadata, so it carries no
+`manifestRef`. `FILE_DOWNLOADED` is declared in the enum but not currently emitted.
 
 ---
 

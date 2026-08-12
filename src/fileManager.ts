@@ -64,6 +64,7 @@ import {
   driveForkMetadata,
   fileForkMetadata,
   folderForkMetadata,
+  folderInfoFromMetadata,
   getAllNodeEntries,
   getDriveForkPath,
   getRlevel,
@@ -1066,7 +1067,6 @@ export class FileManagerBase implements FileManager {
     fromPath: string,
     toPath: string,
     sourceDriveId: string | Identifier,
-    targetDriveId?: string | Identifier,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
     requestOptions?.signal?.throwIfAborted();
@@ -1083,20 +1083,7 @@ export class FileManagerBase implements FileManager {
     assertNotTrashPath(fromPath);
     assertNotTrashPath(toPath);
 
-    const targetDriveIdStr = targetDriveId ? new Identifier(targetDriveId).toString() : undefined;
-
-    const isCrossDrive = !!targetDriveIdStr && targetDriveIdStr !== cachedSource.id;
-    const effectiveTargetId = targetDriveIdStr ?? cachedSource.id;
-
-    let cachedTargetDrive: DriveInfo = cachedSource;
-    let cachedTargetDriveIx = sourceDriveIx;
-    if (targetDriveIdStr) {
-      const { driveIx, cachedDrive } = this.findDriveOrThrow(targetDriveIdStr);
-      cachedTargetDrive = cachedDrive;
-      cachedTargetDriveIx = driveIx;
-    }
-
-    if (!isCrossDrive && fromPath === toPath) {
+    if (fromPath === toPath) {
       throw new FolderError('Source and destination paths are identical');
     }
 
@@ -1118,7 +1105,7 @@ export class FileManagerBase implements FileManager {
     const isFile = forkMetadata[MANIFEST_METADATA_NODE_TYPE] === NodeType.File;
 
     const { host: tgtParentHost, folder: tgtParentFolder } = await this.store.resolveHost(
-      cachedTargetDrive,
+      cachedSource,
       tgtParentPath,
       publisher,
       requestOptions,
@@ -1134,6 +1121,7 @@ export class FileManagerBase implements FileManager {
       throw new FolderError(`Destination already exists: ${toPath}`);
     }
 
+    let movedRecord: FileRecord | undefined;
     if (isFile) {
       const fileTopic = forkMetadata[MANIFEST_METADATA_FILE_TOPIC];
       if (!fileTopic) {
@@ -1152,13 +1140,13 @@ export class FileManagerBase implements FileManager {
       const head = record.version !== undefined ? new FeedIndex(record.version) : undefined;
 
       record.path = tgtName;
-      record.driveId = effectiveTargetId;
       record.version = head?.next().toString();
 
       const writtenVersion = await this.persistRecord(record, requestOptions);
 
       record.path = toPath;
       forkMetadata[MANIFEST_METADATA_NODE_VERSION] = writtenVersion;
+      movedRecord = record;
     }
 
     sourceNode.removeFork(srcName);
@@ -1177,15 +1165,31 @@ export class FileManagerBase implements FileManager {
       const newTgtManifestRef = await this.store.saveMantarayNode(targetMantaray, tgtParentHost, requestOptions);
 
       if (!tgtParentFolder) {
-        this.driveList[cachedTargetDriveIx].manifestRef = newTgtManifestRef;
+        this.driveList[sourceDriveIx].manifestRef = newTgtManifestRef;
       }
     }
 
     if (!isFile) {
-      this.rewriteRecordPaths(cachedSource.id, fromPath, toPath, isCrossDrive ? effectiveTargetId : undefined);
+      this.rewriteRecordPaths(cachedSource.id, fromPath, toPath);
+      this.emitter.emit(FileManagerEvents.FOLDER_MOVED, {
+        driveId: cachedSource.id,
+        fromPath,
+        toPath,
+        folderInfo: folderInfoFromMetadata(forkMetadata, cachedSource, toPath, {
+          owner: this.signerAddress,
+          actPublisher: publisher,
+        }),
+      });
+
+      return;
     }
 
-    this.emitter.emit(FileManagerEvents.FILE_MOVED, { fromPath, toPath });
+    this.emitter.emit(FileManagerEvents.FILE_MOVED, {
+      driveId: cachedSource.id,
+      fromPath,
+      toPath,
+      record: movedRecord,
+    });
   }
 
   async forget(driveId: string | Identifier, path: string, requestOptions?: BeeRequestOptions): Promise<void> {
@@ -1241,7 +1245,14 @@ export class FileManagerBase implements FileManager {
         }
       }
 
-      this.emitter.emit(FileManagerEvents.FOLDER_FORGOTTEN, { driveInfo: cachedDrive, path });
+      this.emitter.emit(FileManagerEvents.FOLDER_FORGOTTEN, {
+        driveId: cachedDrive.id,
+        path,
+        folderInfo: folderInfoFromMetadata(meta, cachedDrive, path, {
+          owner: this.signerAddress,
+          actPublisher: publisher,
+        }),
+      });
 
       return;
     }
@@ -1252,7 +1263,7 @@ export class FileManagerBase implements FileManager {
     if (fiIndex !== -1) {
       this._recordList.splice(fiIndex, 1);
     }
-    this.emitter.emit(FileManagerEvents.FILE_FORGOTTEN, { record: forgotten, path });
+    this.emitter.emit(FileManagerEvents.FILE_FORGOTTEN, { driveId: cachedDrive.id, path, record: forgotten });
   }
 
   // --- Trash operations ---
@@ -1278,11 +1289,10 @@ export class FileManagerBase implements FileManager {
     const trash = await this.ensureTrashHost(driveIx, cachedDrive, publisher, requestOptions);
     const trashedPath = trashPathOf(topic);
 
+    const trashedMetadata = { ...source.metadata, [MANIFEST_METADATA_TRASHED_FROM]: sourcePath };
+
     source.node.removeFork(source.filename);
-    trash.node.addFork(topic, source.targetAddress, {
-      ...source.metadata,
-      [MANIFEST_METADATA_TRASHED_FROM]: sourcePath,
-    });
+    trash.node.addFork(topic, source.targetAddress, trashedMetadata);
 
     await this.store.saveMantarayNode(trash.node, trash.host, requestOptions);
     const newSourceRef = await this.store.saveMantarayNode(source.node, source.host, requestOptions);
@@ -1296,6 +1306,10 @@ export class FileManagerBase implements FileManager {
         driveId: cachedDrive.id,
         path: sourcePath,
         trashedPath,
+        folderInfo: folderInfoFromMetadata(trashedMetadata, cachedDrive, trashedPath, {
+          owner: this.signerAddress,
+          actPublisher: publisher,
+        }),
       });
 
       return;
@@ -1376,6 +1390,10 @@ export class FileManagerBase implements FileManager {
         driveId: cachedDrive.id,
         trashedPath: normalizedTrashedPath,
         restoredPath,
+        folderInfo: folderInfoFromMetadata(metadata, cachedDrive, restoredPath, {
+          owner: this.signerAddress,
+          actPublisher: publisher,
+        }),
       });
 
       return restoredPath;
@@ -1945,7 +1963,7 @@ export class FileManagerBase implements FileManager {
     return { host: folder, node };
   }
 
-  private rewriteRecordPaths(driveId: string, fromPath: string, toPath: string, newDriveId?: string): void {
+  private rewriteRecordPaths(driveId: string, fromPath: string, toPath: string): void {
     const fromPrefix = normalizePath(fromPath) + '/';
     const toPrefix = normalizePath(toPath) + '/';
 
@@ -1953,9 +1971,6 @@ export class FileManagerBase implements FileManager {
       if (record.driveId === driveId && record.path.startsWith(fromPrefix)) {
         record.path = toPrefix + record.path.substring(fromPrefix.length);
         record.status = getRecordStatus(record.path);
-        if (newDriveId) {
-          record.driveId = newDriveId;
-        }
       }
     }
   }

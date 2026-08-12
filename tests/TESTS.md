@@ -165,7 +165,7 @@ Executed against live bee-factory nodes.
 - **`file.spec.ts`** — split into `uploadFile`, `uploadFiles`, `updateFile`, `downloadFile and downloadFiles`, `move`:
   single- and multi-file uploads (each with its own topic), implicit folder creation with batched manifest saves, the
   two-hop ACT-unwrap download round-trip, `updateFile` re-versioning (content vs. metadata-only), directory-source
-  guards, and rename/move within and across drives.
+  guards, rename/move within a drive, and a foreign-drive path failing to resolve (there is no cross-drive move).
 - **`folder.spec.ts`** — _Folder operations_: `listFolder` (relative paths, empty folders, deep nesting, empty-path
   rejection), `downloadFolder` destination-path composition, and moving a folder as a unit.
 - **`version.spec.ts`** — _Version control_: invalid index rejection, sequential slot indices, cold-cache lazy
@@ -208,9 +208,11 @@ Key strategies:
   `jest.useFakeTimers()`), `INITIALIZED` fired once per cold init.
 - **`abort.spec.ts`** — abort-signal plumbing at the unit level.
 
-Emitted events live in `FileManagerEvents` (`src/utils/events.ts`): `FILE_UPLOADED`, `FILE_UPDATED`, `FILE_DOWNLOADED`,
-`FILE_TRASHED`, `FILE_RECOVERED`, `FILE_FORGOTTEN`, `FILE_VERSION_RESTORED`, `FILE_MOVED`, `INITIALIZED`,
-`DRIVE_CREATED`, `DRIVE_FORGOTTEN`, `DRIVE_DESTROYED`, `FOLDER_*`, `FILES_UPLOADED`, `STATE_INVALID`.
+Emitted events live in `FileManagerEvents` (`src/utils/events.ts`): `FILE_UPLOADED`, `FILE_UPDATED`, `FILE_TRASHED`,
+`FILE_RECOVERED`, `FILE_FORGOTTEN`, `FILE_VERSION_RESTORED`, `FILE_MOVED`, `INITIALIZED`, `DRIVE_CREATED`,
+`DRIVE_FORGOTTEN`, `FOLDER_*` (including `FOLDER_MOVED`), `FILES_UPLOADED`, `TRASH_EMPTIED`, `STATE_INVALID`. The
+file/folder pairs of a path-addressed operation carry the same payload shape — see
+[REFERENCE.md](../REFERENCE.md#events).
 
 ---
 

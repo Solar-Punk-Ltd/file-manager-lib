@@ -14,7 +14,7 @@ models a full, versioned, access-controlled filesystem on top of Swarm's content
   history. Restore any file version to head.
 - **Trash / recover / forget** — soft-delete by relocating a node into the drive's reserved `.trash` folder, or
   hard-delete it from the manifest.
-- **Move** — relocate files and folders within or across drives.
+- **Move** — relocate files and folders within a drive.
 - **Browser + Node.js** — one unified API; the byte source differs (`file` vs `sourcePath`).
 
 > Full method-level documentation: see [REFERENCE.md](REFERENCE.md). Test coverage and usage patterns: see
@@ -58,17 +58,17 @@ flowchart TD
 
 ### The UNIX mapping
 
-| Swarm / mantaray primitive                   | UNIX filesystem analogue    | Role                                             |
-| -------------------------------------------- | --------------------------- | ------------------------------------------------ |
-| Signer (Ethereum identity)                   | volume owner                | Owns and signs the whole tree                    |
-| State feed head (`FILEMANAGER_STATE_TOPIC`)  | root pointer                | Resolves the current drive registry              |
-| Admin manifest                               | volume table (`/etc/fstab`) | Registry of all drives                           |
-| Drive = mantaray under a per-drive feed      | mounted volume              | A named, stamp-backed collection                 |
-| Folder = sub-manifest fork                   | directory (inode)           | Nested namespace                                 |
-| File fork → per-file feed                    | file (inode) with history   | Stable identity + full version chain             |
-| Fork metadata map (`swarm-node-*`)           | inode metadata              | Owner, type, version, ACT publisher, path        |
-| New feed slot on every structural change     | filesystem snapshot         | Automatic drive/folder/file version history      |
-| Reserved `.trash` folder per drive           | recycle bin / `.Trash`      | Soft-delete without mutating data or the subtree |
+| Swarm / mantaray primitive                  | UNIX filesystem analogue    | Role                                             |
+| ------------------------------------------- | --------------------------- | ------------------------------------------------ |
+| Signer (Ethereum identity)                  | volume owner                | Owns and signs the whole tree                    |
+| State feed head (`FILEMANAGER_STATE_TOPIC`) | root pointer                | Resolves the current drive registry              |
+| Admin manifest                              | volume table (`/etc/fstab`) | Registry of all drives                           |
+| Drive = mantaray under a per-drive feed     | mounted volume              | A named, stamp-backed collection                 |
+| Folder = sub-manifest fork                  | directory (inode)           | Nested namespace                                 |
+| File fork → per-file feed                   | file (inode) with history   | Stable identity + full version chain             |
+| Fork metadata map (`swarm-node-*`)          | inode metadata              | Owner, type, version, ACT publisher, path        |
+| New feed slot on every structural change    | filesystem snapshot         | Automatic drive/folder/file version history      |
+| Reserved `.trash` folder per drive          | recycle bin / `.Trash`      | Soft-delete without mutating data or the subtree |
 
 ### Key design points
 
@@ -199,9 +199,10 @@ fm.emitter.on(FileManagerEvents.FILE_UPLOADED, ({ record }) => console.log('uplo
 ```
 
 `INITIALIZED`, `STATE_INVALID`, `DRIVE_CREATED`, `DRIVE_FORGOTTEN`, `FILE_UPLOADED`, `FILES_UPLOADED`, `FILE_UPDATED`,
-`FILE_DOWNLOADED`, `FILE_MOVED`, `FILE_TRASHED`, `FILE_RECOVERED`, `FILE_FORGOTTEN`, `FILE_VERSION_RESTORED`,
-`FOLDER_CREATED`, `FOLDER_TRASHED`, `FOLDER_RECOVERED`, `FOLDER_FORGOTTEN`. See [REFERENCE.md](REFERENCE.md#events) for
-when each fires.
+`FILE_MOVED`, `FILE_TRASHED`, `FILE_RECOVERED`, `FILE_FORGOTTEN`, `FILE_VERSION_RESTORED`, `FOLDER_CREATED`,
+`FOLDER_MOVED`, `FOLDER_TRASHED`, `FOLDER_RECOVERED`, `FOLDER_FORGOTTEN`, `TRASH_EMPTIED`. Path-addressed operations
+(`move`, `trash`, `recover`, `forget`) emit the file or folder variant with the same payload shape. See
+[REFERENCE.md](REFERENCE.md#events) for each payload.
 
 ---
 

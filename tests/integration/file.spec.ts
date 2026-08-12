@@ -543,25 +543,18 @@ describe('move', () => {
   let bee: Bee;
   let fileManager: FileManagerBase;
   let driveA: DriveInfo;
-  let driveB: DriveInfo;
   const { writeTempFile, writeTempDir, cleanup } = tempFileRegistry();
 
   beforeAll(async () => {
     const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
     bee = beeDev;
     const batchIdA = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'moveIntegrationA');
-    const batchIdB = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'moveIntegrationB');
     fileManager = await createInitializedFileManager(bee, ownerStamp);
 
     await fileManager.createDrive(batchIdA, 'move-a');
     const tmpDriveA = fileManager.driveList.find((d) => d.name === 'move-a');
     expect(tmpDriveA).toBeDefined();
     driveA = tmpDriveA!;
-
-    await fileManager.createDrive(batchIdB, 'move-b');
-    const tmpDriveB = fileManager.driveList.find((d) => d.name === 'move-b');
-    expect(tmpDriveB).toBeDefined();
-    driveB = tmpDriveB!;
   });
 
   afterAll(cleanup);
@@ -641,29 +634,6 @@ describe('move', () => {
     expect(downloaded).toBeDefined();
     expect(downloadResults.failed).toEqual([]);
     expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Inbox Note');
-  });
-
-  it('moves a file across drives, updating driveId and remaining downloadable from the target', async () => {
-    const xFile = 'it-move-x.txt';
-    const src = writeTempFile(xFile, 'Cross Drive Content');
-    await fileManager.uploadFile(driveA.id, { path: xFile, sourcePath: src });
-
-    await fileManager.move(xFile, xFile, driveA.id, driveB.id);
-
-    const driveAEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA.id, '', ListDepth.Shallow));
-    expect(driveAEntries.some((e) => e.path === xFile)).toBe(false);
-
-    const driveBEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveB.id, '', ListDepth.Shallow));
-    expect(driveBEntries.some((e) => e.type === NodeType.File && e.path === xFile)).toBe(true);
-
-    const moved = fileManager.recordList.find((fr) => fr.path === xFile && fr.driveId === driveB.id.toString());
-    expect(moved).toBeDefined();
-
-    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveB.id, '/'));
-    const downloaded = downloadResults.succeeded.find((d) => d.path === xFile);
-    expect(downloaded).toBeDefined();
-    expect(downloadResults.failed).toEqual([]);
-    expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Cross Drive Content');
   });
 
   it('rejects invalid move calls', async () => {

@@ -108,6 +108,14 @@ describe('Lifecycle management', () => {
         driveId: drive.id,
         path: 'Docs',
         trashedPath: `${TRASH_FOLDER_NAME}/${folder.topic}`,
+        folderInfo: expect.objectContaining({
+          type: NodeType.Folder,
+          topic: folder.topic,
+          driveId: drive.id,
+          path: `${TRASH_FOLDER_NAME}/${folder.topic}`,
+          trashedFrom: 'Docs',
+          status: NodeStatus.Trashed,
+        }),
       });
     });
 
@@ -244,14 +252,14 @@ describe('Lifecycle management', () => {
       await fm.forget(drive.id, 'package.json');
 
       expect(fm.recordList.find((f) => f.path === 'package.json')).toBeUndefined();
-      expect(handler).toHaveBeenCalledWith({ record: uploaded, path: 'package.json' });
+      expect(handler).toHaveBeenCalledWith({ driveId: drive.id, path: 'package.json', record: uploaded });
 
       const driveMantaray = (fm as any).store.getManifestCache(drive.topic) as MantarayNode;
       expect(driveMantaray.find('package.json')).toBeFalsy();
     });
 
     it('removes a folder fork and purges all descendant recordList entries', async () => {
-      await fm.createFolder(drive.id, '', 'Docs');
+      const folder = await fm.createFolder(drive.id, '', 'Docs');
 
       seedRecords(fm, seedDummyFile(drive, 'Docs/a.txt', SWARM_ZERO_ADDRESS.toString(), owner, actPublisher));
 
@@ -261,7 +269,17 @@ describe('Lifecycle management', () => {
       await fm.forget(drive.id, 'Docs');
 
       expect(fm.recordList.some((f) => f.path.startsWith('Docs/'))).toBe(false);
-      expect(handler).toHaveBeenCalledWith({ driveInfo: drive, path: 'Docs' });
+      expect(handler).toHaveBeenCalledWith({
+        driveId: drive.id,
+        path: 'Docs',
+        folderInfo: expect.objectContaining({
+          type: NodeType.Folder,
+          topic: folder.topic,
+          driveId: drive.id,
+          path: 'Docs',
+          status: NodeStatus.Active,
+        }),
+      });
     });
 
     it('forgets only the targeted file when a same-named file exists in another folder', async () => {

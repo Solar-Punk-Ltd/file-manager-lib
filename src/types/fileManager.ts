@@ -370,16 +370,17 @@ export interface FileManager {
   restoreFileVersion(versionToRestore: FileRecord, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
-   * Moves a file or folder within a drive from one path to another.
+   * Moves a file or folder within a drive from one path to another. There is no cross-drive move: a
+   * relocated node keeps its drive's stamp, so both paths resolve against `sourceDriveId` and a path
+   * from another drive is simply not found — {@link forget} it and re-upload to the other drive.
    *
    * @param fromPath - Absolute path of the entry within the drive manifest.
    * @param toPath - Destination path within the drive manifest.
-   * @param sourceDriveId - The ID of the drive containing the source path.
-   * @param targetDriveId - Optional target ID drive for cross-drive moves; defaults to sourceDriveInfo.
+   * @param sourceDriveId - The ID of the drive containing both paths.
    * @param requestOptions - Optional BeeRequestOptions for upload operations.
-   * @emits FileManagerEvents.FILE_MOVED
-   * @throws {DriveError} If not initialized, a source/target driveId is not found, or a folder along
-   *   either path does not exist.
+   * @emits FileManagerEvents.FILE_MOVED (file) or FileManagerEvents.FOLDER_MOVED (folder)
+   * @throws {DriveError} If not initialized, the driveId is not found, or a folder along either path
+   *   does not exist.
    * @throws {FolderError} If the source is the root, the destination is invalid, source and
    *   destination are identical, the source does not exist, the destination is already occupied, or
    *   either path is under the reserved `.trash` folder — trashing goes through {@link trash}.
@@ -390,7 +391,6 @@ export interface FileManager {
     fromPath: string,
     toPath: string,
     sourceDriveId: string | Identifier,
-    targetDriveId?: string | Identifier,
     requestOptions?: BeeRequestOptions,
   ): Promise<void>;
 

@@ -18,6 +18,7 @@ import {
 } from '../types/info';
 
 import { type FeedWriteResult, writeActFeed } from './bee';
+import { getRecordStatus } from './common';
 import {
   DRIVE_FORK_PREFIX,
   MANIFEST_METADATA_DRIVE_ACT_PUBLISHER,
@@ -33,6 +34,7 @@ import {
   MANIFEST_METADATA_NODE_TYPE,
   MANIFEST_METADATA_NODE_VERSION,
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
+  MANIFEST_METADATA_TRASHED_FROM,
 } from './constants';
 
 export async function loadMantaray(
@@ -113,6 +115,26 @@ export function folderForkMetadata(folder: FolderInfo): Record<string, string> {
     [MANIFEST_METADATA_REDUNDANCY_LEVEL]: folder.redundancyLevel.toString(),
     [MANIFEST_METADATA_NODE_OWNER]: folder.owner,
     [MANIFEST_METADATA_NODE_ACT_PUBLISHER]: folder.actPublisher,
+  };
+}
+
+export function folderInfoFromMetadata(
+  meta: Record<string, string>,
+  drive: DriveInfo,
+  path: string,
+  fallback: { owner: string; actPublisher: string },
+): FolderInfo {
+  return {
+    type: NodeType.Folder,
+    topic: meta[MANIFEST_METADATA_NODE_TOPIC],
+    owner: meta[MANIFEST_METADATA_NODE_OWNER] ?? fallback.owner,
+    actPublisher: meta[MANIFEST_METADATA_NODE_ACT_PUBLISHER] ?? fallback.actPublisher,
+    batchId: drive.batchId,
+    redundancyLevel: getRlevel(meta, drive.redundancyLevel),
+    path,
+    driveId: drive.id,
+    status: getRecordStatus(path),
+    ...(meta[MANIFEST_METADATA_TRASHED_FROM] ? { trashedFrom: meta[MANIFEST_METADATA_TRASHED_FROM] } : {}),
   };
 }
 
