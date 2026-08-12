@@ -57,7 +57,7 @@ import {
   TRASH_FOLDER_NAME,
 } from './utils/constants';
 import { generateRandomBytes } from './utils/crypto';
-import { DriveError, ErrorHandler, FileError, FileRecordError, SignerError } from './utils/errors';
+import { DriveError, ErrorHandler, FileError, FileRecordError, FolderError, SignerError } from './utils/errors';
 import { FileManagerEvents } from './utils/events';
 import { Logger } from './utils/logger';
 import {
@@ -675,8 +675,8 @@ export class FileManagerBase implements FileManager {
       status: cached.status ?? NodeStatus.Active,
     };
 
-    await this.persistRecord(fr, requestOptions);
-    await this.commitForkVersion(driveIx, resolvedFork, version, requestOptions);
+    const writtenVersion = await this.persistRecord(fr, requestOptions);
+    await this.commitForkVersion(driveIx, resolvedFork, writtenVersion, requestOptions);
 
     fr.path = cached.path;
 
@@ -822,8 +822,8 @@ export class FileManagerBase implements FileManager {
       timestamp: Date.now(),
     };
 
-    await this.persistRecord(restored, requestOptions);
-    await this.commitForkVersion(driveIx, resolvedFork, newVersion, requestOptions);
+    const writtenVersion = await this.persistRecord(restored, requestOptions);
+    await this.commitForkVersion(driveIx, resolvedFork, writtenVersion, requestOptions);
 
     this.emitter.emit(FileManagerEvents.FILE_VERSION_RESTORED, {
       restored,
@@ -844,7 +844,7 @@ export class FileManagerBase implements FileManager {
     const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     if (!folderName || folderName.includes('/')) {
-      throw new DriveError(`Invalid folder name ${folderName}`);
+      throw new FolderError(`Invalid folder name ${folderName}`);
     }
     const actualPath = joinPath(normalizePath(parentPath), folderName);
     assertNotTrashPath(actualPath);
@@ -863,7 +863,7 @@ export class FileManagerBase implements FileManager {
       requestOptions,
     );
     if (existingParentNode.find(folderName)) {
-      throw new DriveError(`Node already exists at "${actualPath}"`);
+      throw new FolderError(`Node already exists at "${actualPath}"`);
     }
 
     const { folder, node: parentNode } = await this.createFolderNode(
@@ -899,6 +899,10 @@ export class FileManagerBase implements FileManager {
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
     const { cachedDrive } = this.findDriveOrThrow(driveId);
     assertNotTrashPath(path);
+
+    if (maxDepth !== undefined && maxDepth <= 0) {
+      throw new FolderError(`Invalid maxDepth: ${maxDepth}`);
+    }
 
     const { host: startHost } = await this.store.resolveHost(cachedDrive, path, publisher, requestOptions);
 
@@ -998,7 +1002,7 @@ export class FileManagerBase implements FileManager {
 
           const manifestRef: ActReferences = payload.toJSON() as ActReferences;
           assertActReferences(manifestRef);
-          this.store.setNodeFeedIndex(e.topic, feedIndexNext.toBigInt());
+          this.store.setNodeNextIndexCache(e.topic, feedIndexNext.toBigInt());
 
           return {
             type: NodeType.Folder,
@@ -1067,23 +1071,22 @@ export class FileManagerBase implements FileManager {
   ): Promise<void> {
     requestOptions?.signal?.throwIfAborted();
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    const sourceDriveIdStr = new Identifier(sourceDriveId).toString();
-    const { driveIx: sourceDriveIx, cachedDrive: cachedSource } = this.findDriveOrThrow(sourceDriveIdStr);
+    const { driveIx: sourceDriveIx, cachedDrive: cachedSource } = this.findDriveOrThrow(sourceDriveId);
 
     // disable drive move
     if (!fromPath || fromPath === ROOT_PATH) {
-      throw new DriveError('Cannot move root folder');
+      throw new FolderError('Cannot move root folder');
     }
     if (!toPath || toPath === ROOT_PATH) {
-      throw new DriveError('Invalid destination path');
+      throw new FolderError('Invalid destination path');
     }
     assertNotTrashPath(fromPath);
     assertNotTrashPath(toPath);
 
     const targetDriveIdStr = targetDriveId ? new Identifier(targetDriveId).toString() : undefined;
 
-    const isCrossDrive = !!targetDriveIdStr && targetDriveIdStr !== sourceDriveIdStr;
-    const effectiveTargetId = targetDriveIdStr ?? sourceDriveIdStr;
+    const isCrossDrive = !!targetDriveIdStr && targetDriveIdStr !== cachedSource.id;
+    const effectiveTargetId = targetDriveIdStr ?? cachedSource.id;
 
     let cachedTargetDrive: DriveInfo = cachedSource;
     let cachedTargetDriveIx = sourceDriveIx;
@@ -1094,7 +1097,7 @@ export class FileManagerBase implements FileManager {
     }
 
     if (!isCrossDrive && fromPath === toPath) {
-      throw new DriveError('Source and destination paths are identical');
+      throw new FolderError('Source and destination paths are identical');
     }
 
     const { parentPath: srcParentPath, name: srcName } = splitPath(fromPath);
@@ -1108,7 +1111,7 @@ export class FileManagerBase implements FileManager {
 
     const sourceFork = sourceNode.find(srcName);
     if (!sourceFork) {
-      throw new DriveError(`Path not found: ${fromPath}`);
+      throw new FolderError(`Path not found: ${fromPath}`);
     }
 
     const forkMetadata = sourceFork.metadata ?? {};
@@ -1128,7 +1131,7 @@ export class FileManagerBase implements FileManager {
 
     const existing = targetMantaray.find(tgtName);
     if (existing) {
-      throw new DriveError(`Destination already exists: ${toPath}`);
+      throw new FolderError(`Destination already exists: ${toPath}`);
     }
 
     if (isFile) {
@@ -1137,18 +1140,25 @@ export class FileManagerBase implements FileManager {
         throw new FileRecordError(`Fork at ${fromPath} has no file topic — cannot move`);
       }
 
-      const { record } = await this.loadRecord(fileTopic, this.signerAddress, publisher, undefined, requestOptions);
+      const forkVersion = forkMetadata[MANIFEST_METADATA_NODE_VERSION];
+      const { record } = await this.loadRecord(
+        fileTopic,
+        this.signerAddress,
+        publisher,
+        forkVersion !== undefined ? new FeedIndex(forkVersion).toBigInt() : undefined,
+        requestOptions,
+      );
+
+      const head = record.version !== undefined ? new FeedIndex(record.version) : undefined;
 
       record.path = tgtName;
       record.driveId = effectiveTargetId;
+      record.version = head?.next().toString();
 
-      const newVersion = record.version !== undefined ? new FeedIndex(record.version) : FEED_INDEX_ZERO;
-      record.version = newVersion.next().toString();
-
-      await this.persistRecord(record, requestOptions);
+      const writtenVersion = await this.persistRecord(record, requestOptions);
 
       record.path = toPath;
-      forkMetadata[MANIFEST_METADATA_NODE_VERSION] = record.version;
+      forkMetadata[MANIFEST_METADATA_NODE_VERSION] = writtenVersion;
     }
 
     sourceNode.removeFork(srcName);
@@ -1172,7 +1182,7 @@ export class FileManagerBase implements FileManager {
     }
 
     if (!isFile) {
-      this.rewriteRecordPaths(sourceDriveIdStr, fromPath, toPath, isCrossDrive ? effectiveTargetId : undefined);
+      this.rewriteRecordPaths(cachedSource.id, fromPath, toPath, isCrossDrive ? effectiveTargetId : undefined);
     }
 
     this.emitter.emit(FileManagerEvents.FILE_MOVED, { fromPath, toPath });
@@ -1184,10 +1194,10 @@ export class FileManagerBase implements FileManager {
     const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     if (!path || path === ROOT_PATH) {
-      throw new DriveError('Cannot forget drive root');
+      throw new FolderError('Cannot forget drive root');
     }
     if (normalizePath(path) === TRASH_FOLDER_NAME) {
-      throw new DriveError(`Cannot forget "${TRASH_FOLDER_NAME}" — use emptyTrash`);
+      throw new FolderError(`Cannot forget "${TRASH_FOLDER_NAME}" — use emptyTrash`);
     }
 
     const { parentPath, name } = splitPath(path);
@@ -1253,7 +1263,7 @@ export class FileManagerBase implements FileManager {
     const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     if (!path || path === ROOT_PATH) {
-      throw new DriveError('Cannot trash drive root');
+      throw new FolderError('Cannot trash drive root');
     }
     assertNotTrashPath(path);
 
@@ -1318,7 +1328,7 @@ export class FileManagerBase implements FileManager {
 
     const segments = pathSegments(trashedPath);
     if (segments.length !== 2 || segments[0] !== TRASH_FOLDER_NAME) {
-      throw new DriveError(`Not a trashed node path: "${trashedPath}" — expected "${TRASH_FOLDER_NAME}/<topic>"`);
+      throw new FileRecordError(`Not a trashed node path: "${trashedPath}" — expected "${TRASH_FOLDER_NAME}/<topic>"`);
     }
     const topic = segments[1];
     const normalizedTrashedPath = trashPathOf(topic);
@@ -1398,6 +1408,10 @@ export class FileManagerBase implements FileManager {
 
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
     const { cachedDrive } = this.findDriveOrThrow(driveId);
+
+    if (maxDepth !== undefined && maxDepth <= 0) {
+      throw new FolderError(`Invalid maxDepth: ${maxDepth}`);
+    }
 
     const trash = await this.resolveTrashHost(cachedDrive, publisher, requestOptions);
     if (!trash) {
@@ -1582,7 +1596,7 @@ export class FileManagerBase implements FileManager {
     };
 
     const driveNode = new MantarayNode();
-    this.store.setNodeFeedIndex(newDrive.topic, 0n);
+    this.store.setNodeNextIndexCache(newDrive.topic, 0n);
     newDrive.manifestRef = await this.store.saveMantarayNode(driveNode, newDrive, requestOptions);
     this.store.setManifestCache(newDrive.topic, driveNode);
 
@@ -1617,8 +1631,9 @@ export class FileManagerBase implements FileManager {
     if (!reset && isStateExisting) {
       throw new DriveError('Admin state already exists. Pass reset=true to overwrite.');
     }
-    // TODO: reset _recordList too
+
     if (reset) {
+      this._recordList.length = 0;
       this._driveList.length = 0;
       this.store.clear();
     }
@@ -1643,7 +1658,7 @@ export class FileManagerBase implements FileManager {
     this.stateFeedTopic = newStateFeedTopic;
     this.adminRedundancyLevel = redundancyLevel;
     this.store.setManifestCache(newStateFeedTopic.toString(), new MantarayNode());
-    this.store.setNodeFeedIndex(newStateFeedTopic.toString(), 0n);
+    this.store.setNodeNextIndexCache(newStateFeedTopic.toString(), 0n);
   }
 
   private async initDriveList(requestOptions?: BeeRequestOptions): Promise<void> {
@@ -1682,7 +1697,7 @@ export class FileManagerBase implements FileManager {
 
     const entries = getAllNodeEntries(adminMantaray).filter((e) => e.type === NodeType.Drive);
 
-    this.store.setNodeFeedIndex(this.stateFeedTopic.toString(), feedIndexNext.toBigInt());
+    this.store.setNodeNextIndexCache(this.stateFeedTopic.toString(), feedIndexNext.toBigInt());
 
     await settlePromises(
       entries.map(async (entry) => {
@@ -1718,7 +1733,7 @@ export class FileManagerBase implements FileManager {
           this.adminRedundancyLevel = driveInfo.redundancyLevel;
         }
 
-        this.store.setNodeFeedIndex(driveInfo.topic, driveFeedIndexNext.toBigInt());
+        this.store.setNodeNextIndexCache(driveInfo.topic, driveFeedIndexNext.toBigInt());
 
         return driveInfo;
       }),
@@ -1752,7 +1767,13 @@ export class FileManagerBase implements FileManager {
   }
 
   private findDriveOrThrow(driveId: string | Identifier): { driveIx: number; cachedDrive: DriveInfo } {
-    const driveIdStr = new Identifier(driveId).toString();
+    let driveIdStr: string;
+    try {
+      driveIdStr = new Identifier(driveId).toString();
+    } catch (err: unknown) {
+      this.errorHandler.handleError(err);
+      throw new DriveError(`Invalid driveId: ${driveId}`);
+    }
     const driveIx = this.driveList.findIndex((d) => d.id === driveIdStr);
 
     if (driveIx === -1) {
@@ -1820,7 +1841,7 @@ export class FileManagerBase implements FileManager {
     };
 
     const folderNode = new MantarayNode();
-    this.store.setNodeFeedIndex(newFolderTopic, 0n);
+    this.store.setNodeNextIndexCache(newFolderTopic, 0n);
     fi.manifestRef = await this.store.saveMantarayNode(folderNode, fi, requestOptions);
     this.store.setManifestCache(newFolderTopic, folderNode);
 
@@ -1850,7 +1871,7 @@ export class FileManagerBase implements FileManager {
     } = await this.store.resolveHostMantaray(drive, parentPath, publisher, requestOptions);
     const fork = parentNode.find(filename);
     if (!fork) {
-      throw new DriveError(`Path not found: ${absolutePath}`);
+      throw new FolderError(`Path not found: ${absolutePath}`);
     }
 
     return {
@@ -1963,8 +1984,10 @@ export class FileManagerBase implements FileManager {
     version?: bigint,
     requestOptions?: BeeRequestOptions,
   ): Promise<{ record: FileRecord; fromCache: boolean }> {
-    const cached = this.recordList.find((f) => f.topic === topic);
-    if (cached) {
+    const cachedIx = this.recordList.findIndex((f) => f.topic === topic);
+    const cached = cachedIx === -1 ? undefined : this.recordList[cachedIx];
+
+    if (cached && (version === undefined || cached.version === FeedIndex.fromBigInt(version).toString())) {
       return { record: cached, fromCache: true };
     }
 
@@ -1974,18 +1997,26 @@ export class FileManagerBase implements FileManager {
     }
 
     const loaded = await this.store.getRecord(topic, actPublisher, feedData, { isHeadRead: true }, requestOptions);
-    this._recordList.push(loaded);
+    if (cachedIx === -1) {
+      this._recordList.push(loaded);
+    } else {
+      this._recordList[cachedIx] = loaded;
+    }
 
     return { record: loaded, fromCache: false };
   }
 
-  private async persistRecord(fr: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
+  /** Stamps the record with the index the write actually landed on and returns it. */
+  private async persistRecord(fr: FileRecord, requestOptions?: BeeRequestOptions): Promise<string> {
+    let index: bigint;
     try {
-      await this.store.saveRecord(fr, requestOptions);
+      ({ index } = await this.store.saveRecord(fr, requestOptions));
     } catch (err: unknown) {
       this.errorHandler.handleError(err, `Failed to save record: ${fr.path}`);
       throw new FileRecordError(`Failed to save record`, err);
     }
+
+    fr.version = FeedIndex.fromBigInt(index).toString();
 
     const existingIx = this.recordList.findIndex((f) => f.topic === fr.topic);
     if (existingIx !== -1) {
@@ -1993,6 +2024,8 @@ export class FileManagerBase implements FileManager {
     } else {
       this._recordList.push(fr);
     }
+
+    return fr.version;
   }
 
   private adminHost(publisher: string): ManifestHost {

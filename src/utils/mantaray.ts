@@ -16,9 +16,8 @@ import {
   type NodeHeader,
   NodeType,
 } from '../types/info';
-import { type ActReferences } from '../types/utils';
 
-import { writeActFeed } from './bee';
+import { type FeedWriteResult, writeActFeed } from './bee';
 import {
   DRIVE_FORK_PREFIX,
   MANIFEST_METADATA_DRIVE_ACT_PUBLISHER,
@@ -71,11 +70,6 @@ export function getAllNodeEntries(root: MantarayNode): NodeHeader[] {
     .filter((e): e is NodeHeader => e !== null);
 }
 
-export interface SavedManifest {
-  contentRefs: ActReferences;
-  newIndex: bigint;
-}
-
 export async function saveNodeManifest(
   bee: Bee,
   signer: PrivateKey,
@@ -83,7 +77,7 @@ export async function saveNodeManifest(
   host: ManifestHost,
   index?: bigint,
   requestOptions?: BeeRequestOptions,
-): Promise<SavedManifest> {
+): Promise<FeedWriteResult> {
   const saveResult = await node.saveRecursively(bee, host.batchId, undefined, requestOptions);
 
   return writeActFeed(

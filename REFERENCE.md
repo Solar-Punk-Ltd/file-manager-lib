@@ -40,8 +40,8 @@ constructor(bee: Bee, emitter?: EventEmitter, config?: FileManagerConfig)
   omitted.
 - **config** _(optional)_ — concurrency tuning, see [`FileManagerConfig`](#filemanagerconfig).
 
-Wraps the Bee client and owns the on-Swarm drive/folder/file tree, ACT wrapping, per-file version feeds, the
-trash relocation, and event emission.
+Wraps the Bee client and owns the on-Swarm drive/folder/file tree, ACT wrapping, per-file version feeds, the trash
+relocation, and event emission.
 
 ### `FileManagerConfig`
 
@@ -128,14 +128,16 @@ multi-file/folder uploads use
 - **Returns**: the newly-created `FileRecord`.
 - **Emits**: `FILE_UPLOADED`.
 - **Throws**: `DriveError` (not initialized, drive not found, target folder path missing, or a node already occupies
-  `item.path`); `SignerError`; `FileError` (source is a directory, node source path missing, or content upload failed);
-  `FileRecordError` (invalid `item.path`, or a folder along the path has no feed).
+  `item.path`); `FolderError` (the path is under the reserved `.trash` folder); `SignerError`; `FileError` (source is a
+  directory, node source path missing, or content upload failed); `FileRecordError` (invalid `item.path`, or a folder
+  along the path has no feed).
 
 Names are fork keys, so they are unique within a folder: uploading onto an occupied name is rejected rather than
-silently replacing it. Re-version with [`updateFile`](#updatefiledriveid-record-changes-uploadoptions-requestoptions-promisefilerecord),
-relocate with [`move`](#movefrompath-topath-sourcedriveid-targetdriveid-requestoptions-promisevoid), or drop the
-existing node with [`forget`](#forgetdriveid-path-requestoptions-promisevoid) first. `item.path` must have a non-empty
-leaf and no `.`/`..` segments; it is validated before any content is uploaded.
+silently replacing it. Re-version with
+[`updateFile`](#updatefiledriveid-record-changes-uploadoptions-requestoptions-promisefilerecord), relocate with
+[`move`](#movefrompath-topath-sourcedriveid-targetdriveid-requestoptions-promisevoid), or drop the existing node with
+[`forget`](#forgetdriveid-path-requestoptions-promisevoid) first. `item.path` must have a non-empty leaf and no `.`/`..`
+segments; it is validated before any content is uploaded.
 
 ### `uploadFiles(driveId, items, destinationPath?, uploadOptions?, requestOptions?): Promise<UploadFilesResult>`
 
@@ -148,9 +150,10 @@ are collected, not thrown.
 - **destinationPath?** — absolute destination folder; defaults to the drive root.
 - **Returns**: [`UploadFilesResult`](#uploadfilesresult) — `{ succeeded, failed }`.
 - **Emits**: `FOLDER_CREATED` (per folder created), `FILE_UPLOADED` (per file), `FILES_UPLOADED` (once, batch summary).
-- **Throws**: `FileRecordError` (no items, invalid item path, two items resolving to the same destination, or a malformed
-  folder fork); `DriveError` (not initialized, drive not found, or a path segment is a file); `SignerError`. Per-file
-  content-upload failures go into `failed`, as does an item whose destination name is already taken.
+- **Throws**: `FileRecordError` (no items, invalid item path, two items resolving to the same destination, or a
+  malformed folder fork); `DriveError` (not initialized, drive not found, or a path segment is a file); `FolderError` (a
+  destination is under the reserved `.trash` folder); `SignerError`. Per-file content-upload failures go into `failed`,
+  as does an item whose destination name is already taken.
 
 Existing folders along the way are reused; existing **files** are not overwritten (see `uploadFile` above).
 
@@ -172,8 +175,9 @@ from `record`, including the ACT-history continuation reference.
   merged over the record's existing metadata.
 - **Returns**: the newly-written `FileRecord` for the updated version.
 - **Emits**: `FILE_UPDATED`.
-- **Throws**: `FileRecordError` (neither new content nor `customMetadata` provided); `DriveError`; `SignerError`;
-  `FileError` (content upload failed).
+- **Throws**: `FileRecordError` (neither new content nor `customMetadata` provided, the file is trashed, or the fork
+  belongs to another node); `DriveError`; `FolderError` (no fork at the record's path); `SignerError`; `FileError`
+  (content upload failed).
 
 ---
 
@@ -202,8 +206,8 @@ passed records.
 Downloads every file in a folder subtree, resolved fresh via `listFolder`. `path` omitted ⇒ the whole drive.
 
 - **Returns**: one `DownloadFilesResult` marking per file success and failure in the subtree.
-- **Throws**: `DriveError` (not initialized, drive not found, or folder path missing); `SignerError`; `FileRecordError`
-  (a folder feed is missing). Per-file failures are logged.
+- **Throws**: `DriveError` (not initialized, drive not found, or folder path missing); `FolderError` (`path` is the
+  reserved `.trash` folder); `SignerError`; `FileRecordError` (a folder feed is missing). Per-file failures are logged.
 
 ---
 
@@ -218,8 +222,8 @@ Creates a new empty folder (a nested mantaray) within a drive.
 - **redundancyLevel?** — inherits from parent or drive if omitted.
 - **Returns**: the new `FolderInfo`.
 - **Emits**: `FOLDER_CREATED`.
-- **Throws**: `DriveError` (not initialized, drive not found, invalid name, parent path missing, or the name is already
-  taken); `SignerError`; `FileRecordError` (a folder feed is missing).
+- **Throws**: `DriveError` (not initialized, drive not found, or parent path missing); `FolderError` (invalid or
+  reserved name, or the name is already taken); `SignerError`; `FileRecordError` (a folder feed is missing).
 
 `mkdir` semantics, not upsert: a duplicate name is rejected before a feed is minted for it. `uploadFiles` differs
 deliberately — it reuses an existing folder on the way to a file rather than failing.
@@ -231,10 +235,10 @@ Lists entries in a folder (or drive root) from the drive manifest, hydrating and
 
 - **path** — absolute folder path, or `'/'` for the drive root.
 - **depth?** [`ListDepth`](#enums) — `Shallow` (one level, default) or `Deep` (full BFS).
-- **maxDepth?** — max BFS levels when `Deep`; unlimited if omitted.
+- **maxDepth?** — max BFS levels when `Deep`; must be positive, unlimited if omitted.
 - **Returns**: [`NodeEntry[]`](#nodeentry) (`FileRecord | FolderInfo`) for every node at or below `path`.
-- **Throws**: `DriveError` (not initialized, drive not found, or a path segment missing); `SignerError`;
-  `FileRecordError` (a folder feed is missing).
+- **Throws**: `DriveError` (not initialized, drive not found, or a path segment missing); `FolderError` (`path` is the
+  reserved `.trash` folder, or `maxDepth` is not positive); `SignerError`; `FileRecordError` (a folder feed is missing).
 
 ### `move(fromPath, toPath, sourceDriveId, targetDriveId?, requestOptions?): Promise<void>`
 
@@ -243,8 +247,9 @@ type, so it works for both files and folders.
 
 - **targetDriveId?** — for cross-drive moves; defaults to `sourceDriveId`.
 - **Emits**: `FILE_MOVED`.
-- **Throws**: `DriveError` (not initialized, source/target drive not found, source is root, invalid destination, source
-  == destination, or a path missing); `SignerError`; `FileRecordError` (a folder feed or the source record is missing).
+- **Throws**: `DriveError` (not initialized, source/target drive not found, or a folder along either path missing);
+  `FolderError` (source is root, invalid destination, source == destination, source not found, destination occupied, or
+  either path under `.trash`); `SignerError`; `FileRecordError` (a folder feed or the source record is missing).
 
 ### `forget(driveId, path, requestOptions?): Promise<void>`
 
@@ -253,8 +258,9 @@ type, so it works for both files and folders.
 removed from the tree.
 
 - **Emits**: `FILE_FORGOTTEN` (file) or `FOLDER_FORGOTTEN` (folder).
-- **Throws**: `DriveError` (not initialized, drive not found, path is the drive root, or path missing); `SignerError`;
-  `FileRecordError` (a folder feed is missing).
+- **Throws**: `DriveError` (not initialized, drive not found, or a folder along the path missing); `FolderError` (path
+  is the drive root, or `.trash` itself — use `emptyTrash`); `SignerError`; `FileRecordError` (path not found, or a
+  folder feed is missing).
 
 ---
 
@@ -303,8 +309,9 @@ no trash node at all.
 Soft-deletes the file or folder at `path`. Bare and path-addressed — it dispatches on the resolved node type.
 
 - **Emits**: `FILE_TRASHED` or `FOLDER_TRASHED`, with `{ driveId, path, trashedPath }` (plus `record` for a file).
-- **Throws**: `DriveError` (not initialized, drive not found, path is the drive root or under `.trash`, or path not
-  found); `SignerError`; `FileRecordError` (fork missing node metadata).
+- **Throws**: `DriveError` (not initialized, drive not found, or a folder along the path missing); `FolderError` (path
+  is the drive root, already under `.trash`, or the node itself not found); `SignerError`; `FileRecordError` (fork
+  missing node metadata).
 
 ### `recover(driveId, trashedPath, toPath?, requestOptions?): Promise<string>`
 
@@ -316,8 +323,9 @@ caller passes an explicit `toPath`. An occupied destination is refused, never ov
 
 - **Returns**: the path the node was restored to.
 - **Emits**: `FILE_RECOVERED` or `FOLDER_RECOVERED`.
-- **Throws**: `DriveError` (`trashedPath` is not `.trash/<topic>`, destination invalid/occupied, or the destination's
-  parent no longer exists); `SignerError`; `FileRecordError` (not in the trash, or no stamped origin and no `toPath`).
+- **Throws**: `DriveError` (destination occupied, or the destination's parent no longer exists); `FolderError`
+  (destination under `.trash`); `SignerError`; `FileRecordError` (`trashedPath` is not `.trash/<topic>`, invalid
+  destination path, not in the trash, or no stamped origin and no `toPath`).
 
 ### `listTrash(driveId, depth?, maxDepth?, requestOptions?): Promise<NodeEntry[]>`
 
@@ -326,8 +334,10 @@ trashed roots only, `Deep` descends into trashed folders. Returns `[]` for a dri
 
 Entries carry `status = trashed`, `path` = their real location under `.trash`, and `trashedFrom` = where they came from.
 
+- **maxDepth?** — max BFS levels when `Deep`; must be positive, unlimited if omitted.
 - **Returns**: the trashed nodes; pass a `path` back to `recover`.
-- **Throws**: `DriveError` (not initialized or drive not found); `SignerError`.
+- **Throws**: `DriveError` (not initialized or drive not found); `FolderError` (`maxDepth` is not positive);
+  `SignerError`.
 
 ### `emptyTrash(driveId, requestOptions?): Promise<number>`
 
@@ -571,15 +581,15 @@ Each manifest fork carries a metadata map that mirrors inode metadata. Keys are 
 All errors extend `FileManagerError` (which sets an explicit `.name` and supports an ES2022 `cause`), so consumers can
 catch broadly (`instanceof FileManagerError`) or branch on `error.name`.
 
-| Error             | Meaning                                                                  |
-| ----------------- | ------------------------------------------------------------------------ |
-| `DriveError`      | Drive creation, lookup, or destruction problems (incl. not-initialized). |
-| `FolderError`     | Folder-operation failures.                                               |
-| `FileError`       | Content/IO failures — reading, uploading, or downloading file bytes.     |
-| `FileRecordError` | Record / feed / metadata failures (missing feed, invalid version, etc.). |
-| `StampError`      | Postage stamp missing or not usable.                                     |
-| `SignerError`     | Signer / publisher unavailable.                                          |
-| `BeeVersionError` | Connected Bee node version is unsupported.                               |
+| Error             | Meaning                                                                         |
+| ----------------- | ------------------------------------------------------------------------------- |
+| `DriveError`      | Drive creation, lookup, or destruction problems (incl. not-initialized).        |
+| `FolderError`     | Folder-operation failures — invalid names/paths, collisions, reserved `.trash`. |
+| `FileError`       | Content/IO failures — reading, uploading, or downloading file bytes.            |
+| `FileRecordError` | Record / feed / metadata failures (missing feed, invalid version, etc.).        |
+| `StampError`      | Postage stamp missing or not usable.                                            |
+| `SignerError`     | Signer / publisher unavailable.                                                 |
+| `BeeVersionError` | Connected Bee node version is unsupported.                                      |
 
 ---
 

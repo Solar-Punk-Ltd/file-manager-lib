@@ -10,7 +10,13 @@ import {
   Topic,
 } from '@ethersphere/bee-js';
 
-import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID, makeUploadSource } from '../utils';
+import {
+  createInitializedFileManager,
+  DEFAULT_MOCK_SIGNER,
+  DUMMY_BATCH_ID,
+  getEncodedData,
+  makeUploadSource,
+} from '../utils';
 
 import { applyDefaultMocks, createMockNodeAddresses, seedRecords } from './mock';
 
@@ -40,8 +46,6 @@ describe('Version control', () => {
     version: FeedIndex.fromBigInt(0n).toString(),
     redundancyLevel: RedundancyLevel.OFF,
   };
-
-  const recordBytes = (record: FileRecord): Bytes => new Bytes(new TextEncoder().encode(JSON.stringify(record)));
 
   beforeEach(async () => {
     applyDefaultMocks();
@@ -154,7 +158,7 @@ describe('Version control', () => {
       });
       jest
         .spyOn(Bee.prototype, 'downloadData')
-        .mockResolvedValue(recordBytes({ ...dummyFi, version: FEED_INDEX_ZERO.toString() }));
+        .mockResolvedValue(getEncodedData(JSON.stringify({ ...dummyFi, version: FEED_INDEX_ZERO.toString() })));
 
       const got = await fm.getFileVersion(dummyFi, FEED_INDEX_ZERO);
 
@@ -176,7 +180,9 @@ describe('Version control', () => {
       });
       jest
         .spyOn(Bee.prototype, 'downloadData')
-        .mockResolvedValue(recordBytes({ ...dummyFi, version: FeedIndex.fromBigInt(7n).toString() }));
+        .mockResolvedValue(
+          getEncodedData(JSON.stringify({ ...dummyFi, version: FeedIndex.fromBigInt(7n).toString() })),
+        );
 
       await fm.getFileVersion(dummyFi);
 

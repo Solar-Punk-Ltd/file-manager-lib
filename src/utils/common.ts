@@ -73,7 +73,3 @@ export async function settlePromises<T>(
     }
   });
 }
-
-export const getEncodedSize = (input: string): number => {
-  return new TextEncoder().encode(input).length;
-};

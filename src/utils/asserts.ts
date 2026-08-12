@@ -1,6 +1,7 @@
 import {
   BatchId,
   EthAddress,
+  FeedIndex,
   Identifier,
   PublicKey,
   type RedundancyLevel,
@@ -82,8 +83,11 @@ export function assertFileRecord(value: unknown): asserts value is FileRecord {
     throw new TypeError('path property of FileRecord has to be a non-empty string!');
   }
 
-  if (fr.version !== undefined && typeof fr.version !== 'string') {
-    throw new TypeError('version property of FileRecord has to be string!');
+  if (fr.version !== undefined) {
+    if (typeof fr.version !== 'string') {
+      throw new TypeError('version property of FileRecord has to be string!');
+    }
+    new FeedIndex(fr.version);
   }
 
   if (fr.customMetadata !== undefined && !isRecord(fr.customMetadata)) {

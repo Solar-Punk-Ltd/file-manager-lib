@@ -1,5 +1,5 @@
 import { ROOT_PATH, TRASH_FOLDER_NAME } from './constants';
-import { DriveError, FileRecordError } from './errors';
+import { FileRecordError, FolderError } from './errors';
 
 export function pathSegments(path: string): string[] {
   return path.split('/').filter(Boolean);
@@ -38,7 +38,7 @@ export function isTrashPath(path: string): boolean {
 
 export function assertNotTrashPath(path: string): void {
   if (isTrashPath(path)) {
-    throw new DriveError(`"${TRASH_FOLDER_NAME}" is reserved — use trash/recover and listTrash`);
+    throw new FolderError(`"${TRASH_FOLDER_NAME}" is reserved — use trash/recover and listTrash`);
   }
 }
 

@@ -1,4 +1,4 @@
-import { type BatchId, Bee, type BeeRequestOptions, PrivateKey, RedundancyLevel } from '@ethersphere/bee-js';
+import { type BatchId, Bee, type BeeRequestOptions, Bytes, PrivateKey, RedundancyLevel } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
 import { isNode } from 'std-env';
@@ -145,3 +145,7 @@ export async function createInitializedFileManager(
 
   return fm;
 }
+
+export const getEncodedData = (input: string): Bytes => {
+  return new Bytes(new TextEncoder().encode(input));
+};

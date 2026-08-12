@@ -365,9 +365,7 @@ describe('Abort signal handling', () => {
         signal: controller.signal,
       });
 
-      setTimeout(() => {
-        controller.abort();
-      }, 1);
+      controller.abort();
 
       await expect(listPromise).rejects.toThrow();
     });
