@@ -120,14 +120,21 @@ export class MantarayStore {
     const cachedWriteIx = this.getNodeNextIndexCache(host.topic);
     const prevManifestRef = this.getNodeRef(host.topic) ?? host.manifestRef;
 
-    const { contentRefs, nextIndex } = await saveNodeManifest(
-      this.bee,
-      this.signer,
-      node,
-      { ...host, manifestRef: prevManifestRef },
-      cachedWriteIx,
-      requestOptions,
-    );
+    let contentRefs: ActReferences;
+    let nextIndex: bigint;
+    try {
+      ({ contentRefs, nextIndex } = await saveNodeManifest(
+        this.bee,
+        this.signer,
+        node,
+        { ...host, manifestRef: prevManifestRef },
+        cachedWriteIx,
+        requestOptions,
+      ));
+    } catch (err: unknown) {
+      this.evict(host.topic);
+      throw err;
+    }
     this.setNodeNextIndexCache(host.topic, nextIndex);
     this.setNodeRef(host.topic, contentRefs);
 

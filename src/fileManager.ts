@@ -327,6 +327,7 @@ export class FileManagerBase implements FileManager {
       this.driveList[driveIx].manifestRef = newManifestRef;
     }
 
+    this.cacheRecord(record);
     this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { record });
 
     return record;
@@ -467,7 +468,7 @@ export class FileManagerBase implements FileManager {
     }
 
     const dirtyHosts = new Map<string, ManifestHost>();
-    const createdFolderTopics: string[] = [];
+    const createdFolders: FolderInfo[] = [];
 
     for (const { path, parentPath, folderName } of missingFolders) {
       const parentHost = hostMap.get(parentPath);
@@ -486,10 +487,8 @@ export class FileManagerBase implements FileManager {
       );
 
       hostMap.set(path, folderInfo);
-      createdFolderTopics.push(folderInfo.topic);
+      createdFolders.push(folderInfo);
       dirtyHosts.set(parentHost.topic, parentHost);
-
-      this.emitter.emit(FileManagerEvents.FOLDER_CREATED, { folderInfo });
     }
 
     const succeeded: FileRecord[] = [];
@@ -551,8 +550,6 @@ export class FileManagerBase implements FileManager {
         parentMantaray.addFork(planned.filename, new Reference(record.topic), fileForkMetadata(record));
         dirtyHosts.set(parentHost.topic, parentHost);
 
-        this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { record });
-
         return record;
       }),
       this.uploadConcurrency,
@@ -564,18 +561,38 @@ export class FileManagerBase implements FileManager {
       },
     );
 
+    const mutatedTopics = (): string[] => [...dirtyHosts.keys(), ...createdFolders.map((f) => f.topic)];
+
     if (requestOptions?.signal?.aborted) {
-      this.discardUploadBatch(succeeded, [...dirtyHosts.keys(), ...createdFolderTopics]);
+      this.discardCachedUploads(succeeded, mutatedTopics());
       requestOptions.signal.throwIfAborted();
     }
 
-    for (const host of dirtyHosts.values()) {
-      const mantarayNode = await this.store.getMantarayNode(host.topic, publisher, host.manifestRef, requestOptions);
-      const updatedNodeRef = await this.store.saveMantarayNode(mantarayNode, host, requestOptions);
+    // Until every dirty manifest is saved no fork addition is durable, so the batch's records stay
+    // uncommitted — a partial finalize discards the whole batch rather than caching half a tree.
+    try {
+      for (const host of dirtyHosts.values()) {
+        const mantarayNode = await this.store.getMantarayNode(host.topic, publisher, host.manifestRef, requestOptions);
+        const updatedNodeRef = await this.store.saveMantarayNode(mantarayNode, host, requestOptions);
 
-      if (host.topic === cachedDrive.topic) {
-        this.driveList[driveIx].manifestRef = updatedNodeRef;
+        if (host.topic === cachedDrive.topic) {
+          this.driveList[driveIx].manifestRef = updatedNodeRef;
+        }
       }
+    } catch (err: unknown) {
+      this.discardCachedUploads(succeeded, mutatedTopics());
+      this.errorHandler.handleError(err, 'Failed to finalize upload batch');
+      throw err;
+    }
+
+    for (const record of succeeded) {
+      this.cacheRecord(record);
+    }
+    for (const folderInfo of createdFolders) {
+      this.emitter.emit(FileManagerEvents.FOLDER_CREATED, { folderInfo });
+    }
+    for (const record of succeeded) {
+      this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { record });
     }
 
     const result: UploadFilesResult = { succeeded, failed };
@@ -681,6 +698,7 @@ export class FileManagerBase implements FileManager {
 
     fr.path = cached.path;
 
+    this.cacheRecord(fr);
     this.emitter.emit(FileManagerEvents.FILE_UPDATED, { record: fr });
 
     return fr;
@@ -826,6 +844,7 @@ export class FileManagerBase implements FileManager {
     const writtenVersion = await this.persistRecord(restored, requestOptions);
     await this.commitForkVersion(driveIx, resolvedFork, writtenVersion, requestOptions);
 
+    this.cacheRecord(restored);
     this.emitter.emit(FileManagerEvents.FILE_VERSION_RESTORED, {
       restored,
     });
@@ -1121,7 +1140,7 @@ export class FileManagerBase implements FileManager {
       throw new FolderError(`Destination already exists: ${toPath}`);
     }
 
-    let movedRecord: FileRecord | undefined;
+    let moved: { record: FileRecord; version: string } | undefined;
     if (isFile) {
       const fileTopic = forkMetadata[MANIFEST_METADATA_FILE_TOPIC];
       if (!fileTopic) {
@@ -1139,33 +1158,35 @@ export class FileManagerBase implements FileManager {
 
       const head = record.version !== undefined ? new FeedIndex(record.version) : undefined;
 
-      record.path = tgtName;
-      record.version = head?.next().toString();
+      const persistable: FileRecord = { ...record, path: tgtName, version: head?.next().toString() };
+      const writtenVersion = await this.persistRecord(persistable, requestOptions);
 
-      const writtenVersion = await this.persistRecord(record, requestOptions);
-
-      record.path = toPath;
       forkMetadata[MANIFEST_METADATA_NODE_VERSION] = writtenVersion;
-      movedRecord = record;
+      moved = { record, version: writtenVersion };
     }
 
-    sourceNode.removeFork(srcName);
     if (sameParent) {
+      sourceNode.removeFork(srcName);
       sourceNode.addFork(tgtName, sourceFork.targetAddress, forkMetadata);
+
+      const newSrcManifestRef = await this.store.saveMantarayNode(sourceNode, srcParentHost, requestOptions);
+
+      if (!srcParentFolder) {
+        this.driveList[sourceDriveIx].manifestRef = newSrcManifestRef;
+      }
     } else {
       targetMantaray.addFork(tgtName, sourceFork.targetAddress, forkMetadata);
-    }
-
-    const newSrcManifestRef = await this.store.saveMantarayNode(sourceNode, srcParentHost, requestOptions);
-    if (!srcParentFolder) {
-      this.driveList[sourceDriveIx].manifestRef = newSrcManifestRef;
-    }
-
-    if (!sameParent) {
       const newTgtManifestRef = await this.store.saveMantarayNode(targetMantaray, tgtParentHost, requestOptions);
 
       if (!tgtParentFolder) {
         this.driveList[sourceDriveIx].manifestRef = newTgtManifestRef;
+      }
+
+      sourceNode.removeFork(srcName);
+      const newSrcManifestRef = await this.store.saveMantarayNode(sourceNode, srcParentHost, requestOptions);
+
+      if (!srcParentFolder) {
+        this.driveList[sourceDriveIx].manifestRef = newSrcManifestRef;
       }
     }
 
@@ -1184,11 +1205,16 @@ export class FileManagerBase implements FileManager {
       return;
     }
 
+    if (moved) {
+      moved.record.path = toPath;
+      moved.record.version = moved.version;
+    }
+
     this.emitter.emit(FileManagerEvents.FILE_MOVED, {
       driveId: cachedSource.id,
       fromPath,
       toPath,
-      record: movedRecord,
+      record: moved?.record,
     });
   }
 
@@ -1374,14 +1400,15 @@ export class FileManagerBase implements FileManager {
       throw new DriveError(`Destination already exists: ${destination}`);
     }
 
-    trash.node.removeFork(topic);
     destNode.addFork(name, trashedFork.targetAddress, metadata);
-
-    await this.store.saveMantarayNode(trash.node, trash.host, requestOptions);
     const newDestRef = await this.store.saveMantarayNode(destNode, destHost, requestOptions);
+
     if (!destFolder) {
       this.driveList[driveIx].manifestRef = newDestRef;
     }
+
+    trash.node.removeFork(topic);
+    await this.store.saveMantarayNode(trash.node, trash.host, requestOptions);
 
     const restoredPath = normalizePath(destination);
     if (metadata[MANIFEST_METADATA_NODE_TYPE] === NodeType.Folder) {
@@ -1521,12 +1548,8 @@ export class FileManagerBase implements FileManager {
     this.store.clear();
   }
 
-  private discardUploadBatch(records: FileRecord[], mutatedTopics: string[]): void {
+  private discardCachedUploads(records: FileRecord[], mutatedTopics: string[]): void {
     for (const record of records) {
-      const ix = this.recordList.findIndex((f) => f.topic === record.topic);
-      if (ix !== -1) {
-        this._recordList.splice(ix, 1);
-      }
       this.store.evict(record.topic);
     }
 
@@ -1650,12 +1673,6 @@ export class FileManagerBase implements FileManager {
       throw new DriveError('Admin state already exists. Pass reset=true to overwrite.');
     }
 
-    if (reset) {
-      this._recordList.length = 0;
-      this._driveList.length = 0;
-      this.store.clear();
-    }
-
     const randomTopic = generateRandomBytes(Topic.LENGTH);
     const newStateFeedTopic = new Topic(randomTopic);
     const topicUploadRes = await this.bee.uploadData(
@@ -1672,6 +1689,12 @@ export class FileManagerBase implements FileManager {
 
     const statefw = this.bee.makeFeedWriter(FILEMANAGER_STATE_TOPIC.toUint8Array(), this.signer, requestOptions);
     await statefw.uploadPayload(batchId, JSON.stringify(topicState), { index: feedIndexNext });
+
+    if (reset) {
+      this._recordList.length = 0;
+      this._driveList.length = 0;
+      this.store.clear();
+    }
 
     this.stateFeedTopic = newStateFeedTopic;
     this.adminRedundancyLevel = redundancyLevel;
@@ -1743,7 +1766,7 @@ export class FileManagerBase implements FileManager {
           try {
             verifyStampUsability(this.adminStamp, driveInfo.batchId, false);
           } catch (err: unknown) {
-            this.errorHandler.handleError(err);
+            this.errorHandler.handleError(err, 'Amdin stamp verification failed');
             this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
             throw err;
           }
@@ -1789,7 +1812,7 @@ export class FileManagerBase implements FileManager {
     try {
       driveIdStr = new Identifier(driveId).toString();
     } catch (err: unknown) {
-      this.errorHandler.handleError(err);
+      this.errorHandler.handleError(err, `Invalid driveId: ${driveId}`);
       throw new DriveError(`Invalid driveId: ${driveId}`);
     }
     const driveIx = this.driveList.findIndex((d) => d.id === driveIdStr);
@@ -2021,7 +2044,6 @@ export class FileManagerBase implements FileManager {
     return { record: loaded, fromCache: false };
   }
 
-  /** Stamps the record with the index the write actually landed on and returns it. */
   private async persistRecord(fr: FileRecord, requestOptions?: BeeRequestOptions): Promise<string> {
     let index: bigint;
     try {
@@ -2033,14 +2055,16 @@ export class FileManagerBase implements FileManager {
 
     fr.version = FeedIndex.fromBigInt(index).toString();
 
+    return fr.version;
+  }
+
+  private cacheRecord(fr: FileRecord): void {
     const existingIx = this.recordList.findIndex((f) => f.topic === fr.topic);
     if (existingIx !== -1) {
       this._recordList[existingIx] = fr;
     } else {
       this._recordList.push(fr);
     }
-
-    return fr.version;
   }
 
   private adminHost(publisher: string): ManifestHost {

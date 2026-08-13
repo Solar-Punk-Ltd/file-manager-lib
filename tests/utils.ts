@@ -146,6 +146,22 @@ export async function createInitializedFileManager(
   return fm;
 }
 
+export function abortAfterFirstRecordWrite(fm: FileManagerBase, controller: AbortController): void {
+  const store = (fm as any).store;
+  const saveRecord = store.saveRecord.bind(store);
+
+  let armed = true;
+  jest.spyOn(store, 'saveRecord').mockImplementation(async (...args: unknown[]) => {
+    const result = await saveRecord(...args);
+    if (armed) {
+      armed = false;
+      controller.abort();
+    }
+
+    return result;
+  });
+}
+
 export const getEncodedData = (input: string): Bytes => {
   return new Bytes(new TextEncoder().encode(input));
 };

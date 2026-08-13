@@ -2,14 +2,13 @@ import { type Bee, type PublicKey } from '@ethersphere/bee-js';
 import path from 'path';
 import { setTimeout } from 'timers';
 
-import { retryOnPropagationDelay } from '../utils';
+import { abortAfterFirstRecordWrite, retryOnPropagationDelay } from '../utils';
 
 import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
 import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
 import { type DriveInfo, type FileRecord, type FolderInfo, ListDepth } from '@/types';
-import { FileManagerEvents } from '@/utils';
 import { ROOT_PATH } from '@/utils/constants';
 
 describe('Abort signal handling', () => {
@@ -152,7 +151,7 @@ describe('Abort signal handling', () => {
       const manifestRefBefore = { ...localDrive!.manifestRef };
 
       const controller = new AbortController();
-      fm.emitter.on(FileManagerEvents.FILE_UPLOADED, () => controller.abort());
+      abortAfterFirstRecordWrite(fm, controller);
 
       await expect(
         fm.uploadFiles(
@@ -185,7 +184,7 @@ describe('Abort signal handling', () => {
       await fm.initialize();
 
       const controller = new AbortController();
-      fm.emitter.on(FileManagerEvents.FILE_UPLOADED, () => controller.abort());
+      abortAfterFirstRecordWrite(fm, controller);
 
       await expect(
         fm.uploadFiles(

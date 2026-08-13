@@ -150,6 +150,9 @@ are collected, not thrown.
 - **destinationPath?** — absolute destination folder; defaults to the drive root.
 - **Returns**: [`UploadFilesResult`](#uploadfilesresult) — `{ succeeded, failed }`.
 - **Emits**: `FOLDER_CREATED` (per folder created), `FILE_UPLOADED` (per file), `FILES_UPLOADED` (once, batch summary).
+  All of them fire **after** the last manifest is saved, so an emitted node is always in the drive tree — the batch is
+  never announced in instalments, and a failed finalize emits nothing but `FILES_UPLOADED`'s absence. Upload events are
+  therefore not a progress feed; use the returned `succeeded` / `failed` for outcomes.
 - **Throws**: `FileRecordError` (no items, invalid item path, two items resolving to the same destination, or a
   malformed folder fork); `DriveError` (not initialized, drive not found, or a path segment is a file); `FolderError` (a
   destination is under the reserved `.trash` folder); `SignerError`. Per-file content-upload failures go into `failed`,
@@ -158,10 +161,10 @@ are collected, not thrown.
 Existing folders along the way are reused; existing **files** are not overwritten (see `uploadFile` above).
 
 **Abort semantics.** Aborting wins immediately: the batch stops starting files, no manifest is saved, and the call
-rejects. The batch's own in-memory state is discarded with it — the records it persisted are removed from `recordList`
-and every manifest it mutated is evicted from the store — so the drive is left exactly as it was and nothing from the
-aborted batch can be committed later by an unrelated save. Content and record feeds written before the abort are spent
-but unreferenced; re-upload those files to place them.
+rejects. The batch's own in-memory state is discarded with it — its records were never committed to `recordList` and
+every manifest it mutated is evicted from the store — so the drive is left exactly as it was and nothing from the
+aborted batch can be committed later by an unrelated save. A finalize failure is treated the same way. Content and
+record feeds written before the abort are spent but unreferenced; re-upload those files to place them.
 
 ### `updateFile(driveId, record, changes, uploadOptions?, requestOptions?): Promise<FileRecord>`
 
@@ -396,6 +399,10 @@ event whose payloads are the same shape: the drive id, the operation's paths, an
 [`FileRecord`](#filerecord) as `record` or a [`FolderInfo`](#folderinfo) as `folderInfo`. `record` is `undefined` when
 the file was never hydrated into `recordList`; `folderInfo` is composed from the fork's metadata, so it carries no
 `manifestRef`.
+
+Every event fires only after the Swarm writes behind it have landed, so a received event always describes committed
+state, never an operation still in flight — a failed operation rejects and emits nothing. Consequently events are not a
+progress feed; for batch progress use the `succeeded` / `failed` result.
 
 ---
 

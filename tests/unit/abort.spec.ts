@@ -1,6 +1,7 @@
 import { BatchId, Bee, type BeeRequestOptions, MantarayNode, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 
 import {
+  abortAfterFirstRecordWrite,
   BEE_URL,
   createInitializedFileManager,
   DEFAULT_MOCK_SIGNER,
@@ -14,7 +15,7 @@ import { applyDefaultMocks, createMockDriveInfo, createMockNodeAddresses, seedRe
 import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
 import { type DriveInfo, type FileRecord, ListDepth, NodeType } from '@/types';
-import { DriveError, FileManagerEvents } from '@/utils';
+import { DriveError } from '@/utils';
 import { SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
 describe('Abort signal handling', () => {
@@ -124,7 +125,7 @@ describe('Abort signal handling', () => {
       const di = fm.driveList[1];
 
       const controller = new AbortController();
-      fm.emitter.on(FileManagerEvents.FILE_UPLOADED, () => controller.abort());
+      abortAfterFirstRecordWrite(fm, controller);
 
       const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
       uploadDataSpy.mockClear();
@@ -153,7 +154,7 @@ describe('Abort signal handling', () => {
       const di = fm.driveList[1];
 
       const controller = new AbortController();
-      fm.emitter.on(FileManagerEvents.FILE_UPLOADED, () => controller.abort());
+      abortAfterFirstRecordWrite(fm, controller);
 
       const recordsBefore = fm.recordList.length;
       const manifestRefBefore = { ...di.manifestRef } as Required<DriveInfo>['manifestRef'];

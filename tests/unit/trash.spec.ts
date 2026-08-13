@@ -191,6 +191,29 @@ describe('Lifecycle management', () => {
       expect(trashNode().find(fileRecord.topic)).toBeTruthy();
     });
 
+    it('drops the destination manifest when its write fails, keeping the node in trash', async () => {
+      await fm.trash(drive.id, 'notes.txt');
+      validFolderFeed();
+      // Captured up front: the helper reads it through the drive root, which this failure evicts.
+      const trashTopic = driveRoot().find(TRASH_FOLDER_NAME)?.metadata?.[MANIFEST_METADATA_NODE_TOPIC];
+
+      // The destination is written first, so its failure must take the unpersisted fork down with it
+      // and leave the node referenced from trash.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      const mantaray = require('@/utils/mantaray');
+      const saveSpy = jest.spyOn(mantaray, 'saveNodeManifest').mockRejectedValueOnce(new Error('dest write failed'));
+
+      await expect(fm.recover(drive.id, `${TRASH_FOLDER_NAME}/${fileRecord.topic}`)).rejects.toThrow(
+        'dest write failed',
+      );
+
+      expect(saveSpy).toHaveBeenCalledTimes(1);
+      expect((fm as any).store.getManifestCache(drive.topic)).toBeUndefined();
+      expect((fm as any).store.getManifestCache(trashTopic).find(fileRecord.topic)).toBeTruthy();
+
+      saveSpy.mockRestore();
+    });
+
     it('rejects a path that is not a trashed node, and a node that is not trashed', async () => {
       await expect(fm.recover(drive.id, 'notes.txt')).rejects.toThrow(/Not a trashed node path/);
       await expect(fm.recover(drive.id, `${TRASH_FOLDER_NAME}/${fileRecord.topic}`)).rejects.toThrow(

@@ -107,9 +107,7 @@ export interface FileManager {
    * are collected rather than aborting the whole batch.
    * @param driveId - The ID of the drive to upload into.
    * @param items - The files to upload, each with a path relative to destinationPath.
-   * Aborting rejects as soon as the signal is seen and no manifest is saved,
-   * @param driveId - The ID of the drive to upload into.
-   * @param items - The files to upload, each with a path relative to destinationPath.
+   * Aborting rejects as soon as the signal is seen and no manifest is saved.
    * @param destinationPath - Absolute path of the destination folder; defaults to the drive root.
    * @param uploadOptions - File-related upload options.
    * @param requestOptions - Additional Bee request options.
