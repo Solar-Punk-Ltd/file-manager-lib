@@ -2,10 +2,12 @@ import {
   BatchId,
   Bee,
   BeeResponseError,
+  FeedIndex,
   type PrivateKey,
   type PublicKey,
   RedundancyLevel,
   Reference,
+  Topic,
 } from '@ethersphere/bee-js';
 
 import {
@@ -22,10 +24,10 @@ import { ensureUniqueSignerWithStamp } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
 import { type ActReferences } from '@/types';
-import { ADMIN_STAMP_LABEL, FILEMANAGER_STATE_TOPIC, FileManagerEvents, StampError } from '@/utils';
+import { FILEMANAGER_STATE_TOPIC, FileManagerEvents, StampError } from '@/utils';
 import { assertActReferences } from '@/utils/asserts';
 import { getFeedData } from '@/utils/bee';
-import { SWARM_ZERO_ADDRESS } from '@/utils/constants';
+import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 import { generateRandomBytes } from '@/utils/crypto';
 
 describe('Initialization and construction', () => {
@@ -123,6 +125,21 @@ describe('Initialization and construction', () => {
     }
   });
 
+  it('reports an empty feed for an unwritten topic, and Bee reports it as a 404', async () => {
+    const unwritten = new Topic(generateRandomBytes(Topic.LENGTH));
+    const address = signer.publicKey().address();
+
+    await expect(bee.makeFeedReader(unwritten.toUint8Array(), address).downloadPayload()).rejects.toMatchObject({
+      status: 404,
+    });
+
+    const { feedIndex, feedIndexNext, payload } = await getFeedData(bee, unwritten, address.toString());
+
+    expect(feedIndex.equals(FeedIndex.MINUS_ONE)).toBe(true);
+    expect(feedIndexNext.equals(FEED_INDEX_ZERO)).toBe(true);
+    expect(payload).toBe(SWARM_ZERO_ADDRESS);
+  });
+
   it('should not reinitialize if already initialized', async () => {
     const recordListBefore = [...fileManager.recordList];
     fileManager.emitter.on(FileManagerEvents.INITIALIZED, (e) => {
@@ -157,6 +174,41 @@ describe('Initialization and construction', () => {
     const adminStampAfter = fileManager.adminStamp;
     expect(adminStampAfter).toBeDefined();
     expect(adminStampAfter?.batchID.toString()).toBe(adminStampBefore?.batchID.toString());
+  });
+
+  it('initializes against a real node even when the INITIALIZED listener throws', async () => {
+    const fm = new FileManagerBase(bee);
+    fm.emitter.on(FileManagerEvents.INITIALIZED, () => {
+      throw new Error('consumer handler blew up');
+    });
+
+    await fm.initialize();
+
+    expect(fm.isInitialized).toBe(true);
+    expect(fm.driveList.some((d) => d.isAdmin)).toBe(true);
+  });
+
+  it('rolls state back after a failed initialize, so a retry against the real node succeeds', async () => {
+    const fm = new FileManagerBase(bee);
+    const events: boolean[] = [];
+    fm.emitter.on(FileManagerEvents.INITIALIZED, (ok: boolean) => events.push(ok));
+
+    const spy = jest
+      .spyOn(Bee.prototype, 'getNodeAddresses')
+      .mockRejectedValueOnce(new Error('transient node failure'));
+
+    await fm.initialize();
+    expect(events).toEqual([false]);
+    expect(fm.isInitialized).toBe(false);
+    expect(fm.driveList).toHaveLength(0);
+    expect(fm.recordList).toHaveLength(0);
+
+    spy.mockRestore();
+
+    await fm.initialize();
+    expect(events).toEqual([false, true]);
+    expect(fm.isInitialized).toBe(true);
+    expect(fm.driveList.some((d) => d.isAdmin)).toBe(true);
   });
 });
 
@@ -289,7 +341,7 @@ describe('reinitialization', () => {
       return batches.map((b) => ({
         ...b,
         usable: true,
-        label: b.label === ADMIN_STAMP_LABEL ? 'admin' : b.label,
+        label: b.label,
       }));
     });
 

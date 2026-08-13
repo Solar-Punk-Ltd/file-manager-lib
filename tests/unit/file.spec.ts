@@ -35,7 +35,9 @@ import {
   MANIFEST_METADATA_FILE_TOPIC,
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
+  ROOT_PATH,
   SWARM_ZERO_ADDRESS,
+  TRASH_FOLDER_NAME,
 } from '@/utils/constants';
 
 describe('File operations', () => {
@@ -254,6 +256,141 @@ describe('File operations', () => {
         fm.uploadFile(ghost.id, { path: 'package.json', ...makeUploadSource('package.json') }),
       ).rejects.toThrow(`Drive with id ${ghost.id.slice(0, 6)} not found`);
     });
+
+    it('rejects a second upload onto an occupied name and leaves the original fork intact', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      const di = fm.driveList[1];
+
+      await fm.uploadFile(di.id, { path: 'package.json', ...makeUploadSource('package.json') });
+      const first = fm.recordList.find((fr) => fr.path === 'package.json')!;
+
+      await expect(fm.uploadFile(di.id, { path: 'package.json', ...makeUploadSource('package.json') })).rejects.toThrow(
+        /Node already exists at "package.json"/,
+      );
+
+      const driveMantaray = (fm as any).store.getManifestCache(di.topic) as MantarayNode;
+      expect(driveMantaray.find('package.json')?.metadata?.[MANIFEST_METADATA_NODE_TOPIC]).toBe(first.topic);
+      expect(fm.recordList.filter((fr) => fr.path === 'package.json')).toHaveLength(1);
+    });
+
+    it('rejects an occupied name before spending a stamp on content or a feed slot', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      const di = fm.driveList[1];
+
+      await fm.uploadFile(di.id, { path: 'package.json', ...makeUploadSource('package.json') });
+
+      const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
+      uploadDataSpy.mockClear();
+
+      await expect(fm.uploadFile(di.id, { path: 'package.json', ...makeUploadSource('package.json') })).rejects.toThrow(
+        /already exists/,
+      );
+
+      expect(uploadDataSpy).not.toHaveBeenCalled();
+    });
+
+    // An empty leaf yields addFork(''), which mantaray ignores entirely — the upload would vanish.
+    it.each(['', '/', 'docs/', '..', 'docs/../escape.txt'])(
+      'rejects the invalid path %p before uploading anything',
+      async (badPath) => {
+        const fm = await createInitializedFileManager();
+        await fm.createDrive(otherMockBatchId, 'Test Drive');
+        const di = fm.driveList[1];
+
+        const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
+        uploadDataSpy.mockClear();
+
+        await expect(fm.uploadFile(di.id, { path: badPath, ...makeUploadSource('package.json') })).rejects.toThrow(
+          FileRecordError,
+        );
+
+        expect(uploadDataSpy).not.toHaveBeenCalled();
+        expect(fm.recordList).toHaveLength(0);
+      },
+    );
+  });
+
+  describe('uploadFiles', () => {
+    it('defaults destinationPath to the drive root when omitted', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      const di = fm.driveList[1];
+
+      const result = await fm.uploadFiles(di.id, [{ path: 'root-default.txt', ...makeUploadSource('package.json') }]);
+
+      expect(result.failed).toHaveLength(0);
+      expect(result.succeeded.map((r) => r.path)).toEqual(['root-default.txt']);
+
+      const driveMantaray = (fm as any).store.getManifestCache(di.topic) as MantarayNode;
+      expect(driveMantaray.find('root-default.txt')).toBeTruthy();
+    });
+
+    it('treats an omitted destinationPath the same as an explicit root', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      const di = fm.driveList[1];
+
+      const omitted = await fm.uploadFiles(di.id, [{ path: 'omitted.txt', ...makeUploadSource('package.json') }]);
+      const explicit = await fm.uploadFiles(
+        di.id,
+        [{ path: 'explicit.txt', ...makeUploadSource('package.json') }],
+        ROOT_PATH,
+      );
+
+      expect(omitted.succeeded[0].path).toBe('omitted.txt');
+      expect(explicit.succeeded[0].path).toBe('explicit.txt');
+    });
+
+    it('rejects a batch whose entries resolve to the same destination path', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      const di = fm.driveList[1];
+
+      const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
+      uploadDataSpy.mockClear();
+
+      await expect(
+        fm.uploadFiles(
+          di.id,
+          [
+            { path: 'docs/a.txt', ...makeUploadSource('package.json') },
+            { path: 'docs/a.txt', ...makeUploadSource('package.json') },
+          ],
+          '',
+        ),
+      ).rejects.toThrow(/Duplicate destination path in batch: "docs\/a.txt"/);
+
+      expect(uploadDataSpy).not.toHaveBeenCalled();
+    });
+
+    it('collects an occupied destination name in `failed` and still uploads the rest', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      const di = fm.driveList[1];
+
+      await fm.uploadFile(di.id, { path: 'taken.txt', ...makeUploadSource('package.json') });
+      const original = fm.recordList.find((fr) => fr.path === 'taken.txt')!;
+
+      const result = await fm.uploadFiles(
+        di.id,
+        [
+          { path: 'taken.txt', ...makeUploadSource('package.json') },
+          { path: 'fresh.txt', ...makeUploadSource('package.json') },
+        ],
+        '',
+      );
+
+      expect(result.failed).toHaveLength(1);
+      expect(result.failed[0].path).toBe('taken.txt');
+      expect(result.failed[0].error).toMatch(/already exists/);
+      expect(result.succeeded.map((r) => r.path)).toEqual(['fresh.txt']);
+
+      // The occupied fork still points at the original node.
+      const driveMantaray = (fm as any).store.getManifestCache(di.topic) as MantarayNode;
+      expect(driveMantaray.find('taken.txt')?.metadata?.[MANIFEST_METADATA_NODE_TOPIC]).toBe(original.topic);
+    });
   });
 
   describe('updateFile', () => {
@@ -378,7 +515,13 @@ describe('File operations', () => {
 
       await fm.updateFile(di.id, record, { customMetadata: { note: 'hi' } });
 
-      expect(getRecordSpy).toHaveBeenCalledWith(record.topic, record.actPublisher, expect.anything(), undefined);
+      expect(getRecordSpy).toHaveBeenCalledWith(
+        record.topic,
+        record.actPublisher,
+        expect.anything(),
+        { isHeadRead: true },
+        undefined,
+      );
       const rehydrated = fm.recordList.filter((f) => f.topic === record.topic);
       expect(rehydrated).toHaveLength(1);
       expect(rehydrated[0].version).toBe(FeedIndex.fromBigInt(1n).toString());
@@ -463,22 +606,21 @@ describe('File operations', () => {
       expect(driveMantaray.find('renamed.json')).toBeTruthy();
     });
 
-    it('refuses to move a trashed node until it is recovered', async () => {
+    it('cannot reach a trashed node, and refuses the trash folder as an endpoint', async () => {
       const fm = await createInitializedFileManager();
       await fm.createDrive(otherMockBatchId, 'Test Drive');
       const drive = fm.driveList[1];
 
       await fm.uploadFile(drive.id, { path: 'package.json', ...makeUploadSource('package.json') });
       const original = fm.recordList.find((fr) => fr.path === 'package.json')!;
-      await fm.trashFile(original);
+      await fm.trash(drive.id, 'package.json');
 
-      await expect(fm.move('package.json', 'renamed.json', drive.id)).rejects.toThrow(
-        'Cannot move a trashed file/folder; recover it first',
+      await expect(fm.move('package.json', 'renamed.json', drive.id)).rejects.toThrow('Path not found: package.json');
+      await expect(fm.move(`${TRASH_FOLDER_NAME}/${original.topic}`, 'renamed.json', drive.id)).rejects.toThrow(
+        /reserved/,
       );
 
-      // The guard fires before any manifest mutation — the fork stays put.
       const driveMantaray = (fm as any).store.getManifestCache(drive.topic) as MantarayNode;
-      expect(driveMantaray.find('package.json')).toBeTruthy();
       expect(driveMantaray.find('renamed.json')).toBeFalsy();
     });
 

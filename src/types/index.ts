@@ -1,13 +1,4 @@
-export type {
-  DriveInfo,
-  FileRecord,
-  FolderInfo,
-  ManifestHost,
-  NodeEntry,
-  NodeHeader,
-  NodeResource,
-  TrashEntry,
-} from './info';
+export type { DriveInfo, FileRecord, FolderInfo, ManifestHost, NodeEntry, NodeHeader, NodeResource } from './info';
 export { ListDepth, NodeType, NodeStatus } from './info';
 export type {
   BrowserUploadOptions,

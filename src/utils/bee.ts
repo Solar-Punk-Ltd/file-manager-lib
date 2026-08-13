@@ -15,7 +15,7 @@ import { type ActReferences, type FeedResultWithIndex } from '../types/utils';
 import { isNotFoundError } from './common';
 import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from './constants';
 import { generateRandomBytes } from './crypto';
-import { ErrorHandler, StampError } from './errors';
+import { BeeVersionError, ErrorHandler, StampError } from './errors';
 import { Logger } from './logger';
 
 const logger = Logger.getInstance();
@@ -94,13 +94,19 @@ export interface FeedTarget {
   index?: bigint;
 }
 
+export interface FeedWriteResult {
+  contentRefs: ActReferences;
+  index: bigint;
+  nextIndex: bigint;
+}
+
 export async function writeActFeed(
   bee: Bee,
   signer: PrivateKey,
   payload: string | Uint8Array,
   target: FeedTarget,
   requestOptions?: BeeRequestOptions,
-): Promise<{ contentRefs: ActReferences; newIndex: bigint }> {
+): Promise<FeedWriteResult> {
   const upload = await bee.uploadData(
     target.batchId,
     payload,
@@ -127,7 +133,7 @@ export async function writeActFeed(
   const fw = bee.makeFeedWriter(new Topic(target.topic).toUint8Array(), signer, requestOptions);
   await fw.uploadPayload(target.batchId, JSON.stringify(contentRefs), { index: FeedIndex.fromBigInt(writeIndex) });
 
-  return { contentRefs, newIndex: writeIndex + 1n };
+  return { contentRefs, index: writeIndex, nextIndex: writeIndex + 1n };
 }
 
 export async function fetchStamp(
@@ -165,6 +171,6 @@ export async function verifySupportedBeeVersions(bee: Bee, requestOptions?: BeeR
   if (!supportedApi) {
     logger.error('Supported bee API version: ', beeVersions.supportedBeeApiVersion);
     logger.error('Supported bee version: ', beeVersions.supportedBeeVersion);
-    // throw new BeeVersionError('Bee or Bee API version not supported');
+    throw new BeeVersionError('Bee or Bee API version not supported');
   }
 }

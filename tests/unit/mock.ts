@@ -28,7 +28,7 @@ import { DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
 import { type FileManagerBase } from '@/fileManager';
 import { type DriveInfo, type FileRecord, NodeType } from '@/types';
 import { fetchStamp, getFeedData } from '@/utils/bee';
-import { ADMIN_STAMP_LABEL, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
+import { ADMIN_DRIVE_NAME, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 import { getAllNodeEntries, loadMantaray } from '@/utils/mantaray';
 
 export function createMockMantarayNode(all = true): MantarayNode {
@@ -207,7 +207,7 @@ export function loadStampListMock(): PostageBatch[] {
       utilization: 5,
       usable: true,
       usageText: '2%',
-      label: ADMIN_STAMP_LABEL,
+      label: ADMIN_DRIVE_NAME,
       depth: 22,
       amount: '990' as NumberString,
       bucketDepth: 30,

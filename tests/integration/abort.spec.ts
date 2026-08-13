@@ -2,9 +2,12 @@ import { type Bee, type PublicKey } from '@ethersphere/bee-js';
 import path from 'path';
 import { setTimeout } from 'timers';
 
+import { abortAfterFirstRecordWrite, retryOnPropagationDelay } from '../utils';
+
 import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
-import { type FileManagerBase } from '@/fileManager';
+import { EventEmitterBase } from '@/eventEmitter';
+import { FileManagerBase } from '@/fileManager';
 import { type DriveInfo, type FileRecord, type FolderInfo, ListDepth } from '@/types';
 import { ROOT_PATH } from '@/utils/constants';
 
@@ -131,6 +134,100 @@ describe('Abort signal handling', () => {
 
       const uploadedFile = fileManager.recordList.find((fr) => fr.path === multi2File);
       expect(uploadedFile).toBeDefined();
+    });
+  });
+
+  describe('uploadFiles', () => {
+    it('leaves the drive untouched when the batch is aborted mid-flight', async () => {
+      const one = writeTempFile('it-abortbatch-one.txt', 'Abort batch one');
+      const two = writeTempFile('it-abortbatch-two.txt', 'Abort batch two');
+      const three = writeTempFile('it-abortbatch-three.txt', 'Abort batch three');
+
+      // uploadConcurrency 1 keeps the batch sequential, so the abort lands between files.
+      const fm = new FileManagerBase(bee, new EventEmitterBase(), { uploadConcurrency: 1 });
+      await fm.initialize();
+      const localDrive = fm.driveList.find((d) => d.id === drive.id);
+      expect(localDrive).toBeDefined();
+      const manifestRefBefore = { ...localDrive!.manifestRef };
+
+      const controller = new AbortController();
+      abortAfterFirstRecordWrite(fm, controller);
+
+      await expect(
+        fm.uploadFiles(
+          drive.id,
+          [
+            { path: 'abortbatch/one.txt', sourcePath: one },
+            { path: 'abortbatch/two.txt', sourcePath: two },
+            { path: 'abortbatch/three.txt', sourcePath: three },
+          ],
+          '',
+          undefined,
+          { signal: controller.signal },
+        ),
+      ).rejects.toThrow();
+
+      expect(fm.recordList.some((fr) => fr.path.startsWith('abortbatch/'))).toBe(false);
+      expect(fm.driveList.find((d) => d.id === drive.id)!.manifestRef).toEqual(manifestRefBefore);
+
+      const verifier = new FileManagerBase(bee);
+      await verifier.initialize();
+      const rootEntries = await verifier.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow);
+      expect(rootEntries.some((e) => e.path === 'abortbatch')).toBe(false);
+    });
+
+    it('a later unrelated write does not commit an aborted batch after the fact', async () => {
+      const aborted = writeTempFile('it-abortbatch-later-aborted.txt', 'Aborted content');
+      const kept = writeTempFile('it-abortbatch-later-kept.txt', 'Kept content');
+
+      const fm = new FileManagerBase(bee, new EventEmitterBase(), { uploadConcurrency: 1 });
+      await fm.initialize();
+
+      const controller = new AbortController();
+      abortAfterFirstRecordWrite(fm, controller);
+
+      await expect(
+        fm.uploadFiles(
+          drive.id,
+          [
+            { path: 'later-abort/gone.txt', sourcePath: aborted },
+            { path: 'later-abort/also-gone.txt', sourcePath: aborted },
+          ],
+          '',
+          undefined,
+          { signal: controller.signal },
+        ),
+      ).rejects.toThrow();
+
+      await fm.uploadFile(drive.id, { path: 'it-abortbatch-later-kept.txt', sourcePath: kept });
+
+      const verifier = await retryOnPropagationDelay(async () => {
+        const fresh = new FileManagerBase(bee);
+        await fresh.initialize();
+        const entries = await fresh.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow);
+        if (!entries.some((e) => e.path === 'it-abortbatch-later-kept.txt')) {
+          throw new Error('follow-up upload not yet propagated');
+        }
+        return fresh;
+      });
+
+      const entries = await verifier.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow);
+      expect(entries.some((e) => e.path === 'it-abortbatch-later-kept.txt')).toBe(true);
+      expect(entries.some((e) => e.path === 'later-abort')).toBe(false);
+    });
+
+    it('rejects without uploading anything when the signal is pre-aborted', async () => {
+      const src = writeTempFile('it-abortbatch-pre.txt', 'Never uploaded');
+      const controller = new AbortController();
+      controller.abort();
+
+      await expect(
+        fileManager.uploadFiles(drive.id, [{ path: 'abortbatch-pre/x.txt', sourcePath: src }], '', undefined, {
+          signal: controller.signal,
+        }),
+      ).rejects.toThrow();
+
+      expect(fileManager.recordList.some((fr) => fr.path.startsWith('abortbatch-pre/'))).toBe(false);
     });
   });
 
@@ -267,9 +364,7 @@ describe('Abort signal handling', () => {
         signal: controller.signal,
       });
 
-      setTimeout(() => {
-        controller.abort();
-      }, 1);
+      controller.abort();
 
       await expect(listPromise).rejects.toThrow();
     });

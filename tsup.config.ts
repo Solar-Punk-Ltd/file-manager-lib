@@ -17,7 +17,6 @@ const stubNodeInBrowser = stubForeignPlatform('stub-node-in-browser', /(?:^|\/)(
   'processUploadNode',
   'isDir',
   'readFile',
-  'getContentType',
 ]);
 const stubBrowserInNode = stubForeignPlatform('stub-browser-in-node', /(?:^|\/)upload-browser$/, [
   'processUploadBrowser',

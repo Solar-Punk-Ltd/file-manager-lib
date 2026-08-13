@@ -1,6 +1,7 @@
-import { type DriveInfo, NodeStatus } from '../types/info';
+import { NodeStatus } from '../types/info';
 
 import { Logger } from './logger';
+import { isTrashPath } from './path';
 
 const logger = Logger.getInstance();
 
@@ -34,14 +35,24 @@ export const joinPath = (base: string, name: string): string => {
   return base ? `${base}/${name}` : name;
 };
 
-export const getRecordStatus = (drive: DriveInfo, topic: string): NodeStatus => {
-  const isFoundInTrash = !!drive.trashedNodes?.some((n) => n.topic === topic);
-  return isFoundInTrash ? NodeStatus.Trashed : NodeStatus.Active;
+export const getRecordStatus = (recordPath: string): NodeStatus => {
+  return isTrashPath(recordPath) ? NodeStatus.Trashed : NodeStatus.Active;
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function isNotFoundError(error: any): boolean {
-  return error.stack?.includes('404') || error.message?.includes('Not Found') || error.message?.includes('404');
+const HTTP_NOT_FOUND = 404;
+
+const toStatusCode = (value: unknown): number | undefined => {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string' && /^\d+$/.test(value)) return Number(value);
+  return undefined;
+};
+
+export function isNotFoundError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+
+  const { status, response } = error as { status?: unknown; response?: { status?: unknown } };
+
+  return toStatusCode(status) === HTTP_NOT_FOUND || toStatusCode(response?.status) === HTTP_NOT_FOUND;
 }
 
 export async function settlePromises<T>(
@@ -62,7 +73,3 @@ export async function settlePromises<T>(
     }
   });
 }
-
-export const getEncodedSize = (input: string): number => {
-  return new TextEncoder().encode(input).length;
-};

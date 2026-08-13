@@ -5,6 +5,7 @@ import { BEE_URL, createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH
 import { applyDefaultMocks } from './mock';
 
 import { EventEmitterBase } from '@/eventEmitter';
+import { FileManagerBase } from '@/fileManager';
 import { NodeStatus } from '@/types';
 import { FileManagerEvents } from '@/utils';
 
@@ -58,5 +59,55 @@ describe('Events and emitter', () => {
     await createInitializedFileManager(bee, DUMMY_BATCH_ID, emitter);
 
     expect(eventHandler).toHaveBeenCalledWith(true);
+  });
+
+  // Emit sites sit mid-method, so a consumer's throwing handler must not become a library failure.
+  describe('listener isolation', () => {
+    it('keeps delivering to the remaining listeners when one throws', () => {
+      const emitter = new EventEmitterBase();
+      const before = jest.fn();
+      const after = jest.fn();
+
+      emitter.on('some-event', before);
+      emitter.on('some-event', () => {
+        throw new Error('listener blew up');
+      });
+      emitter.on('some-event', after);
+
+      expect(() => emitter.emit('some-event', 'payload')).not.toThrow();
+      expect(before).toHaveBeenCalledWith('payload');
+      expect(after).toHaveBeenCalledWith('payload');
+    });
+
+    it('initializes successfully even when an INITIALIZED listener throws', async () => {
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const emitter = new EventEmitterBase();
+      emitter.on(FileManagerEvents.INITIALIZED, () => {
+        throw new Error('consumer handler blew up');
+      });
+
+      const fm = new FileManagerBase(bee, emitter);
+      await fm.initialize();
+
+      expect(fm.isInitialized).toBe(true);
+    });
+
+    it('completes an upload even when the FILE_UPLOADED listener throws', async () => {
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const emitter = new EventEmitterBase();
+
+      const fm = await createInitializedFileManager(bee, DUMMY_BATCH_ID, emitter);
+      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      const di = fm.driveList[1];
+
+      fm.emitter.on(FileManagerEvents.FILE_UPLOADED, () => {
+        throw new Error('consumer handler blew up');
+      });
+
+      const record = await fm.uploadFile(di.id, { path: 'package.json', ...makeUploadSource('package.json') });
+
+      expect(record.path).toBe('package.json');
+      expect(fm.recordList.filter((fr) => fr.path === 'package.json')).toHaveLength(1);
+    });
   });
 });

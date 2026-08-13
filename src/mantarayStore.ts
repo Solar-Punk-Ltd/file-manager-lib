@@ -12,7 +12,7 @@ import {
 import { type DriveInfo, type FileRecord, type FolderInfo, type ManifestHost, NodeType } from './types/info';
 import { type ActReferences, type FeedResultWithIndex } from './types/utils';
 import { assertActReferences, assertFileRecord } from './utils/asserts';
-import { getFeedData, writeActFeed } from './utils/bee';
+import { type FeedWriteResult, getFeedData, writeActFeed } from './utils/bee';
 import {
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
@@ -31,7 +31,7 @@ export class MantarayStore {
   private readonly signerAddress: string;
   private readonly nodeManifestCache: Map<string, MantarayNode> = new Map();
   private readonly nodeManifestLoading: Map<string, Promise<MantarayNode>> = new Map();
-  private readonly nodeFeedIndexCache: Map<string, bigint> = new Map();
+  private readonly nodeNextIndexCache: Map<string, bigint> = new Map();
   private readonly nodeRefCache: Map<string, ActReferences> = new Map();
 
   // --- Initialization ---
@@ -78,7 +78,7 @@ export class MantarayStore {
     manifestRef?: ActReferences,
     requestOptions?: BeeRequestOptions,
   ): Promise<MantarayNode> {
-    const cached = this.nodeManifestCache.get(topic);
+    const cached = this.getManifestCache(topic);
     if (cached) return cached;
 
     const inFlight = this.nodeManifestLoading.get(topic);
@@ -98,8 +98,8 @@ export class MantarayStore {
       );
       const node = await loadMantaray(this.bee, new Reference(raw), undefined, requestOptions);
 
-      this.nodeManifestCache.set(topic, node);
-      this.nodeRefCache.set(topic, manifestRef);
+      this.setManifestCache(topic, node);
+      this.setNodeRef(topic, manifestRef);
 
       return node;
     })();
@@ -117,31 +117,39 @@ export class MantarayStore {
     host: ManifestHost,
     requestOptions?: BeeRequestOptions,
   ): Promise<ActReferences> {
-    const cachedWriteIx = this.nodeFeedIndexCache.get(host.topic);
-    const prevManifestRef = this.nodeRefCache.get(host.topic) ?? host.manifestRef;
+    const cachedWriteIx = this.getNodeNextIndexCache(host.topic);
+    const prevManifestRef = this.getNodeRef(host.topic) ?? host.manifestRef;
 
-    const { contentRefs, newIndex } = await saveNodeManifest(
-      this.bee,
-      this.signer,
-      node,
-      { ...host, manifestRef: prevManifestRef },
-      cachedWriteIx,
-      requestOptions,
-    );
-    this.nodeFeedIndexCache.set(host.topic, newIndex);
-    this.nodeRefCache.set(host.topic, contentRefs);
+    let contentRefs: ActReferences;
+    let nextIndex: bigint;
+    try {
+      ({ contentRefs, nextIndex } = await saveNodeManifest(
+        this.bee,
+        this.signer,
+        node,
+        { ...host, manifestRef: prevManifestRef },
+        cachedWriteIx,
+        requestOptions,
+      ));
+    } catch (err: unknown) {
+      this.evict(host.topic);
+      throw err;
+    }
+    this.setNodeNextIndexCache(host.topic, nextIndex);
+    this.setNodeRef(host.topic, contentRefs);
 
     return contentRefs;
   }
 
-  async saveRecord(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<ActReferences> {
-    const prevRef = this.nodeRefCache.get(record.topic);
+  /** Returns the refs written plus the feed index they landed on — the record's authoritative version. */
+  async saveRecord(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<FeedWriteResult> {
+    const prevRef = this.getNodeRef(record.topic);
 
     const persistable: FileRecord = { ...record };
     delete persistable.status;
     delete persistable.driveId;
 
-    const { contentRefs, newIndex } = await writeActFeed(
+    const { contentRefs, index, nextIndex } = await writeActFeed(
       this.bee,
       this.signer,
       JSON.stringify(persistable),
@@ -154,16 +162,17 @@ export class MantarayStore {
       },
       requestOptions,
     );
-    this.nodeFeedIndexCache.set(record.topic, newIndex);
-    this.nodeRefCache.set(record.topic, contentRefs);
+    this.setNodeNextIndexCache(record.topic, nextIndex);
+    this.setNodeRef(record.topic, contentRefs);
 
-    return contentRefs;
+    return { contentRefs, index, nextIndex };
   }
 
   async getRecord(
     topic: string,
     actPublisher: string,
     feedData: FeedResultWithIndex,
+    options: { isHeadRead: boolean },
     requestOptions?: BeeRequestOptions,
   ): Promise<FileRecord> {
     if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
@@ -189,8 +198,11 @@ export class MantarayStore {
     }
 
     record.version = feedData.feedIndex.toString();
-    this.nodeRefCache.set(topic, contentRefs);
-    this.nodeFeedIndexCache.set(topic, new FeedIndex(record.version).next().toBigInt());
+
+    if (options.isHeadRead) {
+      this.setNodeRef(topic, contentRefs);
+      this.setNodeNextIndexCache(topic, new FeedIndex(record.version).next().toBigInt());
+    }
 
     return record;
   }
@@ -218,15 +230,20 @@ export class MantarayStore {
   }
 
   /** Prime the next feed-write index for `topic` (typically a probed `feedIndexNext`). */
-  setNodeFeedIndex(topic: string, nextIndex: bigint): void {
-    this.nodeFeedIndexCache.set(topic, nextIndex);
+  setNodeNextIndexCache(topic: string, nextIndex: bigint): void {
+    this.nodeNextIndexCache.set(topic, nextIndex);
+  }
+
+  /** The cached next feed-write index for `topic` */
+  getNodeNextIndexCache(topic: string): bigint | undefined {
+    return this.nodeNextIndexCache.get(topic);
   }
 
   /** Clear all cached state */
   evict(topic: string): void {
     this.nodeManifestCache.delete(topic);
     this.nodeManifestLoading.delete(topic);
-    this.nodeFeedIndexCache.delete(topic);
+    this.nodeNextIndexCache.delete(topic);
     this.nodeRefCache.delete(topic);
   }
 
@@ -234,7 +251,7 @@ export class MantarayStore {
   clear(): void {
     this.nodeManifestCache.clear();
     this.nodeManifestLoading.clear();
-    this.nodeFeedIndexCache.clear();
+    this.nodeNextIndexCache.clear();
     this.nodeRefCache.clear();
   }
 
@@ -286,17 +303,7 @@ export class MantarayStore {
       if (!nodeTopic) {
         throw new FileRecordError(`Folder fork missing topic: ${currentPath}`);
       }
-      // Probe the feed head. A folder is a container and carries no stored version
-      const {
-        payload: folderPayload,
-        feedIndex: folderFeedIndex,
-        feedIndexNext: folderFeedIndexNext,
-      } = await getFeedData(this.bee, new Topic(nodeTopic), this.signerAddress, undefined, requestOptions);
-      if (folderFeedIndex.equals(FeedIndex.MINUS_ONE)) {
-        throw new DriveError(`Folder feed not found for path: ${currentPath}`);
-      }
-      const folderManifestRef: ActReferences = folderPayload.toJSON() as ActReferences;
-      assertActReferences(folderManifestRef);
+      const folderManifestRef = await this.resolveFolderManifestRef(nodeTopic, currentPath, requestOptions);
 
       currentFolderInfo = {
         type: NodeType.Folder,
@@ -318,10 +325,37 @@ export class MantarayStore {
         currentFolderInfo.manifestRef,
         requestOptions,
       );
-
-      this.setNodeFeedIndex(nodeTopic, folderFeedIndexNext.toBigInt());
     }
 
     return currentFolderInfo;
+  }
+
+  // A folder carries no stored version, so its manifest root comes from its feed head.
+  private async resolveFolderManifestRef(
+    nodeTopic: string,
+    currentPath: string,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<ActReferences> {
+    const cachedRef = this.getNodeRef(nodeTopic);
+    if (cachedRef && this.getManifestCache(nodeTopic) && this.getNodeNextIndexCache(nodeTopic) !== undefined) {
+      return cachedRef;
+    }
+
+    const { payload, feedIndex, feedIndexNext } = await getFeedData(
+      this.bee,
+      new Topic(nodeTopic),
+      this.signerAddress,
+      undefined,
+      requestOptions,
+    );
+    if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
+      throw new DriveError(`Folder feed not found for path: ${currentPath}`);
+    }
+
+    const manifestRef: ActReferences = payload.toJSON() as ActReferences;
+    assertActReferences(manifestRef);
+    this.setNodeNextIndexCache(nodeTopic, feedIndexNext.toBigInt());
+
+    return manifestRef;
   }
 }

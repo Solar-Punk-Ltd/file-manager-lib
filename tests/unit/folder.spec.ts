@@ -1,25 +1,15 @@
-import {
-  BatchId,
-  Bee,
-  Bytes,
-  FeedIndex,
-  Identifier,
-  type MantarayNode,
-  RedundancyLevel,
-  Topic,
-} from '@ethersphere/bee-js';
+import { Bee, Bytes, FeedIndex, Identifier, type MantarayNode, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 
-import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
+import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID, makeUploadSource } from '../utils';
 
 import { applyDefaultMocks, createMockDriveInfo, createMockNodeAddresses, seedDummyFile, seedRecords } from './mock';
 
 import { ListDepth, type NodeHeader, NodeType } from '@/types';
 import { FileManagerEvents } from '@/utils';
 import { getFeedData } from '@/utils/bee';
-import { SWARM_ZERO_ADDRESS } from '@/utils/constants';
+import { MANIFEST_METADATA_NODE_TOPIC, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
 describe('Folder operations', () => {
-  const otherMockBatchId = new BatchId('4'.repeat(64));
   const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
   const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
 
@@ -54,6 +44,21 @@ describe('Folder operations', () => {
 
       expect(downloadReadableDataSpy).toHaveBeenCalledTimes(2);
       expect(results.succeeded.map((r) => r.path).sort()).toEqual(['a.txt', 'b.txt']);
+    });
+
+    it('defaults to the whole drive when path is omitted', async () => {
+      const fm = await createInitializedFileManager();
+      const drive = fm.driveList[0];
+      seedRecords(
+        fm,
+        seedDummyFile(drive, 'a.txt', '1'.repeat(64), owner, actPublisher),
+        seedDummyFile(drive, 'nested/b.txt', '2'.repeat(64), owner, actPublisher),
+      );
+
+      const results = await fm.downloadFolder(drive.id);
+
+      expect(results.failed).toEqual([]);
+      expect(results.succeeded.map((r) => r.path).sort()).toEqual(['a.txt', 'nested/b.txt']);
     });
 
     it('downloadFolder does not download files belonging to a different drive', async () => {
@@ -231,40 +236,75 @@ describe('Folder operations', () => {
 
       await expect(fm.createFolder(drive.id, '', 'a/b')).rejects.toThrow('Invalid folder name');
     });
+
+    it('rejects a duplicate folder name instead of returning a folder absent from the tree', async () => {
+      const fm = await createInitializedFileManager();
+      const drive = fm.driveList[0];
+
+      const first = await fm.createFolder(drive.id, '', 'Documents');
+
+      await expect(fm.createFolder(drive.id, '', 'Documents')).rejects.toThrow(/Node already exists at "Documents"/);
+
+      const driveMantaray = (fm as any).store.getManifestCache(drive.topic) as MantarayNode;
+      expect(driveMantaray.find('Documents')?.metadata?.[MANIFEST_METADATA_NODE_TOPIC]).toBe(first.topic);
+    });
+
+    it('does not mint a folder feed for a rejected duplicate', async () => {
+      const fm = await createInitializedFileManager();
+      const drive = fm.driveList[0];
+
+      await fm.createFolder(drive.id, '', 'Documents');
+
+      const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
+      uploadDataSpy.mockClear();
+
+      await expect(fm.createFolder(drive.id, '', 'Documents')).rejects.toThrow(/already exists/);
+
+      expect(uploadDataSpy).not.toHaveBeenCalled();
+    });
+
+    it('rejects a folder name already taken by a file', async () => {
+      const fm = await createInitializedFileManager();
+      const drive = fm.driveList[0];
+
+      await fm.uploadFile(drive.id, { path: 'notes', ...makeUploadSource('package.json') });
+
+      await expect(fm.createFolder(drive.id, '', 'notes')).rejects.toThrow(/Node already exists at "notes"/);
+    });
+
+    it('reports the full path of the conflict for a nested parent', async () => {
+      const fm = await createInitializedFileManager();
+      const drive = fm.driveList[0];
+
+      await fm.createFolder(drive.id, '', 'outer');
+
+      (getFeedData as jest.Mock).mockResolvedValue({
+        feedIndex: FeedIndex.fromBigInt(0n),
+        feedIndexNext: FeedIndex.fromBigInt(1n),
+        payload: {
+          toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
+        },
+      });
+
+      await fm.createFolder(drive.id, 'outer', 'inner');
+
+      await expect(fm.createFolder(drive.id, 'outer', 'inner')).rejects.toThrow(
+        /Node already exists at "outer\/inner"/,
+      );
+    });
   });
 
   describe('move', () => {
-    it('refreshes trashed descendants overlay paths on a same-drive folder move', async () => {
+    it('rewrites descendant record paths on a same-drive folder move', async () => {
       const fm = await createInitializedFileManager();
       const drive = fm.driveList[0];
       await fm.createFolder(drive.id, '', 'Docs');
-
-      const descendantTopic = Topic.fromString('doc-a').toString();
-      drive.trashedNodes = [{ topic: descendantTopic, type: NodeType.File, path: 'Docs/a.txt' }];
+      seedRecords(fm, seedDummyFile(drive, 'Docs/a.txt', SWARM_ZERO_ADDRESS.toString(), owner, actPublisher));
 
       await fm.move('Docs', 'Archive', drive.id);
 
-      expect(drive.trashedNodes).toEqual([{ topic: descendantTopic, type: NodeType.File, path: 'Archive/a.txt' }]);
-    });
-
-    it('relocates trashed descendants to the target drive on a cross-drive folder move', async () => {
-      const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Target Drive');
-      const source = fm.driveList[0];
-      const target = fm.driveList[1];
-      await fm.createFolder(source.id, '', 'Docs');
-
-      const descendantTopic = Topic.fromString('doc-a').toString();
-      source.trashedNodes = [{ topic: descendantTopic, type: NodeType.File, path: 'Docs/a.txt' }];
-
-      await fm.move('Docs', 'Archive', source.id, target.id);
-
-      expect(source.trashedNodes).toEqual([]);
-      expect(target.trashedNodes).toContainEqual({
-        topic: descendantTopic,
-        type: NodeType.File,
-        path: 'Archive/a.txt',
-      });
+      expect(fm.recordList.some((f) => f.path === 'Archive/a.txt')).toBe(true);
+      expect(fm.recordList.some((f) => f.path === 'Docs/a.txt')).toBe(false);
     });
 
     it('throws when trying to move the drive root', async () => {

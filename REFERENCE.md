@@ -18,7 +18,7 @@ method for cancellation (`signal`) and retries; it is omitted from the descripti
 - [Files — read](#files--read) — `downloadFile`, `downloadFiles`, `downloadFolder`
 - [Folders](#folders) — `createFolder`, `listFolder`, `move`, `forget`
 - [Versioning](#versioning) — `getFileVersion`, `restoreFileVersion`
-- [Trash](#trash) — `trashFile`, `recoverFile`, `trashFolder`, `recoverFolder`, `listTrash`
+- [Trash](#trash) — `trash`, `recover`, `listTrash`, `emptyTrash`
 - [Getters](#getters) — `adminStamp`, `driveList`, `recordList`, `emitter`, `isInitialized`
 - [Events](#events)
 - [Types](#types)
@@ -40,8 +40,8 @@ constructor(bee: Bee, emitter?: EventEmitter, config?: FileManagerConfig)
   omitted.
 - **config** _(optional)_ — concurrency tuning, see [`FileManagerConfig`](#filemanagerconfig).
 
-Wraps the Bee client and owns the on-Swarm drive/folder/file tree, ACT wrapping, per-file version feeds, the
-owner-private trash overlay, and event emission.
+Wraps the Bee client and owns the on-Swarm drive/folder/file tree, ACT wrapping, per-file version feeds, the trash
+relocation, and event emission.
 
 ### `FileManagerConfig`
 
@@ -127,9 +127,17 @@ multi-file/folder uploads use
 - **uploadOptions?** `RedundantUploadOptions | FileUploadOptions`.
 - **Returns**: the newly-created `FileRecord`.
 - **Emits**: `FILE_UPLOADED`.
-- **Throws**: `DriveError` (not initialized, drive not found, or target folder path missing); `SignerError`; `FileError`
-  (source is a directory, node source path missing, or content upload failed); `FileRecordError` (a folder along the
-  path has no feed).
+- **Throws**: `DriveError` (not initialized, drive not found, target folder path missing, or a node already occupies
+  `item.path`); `FolderError` (the path is under the reserved `.trash` folder); `SignerError`; `FileError` (source is a
+  directory, node source path missing, or content upload failed); `FileRecordError` (invalid `item.path`, or a folder
+  along the path has no feed).
+
+Names are fork keys, so they are unique within a folder: uploading onto an occupied name is rejected rather than
+silently replacing it. Re-version with
+[`updateFile`](#updatefiledriveid-record-changes-uploadoptions-requestoptions-promisefilerecord), relocate with
+[`move`](#movefrompath-topath-sourcedriveid-requestoptions-promisevoid), or drop the existing node with
+[`forget`](#forgetdriveid-path-requestoptions-promisevoid) first. `item.path` must have a non-empty leaf and no `.`/`..`
+segments; it is validated before any content is uploaded.
 
 ### `uploadFiles(driveId, items, destinationPath?, uploadOptions?, requestOptions?): Promise<UploadFilesResult>`
 
@@ -139,26 +147,39 @@ created as needed; each touched parent manifest is saved once at the end. **Part
 are collected, not thrown.
 
 - **items** [`UploadItem[]`](#uploaditem) — each with a `path` relative to `destinationPath`.
-- **destinationPath?** — absolute destination folder, or `'/'` for the drive root.
+- **destinationPath?** — absolute destination folder; defaults to the drive root.
 - **Returns**: [`UploadFilesResult`](#uploadfilesresult) — `{ succeeded, failed }`.
 - **Emits**: `FOLDER_CREATED` (per folder created), `FILE_UPLOADED` (per file), `FILES_UPLOADED` (once, batch summary).
-- **Throws**: `FileRecordError` (no items, invalid item path, or malformed folder fork); `DriveError` (not initialized,
-  drive not found, or a path segment is a file); `SignerError`. Per-file content-upload failures go into `failed`.
+  All of them fire **after** the last manifest is saved, so an emitted node is always in the drive tree — the batch is
+  never announced in instalments, and a failed finalize emits nothing but `FILES_UPLOADED`'s absence. Upload events are
+  therefore not a progress feed; use the returned `succeeded` / `failed` for outcomes.
+- **Throws**: `FileRecordError` (no items, invalid item path, two items resolving to the same destination, or a
+  malformed folder fork); `DriveError` (not initialized, drive not found, or a path segment is a file); `FolderError` (a
+  destination is under the reserved `.trash` folder); `SignerError`. Per-file content-upload failures go into `failed`,
+  as does an item whose destination name is already taken.
+
+Existing folders along the way are reused; existing **files** are not overwritten (see `uploadFile` above).
+
+**Abort semantics.** Aborting wins immediately: the batch stops starting files, no manifest is saved, and the call
+rejects. The batch's own in-memory state is discarded with it — its records were never committed to `recordList` and
+every manifest it mutated is evicted from the store — so the drive is left exactly as it was and nothing from the
+aborted batch can be committed later by an unrelated save. A finalize failure is treated the same way. Content and
+record feeds written before the abort are spent but unreferenced; re-upload those files to place them.
 
 ### `updateFile(driveId, record, changes, uploadOptions?, requestOptions?): Promise<FileRecord>`
 
 Re-versions or changes metadata of an **existing** file. Reuses the file's feed topic, writes a new feed slot, and never
-touches the drive manifest (no rename — use
-[`move`](#movefrompath-topath-sourcedriveid-targetdriveid-requestoptions-promisevoid) to relocate). Everything derives
-from `record`, including the ACT-history continuation reference.
+touches the drive manifest (no rename — use [`move`](#movefrompath-topath-sourcedriveid-requestoptions-promisevoid) to
+relocate). Everything derives from `record`, including the ACT-history continuation reference.
 
 - **record** — the existing file's `FileRecord` (the single source of truth).
 - **changes** [`UpdateItem`](#updateitem) — `item` present ⇒ new bytes; absent ⇒ metadata-only. `customMetadata` is
   merged over the record's existing metadata.
 - **Returns**: the newly-written `FileRecord` for the updated version.
 - **Emits**: `FILE_UPDATED`.
-- **Throws**: `FileRecordError` (neither new content nor `customMetadata` provided); `DriveError`; `SignerError`;
-  `FileError` (content upload failed).
+- **Throws**: `FileRecordError` (neither new content nor `customMetadata` provided, the file is trashed, or the fork
+  belongs to another node); `DriveError`; `FolderError` (no fork at the record's path); `SignerError`; `FileError`
+  (content upload failed).
 
 ---
 
@@ -187,8 +208,8 @@ passed records.
 Downloads every file in a folder subtree, resolved fresh via `listFolder`. `path` omitted ⇒ the whole drive.
 
 - **Returns**: one `DownloadFilesResult` marking per file success and failure in the subtree.
-- **Throws**: `DriveError` (not initialized, drive not found, or folder path missing); `SignerError`; `FileRecordError`
-  (a folder feed is missing). Per-file failures are logged.
+- **Throws**: `DriveError` (not initialized, drive not found, or folder path missing); `FolderError` (`path` is the
+  reserved `.trash` folder); `SignerError`; `FileRecordError` (a folder feed is missing). Per-file failures are logged.
 
 ---
 
@@ -199,34 +220,41 @@ Downloads every file in a folder subtree, resolved fresh via `listFolder`. `path
 Creates a new empty folder (a nested mantaray) within a drive.
 
 - **parentPath** — absolute path of the parent, or `'/'` for the drive root.
-- **folderName** — must not contain `/`.
+- **folderName** — must not contain `/`, and must not already be taken by a file or folder in the parent.
 - **redundancyLevel?** — inherits from parent or drive if omitted.
 - **Returns**: the new `FolderInfo`.
 - **Emits**: `FOLDER_CREATED`.
-- **Throws**: `DriveError` (not initialized, drive not found, invalid name, or parent path missing); `SignerError`;
-  `FileRecordError` (a folder feed is missing).
+- **Throws**: `DriveError` (not initialized, drive not found, or parent path missing); `FolderError` (invalid or
+  reserved name, or the name is already taken); `SignerError`; `FileRecordError` (a folder feed is missing).
+
+`mkdir` semantics, not upsert: a duplicate name is rejected before a feed is minted for it. `uploadFiles` differs
+deliberately — it reuses an existing folder on the way to a file rather than failing.
 
 ### `listFolder(driveId, path, depth?, maxDepth?, requestOptions?): Promise<NodeEntry[]>`
 
 Lists entries in a folder (or drive root) from the drive manifest, hydrating and caching any file entries into
-`recordList`. Trashed nodes (and everything under a trashed folder) are hidden.
+`recordList`. The reserved `.trash` folder is omitted from the drive root and cannot be listed here — use `listTrash`.
 
 - **path** — absolute folder path, or `'/'` for the drive root.
 - **depth?** [`ListDepth`](#enums) — `Shallow` (one level, default) or `Deep` (full BFS).
-- **maxDepth?** — max BFS levels when `Deep`; unlimited if omitted.
+- **maxDepth?** — max BFS levels when `Deep`; must be positive, unlimited if omitted.
 - **Returns**: [`NodeEntry[]`](#nodeentry) (`FileRecord | FolderInfo`) for every node at or below `path`.
-- **Throws**: `DriveError` (not initialized, drive not found, or a path segment missing); `SignerError`;
-  `FileRecordError` (a folder feed is missing).
+- **Throws**: `DriveError` (not initialized, drive not found, or a path segment missing); `FolderError` (`path` is the
+  reserved `.trash` folder, or `maxDepth` is not positive); `SignerError`; `FileRecordError` (a folder feed is missing).
 
-### `move(fromPath, toPath, sourceDriveId, targetDriveId?, requestOptions?): Promise<void>`
+### `move(fromPath, toPath, sourceDriveId, requestOptions?): Promise<void>`
 
-Moves a file or folder from one path to another, within a drive or across drives. Path-addressed and dispatches on node
-type, so it works for both files and folders.
+Moves a file or folder from one path to another **within a single drive**. Path-addressed and dispatches on node type,
+so it works for both files and folders.
 
-- **targetDriveId?** — for cross-drive moves; defaults to `sourceDriveId`.
 - **Emits**: `FILE_MOVED`.
-- **Throws**: `DriveError` (not initialized, source/target drive not found, source is root, invalid destination, source
-  == destination, or a path missing); `SignerError`; `FileRecordError` (a folder feed or the source record is missing).
+- **Throws**: `DriveError` (not initialized, drive not found, or a folder along either path missing); `FolderError`
+  (source is root, invalid destination, source == destination, source not found, destination occupied, or either path
+  under `.trash`); `SignerError`; `FileRecordError` (a folder feed or the source record is missing).
+
+There is no cross-drive move: a relocated node keeps its drive's `batchId`, so a file "in" another drive would still be
+paid for — and die — with the original stamp. Both paths are resolved against `sourceDriveId`, so a path from another
+drive simply is not found. To relocate content between drives, `forget` it and re-upload to the target.
 
 ### `forget(driveId, path, requestOptions?): Promise<void>`
 
@@ -235,8 +263,9 @@ type, so it works for both files and folders.
 removed from the tree.
 
 - **Emits**: `FILE_FORGOTTEN` (file) or `FOLDER_FORGOTTEN` (folder).
-- **Throws**: `DriveError` (not initialized, drive not found, path is the drive root, or path missing); `SignerError`;
-  `FileRecordError` (a folder feed is missing).
+- **Throws**: `DriveError` (not initialized, drive not found, or a folder along the path missing); `FolderError` (path
+  is the drive root, or `.trash` itself — use `emptyTrash`); `SignerError`; `FileRecordError` (path not found, or a
+  folder feed is missing).
 
 ---
 
@@ -249,9 +278,11 @@ structural change publishes a new manifest slot.
 
 Returns a specific version of a file.
 
-- **record** — base `FileRecord` (provides `topic` + `owner`).
-- **version?** `string | FeedIndex` — desired slot; latest if omitted.
-- **Returns**: the `FileRecord` for that version (cached or fetched).
+- **record** — base `FileRecord` (provides `topic`, `owner` and the node's current path).
+- **version?** `string | FeedIndex` — desired slot; latest if omitted. A `string` must be the 16-hex-character
+  `FeedIndex` form (`FeedIndex.fromBigInt(0n).toString()`), not a decimal like `'0'`.
+- **Returns**: the `FileRecord` for that version (cached or fetched). Its `path` is the node's **current** absolute
+  location, not the leaf stored in the requested slot — restoring a version restores content, never location.
 - **Throws**: `DriveError` (not initialized); `SignerError`; `FileRecordError` (file feed not found).
 
 ### `restoreFileVersion(versionToRestore, requestOptions?): Promise<void>`
@@ -260,54 +291,66 @@ Restores a previous version as the new head of the file's feed. Per-file only �
 folder/drive-level restore.
 
 - **Emits**: `FILE_VERSION_RESTORED`.
-- **Throws**: `DriveError` (not initialized); `SignerError`; `FileRecordError` (feed not found, restore version
-  undefined, or it is already the current head).
+- **Throws**: `DriveError` (not initialized, or no fork at the file's current path); `SignerError`; `FileRecordError`
+  (feed not found, restore version undefined, it is already the current head, or the fork at that path belongs to a
+  different node).
 
 ---
 
 ## Trash
 
-Soft-delete is an **owner-private overlay** on the drive's admin metadata (`trashedNodes`), keyed by node topic. It
-never touches a node's own feed, content, or subtree, and is not visible to anyone but the owner. Status is derived from
-the overlay, not persisted onto records.
+Trash is a **reserved `.trash` folder** at the drive root, not a metadata overlay. Trashing relocates a node's fork into
+it — keyed by the node's own topic, so same-named nodes never collide — and stamps the path it came from onto the moved
+fork. The node's feed, version and content are untouched, and a folder's subtree rides along unread, so any trash or
+recover is two manifest writes regardless of depth.
 
-### `trashFile(record, requestOptions?): Promise<void>`
+Trashed nodes leave the active namespace completely: `listFolder` omits `.trash` from the drive root and refuses to
+descend into it, `downloadFolder` skips trashed files, and `updateFile` / `uploadFile` / `createFolder` / `move` refuse
+any path under `.trash`. The folder is created lazily on the first trash, so a drive that never trashes anything carries
+no trash node at all.
 
-Soft-deletes a file: records it in the trash overlay so it is hidden from the active list. Metadata-only.
+### `trash(driveId, path, requestOptions?): Promise<void>`
 
-- **Emits**: `FILE_TRASHED`.
-- **Throws**: `DriveError` (not initialized or drive not found); `SignerError`; `FileRecordError` (already trashed).
+Soft-deletes the file or folder at `path`. Bare and path-addressed — it dispatches on the resolved node type.
 
-### `recoverFile(record, requestOptions?): Promise<void>`
+- **Emits**: `FILE_TRASHED` or `FOLDER_TRASHED`, with `{ driveId, path, trashedPath }` (plus `record` for a file).
+- **Throws**: `DriveError` (not initialized, drive not found, or a folder along the path missing); `FolderError` (path
+  is the drive root, already under `.trash`, or the node itself not found); `SignerError`; `FileRecordError` (fork
+  missing node metadata).
 
-Recovers a trashed file back into the active list (removes it from the overlay).
+### `recover(driveId, trashedPath, toPath?, requestOptions?): Promise<string>`
 
-- **Emits**: `FILE_RECOVERED`.
-- **Throws**: `DriveError`; `SignerError`; `FileRecordError` (not currently trashed).
+Restores a trashed node to `toPath`, or to the location stamped on it when `toPath` is omitted. Restores **location
+only** — content and version are whatever they were.
 
-### `trashFolder(folder, requestOptions?): Promise<void>`
+The stamped origin can go stale: if that folder has since been forgotten, moved or trashed, resolution fails and the
+caller passes an explicit `toPath`. An occupied destination is refused, never overwritten.
 
-Soft-deletes a folder by recording **only the folder's own topic** — no propagation. The subtree is untouched and costs
-a single overlay entry regardless of depth. `listFolder` hides the folder and stops descending; contents reappear on
-recover.
+- **Returns**: the path the node was restored to.
+- **Emits**: `FILE_RECOVERED` or `FOLDER_RECOVERED`.
+- **Throws**: `DriveError` (destination occupied, or the destination's parent no longer exists); `FolderError`
+  (destination under `.trash`); `SignerError`; `FileRecordError` (`trashedPath` is not `.trash/<topic>`, invalid
+  destination path, not in the trash, or no stamped origin and no `toPath`).
 
-- **Emits**: `FOLDER_TRASHED`.
-- **Throws**: `DriveError`; `SignerError`; `FileRecordError` (already trashed).
+### `listTrash(driveId, depth?, maxDepth?, requestOptions?): Promise<NodeEntry[]>`
 
-### `recoverFolder(folder, requestOptions?): Promise<void>`
+Walks `.trash` with the same machinery as `listFolder`, so `depth` controls the cost: `Shallow` (default) returns the
+trashed roots only, `Deep` descends into trashed folders. Returns `[]` for a drive with no trash node.
 
-Recovers a trashed folder (removes its topic from the overlay); its never-modified subtree becomes visible again.
+Entries carry `status = trashed`, `path` = their real location under `.trash`, and `trashedFrom` = where they came from.
 
-- **Emits**: `FOLDER_RECOVERED`.
-- **Throws**: `DriveError`; `SignerError`; `FileRecordError` (not currently trashed).
+- **maxDepth?** — max BFS levels when `Deep`; must be positive, unlimited if omitted.
+- **Returns**: the trashed nodes; pass a `path` back to `recover`.
+- **Throws**: `DriveError` (not initialized or drive not found); `FolderError` (`maxDepth` is not positive);
+  `SignerError`.
 
-### `listTrash(driveId, requestOptions?): Promise<NodeEntry[]>`
+### `emptyTrash(driveId, requestOptions?): Promise<number>`
 
-Lists a drive's trashed nodes (files and folders), hydrated into full `NodeEntry` objects with `status = trashed`. Reads
-straight from the overlay with no tree walk, so cost is proportional to the number of trashed roots, not drive size.
-Recovery is honored per topic, so visibility also requires ancestors to be recovered.
+De-references every trashed node in one manifest write. Like `forget`, the content stays on Swarm until its stamp
+expires — this drops references, it does not delete data.
 
-- **Returns**: the trashed files and folders; pass one back to `recoverFile` / `recoverFolder`.
+- **Returns**: how many nodes were de-referenced.
+- **Emits**: `TRASH_EMPTIED`.
 - **Throws**: `DriveError` (not initialized or drive not found); `SignerError`.
 
 ---
@@ -330,25 +373,36 @@ Both list getters are `readonly` — treat them as snapshots and mutate state on
 
 Emitted on the provided `EventEmitter` as `FileManagerEvents`:
 
-| Event                   | Fired by                                           |
-| ----------------------- | -------------------------------------------------- |
-| `INITIALIZED`           | `initialize` (success)                             |
-| `STATE_INVALID`         | `initialize` (unparseable state)                   |
-| `DRIVE_CREATED`         | `createAdminDrive`, `createDrive`                  |
-| `DRIVE_FORGOTTEN`       | `forgetDrive`                                      |
-| `FILE_UPLOADED`         | `uploadFile`, `uploadFiles` (per file)             |
-| `FILES_UPLOADED`        | `uploadFiles` (once, batch summary)                |
-| `FILE_UPDATED`          | `updateFile`                                       |
-| `FILE_DOWNLOADED`       | download path                                      |
-| `FILE_MOVED`            | `move`                                             |
-| `FILE_TRASHED`          | `trashFile`                                        |
-| `FILE_RECOVERED`        | `recoverFile`                                      |
-| `FILE_FORGOTTEN`        | `forget` (file)                                    |
-| `FILE_VERSION_RESTORED` | `restoreFileVersion`                               |
-| `FOLDER_CREATED`        | `createFolder`, `uploadFiles` (per folder created) |
-| `FOLDER_TRASHED`        | `trashFolder`                                      |
-| `FOLDER_RECOVERED`      | `recoverFolder`                                    |
-| `FOLDER_FORGOTTEN`      | `forget` (folder)                                  |
+| Event                   | Fired by                                           | Payload                                              |
+| ----------------------- | -------------------------------------------------- | ---------------------------------------------------- |
+| `INITIALIZED`           | `initialize` (success or failure)                  | `boolean`                                            |
+| `STATE_INVALID`         | `initialize` (unparseable state)                   | `boolean`                                            |
+| `DRIVE_CREATED`         | `createAdminDrive`, `createDrive`                  | `{ driveInfo }`                                      |
+| `DRIVE_FORGOTTEN`       | `forgetDrive`                                      | `{ driveInfo }`                                      |
+| `FILE_UPLOADED`         | `uploadFile`, `uploadFiles` (per file)             | `{ record }`                                         |
+| `FILES_UPLOADED`        | `uploadFiles` (once, batch summary)                | `{ succeeded, failed }`                              |
+| `FILE_UPDATED`          | `updateFile`                                       | `{ record }`                                         |
+| `FILE_VERSION_RESTORED` | `restoreFileVersion`                               | `{ restored }`                                       |
+| `FILE_MOVED`            | `move` (file)                                      | `{ driveId, fromPath, toPath, record }`              |
+| `FOLDER_MOVED`          | `move` (folder)                                    | `{ driveId, fromPath, toPath, folderInfo }`          |
+| `FILE_TRASHED`          | `trash` (file)                                     | `{ driveId, path, trashedPath, record }`             |
+| `FOLDER_TRASHED`        | `trash` (folder)                                   | `{ driveId, path, trashedPath, folderInfo }`         |
+| `FILE_RECOVERED`        | `recover` (file)                                   | `{ driveId, trashedPath, restoredPath, record }`     |
+| `FOLDER_RECOVERED`      | `recover` (folder)                                 | `{ driveId, trashedPath, restoredPath, folderInfo }` |
+| `FILE_FORGOTTEN`        | `forget` (file)                                    | `{ driveId, path, record }`                          |
+| `FOLDER_FORGOTTEN`      | `forget` (folder)                                  | `{ driveId, path, folderInfo }`                      |
+| `FOLDER_CREATED`        | `createFolder`, `uploadFiles` (per folder created) | `{ folderInfo }`                                     |
+| `TRASH_EMPTIED`         | `emptyTrash`                                       | `{ driveId, count }`                                 |
+
+`move` / `trash` / `recover` / `forget` are path-addressed and dispatch on node type, so each emits a file **or** folder
+event whose payloads are the same shape: the drive id, the operation's paths, and the node itself — a
+[`FileRecord`](#filerecord) as `record` or a [`FolderInfo`](#folderinfo) as `folderInfo`. `record` is `undefined` when
+the file was never hydrated into `recordList`; `folderInfo` is composed from the fork's metadata, so it carries no
+`manifestRef`.
+
+Every event fires only after the Swarm writes behind it have landed, so a received event always describes committed
+state, never an operation still in flight — a failed operation rejects and emits nothing. Consequently events are not a
+progress feed; for batch progress use the `succeeded` / `failed` result.
 
 ---
 
@@ -408,7 +462,7 @@ interface FileRecord extends NodeResource {
 
 ### `DriveInfo`
 
-A drive = a mantaray host with an id, name, and the owner-private trash overlay.
+A drive = a mantaray host with an id and a name.
 
 ```ts
 interface DriveInfo extends ManifestHost {
@@ -416,7 +470,6 @@ interface DriveInfo extends ManifestHost {
   id: string;
   name: string;
   isAdmin: boolean;
-  trashedNodes?: TrashEntry[];
 }
 ```
 
@@ -429,6 +482,7 @@ interface FolderInfo extends ManifestHost {
   type: NodeType.Folder;
   path: string;
   driveId: string;
+  trashedFrom?: string;
 }
 ```
 
@@ -448,17 +502,6 @@ interface ManifestHost extends NodeResource {
 
 ```ts
 type NodeEntry = FileRecord | FolderInfo; // discriminate on `.type`
-```
-
-### `TrashEntry`
-
-```ts
-interface TrashEntry {
-  topic: string;
-  type: NodeType;
-  path: string;
-  version?: string;
-}
 ```
 
 ### `UploadItem`
@@ -544,7 +587,7 @@ Each manifest fork carries a metadata map that mirrors inode metadata. Keys are 
 | `MANIFEST_METADATA_DRIVE_IS_ADMIN`      | `swarm-drive-is-admin`      | drive | Admin-drive flag                          |
 | `MANIFEST_METADATA_DRIVE_BATCH_ID`      | `swarm-drive-batch-id`      | drive | Backing postage batch                     |
 | `MANIFEST_METADATA_DRIVE_ACT_PUBLISHER` | `swarm-drive-act-publisher` | drive | Drive-level ACT publisher                 |
-| `MANIFEST_METADATA_DRIVE_TRASHED_NODES` | `swarm-drive-trashed-nodes` | drive | Serialised owner-private trash overlay    |
+| `MANIFEST_METADATA_TRASHED_FROM`        | `swarm-trashed-from`        | trash | Path the node was trashed from            |
 
 ---
 
@@ -553,15 +596,15 @@ Each manifest fork carries a metadata map that mirrors inode metadata. Keys are 
 All errors extend `FileManagerError` (which sets an explicit `.name` and supports an ES2022 `cause`), so consumers can
 catch broadly (`instanceof FileManagerError`) or branch on `error.name`.
 
-| Error             | Meaning                                                                  |
-| ----------------- | ------------------------------------------------------------------------ |
-| `DriveError`      | Drive creation, lookup, or destruction problems (incl. not-initialized). |
-| `FolderError`     | Folder-operation failures.                                               |
-| `FileError`       | Content/IO failures — reading, uploading, or downloading file bytes.     |
-| `FileRecordError` | Record / feed / metadata failures (missing feed, invalid version, etc.). |
-| `StampError`      | Postage stamp missing or not usable.                                     |
-| `SignerError`     | Signer / publisher unavailable.                                          |
-| `BeeVersionError` | Connected Bee node version is unsupported.                               |
+| Error             | Meaning                                                                         |
+| ----------------- | ------------------------------------------------------------------------------- |
+| `DriveError`      | Drive creation, lookup, or destruction problems (incl. not-initialized).        |
+| `FolderError`     | Folder-operation failures — invalid names/paths, collisions, reserved `.trash`. |
+| `FileError`       | Content/IO failures — reading, uploading, or downloading file bytes.            |
+| `FileRecordError` | Record / feed / metadata failures (missing feed, invalid version, etc.).        |
+| `StampError`      | Postage stamp missing or not usable.                                            |
+| `SignerError`     | Signer / publisher unavailable.                                                 |
+| `BeeVersionError` | Connected Bee node version is unsupported.                                      |
 
 ---
 

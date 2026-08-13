@@ -13,7 +13,7 @@ import {
 
 import { type FileManagerBase } from '@/fileManager';
 import { type DriveInfo } from '@/types';
-import { ADMIN_STAMP_LABEL } from '@/utils/constants';
+import { ADMIN_DRIVE_NAME } from '@/utils/constants';
 import { generateRandomBytes } from '@/utils/crypto';
 
 interface BeeWithStampAndSigner {
@@ -32,7 +32,7 @@ export async function ensureUniqueSignerWithStamp(isNewSigner: boolean = true): 
 
   if (!globalAdminStamp) {
     try {
-      globalAdminStamp = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, ADMIN_STAMP_LABEL);
+      globalAdminStamp = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, ADMIN_DRIVE_NAME);
     } catch (error: any) {
       console.error('Failed to create/find owner stamp:', error);
       throw error;

@@ -21,7 +21,8 @@ import { type UpdateItem, type UploadFilesResult, type UploadItem } from './uplo
  */
 export interface FileManager {
   /**
-   * Initializes the file manager.
+   * Initializes the file manager. Never rejects: failures are reported as `INITIALIZED false`, and
+   * all partial state is rolled back so the call can simply be retried.
    * @emits FileManagerEvents.INITIALIZED
    * @emits FileManagerEvents.STATE_INVALID
    * @returns A promise that resolves when the initialization is complete.
@@ -83,10 +84,13 @@ export interface FileManager {
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FILE_UPLOADED
    * @returns The newly-created FileRecord.
-   * @throws {DriveError} If not initialized, driveId is not found, or the target folder path does not exist.
+   * @throws {DriveError} If not initialized, driveId is not found, the target folder path does not
+   *   exist, or a node already occupies `item.path` (fork keys are names, so names are unique
+   *   within a folder — re-version with {@link updateFile} or relocate with {@link move}).
    * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileError} If the source is a directory, a node source path does not exist, or the content upload fails.
-   * @throws {FileRecordError} If a folder along the path has no feed.
+   * @throws {FileRecordError} If `item.path` is invalid or a folder along the path has no feed.
+   * @throws {FolderError} If the path is under the reserved `.trash` folder.
    */
   uploadFile(
     driveId: string | Identifier,
@@ -103,17 +107,22 @@ export interface FileManager {
    * are collected rather than aborting the whole batch.
    * @param driveId - The ID of the drive to upload into.
    * @param items - The files to upload, each with a path relative to destinationPath.
-   * @param destinationPath - Absolute path of the destination folder, or '/' for the drive root.
+   * Aborting rejects as soon as the signal is seen and no manifest is saved.
+   * @param destinationPath - Absolute path of the destination folder; defaults to the drive root.
    * @param uploadOptions - File-related upload options.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FOLDER_CREATED (per folder created)
    * @emits FileManagerEvents.FILE_UPLOADED (per file uploaded)
    * @emits FileManagerEvents.FILES_UPLOADED (once, with the batch summary)
    * @returns The succeeded FileRecords and any per-file failures.
-   * @throws {FileRecordError} If no items are given, an item path is invalid, or a folder fork is malformed.
-   * @throws {DriveError} If not initialized, driveId is not found, or a path segment is a file (not a folder).
+   * @throws {FileRecordError} If no items are given, an item path is invalid, two items resolve to
+   *   the same destination path, or a folder fork is malformed.
+   * @throws {DriveError} If not initialized, driveId is not found, or a path segment is a file (not
+   *   a folder).
+   * @throws {FolderError} If a destination is under the reserved `.trash` folder.
    * @throws {SignerError} If the publisher/signer is unavailable.
-   *   Note: per-file content-upload failures are collected in `failed`, not thrown.
+   *   Note: per-file content-upload failures are collected in `failed`, not thrown — as is an item
+   *   whose destination name is already taken in the drive. An aborted signal rejects instead.
    */
   uploadFiles(
     driveId: string | Identifier,
@@ -135,8 +144,10 @@ export interface FileManager {
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FILE_UPDATED
    * @returns The newly-written FileRecord for the updated version.
-   * @throws {FileRecordError} If neither new content (`item`) nor `customMetadata` is provided.
+   * @throws {FileRecordError} If neither new content (`item`) nor `customMetadata` is provided, the
+   *   file is trashed, or the fork at the record's path belongs to a different node.
    * @throws {DriveError} If not initialized or driveId is not found.
+   * @throws {FolderError} If no fork exists at the record's path.
    * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileError} If the content upload fails.
    */
@@ -150,12 +161,14 @@ export interface FileManager {
 
   /**
    * Downloads every file in a folder subtree of a drive (resolved fresh via  {@link listFolder}).
+   * Trashed files are skipped.
    * @param driveId - The ID of drive to download from.
-   * @param path - Absolute path of the folder; omitted = the whole drive.
+   * @param path - Absolute path of the folder; defaults to the drive root.
    * @param options - Optional download options.
    * @param requestOptions - Additional Bee request options.
    * @returns A promise that resolves to DownloadFilesResult, marking per file success and failure in the subtree.
    * @throws {DriveError} If not initialized, driveId is not found, or the folder path does not exist.
+   * @throws {FolderError} If the path is the reserved `.trash` folder.
    * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileRecordError} If a folder feed is missing.
    *   Note: per-file download failures are logged, not thrown.
@@ -204,13 +217,16 @@ export interface FileManager {
   /**
    * Lists entries in a folder (or drive root) in the drive manifest.
    * Also populates the recordList cache for any file entries encountered.
+   * Trashed nodes are not returned: the reserved `.trash` folder is omitted from the drive root and
+   * cannot be listed through this method — use {@link listTrash}.
    * @param driveId - The ID of the drive containing the folder.
    * @param path - Absolute path of the folder, or '/' for the drive root.
    * @param depth - Shallow (one level) or Deep (full BFS). Defaults to Shallow.
-   * @param maxDepth - Maximum BFS levels when depth is Deep; unlimited if omitted.
+   * @param maxDepth - Maximum BFS levels when depth is Deep; must be positive, unlimited if omitted.
    * @param requestOptions - Additional Bee request options.
    * @returns Array of {@link NodeEntry} (FileRecord | FolderInfo) for every node found at or below the given path.
    * @throws {DriveError} If not initialized, driveId is not found, or a path segment does not exist.
+   * @throws {FolderError} If the path is the reserved `.trash` folder, or `maxDepth` is not positive.
    * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileRecordError} If a folder feed is missing.
    */
@@ -223,61 +239,76 @@ export interface FileManager {
   ): Promise<NodeEntry[]>;
 
   /**
-   * Soft-delete: record a file in the drive's owner-private trash overlay so it is hidden from the
-   * active list. This is metadata-only — it does not touch the file's own feed or content. Recover with {@link recoverFile}.
-   * @param record - The file record describing the file to trash.
-   * @emits FileManagerEvents.FILE_TRASHED
-   * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
+   * Soft-delete a file or folder: relocates its fork into the drive's reserved `.trash` folder.
+   *
+   * @param driveId - The drive containing the node.
+   * @param path - Absolute path of the file or folder to trash.
+   * @emits FileManagerEvents.FILE_TRASHED or FileManagerEvents.FOLDER_TRASHED
+   * @throws {DriveError} If not initialized, the drive is not found, or a folder along the path does
+   *   not exist.
+   * @throws {FolderError} If the path is the drive root, is already under `.trash`, or the node
+   *   itself does not exist.
    * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {FileRecordError} If the file is already trashed.
+   * @throws {FileRecordError} If the fork carries no node metadata.
    */
-  trashFile(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<void>;
+  trash(driveId: string | Identifier, path: string, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
-   * Recover a previously trashed file back into the active list (removes it from the trash overlay).
-   * @param record - The file record describing the file to recover.
-   * @emits FileManagerEvents.FILE_RECOVERED
-   * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
+   * Restore a trashed node to `toPath`, or back to the location it was trashed from when `toPath` is
+   * omitted. Restores location only — the node's content and version are whatever they were.
+   *
+   * The recorded origin can go stale: if that folder has since been forgotten, moved or trashed,
+   * resolution fails and the caller must pass an explicit `toPath`. An occupied destination is
+   * refused rather than overwritten.
+   * @param driveId - The drive containing the trashed node.
+   * @param trashedPath - The node's trashed path (`.trash/<topic>`), as returned by {@link listTrash}.
+   * @param toPath - Optional destination; defaults to the stamped origin path.
+   * @returns The path the node was restored to.
+   * @emits FileManagerEvents.FILE_RECOVERED or FileManagerEvents.FOLDER_RECOVERED
+   * @throws {DriveError} If not initialized, the drive is not found, the destination is already
+   *   occupied, or the destination's parent folder no longer exists.
+   * @throws {FolderError} If the destination is under `.trash`.
    * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {FileRecordError} If the file is not currently trashed.
+   * @throws {FileRecordError} If `trashedPath` is not a `.trash/<topic>` path, the destination path
+   *   is invalid, the node is not in the trash, or it has no recorded origin and no `toPath` was given.
    */
-  recoverFile(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<void>;
+  recover(
+    driveId: string | Identifier,
+    trashedPath: string,
+    toPath?: string,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<string>;
 
   /**
-   * Soft-delete a folder: record only the folder's own topic in the drive's owner-private trash
-   * overlay. NO propagation — the subtree is untouched and costs a single overlay entry regardless
-   * of depth. The active {@link listFolder} hides the folder and stops descending into it; its
-   * contents reappear on {@link recoverFolder}.
-   * @param folder - The folder to trash (e.g. from {@link listFolder}).
-   * @emits FileManagerEvents.FOLDER_TRASHED
-   * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
-   * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {FileRecordError} If the folder is already trashed.
-   */
-  trashFolder(folder: FolderInfo, requestOptions?: BeeRequestOptions): Promise<void>;
-
-  /**
-   * Recover a previously trashed folder (removes its topic from the trash overlay). Its subtree,
-   * which was never modified, becomes visible again.
-   * @param folder - The folder to recover (e.g. from {@link listTrash}).
-   * @emits FileManagerEvents.FOLDER_RECOVERED
-   * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
-   * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {FileRecordError} If the folder is not currently trashed.
-   */
-  recoverFolder(folder: FolderInfo, requestOptions?: BeeRequestOptions): Promise<void>;
-
-  /**
-   * List a drive's trashed nodes (files and folders), hydrated into full {@link NodeEntry} objects
-   * with `status` = trashed. Reads straight from the owner-private overlay with no tree walk, so the
-   * cost is proportional to the number of trashed roots, not the drive size.
-   * Recovery is honored per topic so visibility also requires ancestors to be recovered.
+   * List a drive's trash. Walks the reserved `.trash` folder with the same machinery as
+   * {@link listFolder}, so `depth` controls the cost: Shallow returns the trashed roots only, Deep
+   * descends into trashed folders. Returns `[]` for a drive that has never had anything trashed.
+   *
    * @param driveId - The drive whose trash to list.
-   * @returns The trashed files and folders; pass one back to {@link recoverFile}/{@link recoverFolder}.
+   * @param depth - Shallow (trashed roots only) or Deep (full BFS). Defaults to Shallow.
+   * @param maxDepth - Maximum BFS levels when depth is Deep; must be positive, unlimited if omitted.
+   * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
+   * @throws {FolderError} If `maxDepth` is not positive.
+   * @throws {SignerError} If the publisher/signer is unavailable.
+   */
+  listTrash(
+    driveId: string | Identifier,
+    depth?: ListDepth,
+    maxDepth?: number,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<NodeEntry[]>;
+
+  /**
+   * De-reference every node in a drive's trash in one manifest write. Like {@link forget}, the
+   * content stays on Swarm until its stamp expires — this drops the references, it does not delete
+   * the data.
+   * @param driveId - The drive whose trash to empty.
+   * @returns The number of trashed nodes that were de-referenced.
+   * @emits FileManagerEvents.TRASH_EMPTIED
    * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
    * @throws {SignerError} If the publisher/signer is unavailable.
    */
-  listTrash(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<NodeEntry[]>;
+  emptyTrash(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<number>;
 
   /**
    * Hard-delete a file or folder at the given path from the drive manifest and in-memory state.
@@ -286,9 +317,12 @@ export interface FileManager {
    * @param path - Absolute path of the file or folder to remove.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FILE_FORGOTTEN (file) or FileManagerEvents.FOLDER_FORGOTTEN (folder)
-   * @throws {DriveError} If not initialized, driveId is not found, the path is the drive root, or the path does not exist.
+   * @throws {DriveError} If not initialized, driveId is not found, or a folder along the path does
+   *   not exist.
+   * @throws {FolderError} If the path is the drive root, or the reserved `.trash` folder — emptying
+   *   the trash goes through {@link emptyTrash}.
    * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {FileRecordError} If a folder feed is missing.
+   * @throws {FileRecordError} If the path does not exist or a folder feed is missing.
    */
   forget(driveId: string | Identifier, path: string, requestOptions?: BeeRequestOptions): Promise<void>;
 
@@ -306,8 +340,8 @@ export interface FileManager {
   /**
    * Returns a specific version of a file.
    *
-   * @param record - The base FileRecord containing topic and owner fields.
-   * @param version - Optional desired version slot as a FeedIndex or hex/string. If omitted, fetches latest.
+   * @param record - The base FileRecord containing topic, owner and the node's current path.
+   * @param version - Optional desired version slot as a FeedIndex or its 16-hex-character string. If omitted, fetches latest.
    * @returns The FileRecord corresponding to the requested version, either cached or fetched.
    * @throws {DriveError} If the FileManager is not initialized.
    * @throws {SignerError} If the publisher/signer is unavailable.
@@ -326,22 +360,28 @@ export interface FileManager {
    * @param requestOptions - Optional BeeRequestOptions for upload operations.
    * @emits FileManagerEvents.FILE_VERSION_RESTORED
    * @throws {DriveError} If the FileManager is not initialized.
+   * @throws {FolderError} If the file's fork cannot be found at its current path.
    * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {FileRecordError} If the feed is not found, the restore version is undefined, or it is the current head.
+   * @throws {FileRecordError} If the feed is not found, the restore version is undefined, it is the
+   *   current head, or the fork at the resolved path belongs to a different node.
    */
   restoreFileVersion(versionToRestore: FileRecord, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
-   * Moves a file or folder within a drive from one path to another.
+   * Moves a file or folder within a drive from one path to another. There is no cross-drive move: a
+   * relocated node keeps its drive's stamp, so both paths resolve against `sourceDriveId` and a path
+   * from another drive is simply not found — {@link forget} it and re-upload to the other drive.
    *
    * @param fromPath - Absolute path of the entry within the drive manifest.
    * @param toPath - Destination path within the drive manifest.
-   * @param sourceDriveId - The ID of the drive containing the source path.
-   * @param targetDriveId - Optional target ID drive for cross-drive moves; defaults to sourceDriveInfo.
+   * @param sourceDriveId - The ID of the drive containing both paths.
    * @param requestOptions - Optional BeeRequestOptions for upload operations.
-   * @emits FileManagerEvents.FILE_MOVED
-   * @throws {DriveError} If not initialized, a source/target driveId is not found, the source is the
-   *   root, the destination is invalid, source and destination are identical, or a path does not exist.
+   * @emits FileManagerEvents.FILE_MOVED (file) or FileManagerEvents.FOLDER_MOVED (folder)
+   * @throws {DriveError} If not initialized, the driveId is not found, or a folder along either path
+   *   does not exist.
+   * @throws {FolderError} If the source is the root, the destination is invalid, source and
+   *   destination are identical, the source does not exist, the destination is already occupied, or
+   *   either path is under the reserved `.trash` folder — trashing goes through {@link trash}.
    * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileRecordError} If a folder feed or the source file record is missing.
    */
@@ -349,7 +389,6 @@ export interface FileManager {
     fromPath: string,
     toPath: string,
     sourceDriveId: string | Identifier,
-    targetDriveId?: string | Identifier,
     requestOptions?: BeeRequestOptions,
   ): Promise<void>;
 
@@ -362,7 +401,9 @@ export interface FileManager {
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FOLDER_CREATED
    * @returns The FolderInfo for the newly created folder.
-   * @throws {DriveError} If not initialized, driveId is not found, the folder name is invalid, or the parent path does not exist.
+   * @throws {DriveError} If not initialized, driveId is not found, or the parent path does not exist.
+   * @throws {FolderError} If the folder name is invalid or reserved (`.trash`), or a node already
+   *   occupies that name.
    * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileRecordError} If a folder feed is missing.
    */

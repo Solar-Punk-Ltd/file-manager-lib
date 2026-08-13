@@ -1,4 +1,4 @@
-import { type Bee, FeedIndex } from '@ethersphere/bee-js';
+import { type BatchId, type Bee, FeedIndex } from '@ethersphere/bee-js';
 import path from 'path';
 
 import {
@@ -18,12 +18,16 @@ import { FileManagerEvents } from '@/utils';
 import { FEED_INDEX_ZERO, ROOT_PATH } from '@/utils/constants';
 
 describe('uploadFile', () => {
+  let bee: Bee;
   let fileManager: FileManagerBase;
   let drive: DriveInfo;
+  let ownerStamp: BatchId;
   const { writeTempFile, writeTempDir, cleanup } = tempFileRegistry();
 
   beforeAll(async () => {
-    ({ fileManager, drive } = await setupUserDrive('upload', { stampLabel: 'uploadIntegrationStamp' }));
+    ({ bee, fileManager, drive, ownerStamp } = await setupUserDrive('upload', {
+      stampLabel: 'uploadIntegrationStamp',
+    }));
   });
 
   afterAll(cleanup);
@@ -35,6 +39,47 @@ describe('uploadFile', () => {
     const record = fileManager.recordList.find((fr) => fr.path === name);
     expect(record).toBeDefined();
     expect(record!.version).toEqual(FEED_INDEX_ZERO.toString());
+  });
+
+  it('rejects an upload onto an occupied name, and a fresh instance still reads the original bytes', async () => {
+    const name = 'it-upload-conflict.txt';
+    const src = writeTempFile(name, 'Original Content');
+    await fileManager.uploadFile(drive.id, { path: name, sourcePath: src });
+    const original = fileManager.recordList.find((fr) => fr.path === name)!;
+
+    const replacement = writeTempFile('it-upload-conflict-other.txt', 'Replacement Content');
+    await expect(fileManager.uploadFile(drive.id, { path: name, sourcePath: replacement })).rejects.toThrow(
+      /already exists/i,
+    );
+
+    const fm2 = await retryOnPropagationDelay(async () => {
+      const fresh = await createInitializedFileManager(bee, ownerStamp);
+      const entries = await fresh.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow);
+      if (!entries.some((e) => e.path === name)) {
+        throw new Error('upload not yet propagated to a fresh instance');
+      }
+      return fresh;
+    });
+
+    const seen = fm2.recordList.find((fr) => fr.path === name)!;
+    expect(seen.topic.toString()).toBe(original.topic.toString());
+
+    const downloaded = await fm2.downloadFile(seen);
+    expect(Buffer.from(await streamToUint8Array(downloaded.result)).toString('utf-8')).toBe('Original Content');
+  });
+
+  it('rejects a path with an empty leaf before uploading any content', async () => {
+    const src = writeTempFile('it-upload-badpath.txt', 'Should not be uploaded');
+
+    await expect(fileManager.uploadFile(drive.id, { path: '', sourcePath: src })).rejects.toThrow(/Invalid path/);
+    await expect(fileManager.uploadFile(drive.id, { path: 'nested/', sourcePath: src })).rejects.toThrow(
+      /Invalid path/,
+    );
+    await expect(fileManager.uploadFile(drive.id, { path: '../escape.txt', sourcePath: src })).rejects.toThrow(
+      /Invalid path/,
+    );
+
+    expect(fileManager.recordList.some((fr) => fr.path.includes('escape'))).toBe(false);
   });
 
   it('throws when uploading a directory — directories must go through uploadFiles', async () => {
@@ -222,6 +267,72 @@ describe('uploadFiles', () => {
     ).rejects.toThrow(/Invalid path/);
 
     await expect(fileManager.uploadFiles(drive.id, [], '')).rejects.toThrow(/at least one entry/i);
+  });
+
+  it('defaults destinationPath to the drive root when omitted', async () => {
+    const src = writeTempFile('it-uploadmany-default-dest.txt', 'Default destination content');
+
+    const result = await fileManager.uploadFiles(drive.id, [{ path: 'defaultdest/x.txt', sourcePath: src }]);
+
+    expect(result.failed).toHaveLength(0);
+    expect(result.succeeded.map((r) => r.path)).toEqual(['defaultdest/x.txt']);
+
+    const downloads = await retryOnPropagationDelay(() => fileManager.downloadFolder(drive.id, 'defaultdest'));
+    const got = downloads.succeeded.find((d) => d.path === 'defaultdest/x.txt');
+    expect(got).toBeDefined();
+    expect(Buffer.from(await streamToUint8Array(got!.result)).toString('utf-8')).toBe('Default destination content');
+  });
+
+  it('rejects a batch containing two entries that resolve to the same destination', async () => {
+    const srcFile = writeTempFile('it-uploadmany-dup-src.txt', 'dup batch content');
+
+    await expect(
+      fileManager.uploadFiles(
+        drive.id,
+        [
+          { path: 'dupbatch/same.txt', sourcePath: srcFile },
+          { path: 'dupbatch/same.txt', sourcePath: srcFile },
+        ],
+        '',
+      ),
+    ).rejects.toThrow(/Duplicate destination path in batch/);
+
+    // Rejected during planning, so nothing was created.
+    expect(fileManager.recordList.some((fr) => fr.path.startsWith('dupbatch/'))).toBe(false);
+  });
+
+  it('reports an occupied destination name in `failed` while the rest of the batch succeeds', async () => {
+    const srcFile = writeTempFile('it-uploadmany-taken-src.txt', 'Taken Content');
+    const seed = await fileManager.uploadFiles(drive.id, [{ path: 'occupied/taken.txt', sourcePath: srcFile }], '');
+    expect(seed.failed).toHaveLength(0);
+    const original = fileManager.recordList.find((fr) => fr.path === 'occupied/taken.txt')!;
+
+    const other = writeTempFile('it-uploadmany-taken-other.txt', 'Other Content');
+    const result = await fileManager.uploadFiles(
+      drive.id,
+      [
+        { path: 'occupied/taken.txt', sourcePath: other },
+        { path: 'occupied/fresh.txt', sourcePath: other },
+      ],
+      '',
+    );
+
+    expect(result.failed).toHaveLength(1);
+    expect(result.failed[0].path).toBe('occupied/taken.txt');
+    expect(result.failed[0].error).toMatch(/already exists/i);
+    expect(result.succeeded.map((r) => r.path)).toEqual(['occupied/fresh.txt']);
+
+    // The occupied name still resolves to the first upload, and its bytes are unchanged.
+    const entries = await retryOnPropagationDelay(() =>
+      fileManager.listFolder(drive.id, 'occupied', ListDepth.Shallow),
+    );
+    const seen = entries.find((e) => e.path === 'occupied/taken.txt');
+    expect(seen).toBeDefined();
+    expect(seen!.topic.toString()).toBe(original.topic.toString());
+
+    const downloads = await retryOnPropagationDelay(() => fileManager.downloadFolder(drive.id, 'occupied'));
+    const taken = downloads.succeeded.find((d) => d.path === 'occupied/taken.txt');
+    expect(Buffer.from(await streamToUint8Array(taken!.result)).toString('utf-8')).toBe('Taken Content');
   });
 
   it('uploads a nested folder with files and fetches them back', async () => {
@@ -432,25 +543,18 @@ describe('move', () => {
   let bee: Bee;
   let fileManager: FileManagerBase;
   let driveA: DriveInfo;
-  let driveB: DriveInfo;
   const { writeTempFile, writeTempDir, cleanup } = tempFileRegistry();
 
   beforeAll(async () => {
     const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
     bee = beeDev;
     const batchIdA = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'moveIntegrationA');
-    const batchIdB = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'moveIntegrationB');
     fileManager = await createInitializedFileManager(bee, ownerStamp);
 
     await fileManager.createDrive(batchIdA, 'move-a');
     const tmpDriveA = fileManager.driveList.find((d) => d.name === 'move-a');
     expect(tmpDriveA).toBeDefined();
     driveA = tmpDriveA!;
-
-    await fileManager.createDrive(batchIdB, 'move-b');
-    const tmpDriveB = fileManager.driveList.find((d) => d.name === 'move-b');
-    expect(tmpDriveB).toBeDefined();
-    driveB = tmpDriveB!;
   });
 
   afterAll(cleanup);
@@ -530,29 +634,6 @@ describe('move', () => {
     expect(downloaded).toBeDefined();
     expect(downloadResults.failed).toEqual([]);
     expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Inbox Note');
-  });
-
-  it('moves a file across drives, updating driveId and remaining downloadable from the target', async () => {
-    const xFile = 'it-move-x.txt';
-    const src = writeTempFile(xFile, 'Cross Drive Content');
-    await fileManager.uploadFile(driveA.id, { path: xFile, sourcePath: src });
-
-    await fileManager.move(xFile, xFile, driveA.id, driveB.id);
-
-    const driveAEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA.id, '', ListDepth.Shallow));
-    expect(driveAEntries.some((e) => e.path === xFile)).toBe(false);
-
-    const driveBEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveB.id, '', ListDepth.Shallow));
-    expect(driveBEntries.some((e) => e.type === NodeType.File && e.path === xFile)).toBe(true);
-
-    const moved = fileManager.recordList.find((fr) => fr.path === xFile && fr.driveId === driveB.id.toString());
-    expect(moved).toBeDefined();
-
-    const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveB.id, '/'));
-    const downloaded = downloadResults.succeeded.find((d) => d.path === xFile);
-    expect(downloaded).toBeDefined();
-    expect(downloadResults.failed).toEqual([]);
-    expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Cross Drive Content');
   });
 
   it('rejects invalid move calls', async () => {
