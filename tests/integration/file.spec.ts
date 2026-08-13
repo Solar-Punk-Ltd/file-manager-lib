@@ -13,19 +13,20 @@ import {
 import { ensureUniqueSignerWithStamp, setupUserDrive, tempFileRegistry } from './setup/utils';
 
 import { type FileManagerBase } from '@/fileManager';
+import { type BeeClient } from '@/swarm';
 import { type DriveInfo, ListDepth, NodeType } from '@/types';
 import { FileManagerEvents } from '@/utils';
 import { FEED_INDEX_ZERO, ROOT_PATH } from '@/utils/constants';
 
 describe('uploadFile', () => {
-  let bee: Bee;
+  let client: BeeClient;
   let fileManager: FileManagerBase;
   let drive: DriveInfo;
   let ownerStamp: BatchId;
   const { writeTempFile, writeTempDir, cleanup } = tempFileRegistry();
 
   beforeAll(async () => {
-    ({ bee, fileManager, drive, ownerStamp } = await setupUserDrive('upload', {
+    ({ client, fileManager, drive, ownerStamp } = await setupUserDrive('upload', {
       stampLabel: 'uploadIntegrationStamp',
     }));
   });
@@ -53,7 +54,7 @@ describe('uploadFile', () => {
     );
 
     const fm2 = await retryOnPropagationDelay(async () => {
-      const fresh = await createInitializedFileManager(bee, ownerStamp);
+      const fresh = await createInitializedFileManager(client, ownerStamp);
       const entries = await fresh.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow);
       if (!entries.some((e) => e.path === name)) {
         throw new Error('upload not yet propagated to a fresh instance');
@@ -540,16 +541,14 @@ describe('downloadFile and downloadFiles', () => {
 });
 
 describe('move', () => {
-  let bee: Bee;
   let fileManager: FileManagerBase;
   let driveA: DriveInfo;
   const { writeTempFile, writeTempDir, cleanup } = tempFileRegistry();
 
   beforeAll(async () => {
-    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
-    bee = beeDev;
+    const { client, bee, ownerStamp } = await ensureUniqueSignerWithStamp();
     const batchIdA = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'moveIntegrationA');
-    fileManager = await createInitializedFileManager(bee, ownerStamp);
+    fileManager = await createInitializedFileManager(client, ownerStamp);
 
     await fileManager.createDrive(batchIdA, 'move-a');
     const tmpDriveA = fileManager.driveList.find((d) => d.name === 'move-a');

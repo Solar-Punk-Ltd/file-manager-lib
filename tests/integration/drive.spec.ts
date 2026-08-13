@@ -1,31 +1,34 @@
-import { type Bee, Identifier, type PostageBatch, type PrivateKey, RedundancyLevel } from '@ethersphere/bee-js';
+import { type Bee, Identifier, type PrivateKey, RedundancyLevel } from '@ethersphere/bee-js';
 
 import { buyStampSerialized, createInitializedFileManager, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH } from '../utils';
 
 import { ensureUniqueSignerWithStamp, tempFileRegistry } from './setup/utils';
 
 import { type FileManagerBase } from '@/fileManager';
-import { type DriveInfo } from '@/types';
+import type { BeeClient } from '@/swarm';
+import { type DriveInfo, type StampInfo } from '@/types';
 import { DriveError, FileManagerEvents } from '@/utils';
 
 describe('Drive operations', () => {
+  let client: BeeClient;
   let bee: Bee;
   let fileManager: FileManagerBase;
-  let ownerBatch: PostageBatch;
+  let ownerBatch: StampInfo;
   let signer: PrivateKey;
   const { writeTempFile, cleanup } = tempFileRegistry();
 
   beforeAll(async () => {
-    const { bee: beeDev, ownerStamp, signer: newSigner } = await ensureUniqueSignerWithStamp();
+    const { client: bc, bee: beeDev, ownerStamp, signer: newSigner } = await ensureUniqueSignerWithStamp();
+    client = bc;
     bee = beeDev;
     signer = newSigner;
-    const stamp = (await bee.getPostageBatches()).find((s) => s.batchID.toString() === ownerStamp.toString());
+    const stamp = await client.getStamp(ownerStamp.toString());
 
     expect(stamp).toBeDefined();
-    expect(stamp?.batchID.toString() === ownerStamp.toString()).toBeTruthy();
+    expect(stamp?.batchId === ownerStamp.toString()).toBeTruthy();
     ownerBatch = stamp!;
 
-    fileManager = await createInitializedFileManager(bee, ownerStamp);
+    fileManager = await createInitializedFileManager(client, ownerStamp);
   });
 
   afterAll(cleanup);
@@ -88,7 +91,7 @@ describe('Drive operations', () => {
 
     expect(fileManager.recordList.some((fr) => fr.driveId === driveId)).toBe(false);
 
-    const fm2 = await createInitializedFileManager(bee, ownerBatch.batchID);
+    const fm2 = await createInitializedFileManager(client, ownerBatch.batchId);
     const drives2 = fm2.driveList;
     expect(drives2.find((d) => d.name === 'Drive to forget')).toBeUndefined();
   });

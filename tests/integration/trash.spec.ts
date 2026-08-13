@@ -1,15 +1,16 @@
-import { type BatchId, type Bee, Identifier } from '@ethersphere/bee-js';
+import { type BatchId, Identifier } from '@ethersphere/bee-js';
 
 import { createInitializedFileManager, retryOnPropagationDelay } from '../utils';
 
 import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
+import type { BeeClient } from '@/swarm';
 import { type DriveInfo, type FileRecord, ListDepth, NodeStatus, NodeType } from '@/types';
 import { ROOT_PATH, TRASH_FOLDER_NAME } from '@/utils/constants';
 
 describe('Lifecycle management', () => {
-  let bee: Bee;
+  let client: BeeClient;
   let fileManager: FileManagerBase;
   let adminBatch: string | BatchId;
   let testFi: FileRecord;
@@ -20,7 +21,7 @@ describe('Lifecycle management', () => {
 
   beforeAll(async () => {
     ({
-      bee,
+      client,
       fileManager,
       drive,
       ownerStamp: adminBatch,
@@ -36,7 +37,7 @@ describe('Lifecycle management', () => {
 
   afterAll(cleanup);
 
-  const freshInstance = async (): Promise<FileManagerBase> => await createInitializedFileManager(bee, adminBatch);
+  const freshInstance = async (): Promise<FileManagerBase> => await createInitializedFileManager(client, adminBatch);
 
   it('trashes a file: a fresh instance stops listing it and finds it in the trash instead', async () => {
     const initial = fileManager.recordList.find((fr) => fr.path === TEST_NAME)!;
@@ -226,7 +227,7 @@ describe('Lifecycle management', () => {
     await fileManager.forget(drive.id, TEST_NAME);
     expect(fileManager.recordList.find((fr) => fr.path === TEST_NAME)).toBeUndefined();
 
-    const fm2 = new FileManagerBase(bee);
+    const fm2 = new FileManagerBase(client);
     await fm2.initialize();
 
     expect(fm2.recordList.find((fr) => fr.path === TEST_NAME)).toBeUndefined();

@@ -1,5 +1,5 @@
 export { FileManagerEvents } from './events';
-export { ADMIN_DRIVE_NAME, FILEMANAGER_STATE_TOPIC } from './constants';
+export { ADMIN_DRIVE_NAME, STATE_TOPIC_LABEL } from './constants';
 export {
   BeeVersionError,
   DriveError,

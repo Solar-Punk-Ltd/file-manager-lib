@@ -28,7 +28,7 @@ export default defineConfig([
     format: ['esm', 'cjs'],
     platform: 'node',
     outDir: 'dist/node',
-    dts: true,
+    dts: { resolve: ['@snaha/swarm-id'] },
     treeshake: true,
     clean: true,
     esbuildPlugins: [stubBrowserInNode],

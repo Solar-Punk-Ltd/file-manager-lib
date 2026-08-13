@@ -14,6 +14,7 @@ import { applyDefaultMocks, createMockDriveInfo, createMockNodeAddresses, seedRe
 
 import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
+import { BeeClient } from '@/swarm';
 import { type DriveInfo, type FileRecord, ListDepth, NodeType } from '@/types';
 import { DriveError } from '@/utils';
 import { SWARM_ZERO_ADDRESS } from '@/utils/constants';
@@ -93,8 +94,9 @@ describe('Abort signal handling', () => {
 
   describe('uploadFiles', () => {
     async function sequentialFm(): Promise<FileManagerBase> {
-      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
-      const fm = new FileManagerBase(bee, new EventEmitterBase(), { uploadConcurrency: 1 });
+      const fm = new FileManagerBase(new BeeClient(new Bee(BEE_URL), DEFAULT_MOCK_SIGNER), new EventEmitterBase(), {
+        uploadConcurrency: 1,
+      });
       await fm.initialize();
       await fm.createAdminDrive(DUMMY_BATCH_ID, RedundancyLevel.MEDIUM);
       await fm.createDrive(otherMockBatchId, 'Test Drive');

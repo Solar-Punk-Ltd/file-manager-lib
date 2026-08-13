@@ -1,4 +1,3 @@
-import { type Bee, type PublicKey } from '@ethersphere/bee-js';
 import path from 'path';
 import { setTimeout } from 'timers';
 
@@ -8,17 +7,18 @@ import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
 import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
+import type { BeeClient } from '@/swarm';
 import { type DriveInfo, type FileRecord, type FolderInfo, ListDepth } from '@/types';
 import { ROOT_PATH } from '@/utils/constants';
 
 describe('Abort signal handling', () => {
-  let bee: Bee;
+  let client: BeeClient;
   let fileManager: FileManagerBase;
   let drive: DriveInfo;
   const { writeTempFile, writeTempDir, cleanup } = tempFileRegistry();
 
   beforeAll(async () => {
-    ({ bee, fileManager, drive } = await setupUserDrive('abort-test', { stampLabel: 'abortControllerStamp' }));
+    ({ client, fileManager, drive } = await setupUserDrive('abort-test', { stampLabel: 'abortControllerStamp' }));
   });
 
   afterAll(cleanup);
@@ -144,7 +144,7 @@ describe('Abort signal handling', () => {
       const three = writeTempFile('it-abortbatch-three.txt', 'Abort batch three');
 
       // uploadConcurrency 1 keeps the batch sequential, so the abort lands between files.
-      const fm = new FileManagerBase(bee, new EventEmitterBase(), { uploadConcurrency: 1 });
+      const fm = new FileManagerBase(client, new EventEmitterBase(), { uploadConcurrency: 1 });
       await fm.initialize();
       const localDrive = fm.driveList.find((d) => d.id === drive.id);
       expect(localDrive).toBeDefined();
@@ -170,7 +170,7 @@ describe('Abort signal handling', () => {
       expect(fm.recordList.some((fr) => fr.path.startsWith('abortbatch/'))).toBe(false);
       expect(fm.driveList.find((d) => d.id === drive.id)!.manifestRef).toEqual(manifestRefBefore);
 
-      const verifier = new FileManagerBase(bee);
+      const verifier = new FileManagerBase(client);
       await verifier.initialize();
       const rootEntries = await verifier.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow);
       expect(rootEntries.some((e) => e.path === 'abortbatch')).toBe(false);
@@ -180,7 +180,7 @@ describe('Abort signal handling', () => {
       const aborted = writeTempFile('it-abortbatch-later-aborted.txt', 'Aborted content');
       const kept = writeTempFile('it-abortbatch-later-kept.txt', 'Kept content');
 
-      const fm = new FileManagerBase(bee, new EventEmitterBase(), { uploadConcurrency: 1 });
+      const fm = new FileManagerBase(client, new EventEmitterBase(), { uploadConcurrency: 1 });
       await fm.initialize();
 
       const controller = new AbortController();
@@ -202,7 +202,7 @@ describe('Abort signal handling', () => {
       await fm.uploadFile(drive.id, { path: 'it-abortbatch-later-kept.txt', sourcePath: kept });
 
       const verifier = await retryOnPropagationDelay(async () => {
-        const fresh = new FileManagerBase(bee);
+        const fresh = new FileManagerBase(client);
         await fresh.initialize();
         const entries = await fresh.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow);
         if (!entries.some((e) => e.path === 'it-abortbatch-later-kept.txt')) {
@@ -234,7 +234,7 @@ describe('Abort signal handling', () => {
   describe('download', () => {
     const downloadTestFile = 'it-abort-large-download.bin';
     let uploadedFileInfo: FileRecord;
-    let actPublisher: PublicKey;
+    let actPublisher: string;
 
     beforeAll(async () => {
       // Upload a 1MB file to download later (large enough for reliable abort timing)
@@ -244,7 +244,7 @@ describe('Abort signal handling', () => {
       expect(fr).toBeDefined();
       uploadedFileInfo = fr!;
 
-      actPublisher = (await bee.getNodeAddresses()).publicKey;
+      actPublisher = client.actPublisher;
     });
 
     it('should throw error when download is aborted with pre-aborted signal', async () => {

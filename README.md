@@ -25,13 +25,13 @@ models a full, versioned, access-controlled filesystem on top of Swarm's content
 ## How it works — a filesystem mirrored onto Swarm
 
 The library maps a familiar UNIX-style filesystem onto Swarm primitives (feeds + mantaray manifests). Nothing about the
-tree lives only in memory: every drive, folder and file is walkable on Swarm from a single per-signer feed.
+tree lives only in memory: every drive, folder and file is walkable on Swarm from a single per-identity feed.
 
 ### The structure
 
 ```
-Signer (Ethereum identity)
-└── state feed  (FILEMANAGER_STATE_TOPIC)         ← points to the drive registry
+SwarmClient identity (owner address)
+└── state feed  (topic derived from the backend key)  ← points to the drive registry
     └── admin manifest  (registry of all drives)
         ├── My Drive   ──▶ drive feed ──▶ drive manifest      ← a mounted volume
         │   ├── report.pdf         ──▶ file feed (v0, v1, …)  ← file (inode) + versions
@@ -44,7 +44,7 @@ Signer (Ethereum identity)
 
 ```mermaid
 flowchart TD
-  S["Signer<br/>(identity)"] -->|per-signer feed| SF["State feed<br/>FILEMANAGER_STATE_TOPIC"]
+  S["SwarmClient<br/>(owner identity)"] -->|per-owner feed| SF["State feed<br/>(derived topic)"]
   SF -->|head slot| AM["Admin manifest<br/>(drive registry)"]
   AM -->|fork: My Drive| DF1["Drive feed<br/>(per drive)"]
   AM -->|fork: Photos| DF2["Drive feed"]
@@ -60,8 +60,8 @@ flowchart TD
 
 | Swarm / mantaray primitive                  | UNIX filesystem analogue    | Role                                             |
 | ------------------------------------------- | --------------------------- | ------------------------------------------------ |
-| Signer (Ethereum identity)                  | volume owner                | Owns and signs the whole tree                    |
-| State feed head (`FILEMANAGER_STATE_TOPIC`) | root pointer                | Resolves the current drive registry              |
+| `SwarmClient` identity (`owner`)            | volume owner                | Owns and signs the whole tree                    |
+| State feed head (topic from `deriveSecret`) | root pointer                | Resolves the current drive registry              |
 | Admin manifest                              | volume table (`/etc/fstab`) | Registry of all drives                           |
 | Drive = mantaray under a per-drive feed     | mounted volume              | A named, stamp-backed collection                 |
 | Folder = sub-manifest fork                  | directory (inode)           | Nested namespace                                 |
@@ -90,7 +90,8 @@ flowchart TD
 pnpm install @solarpunkltd/file-manager-lib
 ```
 
-Requires **Node.js ≥ 22**. Peer dependency: `@ethersphere/bee-js`. The package ships dual **ESM + CJS** builds with
+Requires **Node.js ≥ 22**. `@ethersphere/bee-js` is a regular dependency. `@snaha/swarm-id` is an **optional** peer
+dependency — install it only if you use the Swarm ID backend. The package ships dual **ESM + CJS** builds with
 separate **Node** and **browser** bundles, selected automatically via `package.json` `exports` conditions — bundlers get
 a `fs`/`path`-free browser build.
 
@@ -122,13 +123,14 @@ swarm-cli stamp buy --amount 100000000000 --depth 20 --label admin
 
 ```ts
 import { Bee, FeedIndex } from '@ethersphere/bee-js';
-import { FileManagerBase, ListDepth } from '@solarpunkltd/file-manager-lib';
+import { BeeClient, FileManagerBase, ListDepth } from '@solarpunkltd/file-manager-lib';
 
-// bee must be constructed with a signer
-const bee = new Bee('http://localhost:1633', { signer });
+// The FileManager reaches Swarm through a SwarmClient, never a Bee directly.
+// BeeClient owns the signer — no key material ever reaches the FileManager.
+const swarmClient = new BeeClient(new Bee('http://localhost:1633'), signer);
 
 // optional third arg: { uploadConcurrency?, feedFetchConcurrency? }
-const fm = new FileManagerBase(bee);
+const fm = new FileManagerBase(swarmClient);
 
 // 1. rehydrate any existing state from Swarm
 await fm.initialize();
@@ -175,12 +177,40 @@ The only difference is the byte source for uploads and updates:
 
 `downloadFile` / `downloadFiles` / `downloadFolder` return a `ReadableStream<Uint8Array>` per file in both environments.
 
+### Backends
+
+`FileManagerBase` depends on the `SwarmClient` port, not on `Bee`. Two backends ship with the library:
+
+| Backend               | Runtime           | Key custody                              |
+| --------------------- | ----------------- | ---------------------------------------- |
+| `BeeClient`           | Node + browser    | You hold the `PrivateKey`                |
+| `SwarmIdSwarmClient`  | Browser only      | Keys stay inside the Swarm ID iframe     |
+
+```ts
+import { SwarmIdSwarmClient } from '@solarpunkltd/file-manager-lib';
+import { SwarmIdClient } from '@snaha/swarm-id';
+
+// You own the SDK lifecycle: construct, initialize, connect.
+const client = new SwarmIdClient({ appName: 'my-app' });
+await client.initialize();
+await client.connect();
+
+// Build the adapter only *after* authentication lands — `appKey` does not exist
+// before then, and it is the first thing FileManagerBase reads.
+const fm = new FileManagerBase(new SwarmIdSwarmClient(client));
+await fm.initialize();
+```
+
+Known gaps on the Swarm ID backend: `AbortSignal` is dropped at the postMessage boundary, downloads are buffered (the
+stream variants wrap one chunk), ACT history is re-minted on every protected write, and the account exposes a single
+usable postage batch. See the class doc on `SwarmIdSwarmClient` for details.
+
 ### Tuning concurrency
 
 Bee-facing fan-out is bounded and configurable through the constructor:
 
 ```ts
-const fm = new FileManagerBase(bee, undefined, {
+const fm = new FileManagerBase(swarmClient, undefined, {
   uploadConcurrency: 4, // concurrent file uploads in uploadFiles (default 2)
   feedFetchConcurrency: 16, // concurrent feed reads during listing/versioning (default 10)
 });

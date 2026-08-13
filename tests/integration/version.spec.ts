@@ -12,11 +12,13 @@ import {
 import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
 import { FileManagerBase } from '@/fileManager';
+import type { BeeClient } from '@/swarm';
 import { type DriveInfo, type FileRecord, ListDepth } from '@/types';
 import { getFeedData } from '@/utils/bee';
 import { FEED_INDEX_ZERO, ROOT_PATH } from '@/utils/constants';
 
 describe('Version control', () => {
+  let client: BeeClient;
   let bee: Bee;
   let fileManager: FileManagerBase;
   let drive: DriveInfo;
@@ -36,7 +38,7 @@ describe('Version control', () => {
   };
 
   beforeAll(async () => {
-    ({ bee, fileManager, drive, signer, ownerStamp } = await setupUserDrive('versioncontrol', {
+    ({ bee, client, fileManager, drive, signer, ownerStamp } = await setupUserDrive('versioncontrol', {
       stampLabel: 'versioningStamp',
     }));
   });
@@ -84,7 +86,7 @@ describe('Version control', () => {
     expect(base.version).toBe(FEED_INDEX_ZERO.toString());
 
     // Fresh instance shares the signer/state but never listed the folder — its record cache is empty.
-    const fm2 = new FileManagerBase(bee);
+    const fm2 = new FileManagerBase(client);
     await fm2.initialize();
     expect(fm2.recordList.find((fr) => fr.topic === base.topic)).toBeUndefined();
 
@@ -180,7 +182,7 @@ describe('Version control', () => {
     writeTempFile(NAME, 'Version 1 content');
     await fileManager.updateFile(drive.id, v0Fi, { item: { sourcePath: src } });
 
-    const countAfterV1 = await getFeedData(bee, new Topic(v0Fi.topic), signer.publicKey().address().toString());
+    const countAfterV1 = await getFeedData(client, new Topic(v0Fi.topic), signer.publicKey().address().toString());
     const latestFi = await fileManager.getFileVersion(v0Fi, countAfterV1.feedIndex);
     writeTempFile(NAME, 'Version 2 content');
     await fileManager.updateFile(drive.id, latestFi, { item: { sourcePath: src } });
@@ -188,7 +190,7 @@ describe('Version control', () => {
     // Raw feed reads are eventually consistent; under parallel node load the last write may not be
     // visible immediately. Retry until the feed reflects all three writes (v0 + two updates).
     const count = await retryOnPropagationDelay(async () => {
-      const c = await getFeedData(bee, new Topic(v0Fi.topic), signer.publicKey().address().toString());
+      const c = await getFeedData(client, new Topic(v0Fi.topic), signer.publicKey().address().toString());
       if (c.feedIndexNext.toBigInt() !== initialVersion + 3n) {
         throw new Error(`feed not yet propagated: feedIndexNext=${c.feedIndexNext.toBigInt()}`);
       }
@@ -215,7 +217,7 @@ describe('Version control', () => {
 
     // Eventually consistent: retry until the restore's new head slot is visible.
     const { feedIndex: current } = await retryOnPropagationDelay(async () => {
-      const fd = await getFeedData(bee, new Topic(base.topic), signer.publicKey().address().toString());
+      const fd = await getFeedData(client, new Topic(base.topic), signer.publicKey().address().toString());
       if (fd.feedIndex.toBigInt() !== initialVersion + 2n) {
         throw new Error(`restore not yet propagated: feedIndex=${fd.feedIndex.toBigInt()}`);
       }
@@ -277,7 +279,7 @@ describe('Version control', () => {
     expect(v0.version).toBe(FEED_INDEX_ZERO.toString());
 
     const { feedIndex: headBeforeRestore } = await getFeedData(
-      bee,
+      client,
       new Topic(topic),
       signer.publicKey().address().toString(),
     );
@@ -290,7 +292,7 @@ describe('Version control', () => {
     expect(cached.path).toBe(destPath);
 
     const { feedIndex: headAfterRestore } = await retryOnPropagationDelay(async () => {
-      const result = await getFeedData(bee, new Topic(topic), signer.publicKey().address().toString());
+      const result = await getFeedData(client, new Topic(topic), signer.publicKey().address().toString());
       if (!(result.feedIndex.toBigInt() > headBeforeRestore.toBigInt())) {
         throw new Error('feed head has not advanced yet');
       }
@@ -328,7 +330,7 @@ describe('Version control', () => {
     expect(decoy.topic.toString()).not.toBe(topic);
 
     const movedRecord = await retryOnPropagationDelay(async () => {
-      const reader = await createInitializedFileManager(bee, ownerStamp);
+      const reader = await createInitializedFileManager(client, ownerStamp);
       const entries = await reader.listFolder(drive.id, 'coldsub', ListDepth.Shallow);
       const found = entries.find((e) => e.path === destPath);
       if (!found) {
@@ -339,7 +341,7 @@ describe('Version control', () => {
 
     // A cold instance: it never listed the drive, so nothing hydrates the record's absolute path
     // except the record the caller hands in.
-    const coldFm = await createInitializedFileManager(bee, ownerStamp);
+    const coldFm = await createInitializedFileManager(client, ownerStamp);
     expect(coldFm.recordList.find((f) => f.topic.toString() === topic)).toBeUndefined();
 
     const v0 = await coldFm.getFileVersion(movedRecord, FEED_INDEX_ZERO);
@@ -360,7 +362,7 @@ describe('Version control', () => {
     expect(restoredContent).toBe('Cold V0');
 
     // The decoy sharing the leaf name kept its own topic, version and bytes.
-    const verifier = await createInitializedFileManager(bee, ownerStamp);
+    const verifier = await createInitializedFileManager(client, ownerStamp);
     const rootEntries = await retryOnPropagationDelay(() =>
       verifier.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow),
     );

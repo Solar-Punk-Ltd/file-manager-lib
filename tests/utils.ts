@@ -5,6 +5,7 @@ import { isNode } from 'std-env';
 
 import { type EventEmitter } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
+import { BeeClient } from '@/swarm';
 import { FileManagerEvents } from '@/utils';
 
 // bee-factory queen node
@@ -123,11 +124,11 @@ export async function buyStampSerialized(
 }
 
 export async function createInitializedFileManager(
-  bee: Bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER }),
+  client: BeeClient = new BeeClient(new Bee(BEE_URL), DEFAULT_MOCK_SIGNER),
   batchId?: string | BatchId,
   emitter?: EventEmitter,
 ): Promise<FileManagerBase> {
-  const fm = new FileManagerBase(bee, emitter);
+  const fm = new FileManagerBase(client, emitter);
 
   let isFirstInit = true;
   fm.emitter.on(FileManagerEvents.INITIALIZED, (ok: boolean) => {

@@ -35,3 +35,4 @@ tests/integration/tmp/
 !README.md
 !changelog/*.md
 memory/
+*-recovery.txt

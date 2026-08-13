@@ -11,7 +11,7 @@ method for cancellation (`signal`) and retries; it is omitted from the descripti
 
 ## Contents
 
-- [Class & construction](#class--construction)
+- [Class & construction](#class--construction) — `FileManagerBase`, `SwarmClient`
 - [Lifecycle & bootstrap](#lifecycle--bootstrap) — `initialize`, `createAdminDrive`, `createDrive`
 - [Drives](#drives) — `forgetDrive`
 - [Files — write](#files--write) — `uploadFile`, `uploadFiles`, `updateFile`
@@ -32,16 +32,30 @@ method for cancellation (`signal`) and retries; it is omitted from the descripti
 ### `FileManagerBase`
 
 ```ts
-constructor(bee: Bee, emitter?: EventEmitter, config?: FileManagerConfig)
+constructor(swarmClient: SwarmClient, emitter?: EventEmitter, config?: FileManagerConfig)
 ```
 
-- **bee** — a connected `Bee` from `@ethersphere/bee-js`, constructed **with a signer**. Throws `SignerError` otherwise.
+- **swarmClient** — a [`SwarmClient`](#swarmclient) backend. Ships with `BeeClient` (bee-js + a local `PrivateKey`, Node
+  and browser) and `SwarmIdSwarmClient` (`@snaha/swarm-id`, browser only). The FileManager never holds key material —
+  the backend exposes only an owner address and public keys.
 - **emitter** _(optional)_ — an `EventEmitter` to receive `FileManagerEvents`; a default in-memory emitter is created if
   omitted.
 - **config** _(optional)_ — concurrency tuning, see [`FileManagerConfig`](#filemanagerconfig).
 
-Wraps the Bee client and owns the on-Swarm drive/folder/file tree, ACT wrapping, per-file version feeds, the trash
-relocation, and event emission.
+Owns the on-Swarm drive/folder/file tree, ACT wrapping, per-file version feeds, the trash relocation, and event
+emission. All Swarm I/O goes through the injected `SwarmClient`.
+
+### `SwarmClient`
+
+The Swarm I/O seam the library depends on instead of a concrete `Bee`. No bee-js types cross it: references and keys are
+hex strings, payloads are `Uint8Array`, and feed indexes are **decimal** strings. It carries identity (`owner`,
+`publicKey`, `actPublisher`), plain and ACT-protected byte transfer, chunk access, sequential feed read/write,
+`deriveSecret`, and a read-only `getStamp`. Stamp _management_ is deliberately out of scope — that belongs to the host
+application.
+
+`readFeed` reports "no update yet" as a **successful** return carrying the sentinel index `18446744073709551615`
+(`FeedIndex.MINUS_ONE`) and a zero-address payload, rather than throwing. Callers branch on the sentinel; retry helpers
+must test for it instead of catching.
 
 ### `FileManagerConfig`
 
@@ -61,8 +75,9 @@ their _initiation_ would not bound live consumption.
 
 ## Lifecycle & bootstrap
 
-The state model has two feed levels: a per-signer **state feed** whose head points at the **admin manifest** (the drive
-registry), and one **drive feed** per drive whose head points at that drive's mantaray. See
+The state model has two feed levels: a per-identity **state feed** — its topic derived from the backend's key material
+via `SwarmClient.deriveSecret`, so it is unguessable from the owner address alone — whose head points at the **admin
+manifest** (the drive registry), and one **drive feed** per drive whose head points at that drive's mantaray. See
 [README → How it works](README.md#how-it-works--a-filesystem-mirrored-onto-swarm).
 
 ### `initialize(requestOptions?): Promise<void>`
@@ -75,13 +90,14 @@ load. Safe to call once per instance.
 
 ### `createAdminDrive(batchId, redundancyLevel?, reset?, requestOptions?): Promise<DriveInfo>`
 
-**First-time setup only.** Establishes the state feed and its empty admin manifest, then registers the admin drive into
+**First-time setup only.** Seeds an empty admin manifest on the derived state feed, then registers the admin drive into
 it. On later runs, `initialize()` alone restores everything.
 
 - **batchId** `string | BatchId` — stamp backing the admin drive/state.
 - **redundancyLevel?** — optional redundancy for the admin drive.
-- **reset?** `boolean` — overwrite existing admin state with a freshly generated one (wipes local state and appends a
-  new state pointer). Required when admin state already exists.
+- **reset?** `boolean` — discard existing admin state and start over (wipes local state and appends a fresh empty
+  manifest at the next free slot of the same state feed; the topic itself is stable). Required when admin state already
+  exists.
 - **Returns**: the newly-created admin `DriveInfo`.
 - **Emits**: `DRIVE_CREATED`.
 - **Throws**: `DriveError` (not initialized, or admin state already exists without `reset`); `SignerError`;
@@ -93,11 +109,12 @@ Creates a non-admin drive and registers it in the admin manifest. Requires admin
 (`createAdminDrive` first). Initialises an empty mantaray, ACT-encrypts its root, and publishes it as the first slot of
 a freshly generated per-drive feed.
 
-- **name** — display name; must be unique within the registry.
+- **name** — display name; must be unique within the registry. The `batchId` need not be: a batch only pays for storage,
+  and drive identity is `id`/`topic`, so several drives may share one. This is required under Swarm ID, which exposes a
+  single usable batch per account.
 - **Returns**: the newly-created `DriveInfo`.
 - **Emits**: `DRIVE_CREATED`.
-- **Throws**: `DriveError` (not initialized, admin state not ready, or duplicate name/`batchId`); `SignerError`;
-  `StampError`.
+- **Throws**: `DriveError` (not initialized, admin state not ready, or duplicate name); `SignerError`; `StampError`.
 
 ---
 
@@ -357,13 +374,13 @@ expires — this drops references, it does not delete data.
 
 ## Getters
 
-| Getter                                  | Description                                                        |
-| --------------------------------------- | ------------------------------------------------------------------ |
-| `adminStamp: PostageBatch \| undefined` | Admin postage batch used for drive-management operations.          |
-| `driveList: readonly DriveInfo[]`       | In-memory list of all known drives.                                |
-| `recordList: readonly FileRecord[]`     | In-memory cache of file records, populated lazily as you navigate. |
-| `emitter: EventEmitter`                 | Emitter carrying `FileManagerEvents`.                              |
-| `isInitialized: boolean`                | Whether `initialize()` has completed.                              |
+| Getter                               | Description                                                        |
+| ------------------------------------ | ------------------------------------------------------------------ |
+| `adminStamp: StampInfo \| undefined` | Admin postage batch used for drive-management operations.          |
+| `driveList: readonly DriveInfo[]`    | In-memory list of all known drives.                                |
+| `recordList: readonly FileRecord[]`  | In-memory cache of file records, populated lazily as you navigate. |
+| `emitter: EventEmitter`              | Emitter carrying `FileManagerEvents`.                              |
+| `isInitialized: boolean`             | Whether `initialize()` has completed.                              |
 
 Both list getters are `readonly` — treat them as snapshots and mutate state only through the methods above.
 
@@ -423,6 +440,18 @@ enum NodeStatus {
 enum ListDepth {
   Shallow = 'shallow',
   Deep = 'deep',
+}
+```
+
+### `StampInfo`
+
+The port's stamp view — deliberately narrower than bee-js's `PostageBatch`, since the library only ever reads stamps.
+
+```ts
+interface StampInfo {
+  batchId: string;
+  usable: boolean;
+  depth: number;
 }
 ```
 

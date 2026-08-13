@@ -1,60 +1,44 @@
 import {
   type BatchId,
-  type Bee,
   type BeeRequestOptions,
-  type EthAddress,
+  Bytes,
   FeedIndex,
-  type PostageBatch,
-  type PrivateKey,
   type RedundancyLevel,
   Topic,
 } from '@ethersphere/bee-js';
 
+import type { StampInfo, SwarmClient } from '../types/swarmClient';
 import { type ActReferences, type FeedResultWithIndex } from '../types/utils';
 
-import { isNotFoundError } from './common';
-import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from './constants';
+import { FEED_INDEX_ZERO } from './constants';
 import { generateRandomBytes } from './crypto';
-import { BeeVersionError, ErrorHandler, StampError } from './errors';
-import { Logger } from './logger';
+import { ErrorHandler, StampError } from './errors';
 
-const logger = Logger.getInstance();
 const errorHandler = ErrorHandler.getInstance();
 
 export async function getFeedData(
-  bee: Bee,
+  swarmClient: SwarmClient,
   topic: Topic,
-  address: string | EthAddress,
+  owner?: string,
   index?: bigint,
   requestOptions?: BeeRequestOptions,
 ): Promise<FeedResultWithIndex> {
-  try {
-    const feedReader = bee.makeFeedReader(topic.toUint8Array(), address, requestOptions);
+  const res = await swarmClient.readFeed(
+    topic.toString(),
+    owner ?? swarmClient.owner,
+    index?.toString(),
+    requestOptions,
+  );
 
-    const feedOptions = index !== undefined ? { index: FeedIndex.fromBigInt(index) } : undefined;
-    const data = await feedReader.downloadPayload(feedOptions);
-
-    return {
-      feedIndex: data.feedIndex,
-      feedIndexNext: data.feedIndexNext ?? data.feedIndex.next(),
-      payload: data.payload,
-    };
-  } catch (err: unknown) {
-    if (isNotFoundError(err)) {
-      return {
-        feedIndex: FeedIndex.MINUS_ONE,
-        feedIndexNext: FEED_INDEX_ZERO,
-        payload: SWARM_ZERO_ADDRESS,
-      };
-    }
-
-    throw err;
-  }
+  return {
+    feedIndex: FeedIndex.fromBigInt(BigInt(res.index)),
+    feedIndexNext: FeedIndex.fromBigInt(BigInt(res.nextIndex)),
+    payload: new Bytes(res.payload),
+  };
 }
 
 export async function getTopicAndVersion(
-  bee: Bee,
-  address: string | EthAddress,
+  swarmClient: SwarmClient,
   currentVersion?: string,
   currentTopic?: string | Topic,
   requestOptions?: BeeRequestOptions,
@@ -78,7 +62,13 @@ export async function getTopicAndVersion(
     return { topic, version: new FeedIndex(currentVersion).next().toString() };
   }
 
-  const { feedIndex, feedIndexNext } = await getFeedData(bee, new Topic(topic), address, undefined, requestOptions);
+  const { feedIndex, feedIndexNext } = await getFeedData(
+    swarmClient,
+    new Topic(topic),
+    swarmClient.owner,
+    undefined,
+    requestOptions,
+  );
   if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
     return { topic, version: FEED_INDEX_ZERO.toString() };
   }
@@ -101,48 +91,54 @@ export interface FeedWriteResult {
 }
 
 export async function writeActFeed(
-  bee: Bee,
-  signer: PrivateKey,
+  swarmClient: SwarmClient,
   payload: string | Uint8Array,
   target: FeedTarget,
   requestOptions?: BeeRequestOptions,
 ): Promise<FeedWriteResult> {
-  const upload = await bee.uploadData(
+  const upload = await swarmClient.uploadProtected(
     target.batchId,
     payload,
-    { act: true, actHistoryAddress: target.actHistoryAddress, redundancyLevel: target.redundancyLevel },
+    target.actHistoryAddress,
+    { redundancyLevel: target.redundancyLevel },
     requestOptions,
   );
   const contentRefs: ActReferences = {
-    reference: upload.reference.toString(),
-    historyRef: upload.historyAddress.getOrThrow().toString(),
+    reference: upload.contentRefs.reference.toString(),
+    historyRef: upload.contentRefs.historyRef.toString(),
   };
 
   let writeIndex = target.index;
   if (writeIndex === undefined) {
     const { feedIndexNext } = await getFeedData(
-      bee,
+      swarmClient,
       new Topic(target.topic),
-      signer.publicKey().address().toString(),
+      swarmClient.owner,
       undefined,
       requestOptions,
     );
     writeIndex = feedIndexNext.toBigInt();
   }
 
-  const fw = bee.makeFeedWriter(new Topic(target.topic).toUint8Array(), signer, requestOptions);
-  await fw.uploadPayload(target.batchId, JSON.stringify(contentRefs), { index: FeedIndex.fromBigInt(writeIndex) });
+  await swarmClient.writeFeed(
+    target.batchId,
+    target.topic,
+    JSON.stringify(contentRefs),
+    writeIndex.toString(),
+    undefined,
+    requestOptions,
+  );
 
   return { contentRefs, index: writeIndex, nextIndex: writeIndex + 1n };
 }
 
 export async function fetchStamp(
-  bee: Bee,
+  swarmClient: SwarmClient,
   batchId: string | BatchId,
   requestOptions?: BeeRequestOptions,
-): Promise<PostageBatch | undefined> {
+): Promise<StampInfo | undefined> {
   try {
-    return (await bee.getPostageBatches(requestOptions)).find((s) => s.batchID.toString() === batchId.toString());
+    return await swarmClient.getStamp(batchId.toString(), requestOptions);
   } catch (err: unknown) {
     errorHandler.handleError(err, 'Failed to fetch stamp');
     return;
@@ -150,27 +146,14 @@ export async function fetchStamp(
 }
 
 export const verifyStampUsability = (
-  s: PostageBatch | undefined,
+  s: StampInfo | undefined,
   requestedBatchId?: string,
   mustBeUsable: boolean = true,
-): PostageBatch => {
+): StampInfo => {
   if (!s || (mustBeUsable && !s.usable)) {
-    const batchIdStr = s ? s.batchID.toString().slice(0, 6) : (requestedBatchId?.slice(0, 6) ?? 'unknown');
+    const batchIdStr = s ? s.batchId.toString().slice(0, 6) : (requestedBatchId?.slice(0, 6) ?? 'unknown');
     throw new StampError(`Stamp with batchId: ${batchIdStr}... not found OR not usable`);
   }
 
   return s;
 };
-
-export async function verifySupportedBeeVersions(bee: Bee, requestOptions?: BeeRequestOptions): Promise<void> {
-  const beeVersions = await bee.getVersions(requestOptions);
-  logger.debug(`Bee version: ${beeVersions.beeVersion}`);
-  logger.debug(`Bee API version: ${beeVersions.beeApiVersion}`);
-  const supportedApi = await bee.isSupportedApiVersion(requestOptions);
-
-  if (!supportedApi) {
-    logger.error('Supported bee API version: ', beeVersions.supportedBeeApiVersion);
-    logger.error('Supported bee version: ', beeVersions.supportedBeeVersion);
-    throw new BeeVersionError('Bee or Bee API version not supported');
-  }
-}

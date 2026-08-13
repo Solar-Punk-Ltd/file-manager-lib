@@ -1,14 +1,15 @@
-import { type Bee, type BeeRequestOptions, type DownloadOptions } from '@ethersphere/bee-js';
+import type { BeeRequestOptions, DownloadOptions } from '@ethersphere/bee-js';
 
 import { type DownloadFilesResult, type DownloadResource, type DownloadResult } from '../types/download';
-import { type FailedResult } from '../types/utils';
+import type { SwarmClient } from '../types/swarmClient';
+import type { FailedResult } from '../types/utils';
 import { settlePromises } from '../utils/common';
 import { Logger } from '../utils/logger';
 
 const logger = Logger.getInstance();
 
 export async function processDownload(
-  bee: Bee,
+  swarmClient: SwarmClient,
   resources: DownloadResource[],
   options?: DownloadOptions,
   requestOptions?: BeeRequestOptions,
@@ -19,9 +20,10 @@ export async function processDownload(
 
   await settlePromises(
     resources.map(async (r) => {
-      return await bee.downloadReadableData(
-        r.reference,
-        { ...options, actHistoryAddress: r.actHistoryAddress, actPublisher: r.actPublisher },
+      return await swarmClient.downloadProtectedStream(
+        { reference: r.reference, historyRef: r.actHistoryAddress, publisher: r.actPublisher.toString() },
+        undefined,
+        options,
         requestOptions,
       );
     }),

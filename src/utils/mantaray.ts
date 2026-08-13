@@ -1,12 +1,4 @@
-import {
-  type Bee,
-  type BeeRequestOptions,
-  type DownloadOptions,
-  MantarayNode,
-  type PrivateKey,
-  RedundancyLevel,
-  type Reference,
-} from '@ethersphere/bee-js';
+import { type BeeRequestOptions, MantarayNode, RedundancyLevel, Reference } from '@ethersphere/bee-js';
 
 import {
   type DriveInfo,
@@ -16,6 +8,7 @@ import {
   type NodeHeader,
   NodeType,
 } from '../types/info';
+import type { SwarmClient, SwarmDownloadOptions, SwarmRequestOptions, SwarmUploadOptions } from '../types/swarmClient';
 
 import { type FeedWriteResult, writeActFeed } from './bee';
 import { getRecordStatus } from './common';
@@ -36,16 +29,68 @@ import {
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
   MANIFEST_METADATA_TRASHED_FROM,
 } from './constants';
+import { FolderError } from './errors';
 
 export async function loadMantaray(
-  bee: Bee,
+  swarmClient: SwarmClient,
   mantarayRef: string | Reference,
-  options?: DownloadOptions,
-  requestOptions?: BeeRequestOptions,
+  options?: SwarmDownloadOptions,
+  requestOptions?: SwarmRequestOptions,
 ): Promise<MantarayNode> {
-  const mantaray = await MantarayNode.unmarshal(bee, mantarayRef, options, requestOptions);
-  await mantaray.loadRecursively(bee, options, requestOptions);
-  return mantaray;
+  const root = await unmarshalNode(swarmClient, new Reference(mantarayRef), options, requestOptions);
+  await loadForks(swarmClient, root, options, requestOptions);
+
+  return root;
+}
+
+async function unmarshalNode(
+  swarmClient: SwarmClient,
+  reference: Reference,
+  options?: SwarmDownloadOptions,
+  requestOptions?: SwarmRequestOptions,
+): Promise<MantarayNode> {
+  const data = await swarmClient.downloadData(reference.toString(), options, requestOptions);
+
+  return MantarayNode.unmarshalFromData(data, reference.toUint8Array());
+}
+
+async function loadForks(
+  swarmClient: SwarmClient,
+  node: MantarayNode,
+  options?: SwarmDownloadOptions,
+  requestOptions?: SwarmRequestOptions,
+): Promise<void> {
+  for (const fork of node.forks.values()) {
+    if (!fork.node.selfAddress) {
+      throw new FolderError('Mantaray fork has no selfAddress — manifest is corrupt');
+    }
+
+    const loaded = await unmarshalNode(swarmClient, new Reference(fork.node.selfAddress), options, requestOptions);
+    fork.node.targetAddress = loaded.targetAddress;
+    fork.node.forks = loaded.forks;
+    fork.node.path = fork.prefix;
+    fork.node.parent = node;
+
+    await loadForks(swarmClient, fork.node, options, requestOptions);
+  }
+}
+
+async function saveMantarayRecursively(
+  swarmClient: SwarmClient,
+  node: MantarayNode,
+  batchId: string,
+  options?: SwarmUploadOptions,
+  requestOptions?: SwarmRequestOptions,
+): Promise<Reference> {
+  for (const fork of node.forks.values()) {
+    await saveMantarayRecursively(swarmClient, fork.node, batchId, options, requestOptions);
+  }
+
+  const { reference } = await swarmClient.uploadData(batchId, await node.marshal(), options, requestOptions);
+  const saved = new Reference(reference);
+  node.selfAddress = saved.toUint8Array();
+
+  return saved;
 }
 
 export function getAllNodeEntries(root: MantarayNode): NodeHeader[] {
@@ -73,19 +118,17 @@ export function getAllNodeEntries(root: MantarayNode): NodeHeader[] {
 }
 
 export async function saveNodeManifest(
-  bee: Bee,
-  signer: PrivateKey,
+  swarmClient: SwarmClient,
   node: MantarayNode,
   host: ManifestHost,
   index?: bigint,
   requestOptions?: BeeRequestOptions,
 ): Promise<FeedWriteResult> {
-  const saveResult = await node.saveRecursively(bee, host.batchId, undefined, requestOptions);
+  const rootReference = await saveMantarayRecursively(swarmClient, node, host.batchId, undefined, requestOptions);
 
   return writeActFeed(
-    bee,
-    signer,
-    saveResult.reference.toUint8Array(),
+    swarmClient,
+    rootReference.toUint8Array(),
     {
       batchId: host.batchId,
       topic: host.topic,

@@ -12,11 +12,13 @@ import {
 } from '../../utils';
 
 import { type FileManagerBase } from '@/fileManager';
+import { BeeClient } from '@/swarm';
 import { type DriveInfo } from '@/types';
 import { ADMIN_DRIVE_NAME } from '@/utils/constants';
 import { generateRandomBytes } from '@/utils/crypto';
 
 interface BeeWithStampAndSigner {
+  client: BeeClient;
   bee: Bee;
   ownerStamp: BatchId;
   signer: PrivateKey;
@@ -29,6 +31,7 @@ export async function ensureUniqueSignerWithStamp(isNewSigner: boolean = true): 
   const signer = isNewSigner ? new PrivateKey(signerBytes) : DEFAULT_MOCK_SIGNER;
 
   const bee = new Bee(BEE_URL, { signer });
+  const client = new BeeClient(bee, signer);
 
   if (!globalAdminStamp) {
     try {
@@ -39,7 +42,7 @@ export async function ensureUniqueSignerWithStamp(isNewSigner: boolean = true): 
     }
   }
 
-  return { bee, ownerStamp: globalAdminStamp, signer };
+  return { client, bee, ownerStamp: globalAdminStamp, signer };
 }
 
 export function resetGlobalStampState(): void {
@@ -47,6 +50,7 @@ export function resetGlobalStampState(): void {
 }
 
 export interface UserDriveFixture {
+  client: BeeClient;
   bee: Bee;
   fileManager: FileManagerBase;
   drive: DriveInfo;
@@ -61,8 +65,8 @@ export async function setupUserDrive(
 ): Promise<UserDriveFixture> {
   const { stampLabel = driveName, reuseOwnerStamp } = opts;
 
-  const { bee, ownerStamp, signer } = await ensureUniqueSignerWithStamp();
-  const fileManager = await createInitializedFileManager(bee, ownerStamp);
+  const { client, bee, ownerStamp, signer } = await ensureUniqueSignerWithStamp();
+  const fileManager = await createInitializedFileManager(client, ownerStamp);
 
   const batchId = reuseOwnerStamp
     ? ownerStamp
@@ -72,7 +76,7 @@ export async function setupUserDrive(
   const drive = fileManager.driveList.find((d) => d.name === driveName);
   expect(drive).toBeDefined();
 
-  return { bee, fileManager, drive: drive!, ownerStamp, batchId, signer };
+  return { client, bee, fileManager, drive: drive!, ownerStamp, batchId, signer };
 }
 
 export interface TempFileRegistry {

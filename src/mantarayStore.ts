@@ -1,15 +1,15 @@
 import {
-  type Bee,
   type BeeRequestOptions,
+  Bytes,
   FeedIndex,
   type MantarayNode,
-  type PrivateKey,
   type RedundancyLevel,
   Reference,
   Topic,
 } from '@ethersphere/bee-js';
 
 import { type DriveInfo, type FileRecord, type FolderInfo, type ManifestHost, NodeType } from './types/info';
+import { type SwarmClient } from './types/swarmClient';
 import { type ActReferences, type FeedResultWithIndex } from './types/utils';
 import { assertActReferences, assertFileRecord } from './utils/asserts';
 import { type FeedWriteResult, getFeedData, writeActFeed } from './utils/bee';
@@ -28,7 +28,7 @@ import { pathSegments } from './utils/path';
  * FileManager delegates all path resolution and manifest feed I/O here,
  */
 export class MantarayStore {
-  private readonly signerAddress: string;
+  private readonly swarmClient: SwarmClient;
   private readonly nodeManifestCache: Map<string, MantarayNode> = new Map();
   private readonly nodeManifestLoading: Map<string, Promise<MantarayNode>> = new Map();
   private readonly nodeNextIndexCache: Map<string, bigint> = new Map();
@@ -36,11 +36,8 @@ export class MantarayStore {
 
   // --- Initialization ---
 
-  constructor(
-    private readonly bee: Bee,
-    private readonly signer: PrivateKey,
-  ) {
-    this.signerAddress = signer.publicKey().address().toString();
+  constructor(swarmClient: SwarmClient) {
+    this.swarmClient = swarmClient;
   }
 
   // --- Swarm operations  ---
@@ -91,12 +88,13 @@ export class MantarayStore {
     // Concurrent getMantarayNode calls for the same but not yet cached topic must share one load (and thus one MantarayNode instance) — otherwise
     // each caller mutates its own copy and all but the last are dropped before the batched save.
     const loadPromise = (async (): Promise<MantarayNode> => {
-      const raw = await this.bee.downloadData(
-        manifestRef.reference,
-        { actHistoryAddress: manifestRef.historyRef, actPublisher: publisher },
+      const raw = await this.swarmClient.downloadProtected(
+        { reference: manifestRef.reference, historyRef: manifestRef.historyRef, publisher },
+        undefined,
+        undefined,
         requestOptions,
       );
-      const node = await loadMantaray(this.bee, new Reference(raw), undefined, requestOptions);
+      const node = await loadMantaray(this.swarmClient, new Reference(raw), undefined, requestOptions);
 
       this.setManifestCache(topic, node);
       this.setNodeRef(topic, manifestRef);
@@ -124,8 +122,7 @@ export class MantarayStore {
     let nextIndex: bigint;
     try {
       ({ contentRefs, nextIndex } = await saveNodeManifest(
-        this.bee,
-        this.signer,
+        this.swarmClient,
         node,
         { ...host, manifestRef: prevManifestRef },
         cachedWriteIx,
@@ -150,8 +147,7 @@ export class MantarayStore {
     delete persistable.driveId;
 
     const { contentRefs, index, nextIndex } = await writeActFeed(
-      this.bee,
-      this.signer,
+      this.swarmClient,
       JSON.stringify(persistable),
       {
         batchId: record.batchId,
@@ -182,13 +178,14 @@ export class MantarayStore {
     const contentRefs = feedData.payload.toJSON() as ActReferences;
     assertActReferences(contentRefs);
 
-    const fileBytes = await this.bee.downloadData(
-      contentRefs.reference,
-      { actHistoryAddress: contentRefs.historyRef, actPublisher },
+    const fileBytes = await this.swarmClient.downloadProtected(
+      { reference: contentRefs.reference, historyRef: contentRefs.historyRef, publisher: actPublisher },
+      undefined,
+      undefined,
       requestOptions,
     );
 
-    const record = fileBytes.toJSON() as FileRecord;
+    const record = new Bytes(fileBytes).toJSON() as FileRecord;
     assertFileRecord(record);
 
     if (topic !== record.topic) {
@@ -259,7 +256,7 @@ export class MantarayStore {
 
   private driveRootHost(drive: DriveInfo): ManifestHost {
     return {
-      owner: this.signerAddress,
+      owner: this.swarmClient.owner,
       topic: drive.topic,
       manifestRef: drive.manifestRef,
       batchId: drive.batchId,
@@ -307,7 +304,7 @@ export class MantarayStore {
 
       currentFolderInfo = {
         type: NodeType.Folder,
-        owner: this.signerAddress,
+        owner: this.swarmClient.owner,
         topic: nodeTopic,
         manifestRef: folderManifestRef,
         batchId: driveInfo.batchId,
@@ -342,9 +339,9 @@ export class MantarayStore {
     }
 
     const { payload, feedIndex, feedIndexNext } = await getFeedData(
-      this.bee,
+      this.swarmClient,
       new Topic(nodeTopic),
-      this.signerAddress,
+      this.swarmClient.owner,
       undefined,
       requestOptions,
     );

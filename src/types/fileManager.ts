@@ -5,7 +5,6 @@ import {
   type FeedIndex,
   type FileUploadOptions,
   type Identifier,
-  type PostageBatch,
   type RedundancyLevel,
   type RedundantUploadOptions,
 } from '@ethersphere/bee-js';
@@ -14,6 +13,7 @@ import { type EventEmitter } from '../eventEmitter';
 
 import { type DownloadFilesResult, type DownloadResult } from './download';
 import { type DriveInfo, type FileRecord, type FolderInfo, type ListDepth, type NodeEntry } from './info';
+import type { StampInfo } from './swarmClient';
 import { type UpdateItem, type UploadFilesResult, type UploadItem } from './upload';
 
 /**
@@ -35,8 +35,9 @@ export interface FileManager {
    * Regular drives are created with {@link createDrive} once this has succeeded.
    * @param batchId - The batch ID for the admin drive / state.
    * @param redundancyLevel - Optional redundancy level for the admin drive.
-   * @param reset - Overwrite existing admin state with a freshly generated one (wipes local state
-   *   and appends a new state pointer). Required when admin state already exists.
+   * @param reset - Discard existing admin state and start over (wipes local state and appends a
+   *   fresh empty manifest at the next free slot of the same state feed; the derived topic is
+   *   stable). Required when admin state already exists.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.DRIVE_CREATED
    * @returns The newly-created admin DriveInfo.
@@ -61,7 +62,7 @@ export interface FileManager {
    * @emits FileManagerEvents.DRIVE_CREATED
    * @returns The newly-created DriveInfo.
    * @throws {DriveError} If not initialized, admin state/manifest is not ready, or a drive with the
-   *   same name or batchId already exists.
+   *   same name already exists. Several drives may share one batch — a batch only pays for storage.
    * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {StampError} If the batch stamp is missing or not usable.
    */
@@ -419,7 +420,7 @@ export interface FileManager {
    * Admin postage batch used for drive management operations.
    * @returns The admin postage batch, or undefined if not set.
    */
-  readonly adminStamp: PostageBatch | undefined;
+  readonly adminStamp: StampInfo | undefined;
 
   /**
    * Retrieves a list of drive information.

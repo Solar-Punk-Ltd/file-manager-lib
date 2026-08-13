@@ -1,5 +1,4 @@
 import type {
-  Bee,
   BeeRequestOptions,
   FileUploadOptions,
   RedundancyLevel,
@@ -8,6 +7,7 @@ import type {
 import { isNode } from 'std-env';
 
 import type { DriveInfo } from '../types/info';
+import { type SwarmClient } from '../types/swarmClient';
 import type { BrowserUploadOptions, NodeUploadOptions, UploadSource } from '../types/upload';
 import type { ActReferences } from '../types/utils';
 import { FileError } from '../utils/errors';
@@ -46,7 +46,7 @@ const processOptions = (
 };
 
 export async function processUpload(
-  bee: Bee,
+  swarmClient: SwarmClient,
   driveInfo: DriveInfo,
   item: UploadSource,
   redundancyLevel: RedundancyLevel,
@@ -62,7 +62,7 @@ export async function processUpload(
   if (isNode) {
     const { processUploadNode } = await import('./upload-node');
     const contentRefs = await processUploadNode(
-      bee,
+      swarmClient,
       driveInfo,
       options as NodeUploadOptions,
       processedUploadOptions,
@@ -74,7 +74,7 @@ export async function processUpload(
 
   const { processUploadBrowser } = await import('./upload-browser');
   const contentRefs = await processUploadBrowser(
-    bee,
+    swarmClient,
     driveInfo,
     options as BrowserUploadOptions,
     processedUploadOptions,

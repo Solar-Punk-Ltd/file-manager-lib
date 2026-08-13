@@ -11,3 +11,19 @@ export type {
 export type { DownloadFilesResult, DownloadResource, DownloadResult } from './download';
 export type { ActReferences, FailedResult } from './utils';
 export type { FileManager, FileManagerConfig } from './fileManager';
+export type {
+  ClientUploadResult,
+  ClientProtectedUploadResult,
+  FeedIndexString,
+  FeedRead,
+  FeedWrite,
+  Hex,
+  ProtectedRefs,
+  StampInfo,
+  SwarmClient,
+  SwarmDownloadOptions,
+  SwarmRedundancyLevel,
+  SwarmRedundancyStrategy,
+  SwarmRequestOptions,
+  SwarmUploadOptions,
+} from './swarmClient';

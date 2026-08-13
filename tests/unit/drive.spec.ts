@@ -51,18 +51,23 @@ describe('Drive operations', () => {
       expect(di.manifestRef).toBeDefined();
     });
 
-    it('should throw error if drive with same name or batchId exists', async () => {
+    it('should throw error if drive with same name exists', async () => {
       const fm = await createInitializedFileManager();
       await fm.createDrive(otherMockBatchId, 'Test Drive');
-      await expect(fm.createDrive(otherMockBatchId, 'New Drive')).rejects.toThrow(
-        new DriveError(
-          `Drive with name "New Drive" or batchId "${otherMockBatchId.toString().slice(0, 6)}" already exists`,
-        ),
+
+      const otherBatchId = 'aa0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
+      await expect(fm.createDrive(otherBatchId, 'Test Drive')).rejects.toThrow(
+        new DriveError('Drive with name "Test Drive" already exists'),
       );
-      const newDriveId = 'aa0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
-      await expect(fm.createDrive(newDriveId, 'Test Drive')).rejects.toThrow(
-        new DriveError(`Drive with name "Test Drive" or batchId "${newDriveId.slice(0, 6)}" already exists`),
-      );
+    });
+
+    it('should allow several drives to share one batch', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive');
+
+      const second = await fm.createDrive(otherMockBatchId, 'New Drive');
+      expect(second.name).toBe('New Drive');
+      expect(second.batchId).toBe(otherMockBatchId.toString());
     });
   });
 

@@ -26,7 +26,7 @@ import { Optional } from 'cafe-utility';
 import { DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
 
 import { type FileManagerBase } from '@/fileManager';
-import { type DriveInfo, type FileRecord, NodeType } from '@/types';
+import { type DriveInfo, type FileRecord, NodeType, type StampInfo } from '@/types';
 import { fetchStamp, getFeedData } from '@/utils/bee';
 import { ADMIN_DRIVE_NAME, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 import { getAllNodeEntries, loadMantaray } from '@/utils/mantaray';
@@ -178,6 +178,12 @@ export const mockPostageBatch: PostageBatch = {
   calculateRemainingSize: () => Size.fromGigabytes(100),
 };
 
+export const mockStampInfo: StampInfo = {
+  batchId: mockPostageBatch.batchID.toString(),
+  usable: mockPostageBatch.usable,
+  depth: mockPostageBatch.depth,
+};
+
 export function loadStampListMock(): PostageBatch[] {
   return [
     {
@@ -245,7 +251,7 @@ export function applyDefaultMocks(): void {
     },
   });
 
-  (fetchStamp as jest.Mock).mockResolvedValue({ ...mockPostageBatch });
+  (fetchStamp as jest.Mock).mockResolvedValue({ ...mockStampInfo });
 
   (loadMantaray as jest.Mock).mockResolvedValue(new MantarayNode());
   (getAllNodeEntries as jest.Mock).mockReturnValue([]);

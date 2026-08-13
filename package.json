@@ -70,11 +70,20 @@
       "@ethersphere/bee-js": "npm:@solarpunkltd/bee-js@0.0.0-fmv2.1"
     }
   },
+  "peerDependencies": {
+    "@snaha/swarm-id": "^0.2.0"
+  },
+  "peerDependenciesMeta": {
+    "@snaha/swarm-id": {
+      "optional": true
+    }
+  },
   "devDependencies": {
     "@commitlint/cli": "^20.4.1",
     "@commitlint/config-conventional": "^20.4.1",
     "@eslint/js": "^9.39.2",
     "@ethersphere/bee-factory": "^1.1.1",
+    "@snaha/swarm-id": "^0.2.0",
     "@types/jest": "^30.0.0",
     "@types/node": "^22",
     "@typescript-eslint/eslint-plugin": "^8.67.0",

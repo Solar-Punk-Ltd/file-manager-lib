@@ -18,6 +18,7 @@ import {
   NodeStatus,
   NodeType,
 } from '../types/info';
+import { type SwarmClient } from '../types/swarmClient';
 import { type ActReferences } from '../types/utils';
 
 import {
@@ -184,7 +185,7 @@ interface FMReadyState {
 }
 
 export function assertReady(
-  publisher: PublicKey | undefined,
+  swarmClient: SwarmClient,
   isInitialized: boolean | undefined,
   stateFeedTopic: Topic | undefined,
 ): FMReadyState {
@@ -194,12 +195,14 @@ export function assertReady(
   if (!stateFeedTopic) {
     throw new DriveError('FileManager state feed topic not found.');
   }
+
+  const publisher = swarmClient.actPublisher;
   if (!publisher) {
     throw new SignerError('Publisher not found');
   }
 
   return {
-    publisher: publisher.toCompressedHex(),
+    publisher,
     isInitialized,
     stateFeedTopic: stateFeedTopic.toString(),
   };
