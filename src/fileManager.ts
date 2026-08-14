@@ -996,7 +996,7 @@ export class FileManagerBase implements FileManager {
         }),
         this.feedFetchConcurrency,
         (record) => {
-          if (!this.recordList.some((f) => f.topic === record.topic)) this._recordList.push(record);
+          this.cacheRecord(record);
           results.push(record);
         },
         (reason, ix) => {
