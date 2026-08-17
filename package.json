@@ -51,7 +51,7 @@
   "homepage": "https://github.com/Solar-Punk-Ltd/file-manager-lib",
   "license": "Apache-2.0",
   "dependencies": {
-    "@ethersphere/bee-js": "^13.0.0-upcoming.gcfb9756",
+    "@ethersphere/bee-js": "13.0.0-upcoming.g5647049",
     "cafe-utility": "^33.7.0",
     "std-env": "^3.10.0"
   },

@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@ethersphere/bee-js':
-        specifier: ^13.0.0-upcoming.gcfb9756
-        version: 13.0.0-upcoming.gcfb9756
+        specifier: 13.0.0-upcoming.g5647049
+        version: 13.0.0-upcoming.g5647049
       cafe-utility:
         specifier: ^33.7.0
         version: 33.7.0
@@ -390,8 +390,8 @@ packages:
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
-  '@ethersphere/bee-js@13.0.0-upcoming.gcfb9756':
-    resolution: {integrity: sha512-PBhYN0z2eC3cMOvqAK/lkRYZKcGMm5934jxroCRUt8TyAkHMQk9QcgAgcn8yDciJvnxvVeadQMx1k0DImVKB/A==}
+  '@ethersphere/bee-js@13.0.0-upcoming.g5647049':
+    resolution: {integrity: sha512-4O8rL1egonBRYt1MapwlkEF+iSbhdHmw3hWLSVu8XlSkWG69N7T68YaqQogchHbvt2XBnmotSHTSYEgPSCG6iA==}
     engines: {bee: 2.8.1-7cf53193, beeApiVersion: 8.1.0}
 
   '@humanfs/core@0.19.1':
@@ -533,6 +533,14 @@ packages:
 
   '@napi-rs/wasm-runtime@0.2.12':
     resolution: {integrity: sha512-ZVWUcfwY4E/yPitQJl481FjFo3K22D6qF0DuFH6Y/nbnE11GY5uguDxZMGXPQ8WQ0128MXQD7TnfHyK4oWoIJQ==}
+
+  '@noble/curves@1.9.7':
+    resolution: {integrity: sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw==}
+    engines: {node: ^14.21.3 || >=16}
+
+  '@noble/hashes@1.8.0':
+    resolution: {integrity: sha512-jCs9ldd7NwzpgXDIf6P3+NrHh9/sD6CQdxHyjQI+h/6rDNo88ypBxxz45UDuZHz9r3tNz7N/VInSVoVdtXEI4A==}
+    engines: {node: ^14.21.3 || >=16}
 
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
@@ -797,6 +805,10 @@ packages:
     resolution: {integrity: sha512-lrW200hZdbfRtztbygyaq/6jP6AKE8qQN2KvPcJ+x7wiD038YtnYtZ82IMNJ69GJibV7bwL3y9FgK+5w/pYt6g==}
     cpu: [x64]
     os: [win32]
+
+  '@upcoming/swarm-core@0.0.9':
+    resolution: {integrity: sha512-G+87YUOzan5vdymthcm6ZCn9qiwda8rn9vJhrkD/BaCDe4+RBbtAA+2Zq26lHc6dbhVIjccPwd9bndX5zreHoA==}
+    engines: {node: '>=22'}
 
   '@vue/compiler-core@3.5.27':
     resolution: {integrity: sha512-gnSBQjZA+//qDZen+6a2EdHqJ68Z7uybrMf3SPjEGgG4dicklwDVmMC1AeIHxtLVPT7sn6sH1KOO+tS6gwOUeQ==}
@@ -3176,12 +3188,13 @@ snapshots:
       '@eslint/core': 0.17.0
       levn: 0.4.1
 
-  '@ethersphere/bee-js@13.0.0-upcoming.gcfb9756':
+  '@ethersphere/bee-js@13.0.0-upcoming.g5647049':
     dependencies:
       cafe-utility: 34.0.0
       debug: 4.4.3
       isomorphic-ws: 5.0.0(ws@8.21.1)
       semver: 7.7.3
+      swarm-core: '@upcoming/swarm-core@0.0.9'
       ws: 8.21.1
       zod: 4.4.3
     transitivePeerDependencies:
@@ -3434,6 +3447,12 @@ snapshots:
       '@emnapi/runtime': 1.8.1
       '@tybys/wasm-util': 0.10.1
     optional: true
+
+  '@noble/curves@1.9.7':
+    dependencies:
+      '@noble/hashes': 1.8.0
+
+  '@noble/hashes@1.8.0': {}
 
   '@pkgjs/parseargs@0.11.0':
     optional: true
@@ -3691,6 +3710,11 @@ snapshots:
 
   '@unrs/resolver-binding-win32-x64-msvc@1.11.1':
     optional: true
+
+  '@upcoming/swarm-core@0.0.9':
+    dependencies:
+      '@noble/curves': 1.9.7
+      '@noble/hashes': 1.8.0
 
   '@vue/compiler-core@3.5.27':
     dependencies:
