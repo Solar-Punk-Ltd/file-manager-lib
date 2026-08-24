@@ -9,7 +9,6 @@ export const TRASH_FOLDER_NAME = '.trash';
 export const MAX_CONCURRENT_FEED_FETCHES = 10;
 export const MAX_CONCURRENT_UPLOADS = 2;
 export const DRIVE_FORK_PREFIX = '/drive';
-export const MANIFEST_METADATA_FILE_TOPIC = 'swarm-file-topic';
 export const MANIFEST_METADATA_NODE_TOPIC = 'swarm-node-topic';
 export const MANIFEST_METADATA_NODE_TYPE = 'swarm-node-type';
 export const MANIFEST_METADATA_REDUNDANCY_LEVEL = 'swarm-redundancy-level';

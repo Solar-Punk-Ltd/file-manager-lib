@@ -5,8 +5,9 @@ import { buyStampSerialized, createInitializedFileManager, DEFAULT_BATCH_AMOUNT,
 import { ensureUniqueSignerWithStamp, tempFileRegistry } from './setup/utils';
 
 import { type FileManagerBase } from '@/fileManager';
-import { type DriveInfo } from '@/types';
+import { type DriveInfo, ListDepth } from '@/types';
 import { DriveError, FileManagerEvents } from '@/utils';
+import { ROOT_PATH } from '@/utils/constants';
 
 describe('Drive operations', () => {
   let bee: Bee;
@@ -107,5 +108,56 @@ describe('Drive operations', () => {
     await expect(fileManager.forgetDrive(new Identifier(idBytes))).rejects.toThrow(
       new DriveError(`Drive with id ${new Identifier(idBytes).toString().slice(0, 6)} not found`),
     );
+  });
+
+  it('renames a drive via move, keeping its files, and the new name survives a cold instance', async () => {
+    const batchId = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'renameDriveStamp');
+    await fileManager.createDrive(batchId, 'Drive to rename');
+    const drive = fileManager.driveList.find((d) => d.name === 'Drive to rename')!;
+    expect(drive).toBeDefined();
+
+    const src = writeTempFile('it-rename-drive.txt', 'Survives A Rename');
+    await fileManager.uploadFile(drive.id, { path: 'it-rename-drive.txt', sourcePath: src });
+
+    const renamed = new Promise<DriveInfo>((resolve) => {
+      fileManager.emitter.on(FileManagerEvents.DRIVE_RENAMED, ({ driveInfo }: { driveInfo: DriveInfo }) =>
+        resolve(driveInfo),
+      );
+    });
+
+    await fileManager.move(ROOT_PATH, 'Renamed drive', drive.id);
+    expect((await renamed).name).toBe('Renamed drive');
+
+    const local = fileManager.driveList.find((d) => d.id === drive.id)!;
+    expect(local.name).toBe('Renamed drive');
+    expect(local.topic).toBe(drive.topic);
+
+    // A cold instance rebuilds driveList from the admin manifest, so this is where a rename that only
+    // updated memory would show up.
+    const fm2 = await createInitializedFileManager(bee, ownerBatch.batchID);
+    const reloaded = fm2.driveList.find((d) => d.id === drive.id);
+    expect(reloaded).toBeDefined();
+    expect(reloaded!.name).toBe('Renamed drive');
+    expect(fm2.driveList.find((d) => d.name === 'Drive to rename')).toBeUndefined();
+
+    const entries = await fm2.listFolder(drive.id, '', ListDepth.Shallow);
+    expect(entries.some((e) => e.path === 'it-rename-drive.txt')).toBe(true);
+  });
+
+  it('refuses to rename the admin drive or reuse an existing drive name', async () => {
+    const adminDrive = fileManager.driveList.find((d) => d.isAdmin)!;
+    await expect(fileManager.move(ROOT_PATH, 'not-admin', adminDrive.id)).rejects.toThrow(
+      new DriveError('Cannot rename the admin drive'),
+    );
+
+    const taken = fileManager.driveList.find((d) => !d.isAdmin)!;
+    const batchId = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'renameClashStamp');
+    await fileManager.createDrive(batchId, 'Rename clash source');
+    const source = fileManager.driveList.find((d) => d.name === 'Rename clash source')!;
+
+    await expect(fileManager.move(ROOT_PATH, taken.name, source.id)).rejects.toThrow(
+      new DriveError(`Drive with name "${taken.name}" already exists`),
+    );
+    expect(fileManager.driveList.find((d) => d.id === source.id)!.name).toBe('Rename clash source');
   });
 });

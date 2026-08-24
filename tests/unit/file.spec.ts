@@ -29,12 +29,12 @@ import {
 import { type FileManagerBase } from '@/fileManager';
 import { type DriveInfo, type FileRecord, NodeStatus, NodeType } from '@/types';
 import { FileError, FileManagerEvents, FileRecordError } from '@/utils';
-import { getFeedData } from '@/utils/bee';
+import { getFeedData, writeActFeed } from '@/utils/bee';
 import {
   FEED_INDEX_ZERO,
-  MANIFEST_METADATA_FILE_TOPIC,
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
+  MANIFEST_METADATA_NODE_VERSION,
   ROOT_PATH,
   SWARM_ZERO_ADDRESS,
   TRASH_FOLDER_NAME,
@@ -78,6 +78,7 @@ describe('File operations', () => {
           actPublisher,
           topic: Topic.fromString('dlf-a.txt').toString(),
           driveId: drive.id,
+          name: 'a.txt',
           path: 'a.txt',
           content: { reference: '1'.repeat(64), historyRef: SWARM_ZERO_ADDRESS.toString() },
           redundancyLevel: RedundancyLevel.OFF,
@@ -89,6 +90,7 @@ describe('File operations', () => {
           actPublisher,
           topic: Topic.fromString('dlf-b.txt').toString(),
           driveId: drive.id,
+          name: 'b.txt',
           path: 'b.txt',
           content: { reference: '2'.repeat(64), historyRef: SWARM_ZERO_ADDRESS.toString() },
           redundancyLevel: RedundancyLevel.OFF,
@@ -486,6 +488,7 @@ describe('File operations', () => {
         actPublisher,
         topic: Topic.fromString('orphan').toString(),
         driveId: ghost.id,
+        name: 'package.json',
         path: 'package.json',
         content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
         version: FEED_INDEX_ZERO.toString(),
@@ -543,6 +546,7 @@ describe('File operations', () => {
         actPublisher,
         topic: Topic.fromString('foreign-topic').toString(),
         driveId: di.id,
+        name: 'package.json',
         path: 'package.json',
         content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
         version: FEED_INDEX_ZERO.toString(),
@@ -575,6 +579,7 @@ describe('File operations', () => {
         actPublisher,
         topic: Topic.fromString('cold-topic').toString(),
         driveId: di.id,
+        name: 'package.json',
         path: 'package.json',
         content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
         version: FEED_INDEX_ZERO.toString(),
@@ -586,24 +591,144 @@ describe('File operations', () => {
     });
   });
 
+  describe('record persistence contract', () => {
+    it('persists name but strips the derived path, driveId and status', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      const drive = fm.driveList[1];
+
+      await fm.createFolder(drive.id, ROOT_PATH, 'docs');
+      await fm.uploadFile(drive.id, { path: 'docs/report.pdf', ...makeUploadSource('package.json') });
+
+      expect(writeActFeed as jest.Mock).toHaveBeenCalled();
+      const payloads = (writeActFeed as jest.Mock).mock.calls
+        .map(([, , payload]) => {
+          try {
+            return JSON.parse(String(payload));
+          } catch {
+            return undefined;
+          }
+        })
+        .filter((p) => p?.type === NodeType.File);
+
+      expect(payloads).toHaveLength(1);
+      const persisted = payloads[0];
+
+      expect(persisted.name).toBe('report.pdf');
+      expect(persisted).not.toHaveProperty('path');
+      expect(persisted).not.toHaveProperty('driveId');
+      expect(persisted).not.toHaveProperty('status');
+
+      const cached = fm.recordList.find((fr) => fr.name === 'report.pdf')!;
+      expect(cached.path).toBe('docs/report.pdf');
+      expect(cached.driveId).toBe(drive.id);
+    });
+
+    it('derives name from the leaf of the upload path, at any depth', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      const drive = fm.driveList[1];
+
+      await fm.uploadFiles(drive.id, [
+        { path: 'flat.txt', ...makeUploadSource('package.json') },
+        { path: 'a/b/deep.txt', ...makeUploadSource('package.json') },
+      ]);
+
+      const flat = fm.recordList.find((fr) => fr.path === 'flat.txt')!;
+      expect(flat.name).toBe('flat.txt');
+
+      const deep = fm.recordList.find((fr) => fr.path === 'a/b/deep.txt')!;
+      expect(deep.name).toBe('deep.txt');
+
+      const driveMantaray = (fm as any).store.getManifestCache(drive.topic) as MantarayNode;
+      expect(driveMantaray.find('flat.txt')).toBeTruthy();
+      expect(driveMantaray.find('a')).toBeTruthy();
+    });
+
+    it('falls back to name for path when a record is read straight off its feed', async () => {
+      const fm = await createInitializedFileManager();
+      const drive = fm.driveList[0];
+
+      const fileTopic = Topic.fromString('bare-read').toString();
+      const stored = {
+        type: NodeType.File,
+        batchId: DUMMY_BATCH_ID,
+        owner,
+        actPublisher,
+        topic: fileTopic,
+        name: 'bare.txt',
+        redundancyLevel: RedundancyLevel.OFF,
+        content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+      };
+
+      jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(Bytes.fromUtf8(JSON.stringify(stored)));
+
+      const record = await (fm as any).store.getRecord(
+        fileTopic,
+        actPublisher,
+        {
+          feedIndex: FeedIndex.fromBigInt(0n),
+          feedIndexNext: FeedIndex.fromBigInt(1n),
+          payload: {
+            toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
+          },
+        },
+        { isHeadRead: true },
+      );
+
+      expect(record.name).toBe('bare.txt');
+      expect(record.path).toBe('bare.txt');
+      expect(drive).toBeDefined();
+    });
+  });
+
   describe('move', () => {
-    it('renames a file fork in place and bumps the FileRecord version', async () => {
+    it('renames a file fork in place without writing a new version', async () => {
       const fm = await createInitializedFileManager();
       await fm.createDrive(otherMockBatchId, 'Test Drive');
       const drive = fm.driveList[1];
 
       await fm.uploadFile(drive.id, { path: 'package.json', ...makeUploadSource('package.json') });
       const original = fm.recordList.find((fr) => fr.path === 'package.json')!;
+      const versionBefore = original.version;
 
+      const saveRecordSpy = jest.spyOn((fm as any).store, 'saveRecord');
       await fm.move('package.json', 'renamed.json', drive.id);
+
+      expect(saveRecordSpy).not.toHaveBeenCalled();
 
       const moved = fm.recordList.find((fr) => fr.topic === original.topic)!;
       expect(moved.path).toBe('renamed.json');
-      expect(moved.version).toBe(FeedIndex.fromBigInt(1n).toString());
+      expect(moved.name).toBe('renamed.json');
+      expect(moved.version).toBe(versionBefore);
 
       const driveMantaray = (fm as any).store.getManifestCache(drive.topic) as MantarayNode;
       expect(driveMantaray.find('package.json')).toBeFalsy();
-      expect(driveMantaray.find('renamed.json')).toBeTruthy();
+
+      const renamedFork = driveMantaray.find('renamed.json');
+      expect(renamedFork).toBeTruthy();
+      expect(renamedFork!.metadata?.[MANIFEST_METADATA_NODE_VERSION]).toBe(versionBefore);
+    });
+
+    it('moves a file across folders without writing a new version', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      const drive = fm.driveList[1];
+
+      await fm.createFolder(drive.id, ROOT_PATH, 'archive');
+      await fm.uploadFile(drive.id, { path: 'notes.txt', ...makeUploadSource('package.json') });
+      const original = fm.recordList.find((fr) => fr.path === 'notes.txt')!;
+      const versionBefore = original.version;
+
+      const saveRecordSpy = jest.spyOn((fm as any).store, 'saveRecord');
+      await fm.move('notes.txt', 'archive/notes.txt', drive.id);
+
+      expect(saveRecordSpy).not.toHaveBeenCalled();
+
+      const moved = fm.recordList.find((fr) => fr.topic === original.topic)!;
+      expect(moved.path).toBe('archive/notes.txt');
+      expect(moved.name).toBe('notes.txt');
+      expect(moved.version).toBe(versionBefore);
     });
 
     it('cannot reach a trashed node, and refuses the trash folder as an endpoint', async () => {
@@ -624,22 +749,20 @@ describe('File operations', () => {
       expect(driveMantaray.find('renamed.json')).toBeFalsy();
     });
 
-    it('self-hydrates a file that was never loaded into recordList', async () => {
+    it('relocates a file that was never loaded into recordList, without reading its feed', async () => {
       const fm = await createInitializedFileManager();
       const drive = fm.driveList[0];
       const driveMantaray = (fm as any).store.getManifestCache(drive.topic) as MantarayNode;
 
       const fileTopic = Topic.fromString('cold-file').toString();
       driveMantaray.addFork('cold.txt', new Reference(fileTopic), {
-        [MANIFEST_METADATA_FILE_TOPIC]: fileTopic,
         [MANIFEST_METADATA_NODE_TOPIC]: fileTopic,
         [MANIFEST_METADATA_NODE_TYPE]: NodeType.File,
       });
 
       const coldFileRecord = {
         topic: fileTopic,
-        driveId: drive.id,
-        path: 'cold.txt',
+        name: 'cold.txt',
         type: NodeType.File,
         batchId: DUMMY_BATCH_ID,
         owner,
@@ -659,11 +782,14 @@ describe('File operations', () => {
 
       expect(fm.recordList.find((f) => f.topic === fileTopic)).toBeUndefined();
 
+      const saveRecordSpy = jest.spyOn((fm as any).store, 'saveRecord');
       await fm.move('cold.txt', 'warm.txt', drive.id);
 
-      const moved = fm.recordList.find((f) => f.topic === fileTopic);
-      expect(moved).toBeDefined();
-      expect(moved?.path).toBe('warm.txt');
+      expect(saveRecordSpy).not.toHaveBeenCalled();
+      expect(fm.recordList.find((f) => f.topic === fileTopic)).toBeUndefined();
+
+      expect(driveMantaray.find('cold.txt')).toBeFalsy();
+      expect(driveMantaray.find('warm.txt')).toBeTruthy();
     });
 
     it('throws when the source path is not found in the manifest', async () => {

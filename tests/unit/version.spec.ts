@@ -41,6 +41,7 @@ describe('Version control', () => {
     owner,
     batchId: DUMMY_BATCH_ID,
     driveId: Identifier.fromString('version-drive').toString(),
+    name: 'x.txt',
     path: 'x.txt',
     actPublisher,
     version: FeedIndex.fromBigInt(0n).toString(),
@@ -243,6 +244,7 @@ describe('Version control', () => {
         ...dummyFi,
         driveId: di.id,
         topic: Topic.fromString('impostor-topic').toString(),
+        name: 'report.pdf',
         path: 'report.pdf',
         version: FEED_INDEX_ZERO.toString(),
       };

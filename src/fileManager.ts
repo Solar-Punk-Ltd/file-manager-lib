@@ -46,7 +46,6 @@ import {
   ADMIN_DRIVE_NAME,
   FEED_INDEX_ZERO,
   FILEMANAGER_STATE_TOPIC,
-  MANIFEST_METADATA_FILE_TOPIC,
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
   MANIFEST_METADATA_NODE_VERSION,
@@ -304,6 +303,7 @@ export class FileManagerBase implements FileManager {
       batchId: cachedDrive.batchId,
       owner,
       topic,
+      name: filename,
       path: filename,
       actPublisher: publisher,
       content: contentRefs,
@@ -532,6 +532,7 @@ export class FileManagerBase implements FileManager {
           batchId: cachedDrive.batchId,
           owner,
           topic,
+          name: planned.filename,
           path: planned.filename,
           actPublisher: publisher,
           content: contentRefs,
@@ -682,6 +683,7 @@ export class FileManagerBase implements FileManager {
       batchId: cached.batchId,
       owner,
       topic,
+      name: filename,
       path: filename,
       actPublisher: cached.actPublisher,
       content: contentRefAndHistory,
@@ -783,6 +785,7 @@ export class FileManagerBase implements FileManager {
     );
     versionRecord.driveId = fr.driveId;
     versionRecord.path = localHead?.path ?? fr.path;
+    versionRecord.name = localHead?.name ?? fr.name;
 
     return versionRecord;
   }
@@ -832,6 +835,7 @@ export class FileManagerBase implements FileManager {
     const newVersion = feedIndexNext.toString();
     const restored: FileRecord = {
       ...versionToRestore,
+      name: resolvedFork.filename,
       path: restoredPath,
       version: newVersion,
       content: {
@@ -986,6 +990,7 @@ export class FileManagerBase implements FileManager {
 
           const { record } = await this.loadRecord(e.topic, owner, actPublisher, version, requestOptions);
           record.path = e.path;
+          record.name = splitPath(e.path).name;
           record.driveId = cachedDrive.id;
           record.status = getRecordStatus(e.path);
           return record;
@@ -1092,8 +1097,15 @@ export class FileManagerBase implements FileManager {
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
     const { driveIx: sourceDriveIx, cachedDrive: cachedSource } = this.findDriveOrThrow(sourceDriveId);
 
-    // disable drive move
-    if (!fromPath || fromPath === ROOT_PATH) {
+    if (fromPath === ROOT_PATH) {
+      if (!toPath || toPath === ROOT_PATH || toPath.includes('/')) {
+        throw new FolderError('Cannot move root folder');
+      }
+
+      return await this.renameDrive(sourceDriveIx, cachedSource, toPath, publisher, requestOptions);
+    }
+
+    if (!fromPath) {
       throw new FolderError('Cannot move root folder');
     }
     if (!toPath || toPath === ROOT_PATH) {
@@ -1140,29 +1152,14 @@ export class FileManagerBase implements FileManager {
       throw new FolderError(`Destination already exists: ${toPath}`);
     }
 
-    let moved: { record: FileRecord; version: string } | undefined;
+    let moved: FileRecord | undefined;
     if (isFile) {
-      const fileTopic = forkMetadata[MANIFEST_METADATA_FILE_TOPIC];
+      const fileTopic = forkMetadata[MANIFEST_METADATA_NODE_TOPIC];
       if (!fileTopic) {
         throw new FileRecordError(`Fork at ${fromPath} has no file topic — cannot move`);
       }
 
-      const forkVersion = forkMetadata[MANIFEST_METADATA_NODE_VERSION];
-      const { record } = await this.loadRecord(
-        fileTopic,
-        this.signerAddress,
-        publisher,
-        forkVersion !== undefined ? new FeedIndex(forkVersion).toBigInt() : undefined,
-        requestOptions,
-      );
-
-      const head = record.version !== undefined ? new FeedIndex(record.version) : undefined;
-
-      const persistable: FileRecord = { ...record, path: tgtName, version: head?.next().toString() };
-      const writtenVersion = await this.persistRecord(persistable, requestOptions);
-
-      forkMetadata[MANIFEST_METADATA_NODE_VERSION] = writtenVersion;
-      moved = { record, version: writtenVersion };
+      moved = this.recordList.find((f) => f.topic === fileTopic);
     }
 
     if (sameParent) {
@@ -1206,15 +1203,16 @@ export class FileManagerBase implements FileManager {
     }
 
     if (moved) {
-      moved.record.path = toPath;
-      moved.record.version = moved.version;
+      moved.path = toPath;
+      moved.name = tgtName;
+      moved.status = getRecordStatus(toPath);
     }
 
     this.emitter.emit(FileManagerEvents.FILE_MOVED, {
       driveId: cachedSource.id,
       fromPath,
       toPath,
-      record: moved?.record,
+      record: moved,
     });
   }
 
@@ -1429,6 +1427,7 @@ export class FileManagerBase implements FileManager {
     const record = this.recordList.find((f) => f.topic === topic);
     if (record) {
       record.path = restoredPath;
+      record.name = splitPath(restoredPath).name;
       delete record.trashedFrom;
       record.status = NodeStatus.Active;
     }
@@ -1653,6 +1652,40 @@ export class FileManagerBase implements FileManager {
     this.emitter.emit(FileManagerEvents.DRIVE_CREATED, { driveInfo: newDrive });
 
     return newDrive;
+  }
+
+  private async renameDrive(
+    driveIx: number,
+    drive: DriveInfo,
+    newName: string,
+    publisher: string,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void> {
+    if (drive.isAdmin) {
+      throw new DriveError('Cannot rename the admin drive');
+    }
+    if (drive.name === newName) {
+      throw new DriveError('Source and destination names are identical');
+    }
+    if (this.driveList.some((d) => d.name === newName)) {
+      throw new DriveError(`Drive with name "${newName}" already exists`);
+    }
+
+    const adminHost = this.adminHost(publisher);
+    const adminMantaray = this.store.getManifestCache(adminHost.topic);
+    if (!adminMantaray) {
+      throw new DriveError('Admin manifest not loaded — initialize first.');
+    }
+
+    const renamed: DriveInfo = { ...drive, name: newName };
+    const forkPath = getDriveForkPath(drive.id);
+
+    adminMantaray.removeFork(forkPath);
+    adminMantaray.addFork(forkPath, new Reference(drive.topic), driveForkMetadata(renamed));
+    await this.store.saveMantarayNode(adminMantaray, adminHost, requestOptions);
+
+    this.driveList[driveIx].name = newName;
+    this.emitter.emit(FileManagerEvents.DRIVE_RENAMED, { driveInfo: this.driveList[driveIx] });
   }
 
   private async establishAdminState(

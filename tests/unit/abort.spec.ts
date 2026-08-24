@@ -269,6 +269,7 @@ describe('Abort signal handling', () => {
       actPublisher,
       topic: Topic.fromString('signal-file').toString(),
       driveId: drive.id,
+      name: 'a.txt',
       path: 'a.txt',
       content: { reference: '1'.repeat(64), historyRef: SWARM_ZERO_ADDRESS.toString() },
       redundancyLevel: RedundancyLevel.OFF,

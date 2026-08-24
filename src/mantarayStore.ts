@@ -145,9 +145,12 @@ export class MantarayStore {
   async saveRecord(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<FeedWriteResult> {
     const prevRef = this.getNodeRef(record.topic);
 
+    // Derived state: every one of these is reconstructed by the manifest walk, so persisting them
+    // would only create a second copy that can disagree with the tree.
     const persistable: FileRecord = { ...record };
     delete persistable.status;
     delete persistable.driveId;
+    delete (persistable as Partial<FileRecord>).path;
 
     const { contentRefs, index, nextIndex } = await writeActFeed(
       this.bee,
@@ -190,6 +193,8 @@ export class MantarayStore {
 
     const record = fileBytes.toJSON() as FileRecord;
     assertFileRecord(record);
+
+    record.path = record.name;
 
     if (topic !== record.topic) {
       throw new FileRecordError(

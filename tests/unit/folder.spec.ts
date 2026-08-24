@@ -102,6 +102,7 @@ describe('Folder operations', () => {
         redundancyLevel: RedundancyLevel.OFF,
         topic: topicB,
         driveId: drive.id,
+        name: 'b.txt',
         path: 'b.txt',
         content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
       });
@@ -125,6 +126,7 @@ describe('Folder operations', () => {
             actPublisher,
             topic: topicA,
             driveId: drive.id,
+            name: 'a.txt',
             path: 'a.txt',
             redundancyLevel: RedundancyLevel.OFF,
             content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
@@ -311,7 +313,7 @@ describe('Folder operations', () => {
       const fm = await createInitializedFileManager();
       const drive = fm.driveList[0];
 
-      await expect(fm.move('/', 'x.txt', drive.id)).rejects.toThrow('Cannot move root folder');
+      await expect(fm.move('/', 'x.txt', drive.id)).rejects.toThrow('Cannot rename the admin drive');
     });
   });
 });

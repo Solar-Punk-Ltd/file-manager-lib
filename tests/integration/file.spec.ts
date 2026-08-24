@@ -13,7 +13,7 @@ import {
 import { ensureUniqueSignerWithStamp, setupUserDrive, tempFileRegistry } from './setup/utils';
 
 import { type FileManagerBase } from '@/fileManager';
-import { type DriveInfo, ListDepth, NodeType } from '@/types';
+import { type DriveInfo, type FileRecord, ListDepth, NodeType } from '@/types';
 import { FileManagerEvents } from '@/utils';
 import { FEED_INDEX_ZERO, ROOT_PATH } from '@/utils/constants';
 
@@ -543,11 +543,13 @@ describe('move', () => {
   let bee: Bee;
   let fileManager: FileManagerBase;
   let driveA: DriveInfo;
+  let ownerStamp: BatchId;
   const { writeTempFile, writeTempDir, cleanup } = tempFileRegistry();
 
   beforeAll(async () => {
-    const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
+    const { bee: beeDev, ownerStamp: stamp } = await ensureUniqueSignerWithStamp();
     bee = beeDev;
+    ownerStamp = stamp;
     const batchIdA = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'moveIntegrationA');
     fileManager = await createInitializedFileManager(bee, ownerStamp);
 
@@ -559,7 +561,7 @@ describe('move', () => {
 
   afterAll(cleanup);
 
-  it('renames a file within the drive root, preserving content and bumping the version', async () => {
+  it('renames a file within the drive root, preserving content and its version', async () => {
     const fileA = 'it-move-a.txt';
     const src = writeTempFile(fileA, 'Move Content A');
     await fileManager.uploadFile(driveA.id, { path: fileA, sourcePath: src });
@@ -578,13 +580,52 @@ describe('move', () => {
     const moved = fileManager.recordList.find((fr) => fr.topic.toString() === topic)!;
     expect(moved).toBeDefined();
     expect(moved.path).toBe('it-move-b.txt');
-    expect(BigInt(moved.version!.toString())).toBe(beforeVersion + 1n);
+    expect(moved.name).toBe('it-move-b.txt');
+    expect(BigInt(moved.version!.toString())).toBe(beforeVersion);
 
     const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveA.id, '/'));
     const downloaded = downloadResults.succeeded.find((d) => d.path === 'it-move-b.txt');
     expect(downloaded).toBeDefined();
     expect(downloadResults.failed).toEqual([]);
     expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Move Content A');
+  });
+
+  it('a renamed file reads back under its new name on a cold instance, at the same version', async () => {
+    const original = 'it-cold-rename.txt';
+    const src = writeTempFile(original, 'Cold Rename Content');
+
+    const batchId = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'moveColdRename');
+    await fileManager.createDrive(batchId, 'move-cold-rename');
+    const drive = fileManager.driveList.find((d) => d.name === 'move-cold-rename')!;
+    expect(drive).toBeDefined();
+
+    await fileManager.uploadFile(drive.id, { path: original, sourcePath: src });
+
+    const before = fileManager.recordList.find((fr) => fr.path === original)!;
+    const topic = before.topic.toString();
+    const versionBefore = before.version;
+
+    await fileManager.move(original, 'it-cold-renamed.txt', drive.id);
+
+    const found = await retryOnPropagationDelay(async () => {
+      const reader = await createInitializedFileManager(bee, ownerStamp);
+      const entries = await reader.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow);
+      const hit = entries.find((e) => e.path === 'it-cold-renamed.txt');
+      if (!hit) {
+        throw new Error('rename not yet propagated to a fresh instance');
+      }
+      return hit as FileRecord;
+    });
+
+    expect(found.topic.toString()).toBe(topic);
+    expect(found.name).toBe('it-cold-renamed.txt');
+    expect(found.version).toBe(versionBefore);
+
+    const downloaded = await fileManager.downloadFiles([found]);
+    expect(downloaded.failed).toEqual([]);
+    expect(Buffer.from(await streamToUint8Array(downloaded.succeeded[0].result)).toString('utf-8')).toBe(
+      'Cold Rename Content',
+    );
   });
 
   it('moves a root file into a newly created folder', async () => {

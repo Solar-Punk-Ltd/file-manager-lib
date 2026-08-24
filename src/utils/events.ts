@@ -15,6 +15,7 @@ export enum FileManagerEvents {
   FOLDER_RECOVERED = 'folder-recovered',
   FOLDER_CREATED = 'folder-created',
   DRIVE_CREATED = 'drive-created',
+  DRIVE_RENAMED = 'drive-renamed',
   DRIVE_FORGOTTEN = 'drive-forgotten',
   TRASH_EMPTIED = 'trash-emptied',
 }

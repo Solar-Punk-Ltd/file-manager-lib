@@ -27,7 +27,7 @@ import { DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
 
 import { type FileManagerBase } from '@/fileManager';
 import { type DriveInfo, type FileRecord, NodeType } from '@/types';
-import { fetchStamp, getFeedData } from '@/utils/bee';
+import { fetchStamp, getFeedData, writeActFeed } from '@/utils/bee';
 import { ADMIN_DRIVE_NAME, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 import { getAllNodeEntries, loadMantaray } from '@/utils/mantaray';
 
@@ -64,6 +64,7 @@ export async function createMockFileInfo(
   return {
     type: NodeType.File,
     batchId: DUMMY_BATCH_ID,
+    name: 'john doe',
     path: '/john doe',
     topic: Topic.fromString('file-1').toString(),
     driveId: Identifier.fromString('123').toString(),
@@ -247,6 +248,8 @@ export function applyDefaultMocks(): void {
 
   (fetchStamp as jest.Mock).mockResolvedValue({ ...mockPostageBatch });
 
+  (writeActFeed as jest.Mock).mockImplementation(jest.requireActual('@/utils/bee').writeActFeed);
+
   (loadMantaray as jest.Mock).mockResolvedValue(new MantarayNode());
   (getAllNodeEntries as jest.Mock).mockReturnValue([]);
 }
@@ -265,6 +268,7 @@ export const seedDummyFile = (
     actPublisher,
     topic: Topic.fromString(`dl-${path}`).toString(),
     driveId: drive.id,
+    name: path.split('/').filter(Boolean).pop() ?? path,
     path,
     content: {
       reference: ref,

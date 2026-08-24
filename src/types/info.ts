@@ -31,6 +31,8 @@ export interface NodeResource {
 export interface FileRecord extends NodeResource {
   type: NodeType.File;
   driveId?: string;
+  name: string;
+  // On a record loaded straight off its feed this falls back to `name` until a listing hydrates it.
   path: string;
   content: ActReferences;
   timestamp?: number;
