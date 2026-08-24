@@ -23,7 +23,8 @@ provide:
 pnpm install @solarpunkltd/file-manager-lib
 ```
 
-Peer dependency: `@ethersphere/bee-js`
+Dependency: `@ethersphere/bee-js` v13 (`13.0.0-upcoming.*`). Requires **Node.js ≥ 24** (see `engines` in
+`package.json`).
 
 ---
 
@@ -80,28 +81,30 @@ swarm-cli stamp buy --amount 100000000000 --depth 20 --label admin
 ## Quick Start Example
 
 ```ts
-import { Bee } from '@ethersphere/bee-js';
+import { BatchId, Bee } from '@ethersphere/bee-js';
 import { FileManagerBase } from '@solarpunkltd/file-manager-lib';
 
 const bee = new Bee('http://localhost:1633', { signer });
 const fm = new FileManagerBase(bee);
-const adminBatchId = new BatchId('your-admin-batchId');
-// purchase an 'admin' stamp, and a 'My Drive' stamp in the background,
-// or use beeApi to purchase the stamp inline before initialization
-// initialize drives & topics
-await fm.initialize(adminBatchId);
 
-// create an admin drive
+// reads node addresses and, if admin state already exists on Swarm, loads
+// drives + file infos; otherwise starts empty and waits for createDrive()
+await fm.initialize();
+
+// create the admin drive (owns the drive list feed) — batchId must be a real, usable stamp
+const adminBatchId = new BatchId('your-admin-batchId');
 await fm.createDrive(adminBatchId, 'admin', true);
+
 // create a drive (non-admin)
 await fm.createDrive('<BATCH_ID>', 'My Drive', false);
 
-// upload directory
-const uploaded = await fm.upload(fm.driveList[0], { info: { name: 'docs' }, path: './docs' });
+// upload a directory (Node) into that drive
+const drive = fm.driveList.find((d) => d.name === 'My Drive')!;
+await fm.upload(drive, { name: 'docs', path: './docs' });
 
 // list + download
 const fi = fm.fileInfoList.find((f) => f.name === 'docs')!;
-const list = await fm.listFiles(fi, {
+const list = await fm.listFiles(fi, undefined, {
   actHistoryAddress: fi.file.historyRef,
   actPublisher: fi.actPublisher,
 });
@@ -111,9 +114,12 @@ const data = await fm.download(fi, ['README.md'], {
 });
 ```
 
+`upload()` does not return the `FileInfo` — listen for `FileManagerEvents.FILE_UPLOADED`, or look it up afterwards in
+`fm.fileInfoList`.
+
 ### Browser differences
 
-- Use `{ files: FileList }` instead of `{ path }`.
+- Pass `{ files: FileList | File[] }` (and optionally `preview: File`) instead of `{ path, previewPath }`.
 - `download()` returns `ReadableStream[]` instead of `Bytes[]`.
 
 ---
@@ -122,9 +128,12 @@ const data = await fm.download(fi, ['README.md'], {
 
 From `package.json`:
 
-- `pnpm run build` → compile Node + browser + types.
-- `pnpm run test` → run Jest integration tests (see [TESTS.md](TESTS.md)).
+- `pnpm run build` → compile types + CJS + ESM.
+- `pnpm run test` → run all Jest tests (unit + integration), see [TESTS.md](tests/TESTS.md).
+- `pnpm run test:ut` / `pnpm run test:it` → unit only / integration only.
+- `pnpm run test:coverage` → run tests with coverage.
 - `pnpm run lint` / `pnpm run lint:fix` → linting.
+- `pnpm run check:types` → typecheck all build targets without emitting.
 - `pnpm init:husky` → husky init
 - `pnpm run depcheck` → check dependencies
 

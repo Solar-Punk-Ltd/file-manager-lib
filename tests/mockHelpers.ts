@@ -82,13 +82,18 @@ export async function createInitializedFileManager(
   return fm;
 }
 
+// A real point on the secp256k1 curve (derived from private key '2'.repeat(64)) is required here:
+// bee-js v13's PublicKey validates curve membership on compression, so arbitrary bytes throw.
+const MOCK_PUBLIC_KEY_HEX =
+  '466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f276728176c3c6431f8eeda4538dc37c865e2784f3a9e77d044f33e407797e1278a';
+
 export function createMockNodeAddresses(): NodeAddresses {
   return {
     overlay: new PeerAddress('1'.repeat(64)),
     underlay: ['mock-underlay'],
     ethereum: new EthAddress('33'.repeat(20)),
-    publicKey: new PublicKey('22'.repeat(64)),
-    pssPublicKey: new PublicKey('22'.repeat(64)),
+    publicKey: new PublicKey(MOCK_PUBLIC_KEY_HEX),
+    pssPublicKey: new PublicKey(MOCK_PUBLIC_KEY_HEX),
   };
 }
 

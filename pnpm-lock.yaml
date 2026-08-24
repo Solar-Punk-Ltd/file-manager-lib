@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@ethersphere/bee-js':
-        specifier: 13.0.0-upcoming.g5647049
-        version: 13.0.0-upcoming.g5647049
+        specifier: 13.0.0-upcoming.gf9d33e6
+        version: 13.0.0-upcoming.gf9d33e6
       cafe-utility:
         specifier: ^33.7.0
         version: 33.7.0
@@ -390,9 +390,14 @@ packages:
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
-  '@ethersphere/bee-js@13.0.0-upcoming.g5647049':
-    resolution: {integrity: sha512-4O8rL1egonBRYt1MapwlkEF+iSbhdHmw3hWLSVu8XlSkWG69N7T68YaqQogchHbvt2XBnmotSHTSYEgPSCG6iA==}
+  '@ethersphere/bee-js@13.0.0-upcoming.gf9d33e6':
+    resolution: {integrity: sha512-QVkRoG+Pil45Gk/CYH68u8hHd34eVVx4B8wNrxRJgVWiKDsPlY7aWs8Clu2VNCKKiaB1tnOVxg/av6eRuiTB7w==}
     engines: {bee: 2.8.1-7cf53193, beeApiVersion: 8.1.0}
+    hasBin: true
+
+  '@ethersphere/core-sdk@0.1.1':
+    resolution: {integrity: sha512-qnDZleD2YK3s5PN/tXc8LnEtzh6BdcPTBjv7baoKSPMQPLeZ9wN/9qH1Zr2FNwhMgAIhgsqV7fB65LlzQ/a7oQ==}
+    engines: {node: '>=22'}
 
   '@humanfs/core@0.19.1':
     resolution: {integrity: sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA==}
@@ -805,10 +810,6 @@ packages:
     resolution: {integrity: sha512-lrW200hZdbfRtztbygyaq/6jP6AKE8qQN2KvPcJ+x7wiD038YtnYtZ82IMNJ69GJibV7bwL3y9FgK+5w/pYt6g==}
     cpu: [x64]
     os: [win32]
-
-  '@upcoming/swarm-core@0.0.9':
-    resolution: {integrity: sha512-G+87YUOzan5vdymthcm6ZCn9qiwda8rn9vJhrkD/BaCDe4+RBbtAA+2Zq26lHc6dbhVIjccPwd9bndX5zreHoA==}
-    engines: {node: '>=22'}
 
   '@vue/compiler-core@3.5.27':
     resolution: {integrity: sha512-gnSBQjZA+//qDZen+6a2EdHqJ68Z7uybrMf3SPjEGgG4dicklwDVmMC1AeIHxtLVPT7sn6sH1KOO+tS6gwOUeQ==}
@@ -3188,19 +3189,24 @@ snapshots:
       '@eslint/core': 0.17.0
       levn: 0.4.1
 
-  '@ethersphere/bee-js@13.0.0-upcoming.g5647049':
+  '@ethersphere/bee-js@13.0.0-upcoming.gf9d33e6':
     dependencies:
+      '@ethersphere/core-sdk': 0.1.1
       cafe-utility: 34.0.0
       debug: 4.4.3
       isomorphic-ws: 5.0.0(ws@8.21.1)
       semver: 7.7.3
-      swarm-core: '@upcoming/swarm-core@0.0.9'
       ws: 8.21.1
       zod: 4.4.3
     transitivePeerDependencies:
       - bufferutil
       - supports-color
       - utf-8-validate
+
+  '@ethersphere/core-sdk@0.1.1':
+    dependencies:
+      '@noble/curves': 1.9.7
+      '@noble/hashes': 1.8.0
 
   '@humanfs/core@0.19.1': {}
 
@@ -3710,11 +3716,6 @@ snapshots:
 
   '@unrs/resolver-binding-win32-x64-msvc@1.11.1':
     optional: true
-
-  '@upcoming/swarm-core@0.0.9':
-    dependencies:
-      '@noble/curves': 1.9.7
-      '@noble/hashes': 1.8.0
 
   '@vue/compiler-core@3.5.27':
     dependencies:

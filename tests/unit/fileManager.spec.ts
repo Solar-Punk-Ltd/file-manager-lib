@@ -365,11 +365,11 @@ describe('FileManager', () => {
       jest.restoreAllMocks();
     });
 
-    it('should call mantaray.collect()', async () => {
+    it('should call mantaray.collectAndMap()', async () => {
       createInitMocks();
       const fm = await createInitializedFileManager();
       const mockFi = await createMockFileInfo(owner, actPublisher, mockSelfAddr.toString());
-      const mantarayCollectSpy = jest.spyOn(MantarayNode.prototype, 'collect');
+      const mantarayCollectSpy = jest.spyOn(MantarayNode.prototype, 'collectAndMap');
       await fm.download(mockFi);
 
       expect(mantarayCollectSpy).toHaveBeenCalled();
@@ -444,14 +444,12 @@ describe('FileManager', () => {
       createInitMocks();
       const fm = await createInitializedFileManager();
       const mockMantarayNode = createMockMantarayNode(false);
-      jest.spyOn(MantarayNode, 'unmarshal').mockResolvedValue(new MantarayNode());
-      jest.spyOn(MantarayNode.prototype, 'collect').mockReturnValue(mockMantarayNode.collect());
+
+      // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+      const { loadMantaray } = require('@/utils/mantaray');
+      loadMantaray.mockResolvedValue(mockMantarayNode);
 
       const mockFi = await createMockFileInfo(owner, actPublisher);
-
-      jest
-        .spyOn(DataPrototype, 'download')
-        .mockResolvedValueOnce(Bytes.fromUtf8(JSON.stringify({ uploadFilesRes: '1'.repeat(64) })));
 
       const result = await fm.listFiles(mockFi);
       expect(result).toEqual({ '/root/2.txt': '2'.repeat(64) });

@@ -22,7 +22,7 @@ and troubleshoot it. It covers both **unit** and **integration** tests (includin
 
 ## Prerequisites
 
-- **Node.js ≥ 14**
+- **Node.js ≥ 24** (see `engines` in `package.json`)
 - **Bee devnode** (for integration tests):  
   The jest setup ensures we have bee dev nodes running to support the bee-js methods invoked.
 
@@ -34,13 +34,21 @@ and troubleshoot it. It covers both **unit** and **integration** tests (includin
 # All tests (unit + integration), verbose and serial
 pnpm test
 
+# Only one project
+pnpm run test:ut   # unit
+pnpm run test:it   # integration
+
 # With coverage
 pnpm run test:coverage
 ```
 
-Jest options are configured via `jest.config.ts`. The project’s `package.json` exposes these scripts:
+Jest options are configured via `jest.config.ts` (two projects: `unit` and `integration`). The project's
+`package.json` exposes these scripts:
 
-- **`pnpm test`** → `jest --config=jest.config.ts --runInBand --verbose`
+- **`pnpm test`** → `jest --config=jest.config.ts --runInBand --verbose --silent`
+- **`pnpm run test:ut`** → `cross-env KEEP_BEE_DIRS=true pnpm run test --selectProjects=unit`
+- **`pnpm run test:it`** → `cross-env KEEP_BEE_DIRS=true pnpm run test --selectProjects=integration`
+- **`pnpm run test:keep`** → same as `pnpm test` but keeps Bee dev-node dirs around (`KEEP_BEE_DIRS=true`)
 - **`pnpm run test:coverage`** → `jest --coverage`
 
 ---
@@ -77,31 +85,35 @@ Located primarily in `tests/integration/` and executed against a live **BeeDev**
 
 ### 1) Initialization
 
-- Creates a new `FileManagerBase` and asserts default state (`fileInfoList`, `sharedWithMe` are empty).
-- Emits **`FILEMANAGER_INITIALIZED`** with success when owner/admin stamp can be found.
-- When a non-owner node attempts to read the owner feed, proper **404/500** errors surface from `downloadData()`.
-- Owner feed/topic is **stable** across reinitialization (re-reads same topic hex).
+- Creates a new `FileManagerBase` and asserts default state (`fileInfoList`, `driveList` empty when no admin state
+  exists yet).
+- Emits **`INITIALIZED`** with `true`/`false`.
+- When a non-owner node attempts to read the owner feed, proper **404/500** errors surface from `bee.data.download()`.
+- Verifies supported Bee/Bee-API versions and that `getNodeAddresses()` returns a `publicKey` for ACT.
+- Uploads a nested folder + a single file into a drive created with a live postage stamp, and verifies `listFiles()`
+  relative paths.
 
-### 2) Upload + fetch nested structure
+### 2) Reinitialization
 
-- Uploads a nested folder + a single file into a drive created with a live postage stamp.
-- Uses `listFiles()` to verify **relative paths** and ordering.
-- Uses helper `dowloadAndCompareFiles()` to read all forks and byte-compare results.
+- Re-running `initialize()` while already initialized is a no-op (logs, re-emits `INITIALIZED`).
+- Repeated reinitialization with a still-usable admin stamp **preserves** `driveList`/`fileInfoList` and the admin
+  stamp reference.
+- If the admin stamp becomes unusable/invalid, reinitialization emits `STATE_INVALID` and clears state; other,
+  unrelated drives are unaffected.
+- Operations (e.g. `createDrive`) succeed normally after a successful revalidation.
 
-### 3) Bee node sanity
-
-- Asserts `getVersions()` returns `beeVersion` and `beeApiVersion` and `isSupportedApiVersion()` is true.
-- Asserts `getNodeAddresses()` returns a `publicKey` for ACT.
-
-### 4) Drive handling
+### 3) Drive handling
 
 - `createDrive()` emits **`DRIVE_CREATED`** and persists a drive with expected attributes (`Identifier` length, owner
   address, batch id, redundancy level, etc.).
+- Destroying the admin drive/stamp throws.
+- `forgetDrive()` removes a non-admin drive, prunes its file infos, persists the drive list, and emits
+  **`DRIVE_FORGOTTEN`**; throws for the admin drive or an unknown drive.
 
 > Note: Full destruction/dilution flows are difficult in devnode; a placeholder test is provided (commented) for a
 > production Bee that supports the relevant API.
 
-### 5) `listFiles()` behavior
+### 4) `listFiles()` behavior
 
 - Uploads folders with various structures and checks that `listFiles()` returns accurate **relative paths** and **fork
   references**.
@@ -109,30 +121,31 @@ Located primarily in `tests/integration/` and executed against a live **BeeDev**
 - Deeply nested paths are preserved (e.g. `level1/level2/level3/d.txt`).
 - Entries with **empty paths** are **ignored**.
 
-### 6) `upload()` flows
+### 5) `upload()` flows
 
 - Uploading a directory produces a `FileInfo` entry; **re-uploads** using same topic increment the **feed index**
   without creating duplicate entries.
 - **Metadata-only updates** do not cause re-uploads of the same manifest (file refs remain identical).
 - `previewPath` is supported (if the implementation stores the preview reference, the test asserts presence; otherwise
   logs a warning).
-- Validates the invariant: `topic` and `historyRef` must be provided **together**, else `FileInfoError` is thrown.
+- Validates the invariant: `topic` and `actHistoryAddress` must be provided **together**, else `FileInfoError` is
+  thrown.
 
-### 7) Download
+### 6) Download
 
 - Downloads **all** files from a manifest and compares contents.
 - Downloads **specific forks** by path selection.
 - Handles **empty manifests** by returning an empty array.
 
-### 8) File lifecycle
+### 7) File lifecycle
 
 - **Trash** (soft-delete) flips status to `Trashed` and bumps version; subsequent re-initialization observes persisted
   status.
 - **Recover** from `Trashed` to `Active` and bump version.
 - **Forget** (hard-delete) removes the `FileInfo` from local lists and persists the drive list.
-- Guards against **duplicate topics** when trashing/restoring multiple times.
+- Guards against **duplicate topics/entries** when trashing/restoring multiple times.
 
-### 9) Version control
+### 8) Version control
 
 - `getVersion()` rejects invalid indices (negative or out-of-range).
 - Sequential uploads result in proper **slot indices** (`FeedIndex` 0,1,2…).
@@ -141,16 +154,24 @@ Located primarily in `tests/integration/` and executed against a live **BeeDev**
 - **Restore** an old version creates a **new head** that points at the historical reference.
 - Restoring the current head is a no‑op.
 
-### 10) Grantees / Sharing metadata
+### 9) Grantees / Sharing metadata
 
-- `getGrantees()` throws a friendly error when the file’s topic is not found in the drive list (missing grantee list).
+- `getGrantees()` throws a friendly error when the file's topic is not found in the drive list (missing grantee list).
 
-### 11) E2E workflow
+### 10) E2E workflow
 
-- Full user path: create drive → upload single file → upload project folder → re-upload folder “in place” (not
+- Full user path: create drive → upload single file → upload project folder → re-upload folder "in place" (not
   supported, so original manifest remains) → upload a new **version** folder → list & download from that new version
   manifest.
 - Validates path preservation, version semantics, and ACT download parameters (`actHistoryAddress`, `actPublisher`).
+
+### 11) AbortController
+
+- `upload()`, `download()`, and `listFiles()` all accept `requestOptions.signal`.
+- A pre-aborted signal fails fast with a "Request aborted"-style error.
+- Aborting mid-flight surfaces a `BeeResponseError` (or equivalent) instead of hanging.
+- Independent `AbortController`s used across concurrent calls don't interfere with each other.
+- Calls proceed normally when the signal is never aborted.
 
 ---
 
@@ -160,26 +181,35 @@ Located in `tests/unit/` and focused on behavior of `FileManagerBase` **without*
 
 Key strategies:
 
-- Replace `getFeedData`, `getWrappedData`, `generateRandomBytes` with jest mocks
-- Replace mantaray operations via mocked `MantarayNode` + controlled `collect()` output
-- Spy on Bee client methods (`downloadData`, `diluteBatch`) to assert parameters
+- Replace `getFeedData`, `getWrappedData`, `fetchStamp`, `generateRandomBytes` with jest mocks; `@/utils/mantaray` is
+  fully auto-mocked (`loadMantaray` returns a fixture `MantarayNode`, `getForksMap`'s real implementation is restored
+  per-`describe` block where needed).
+- Spy on the shared bee-js v13 namespace prototypes (`bee.data`, `bee.feed`, `bee.stamp`, `bee.status`,
+  `bee.connectivity`, ...) via `mockHelpers.ts` — bee-js v13 doesn't export those namespace classes directly, so their
+  prototypes are obtained from a throwaway `Bee` instance instead (see `StatusPrototype`, `DataPrototype`, etc. in
+  `tests/mockHelpers.ts`).
 
 ### Constructor & initialization
 
 - Creating `FileManagerBase` without a signer fails with `SignerError`.
-- Proper init emits `FILEMANAGER_INITIALIZED` once; subsequent calls log “already initialized” / “being initialized”.
+- Proper init emits `INITIALIZED` once; subsequent calls log "already initialized" / "being initialized".
+
+### Reinitialization
+
+- Covers the same admin-stamp revalidation matrix as the integration suite (state preserved on valid stamp, cleared +
+  `STATE_INVALID` on invalid stamp, `INITIALIZED` flag tracked correctly across sequential reinitializations).
 
 ### Download + listFiles
 
-- Asserts mantaray **`collect()`** is called.
+- Asserts mantaray **`collectAndMap()`** is called.
 - For a selected path (e.g. `/root/2.txt`) only the **correct fork** reference is downloaded.
-- When collecting all forks, each ref is passed to `bee.downloadData()` and the returned `Bytes` array is propagated.
+- When collecting all forks, each ref is passed to `bee.data.download()` and the returned `Bytes` array is propagated.
 - `listFiles()` returns a **path → reference** map (`{'/root/2.txt': '…'}`).
 
 ### Upload
 
 - Chooses the right **upload path** depending on inputs (`path`, `previewPath`).
-- Throws when `topic` and `historyRef` are not supplied together.
+- Throws when `topic` and `historyRef`/`actHistoryAddress` are not supplied together.
 - Ensures **no duplicate entries** are added when re‑uploading the same topic; instead only the `version` is
   incremented.
 
@@ -187,16 +217,18 @@ Key strategies:
 
 - `getVersion()` orchestrates `getFeedData` + `fetchFileInfo` and returns a `FileInfo` for indexed or head fetch.
 - Chaining `getVersion()` and `download()` forwards ACT options and returns byte arrays.
-- Missing feeds throw a helpful “File info not found for topic” message.
-- Restoring the current head **does not emit** a `FILE_VERSION_RESTORED` event.
+- Missing feeds throw a helpful "File info not found for topic" message.
+- Restoring the current head **does not emit** a `FILE_VERSION_RESTORED` event; restoring an older version does.
 
 ### Drive handling
 
 - Creating an **admin drive** normalizes the name to the admin label and sets flags accordingly.
 - Creating a normal drive persists id/batch/owner metadata.
 - Creating a drive with duplicate **name** or **batchId** throws `DriveError`.
-- Destroying a drive calls `bee.diluteBatch(batchId, STAMPS_DEPTH_MAX)`.
+- Destroying a drive calls `bee.stamp.dilute(batchId, depth + halvings)`.
 - Attempting to destroy the admin drive/stamp throws `DriveError`.
+- `forgetDrive()` removes a user drive, prunes its files, persists, and emits `DRIVE_FORGOTTEN`; throws for an
+  unknown drive.
 
 ### File operations
 
@@ -204,11 +236,20 @@ Key strategies:
 - **Recover** emits `FILE_RECOVERED` with a later `timestamp`.
 - **Forget** removes the file from lists, saves owner feed, and emits `FILE_FORGOTTEN`.
 
+### getGranteesOfFile
+
+- `getGrantees()` throws `GranteeError` when the file's topic isn't found in the drive list.
+
 ### Events
 
-- `FILE_UPLOADED` payload is **deterministic**: tests pin system time with `jest.useFakeTimers()` to assert `timestamp`
-  precisely.
-- `FILEMANAGER_INITIALIZED` fires once per “cold” initialization.
+- `FILE_UPLOADED` payload is **deterministic**: tests pin system time to assert `timestamp` precisely.
+- `INITIALIZED` fires once per "cold" initialization.
+
+### AbortController
+
+- Verifies `requestOptions` (with `signal`) is forwarded from `upload()`/`download()`/`listFiles()` into the
+  underlying `uploadFilesFromDirectory`/`uploadFile`/`getWrappedData`/`loadMantaray` calls, and that omitting
+  `requestOptions` doesn't forward `undefined` incorrectly.
 
 ---
 
@@ -223,11 +264,11 @@ Key strategies:
   ```ts
   const files = await fm.download(fi, ['path.txt'], {
     actHistoryAddress: fi.file.historyRef,
-    actPublisher: fi.actPublisher, // usually from bee.getNodeAddresses().publicKey
+    actPublisher: fi.actPublisher, // usually from bee.connectivity.getNodeAddresses().publicKey
   });
   ```
 
-- **Add fixtures** under `tests/integration/fixtures/` and keep them small to make the suite fast.
+- **Add fixtures** under `tests/fixtures/` and keep them small to make the suite fast.
 
 - **Prefer explicit errors**: if a code path is expected to throw, assert both **type** and **message** so regressions
   are easier to spot.
@@ -249,17 +290,20 @@ Key strategies:
 
 ## Mapping: Features → Tests
 
-| Feature                               | Where it’s tested                                           |
-| ------------------------------------- | ----------------------------------------------------------- |
-| Initialization & admin stamp          | `integration: initialization`                               |
-| Upload (dir/file)                     | `integration: upload`, `unit: upload`                       |
-| List files (mantaray)                 | `integration: listFiles`, `unit: listFiles`                 |
-| Download (all / subset)               | `integration: download`, `unit: download`                   |
-| Versioning (get/restore/cache)        | `integration: version control`, `unit: version control`     |
-| Drive create/destroy                  | `integration: drive handling`, `unit: drive handling`       |
-| File lifecycle (trash/recover/forget) | `integration: file operations`, `unit: file operations`     |
-| Grantees / sharing lookup             | `integration: getGranteesOfFile`, `unit: getGranteesOfFile` |
-| Events                                | `unit: eventEmitter`, `integration: initialization`         |
+| Feature                                    | Where it's tested                                            |
+| ------------------------------------------ | ------------------------------------------------------------- |
+| Initialization & admin stamp               | `integration: FileManager initialization`                     |
+| Reinitialization / state revalidation      | `integration: FileManager reinitialization`, `unit: reinitialization` |
+| Upload (dir/file)                          | `integration: FileManager upload`, `unit: upload`              |
+| List files (mantaray)                      | `integration: FileManager listFiles`, `unit: listFiles`        |
+| Download (all / subset)                    | `integration: FileManager download`, `unit: download`          |
+| Versioning (get/restore/cache)             | `integration: FileManager version control`, `unit: version control` |
+| Drive create/destroy/forget                | `integration: FileManager drive handling`, `unit: drive handling` |
+| File lifecycle (trash/recover/forget)      | `integration: FileManager file operations`, `unit: file operations` |
+| Grantees / sharing lookup                  | `integration: FileManager getGranteesOfFile`, `unit: getGranteesOfFile` |
+| Events                                     | `unit: eventEmitter`, `integration: FileManager initialization` |
+| AbortController / request cancellation     | `integration: FileManager AbortController`, `unit: AbortController` |
+| End-to-end workflow                        | `integration: FileManager End-to-End User Workflow`            |
 
 ---
 
