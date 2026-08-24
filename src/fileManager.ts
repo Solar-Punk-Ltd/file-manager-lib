@@ -21,15 +21,19 @@ import { type DownloadFilesResult, type DownloadResource, type DownloadResult } 
 import { type FileManager, type FileManagerConfig } from './types/fileManager';
 import {
   type DriveInfo,
+  FailureScope,
   type FileRecord,
   type FolderInfo,
   ListDepth,
+  type ListFolderResult,
   type ManifestHost,
   type NodeEntry,
+  type NodeFailure,
   type NodeHeader,
   NodeStatus,
   NodeType,
   type ResolvedFileFork,
+  type UnresolvedDrive,
 } from './types/info';
 import { type UpdateItem, type UploadFilesResult, type UploadItem } from './types/upload';
 import { type ActReferences, type FailedResult } from './types/utils';
@@ -41,11 +45,13 @@ import {
   verifyStampUsability,
   verifySupportedBeeVersions,
 } from './utils/bee';
-import { awaitAllPromisesBounded, getRecordStatus, joinPath, settlePromises } from './utils/common';
+import { awaitAllPromisesBounded, errorMessage, getRecordStatus, joinPath, settlePromises } from './utils/common';
 import {
   ADMIN_DRIVE_NAME,
   FEED_INDEX_ZERO,
   FILEMANAGER_STATE_TOPIC,
+  MANIFEST_METADATA_DRIVE_ID,
+  MANIFEST_METADATA_DRIVE_NAME,
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
   MANIFEST_METADATA_NODE_VERSION,
@@ -557,8 +563,7 @@ export class FileManagerBase implements FileManager {
       (record) => succeeded.push(record),
       (reason, ix) => {
         if (requestOptions?.signal?.aborted) return;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        failed.push({ path: plannedFiles[ix].fullPath, error: (reason as any)?.message || String(reason) });
+        failed.push({ path: plannedFiles[ix].fullPath, error: errorMessage(reason) });
       },
     );
 
@@ -917,7 +922,7 @@ export class FileManagerBase implements FileManager {
     depth: ListDepth = ListDepth.Shallow,
     maxDepth?: number,
     requestOptions?: BeeRequestOptions,
-  ): Promise<NodeEntry[]> {
+  ): Promise<ListFolderResult> {
     requestOptions?.signal?.throwIfAborted();
 
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
@@ -950,8 +955,9 @@ export class FileManagerBase implements FileManager {
     maxDepth: number | undefined,
     publisher: string,
     requestOptions?: BeeRequestOptions,
-  ): Promise<NodeEntry[]> {
+  ): Promise<ListFolderResult> {
     const results: NodeEntry[] = [];
+    const failed: NodeFailure[] = [];
     let visitedNodes: { host: ManifestHost; basePath: string }[] = [{ host: startHost, basePath: startBasePath }];
     let currentDepth = 0;
     const depthLimit = depth === ListDepth.Deep ? (maxDepth ?? Number.MAX_SAFE_INTEGER) : 1;
@@ -960,8 +966,9 @@ export class FileManagerBase implements FileManager {
       requestOptions?.signal?.throwIfAborted();
 
       const headers: NodeHeader[] = [];
+      const expanding = visitedNodes;
       await awaitAllPromisesBounded(
-        visitedNodes.map((item) => async (): Promise<NodeHeader[]> => {
+        expanding.map((item) => async (): Promise<NodeHeader[]> => {
           const mantarayNode = await this.store.getMantarayNode(
             item.host.topic,
             item.host.actPublisher ?? publisher,
@@ -975,9 +982,17 @@ export class FileManagerBase implements FileManager {
         }),
         this.feedFetchConcurrency,
         (entries) => headers.push(...entries),
-        (reason) => {
+        (reason, ix) => {
           if (requestOptions?.signal?.aborted) return;
-          this.logger.error(`walkFolder: failed to expand manifest: ${reason}`);
+          const item = expanding[ix];
+          const error = errorMessage(reason);
+          this.logger.error(`walkFolder: failed to expand manifest at "${item.basePath || ROOT_PATH}": ${error}`);
+          failed.push({
+            path: item.basePath || ROOT_PATH,
+            scope: FailureScope.Subtree,
+            error,
+            topic: item.host.topic,
+          });
         },
       );
 
@@ -1002,14 +1017,23 @@ export class FileManagerBase implements FileManager {
         },
         (reason, ix) => {
           if (requestOptions?.signal?.aborted) return;
-          this.logger.error(`walkFolder: failed to load file ${fileHeaders[ix].topic}: ${reason}`);
+          const header = fileHeaders[ix];
+          const error = errorMessage(reason);
+          this.logger.error(`walkFolder: failed to load file "${header.path}": ${error}`);
+          failed.push({
+            path: header.path,
+            scope: FailureScope.Entry,
+            error,
+            type: NodeType.File,
+            topic: header.topic,
+          });
         },
       );
 
       const folderHeaders = headers.filter((e) => e.type === NodeType.Folder);
       const nextFrontier: { host: ManifestHost; basePath: string }[] = [];
       await awaitAllPromisesBounded(
-        folderHeaders.map((e) => async (): Promise<FolderInfo | null> => {
+        folderHeaders.map((e) => async (): Promise<FolderInfo> => {
           const owner = e.owner ?? this.signerAddress;
           // Probe the feed head. A folder is a container and carries no stored version
           const { payload, feedIndex, feedIndexNext } = await getFeedData(
@@ -1021,8 +1045,7 @@ export class FileManagerBase implements FileManager {
           );
 
           if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
-            this.logger.warn(`walkFolder: folder feed not found for ${e.path} — skipping`);
-            return null;
+            throw new FolderError(`Folder feed not found for path: ${e.path}`);
           }
 
           const manifestRef: ActReferences = payload.toJSON() as ActReferences;
@@ -1044,14 +1067,21 @@ export class FileManagerBase implements FileManager {
         }),
         this.feedFetchConcurrency,
         (folder) => {
-          if (folder) {
-            results.push(folder);
-            nextFrontier.push({ host: folder, basePath: folder.path });
-          }
+          results.push(folder);
+          nextFrontier.push({ host: folder, basePath: folder.path });
         },
         (reason, ix) => {
           if (requestOptions?.signal?.aborted) return;
-          this.logger.error(`walkFolder: failed to resolve folder ${folderHeaders[ix].path}: ${reason}`);
+          const header = folderHeaders[ix];
+          const error = errorMessage(reason);
+          this.logger.error(`walkFolder: failed to resolve folder "${header.path}": ${error}`);
+          failed.push({
+            path: header.path,
+            scope: FailureScope.Subtree,
+            error,
+            type: NodeType.Folder,
+            topic: header.topic,
+          });
         },
       );
 
@@ -1062,7 +1092,7 @@ export class FileManagerBase implements FileManager {
 
     requestOptions?.signal?.throwIfAborted();
 
-    return results;
+    return { entries: results, failed };
   }
 
   // Download an entire folder subtree of a drive: resolves the subtree's records fresh (hydrating
@@ -1075,7 +1105,7 @@ export class FileManagerBase implements FileManager {
   ): Promise<DownloadFilesResult> {
     requestOptions?.signal?.throwIfAborted();
     assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
-    await this.listFolder(driveId, path, ListDepth.Deep, undefined, requestOptions);
+    const { failed: listFailures } = await this.listFolder(driveId, path, ListDepth.Deep, undefined, requestOptions);
 
     const normalized = normalizePath(path);
     const prefix = normalized ? normalized + '/' : '';
@@ -1084,7 +1114,21 @@ export class FileManagerBase implements FileManager {
       (f) => f.driveId === driveIdStr && f.path.startsWith(prefix) && !isTrashPath(f.path),
     );
 
-    return this.downloadFiles(files, options, requestOptions);
+    const result = await this.downloadFiles(files, options, requestOptions);
+
+    return {
+      ...result,
+      failed: [
+        ...result.failed,
+        ...listFailures.map((f) => ({
+          path: f.path,
+          error:
+            f.scope === FailureScope.Subtree
+              ? `Could not list contents of "${f.path}": ${f.error}`
+              : `Could not list "${f.path}": ${f.error}`,
+        })),
+      ],
+    };
   }
 
   async move(
@@ -1447,7 +1491,7 @@ export class FileManagerBase implements FileManager {
     depth: ListDepth = ListDepth.Shallow,
     maxDepth?: number,
     requestOptions?: BeeRequestOptions,
-  ): Promise<NodeEntry[]> {
+  ): Promise<ListFolderResult> {
     requestOptions?.signal?.throwIfAborted();
 
     const { publisher } = assertReady(this.publisher, this.isInitialized, this.stateFeedTopic);
@@ -1459,10 +1503,10 @@ export class FileManagerBase implements FileManager {
 
     const trash = await this.resolveTrashHost(cachedDrive, publisher, requestOptions);
     if (!trash) {
-      return [];
+      return { entries: [], failed: [] };
     }
 
-    const entries = await this.walkFolder(
+    const { entries, failed } = await this.walkFolder(
       cachedDrive,
       trash.host,
       TRASH_FOLDER_NAME,
@@ -1488,7 +1532,7 @@ export class FileManagerBase implements FileManager {
       }
     }
 
-    return entries;
+    return { entries, failed };
   }
 
   async emptyTrash(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<number> {
@@ -1773,8 +1817,14 @@ export class FileManagerBase implements FileManager {
 
     this.store.setNodeNextIndexCache(this.stateFeedTopic.toString(), feedIndexNext.toBigInt());
 
+    const forks = entries.map((entry) => ({
+      entry,
+      id: entry.rawMetadata[MANIFEST_METADATA_DRIVE_ID] ?? 'unknown',
+      name: entry.rawMetadata[MANIFEST_METADATA_DRIVE_NAME] ?? 'unknown',
+    }));
+
     await settlePromises(
-      entries.map(async (entry) => {
+      forks.map(async ({ entry }) => {
         const driveInfo = assertDriveInfoFromMetadata(entry.rawMetadata);
 
         // Probe the drive feed head. A drive is a container and carries no stored version
@@ -1785,10 +1835,7 @@ export class FileManagerBase implements FileManager {
         } = await getFeedData(this.bee, new Topic(driveInfo.topic), this.signerAddress, undefined, requestOptions);
 
         if (driveFeedIndex.equals(FeedIndex.MINUS_ONE)) {
-          this.logger.warn(
-            `initDriveList: drive ${driveInfo.name} (${driveInfo.id}) has no manifest feed — skipping corrupt/incomplete drive`,
-          );
-          return;
+          throw new DriveError('Drive has no manifest feed — corrupt or incomplete');
         }
 
         driveInfo.manifestRef = drivePayload.toJSON() as ActReferences;
@@ -1816,9 +1863,12 @@ export class FileManagerBase implements FileManager {
           this._driveList.push(driveInfo);
         }
       },
-      (reason) =>
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        this.logger.error(`initDriveList: failed to load drive from fork: ${(reason as any)?.message || reason}`),
+      (reason, ix) => {
+        const { id, name } = forks[ix];
+        const error = errorMessage(reason);
+        this.logger.error(`initDriveList: failed to load drive "${name}" (${id.slice(0, 6)}): ${error}`);
+        this.emitter.emit(FileManagerEvents.DRIVE_UNRESOLVED, { id, name, error } as UnresolvedDrive);
+      },
     );
   }
 

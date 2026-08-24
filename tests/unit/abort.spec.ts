@@ -14,8 +14,9 @@ import { applyDefaultMocks, createMockDriveInfo, createMockNodeAddresses, seedRe
 
 import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
-import { type DriveInfo, type FileRecord, ListDepth, NodeType } from '@/types';
+import { type DriveInfo, FailureScope, type FileRecord, ListDepth, NodeType } from '@/types';
 import { DriveError } from '@/utils';
+import { getFeedData } from '@/utils/bee';
 import { SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
 describe('Abort signal handling', () => {
@@ -204,6 +205,34 @@ describe('Abort signal handling', () => {
       const driveMantaray = (fm as any).store.getManifestCache(di.topic) as MantarayNode;
       expect(driveMantaray.find('clean.txt')).toBeTruthy();
     });
+  });
+
+  // The suppression guard in walkFolder's failure handlers is `signal?.aborted`, one slipped word
+  // away from `signal`, which would drop every NodeFailure whenever a signal is passed at all — and
+  // callers pass one on essentially every listing. An aborted walk cannot be asserted from the other
+  // side: it rejects via throwIfAborted, so no ListFolderResult is ever produced.
+  it('reports node failures normally when a signal is present but never aborted', async () => {
+    const fm = await createInitializedFileManager();
+    const drive = fm.driveList[0];
+
+    const badTopic = Topic.fromString('abort-live-signal-bad').toString();
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+    const { loadMantaray, getAllNodeEntries } = require('@/utils/mantaray');
+    loadMantaray.mockResolvedValue(new MantarayNode());
+    getAllNodeEntries.mockReturnValue([{ path: 'bad.txt', type: NodeType.File, topic: badTopic, rawMetadata: {} }]);
+
+    (getFeedData as jest.Mock).mockRejectedValue(new Error('feed unreachable'));
+
+    const controller = new AbortController();
+    const { entries, failed } = await fm.listFolder(drive.id, '', ListDepth.Shallow, undefined, {
+      signal: controller.signal,
+    });
+
+    expect(controller.signal.aborted).toBe(false);
+    expect(entries).toEqual([]);
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toMatchObject({ path: 'bad.txt', scope: FailureScope.Entry, topic: badTopic });
   });
 
   it('throw if listFolder is called on a non-existent drive', async () => {

@@ -253,7 +253,7 @@ describe('Lifecycle management', () => {
 
   describe('listTrash', () => {
     it('returns [] for a drive that never had anything trashed', async () => {
-      expect(await fm.listTrash(drive.id)).toEqual([]);
+      expect((await fm.listTrash(drive.id)).entries).toEqual([]);
     });
   });
 

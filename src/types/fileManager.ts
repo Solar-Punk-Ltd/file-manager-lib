@@ -13,7 +13,7 @@ import {
 import { type EventEmitter } from '../eventEmitter';
 
 import { type DownloadFilesResult, type DownloadResult } from './download';
-import { type DriveInfo, type FileRecord, type FolderInfo, type ListDepth, type NodeEntry } from './info';
+import { type DriveInfo, type FileRecord, type FolderInfo, type ListDepth, type ListFolderResult } from './info';
 import { type UpdateItem, type UploadFilesResult, type UploadItem } from './upload';
 
 /**
@@ -225,11 +225,11 @@ export interface FileManager {
    * @param depth - Shallow (one level) or Deep (full BFS). Defaults to Shallow.
    * @param maxDepth - Maximum BFS levels when depth is Deep; must be positive, unlimited if omitted.
    * @param requestOptions - Additional Bee request options.
-   * @returns Array of {@link NodeEntry} (FileRecord | FolderInfo) for every node found at or below the given path.
+   * @returns {@link ListFolderResult}: `entries` ({@link NodeEntry}) for every node resolved at or
+   *   below the given path, and `failed` for every node that could not be.
    * @throws {DriveError} If not initialized, driveId is not found, or a path segment does not exist.
    * @throws {FolderError} If the path is the reserved `.trash` folder, or `maxDepth` is not positive.
    * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {FileRecordError} If a folder feed is missing.
    */
   listFolder(
     driveId: string | Identifier,
@@ -237,7 +237,7 @@ export interface FileManager {
     depth?: ListDepth,
     maxDepth?: number,
     requestOptions?: BeeRequestOptions,
-  ): Promise<NodeEntry[]>;
+  ): Promise<ListFolderResult>;
 
   /**
    * Soft-delete a file or folder: relocates its fork into the drive's reserved `.trash` folder.
@@ -297,7 +297,7 @@ export interface FileManager {
     depth?: ListDepth,
     maxDepth?: number,
     requestOptions?: BeeRequestOptions,
-  ): Promise<NodeEntry[]>;
+  ): Promise<ListFolderResult>;
 
   /**
    * De-reference every node in a drive's trash in one manifest write. Like {@link forget}, the

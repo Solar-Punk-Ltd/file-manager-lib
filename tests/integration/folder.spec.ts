@@ -1,4 +1,4 @@
-import { type BatchId, Identifier } from '@ethersphere/bee-js';
+import { type BatchId, Identifier, Reference, Topic } from '@ethersphere/bee-js';
 
 import {
   buyStampSerialized,
@@ -12,7 +12,8 @@ import { ensureUniqueSignerWithStamp, setupUserDrive, tempFileRegistry } from '.
 
 import { type FileManagerBase } from '@/fileManager';
 import { type DriveInfo, ListDepth, NodeType } from '@/types';
-import { ROOT_PATH } from '@/utils/constants';
+import { MANIFEST_METADATA_NODE_TOPIC, MANIFEST_METADATA_NODE_TYPE, ROOT_PATH } from '@/utils/constants';
+import { generateRandomBytes } from '@/utils/crypto';
 
 describe('Folder operations', () => {
   let fileManager: FileManagerBase;
@@ -41,7 +42,7 @@ describe('Folder operations', () => {
       expect(result.failed).toHaveLength(0);
 
       const entries = await retryOnPropagationDelay(() =>
-        fileManager.listFolder(drive.id, 'gallery', ListDepth.Shallow),
+        fileManager.listFolder(drive.id, 'gallery', ListDepth.Shallow).then((r) => r.entries),
       );
       const fileEntries = entries.filter((e) => e.type === NodeType.File);
       expect(fileEntries.map((e) => e.path).sort()).toEqual(['gallery/a.txt', 'gallery/b.txt']);
@@ -51,7 +52,7 @@ describe('Folder operations', () => {
       await fileManager.createFolder(drive.id, ROOT_PATH, 'empty-folder');
 
       const entries = await retryOnPropagationDelay(() =>
-        fileManager.listFolder(drive.id, 'empty-folder', ListDepth.Shallow),
+        fileManager.listFolder(drive.id, 'empty-folder', ListDepth.Shallow).then((r) => r.entries),
       );
       expect(entries).toEqual([]);
     });
@@ -70,7 +71,9 @@ describe('Folder operations', () => {
       );
       expect(result.failed).toHaveLength(0);
 
-      const entries = await retryOnPropagationDelay(() => fileManager.listFolder(drive.id, 'level1', ListDepth.Deep));
+      const entries = await retryOnPropagationDelay(() =>
+        fileManager.listFolder(drive.id, 'level1', ListDepth.Deep).then((r) => r.entries),
+      );
       const fileEntries = entries.filter((e) => e.type === NodeType.File);
       expect(fileEntries.map((e) => e.path).sort()).toEqual(['level1/level2/a.txt', 'level1/level2/level3/b.txt']);
     });
@@ -87,7 +90,7 @@ describe('Folder operations', () => {
       );
 
       const entries = await retryOnPropagationDelay(() =>
-        fileManager.listFolder(drive.id, 'guarded', ListDepth.Shallow),
+        fileManager.listFolder(drive.id, 'guarded', ListDepth.Shallow).then((r) => r.entries),
       );
       const fileEntries = entries.filter((e) => e.type === NodeType.File);
       expect(fileEntries.map((e) => e.path)).toEqual(['guarded/good.txt']);
@@ -101,7 +104,7 @@ describe('Folder operations', () => {
       await expect(fileManager.createFolder(drive.id, ROOT_PATH, 'dupfolder')).rejects.toThrow(/already exists/i);
 
       const entries = await retryOnPropagationDelay(() =>
-        fileManager.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow),
+        fileManager.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow).then((r) => r.entries),
       );
       const matches = entries.filter((e) => e.type === NodeType.Folder && e.path === 'dupfolder');
       expect(matches).toHaveLength(1);
@@ -123,13 +126,55 @@ describe('Folder operations', () => {
       await expect(fileManager.createFolder(drive.id, 'outer', 'inner')).rejects.toThrow(/already exists/i);
 
       const entries = await retryOnPropagationDelay(() =>
-        fileManager.listFolder(drive.id, 'outer/inner', ListDepth.Shallow),
+        fileManager.listFolder(drive.id, 'outer/inner', ListDepth.Shallow).then((r) => r.entries),
       );
       expect(entries.some((e) => e.type === NodeType.File && e.path === 'outer/inner/keep.txt')).toBe(true);
     });
   });
 
   describe('downloadFolder', () => {
+    it('reports a file it could not list, instead of returning a partial download as complete', async () => {
+      const folderName = 'it-fold-listing-failure';
+      const goodPath = `${folderName}/present.txt`;
+      const src = writeTempFile('it-fold-present.txt', 'Present Content');
+
+      await fileManager.createFolder(drive.id, ROOT_PATH, folderName);
+      await fileManager.uploadFile(drive.id, { path: goodPath, sourcePath: src });
+
+      // A genuine orphan: a file fork whose record feed was never written. No public write path can
+      // produce this — every one of them writes the record before the fork that references it.
+      const orphanTopic = new Topic(generateRandomBytes(Topic.LENGTH)).toString();
+      const store = (fileManager as any).store;
+      const publisher = (fileManager as any).publisher.toCompressedHex();
+      const { host, node } = await store.resolveHostMantaray(drive, folderName, publisher);
+
+      node.addFork('missing.txt', new Reference(orphanTopic), {
+        [MANIFEST_METADATA_NODE_TOPIC]: orphanTopic,
+        [MANIFEST_METADATA_NODE_TYPE]: NodeType.File,
+      });
+      await store.saveMantarayNode(node, host);
+
+      const downloads = await retryOnPropagationDelay(async () => {
+        const res = await fileManager.downloadFolder(drive.id, folderName);
+        if (!res.succeeded.some((d) => d.path === goodPath)) {
+          throw new Error('upload not yet propagated');
+        }
+        return res;
+      });
+
+      // The healthy file still downloads...
+      const got = downloads.succeeded.find((d) => d.path === goodPath);
+      expect(Buffer.from(await streamToUint8Array(got!.result)).toString('utf-8')).toBe('Present Content');
+
+      // ...and the unlistable one is reported rather than silently missing.
+      const missing = downloads.failed.find((f) => f.path === `${folderName}/missing.txt`);
+      expect(missing).toBeDefined();
+      expect(missing!.error).toContain('Could not list');
+
+      node.removeFork('missing.txt');
+      await store.saveMantarayNode(node, host);
+    });
+
     it('defaults to the whole drive when path is omitted', async () => {
       const src = writeTempFile('it-downloadFolder-defaultpath.txt', 'default path content');
       const up = await fileManager.uploadFiles(drive.id, [{ path: 'defaultpath/deep/y.txt', sourcePath: src }], '');
@@ -161,7 +206,9 @@ describe('Folder operations', () => {
       );
       expect(result.failed).toHaveLength(0);
 
-      const entries = await retryOnPropagationDelay(() => fileManager.listFolder(drive.id, 'inbox', ListDepth.Deep));
+      const entries = await retryOnPropagationDelay(() =>
+        fileManager.listFolder(drive.id, 'inbox', ListDepth.Deep).then((r) => r.entries),
+      );
       const filePaths = entries.filter((e) => e.type === NodeType.File).map((e) => e.path);
       expect(filePaths).toContain('inbox/reports/q1.txt');
       expect(filePaths).not.toContain('reports/q1.txt');
@@ -203,16 +250,18 @@ describe('Folder operations', () => {
 
       await fileManager.move('src', 'backup/src', driveA.id);
 
-      const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA.id, '', ListDepth.Shallow));
+      const rootEntries = await retryOnPropagationDelay(() =>
+        fileManager.listFolder(driveA.id, '', ListDepth.Shallow).then((r) => r.entries),
+      );
       expect(rootEntries.some((e) => e.type === NodeType.Folder && e.path.replace(/^\//, '') === 'src')).toBe(false);
 
       const backupEntries = await retryOnPropagationDelay(() =>
-        fileManager.listFolder(driveA.id, 'backup', ListDepth.Shallow),
+        fileManager.listFolder(driveA.id, 'backup', ListDepth.Shallow).then((r) => r.entries),
       );
       expect(backupEntries.some((e) => e.type === NodeType.Folder && e.path === 'backup/src')).toBe(true);
 
       const srcEntries = await retryOnPropagationDelay(() =>
-        fileManager.listFolder(driveA.id, 'backup/src', ListDepth.Shallow),
+        fileManager.listFolder(driveA.id, 'backup/src', ListDepth.Shallow).then((r) => r.entries),
       );
       const innerEntry = srcEntries.find((e) => e.type === NodeType.File);
       expect(innerEntry).toBeDefined();

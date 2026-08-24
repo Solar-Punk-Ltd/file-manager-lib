@@ -2,7 +2,7 @@ import { type Bee, type BeeRequestOptions, type DownloadOptions } from '@ethersp
 
 import { type DownloadFilesResult, type DownloadResource, type DownloadResult } from '../types/download';
 import { type FailedResult } from '../types/utils';
-import { settlePromises } from '../utils/common';
+import { errorMessage, settlePromises } from '../utils/common';
 import { Logger } from '../utils/logger';
 
 const logger = Logger.getInstance();
@@ -28,8 +28,7 @@ export async function processDownload(
     (value, ix) => succeeded.push({ path: resources[ix].path, result: value }),
     (reason, ix) => {
       if (requestOptions?.signal?.aborted) return;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const message = (reason as any)?.message || String(reason);
+      const message = errorMessage(reason);
       logger.error(`processDownload: failed to fetch ${resources[ix].path}: ${message}`);
       failed.push({ path: resources[ix].path, error: message });
     },

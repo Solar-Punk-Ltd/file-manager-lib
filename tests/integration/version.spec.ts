@@ -331,7 +331,7 @@ describe('Version control', () => {
 
     const movedRecord = await retryOnPropagationDelay(async () => {
       const reader = await createInitializedFileManager(bee, ownerStamp);
-      const entries = await reader.listFolder(drive.id, 'coldsub', ListDepth.Shallow);
+      const entries = (await reader.listFolder(drive.id, 'coldsub', ListDepth.Shallow)).entries;
       const found = entries.find((e) => e.path === destPath);
       if (!found) {
         throw new Error('move not yet propagated to a fresh instance');
@@ -365,7 +365,7 @@ describe('Version control', () => {
     // The decoy sharing the leaf name kept its own topic, version and bytes.
     const verifier = await createInitializedFileManager(bee, ownerStamp);
     const rootEntries = await retryOnPropagationDelay(() =>
-      verifier.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow),
+      verifier.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow).then((r) => r.entries),
     );
     const decoySeen = rootEntries.find((e) => e.path === NAME);
     expect(decoySeen).toBeDefined();

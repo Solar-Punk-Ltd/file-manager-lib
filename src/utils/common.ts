@@ -5,6 +5,12 @@ import { isTrashPath } from './path';
 
 const logger = Logger.getInstance();
 
+export function errorMessage(reason: unknown): string {
+  if (reason instanceof Error) return reason.message;
+
+  return String(reason);
+}
+
 export async function awaitAllPromisesBounded<T>(
   tasks: (() => Promise<T>)[],
   limit: number,

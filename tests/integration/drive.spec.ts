@@ -1,11 +1,18 @@
 import { type Bee, Identifier, type PostageBatch, type PrivateKey, RedundancyLevel } from '@ethersphere/bee-js';
 
-import { buyStampSerialized, createInitializedFileManager, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH } from '../utils';
+import {
+  buyStampSerialized,
+  createInitializedFileManager,
+  DEFAULT_BATCH_AMOUNT,
+  DEFAULT_BATCH_DEPTH,
+  retryOnPropagationDelay,
+} from '../utils';
 
 import { ensureUniqueSignerWithStamp, tempFileRegistry } from './setup/utils';
 
+import { EventEmitterBase } from '@/eventEmitter';
 import { type FileManagerBase } from '@/fileManager';
-import { type DriveInfo, ListDepth } from '@/types';
+import { type DriveInfo, ListDepth, type UnresolvedDrive } from '@/types';
 import { DriveError, FileManagerEvents } from '@/utils';
 import { ROOT_PATH } from '@/utils/constants';
 
@@ -119,6 +126,9 @@ describe('Drive operations', () => {
     const src = writeTempFile('it-rename-drive.txt', 'Survives A Rename');
     await fileManager.uploadFile(drive.id, { path: 'it-rename-drive.txt', sourcePath: src });
 
+    const topicBefore = drive.topic;
+    const manifestRefBefore = { ...drive.manifestRef! };
+
     const renamed = new Promise<DriveInfo>((resolve) => {
       fileManager.emitter.on(FileManagerEvents.DRIVE_RENAMED, ({ driveInfo }: { driveInfo: DriveInfo }) =>
         resolve(driveInfo),
@@ -130,17 +140,32 @@ describe('Drive operations', () => {
 
     const local = fileManager.driveList.find((d) => d.id === drive.id)!;
     expect(local.name).toBe('Renamed drive');
-    expect(local.topic).toBe(drive.topic);
+    // The rename edits the admin manifest only — drive identity and contents are untouched.
+    expect(local.topic).toBe(topicBefore);
+    expect(local.manifestRef).toEqual(manifestRefBefore);
 
     // A cold instance rebuilds driveList from the admin manifest, so this is where a rename that only
     // updated memory would show up.
-    const fm2 = await createInitializedFileManager(bee, ownerBatch.batchID);
+    const fm2 = await retryOnPropagationDelay(async () => {
+      const emitter = new EventEmitterBase();
+      const unresolved: UnresolvedDrive[] = [];
+      emitter.on(FileManagerEvents.DRIVE_UNRESOLVED, (d: UnresolvedDrive) => unresolved.push(d));
+
+      const fresh = await createInitializedFileManager(bee, ownerBatch.batchID, emitter);
+      if (!fresh.driveList.some((d) => d.id === drive.id)) {
+        const reason = unresolved.find((u) => u.id === drive.id)?.error ?? 'not present in the admin manifest';
+        throw new Error(`renamed drive not yet readable by a fresh instance: ${reason}`);
+      }
+
+      return fresh;
+    });
+
     const reloaded = fm2.driveList.find((d) => d.id === drive.id);
     expect(reloaded).toBeDefined();
     expect(reloaded!.name).toBe('Renamed drive');
     expect(fm2.driveList.find((d) => d.name === 'Drive to rename')).toBeUndefined();
 
-    const entries = await fm2.listFolder(drive.id, '', ListDepth.Shallow);
+    const entries = (await fm2.listFolder(drive.id, '', ListDepth.Shallow)).entries;
     expect(entries.some((e) => e.path === 'it-rename-drive.txt')).toBe(true);
   });
 

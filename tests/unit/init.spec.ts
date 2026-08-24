@@ -2,13 +2,27 @@ import { Bee, FeedIndex, Topic } from '@ethersphere/bee-js';
 
 import { BEE_URL, createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
 
-import { applyDefaultMocks, mockPostageBatch } from './mock';
+import { applyDefaultMocks, createMockNodeAddresses, mockPostageBatch } from './mock';
 
 import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
+import { NodeType, type UnresolvedDrive } from '@/types';
 import { FileManagerEvents, SignerError } from '@/utils';
 import { getFeedData } from '@/utils/bee';
-import { ADMIN_DRIVE_NAME, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
+import {
+  ADMIN_DRIVE_NAME,
+  FEED_INDEX_ZERO,
+  MANIFEST_METADATA_DRIVE_ACT_PUBLISHER,
+  MANIFEST_METADATA_DRIVE_BATCH_ID,
+  MANIFEST_METADATA_DRIVE_ID,
+  MANIFEST_METADATA_DRIVE_IS_ADMIN,
+  MANIFEST_METADATA_DRIVE_NAME,
+  MANIFEST_METADATA_DRIVE_OWNER,
+  MANIFEST_METADATA_NODE_TOPIC,
+  MANIFEST_METADATA_NODE_TYPE,
+  MANIFEST_METADATA_REDUNDANCY_LEVEL,
+  SWARM_ZERO_ADDRESS,
+} from '@/utils/constants';
 import { getAllNodeEntries } from '@/utils/mantaray';
 
 describe('Initialization and construction', () => {
@@ -81,6 +95,99 @@ describe('Initialization and construction', () => {
 
       expect(fm.driveList.length).toBeGreaterThan(0);
       expect(fm.recordList).toHaveLength(0);
+    });
+
+    it('emits DRIVE_UNRESOLVED for a drive it cannot load instead of dropping it silently', async () => {
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const emitter = new EventEmitterBase();
+      const unresolved: UnresolvedDrive[] = [];
+      emitter.on(FileManagerEvents.DRIVE_UNRESOLVED, (d: UnresolvedDrive) => unresolved.push(d));
+
+      const fm = new FileManagerBase(bee, emitter);
+
+      const driveTopic = Topic.fromString('unresolved-drive').toString();
+      const driveId = 'a'.repeat(64);
+
+      (getAllNodeEntries as jest.Mock).mockReturnValue([
+        {
+          path: `/drive-${driveId}`,
+          type: NodeType.Drive,
+          topic: driveTopic,
+          rawMetadata: {
+            [MANIFEST_METADATA_NODE_TOPIC]: driveTopic,
+            [MANIFEST_METADATA_NODE_TYPE]: NodeType.Drive,
+            [MANIFEST_METADATA_DRIVE_ID]: driveId,
+            [MANIFEST_METADATA_DRIVE_NAME]: 'broken-drive',
+            [MANIFEST_METADATA_DRIVE_OWNER]: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
+            [MANIFEST_METADATA_DRIVE_BATCH_ID]: DUMMY_BATCH_ID.toString(),
+            [MANIFEST_METADATA_DRIVE_IS_ADMIN]: 'false',
+            [MANIFEST_METADATA_DRIVE_ACT_PUBLISHER]: createMockNodeAddresses().publicKey.toCompressedHex(),
+            [MANIFEST_METADATA_REDUNDANCY_LEVEL]: '0',
+          },
+        },
+      ]);
+
+      const feedResult = (feedIndex: FeedIndex, feedIndexNext: FeedIndex): unknown => ({
+        feedIndex,
+        feedIndexNext,
+        payload: {
+          toUint8Array: () => SWARM_ZERO_ADDRESS.toUint8Array(),
+          toJSON: () => ({
+            reference: SWARM_ZERO_ADDRESS.toString(),
+            historyRef: SWARM_ZERO_ADDRESS.toString(),
+          }),
+        },
+      });
+
+      (getFeedData as jest.Mock).mockImplementation(async (_bee: Bee, topic: Topic) =>
+        topic.toString() === driveTopic
+          ? feedResult(FeedIndex.MINUS_ONE, FEED_INDEX_ZERO)
+          : feedResult(FEED_INDEX_ZERO, FeedIndex.fromBigInt(1n)),
+      );
+
+      await fm.initialize();
+
+      expect(fm.driveList.find((d) => d.id === driveId)).toBeUndefined();
+      expect(unresolved).toHaveLength(1);
+      expect(unresolved[0]).toMatchObject({ id: driveId, name: 'broken-drive' });
+      expect(unresolved[0].error).toContain('manifest feed');
+    });
+
+    it('emits DRIVE_UNRESOLVED for a malformed drive fork it cannot even parse', async () => {
+      const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
+      const emitter = new EventEmitterBase();
+      const unresolved: UnresolvedDrive[] = [];
+      emitter.on(FileManagerEvents.DRIVE_UNRESOLVED, (d: UnresolvedDrive) => unresolved.push(d));
+
+      const fm = new FileManagerBase(bee, emitter);
+
+      (getAllNodeEntries as jest.Mock).mockReturnValue([
+        {
+          path: '/drive-malformed',
+          type: NodeType.Drive,
+          topic: Topic.fromString('malformed-drive').toString(),
+          rawMetadata: {},
+        },
+      ]);
+
+      (getFeedData as jest.Mock).mockResolvedValue({
+        feedIndex: FEED_INDEX_ZERO,
+        feedIndexNext: FeedIndex.fromBigInt(1n),
+        payload: {
+          toUint8Array: () => SWARM_ZERO_ADDRESS.toUint8Array(),
+          toJSON: () => ({
+            reference: SWARM_ZERO_ADDRESS.toString(),
+            historyRef: SWARM_ZERO_ADDRESS.toString(),
+          }),
+        },
+      });
+
+      await fm.initialize();
+
+      expect(fm.driveList).toHaveLength(0);
+      expect(unresolved).toHaveLength(1);
+      expect(unresolved[0]).toMatchObject({ id: 'unknown', name: 'unknown' });
+      expect(unresolved[0].error).toContain('drive fork metadata');
     });
 
     it('reports failure and rolls partial state back, leaving the instance retryable', async () => {

@@ -49,12 +49,12 @@ describe('Lifecycle management', () => {
     expect(initial.trashedFrom).toBe(TEST_NAME);
 
     const fm2 = await freshInstance();
-    const listed = await fm2.listFolder(new Identifier(drive.id), ROOT_PATH, ListDepth.Deep);
+    const listed = (await fm2.listFolder(new Identifier(drive.id), ROOT_PATH, ListDepth.Deep)).entries;
 
     expect(listed.some((e) => e.path === TEST_NAME)).toBe(false);
     expect(listed.some((e) => e.path === TRASH_FOLDER_NAME)).toBe(false);
 
-    const trashed = await fm2.listTrash(drive.id);
+    const trashed = (await fm2.listTrash(drive.id)).entries;
     const found = trashed.find((e) => e.topic === initial.topic)!;
 
     expect(found).toBeDefined();
@@ -96,11 +96,11 @@ describe('Lifecycle management', () => {
 
     const trashedRoots = await retryOnPropagationDelay(async () => {
       const fm2 = await freshInstance();
-      const entries = await fm2.listFolder(drive.id, ROOT_PATH, ListDepth.Deep);
+      const entries = (await fm2.listFolder(drive.id, ROOT_PATH, ListDepth.Deep)).entries;
       if (entries.some((e) => e.path.startsWith(FOLDER_NAME))) {
         throw new Error('folder trash not yet propagated to a fresh instance');
       }
-      return await fm2.listTrash(drive.id, ListDepth.Deep);
+      return (await fm2.listTrash(drive.id, ListDepth.Deep)).entries;
     });
 
     const child = trashedRoots.find((e) => e.path === `${TRASH_FOLDER_NAME}/${folder.topic}/child.txt`)!;
@@ -112,7 +112,7 @@ describe('Lifecycle management', () => {
 
     const recovered = await retryOnPropagationDelay(async () => {
       const fm2 = await freshInstance();
-      const entries = await fm2.listFolder(drive.id, ROOT_PATH, ListDepth.Deep);
+      const entries = (await fm2.listFolder(drive.id, ROOT_PATH, ListDepth.Deep)).entries;
       const found = entries.find((e) => e.path === `${FOLDER_NAME}/child.txt`);
       if (!found) {
         throw new Error('folder recover not yet propagated to a fresh instance');
@@ -143,7 +143,7 @@ describe('Lifecycle management', () => {
 
     const trashed = await retryOnPropagationDelay(async () => {
       const fm2 = await freshInstance();
-      const entries = await fm2.listTrash(drive.id);
+      const entries = (await fm2.listTrash(drive.id)).entries;
       if (entries.filter((e) => e.trashedFrom?.endsWith('dup.txt')).length !== 2) {
         throw new Error('both trashed nodes not yet propagated to a fresh instance');
       }
@@ -172,7 +172,7 @@ describe('Lifecycle management', () => {
 
     const listed = await retryOnPropagationDelay(async () => {
       const fm2 = await freshInstance();
-      const entries = await fm2.listFolder(drive.id, ROOT_PATH);
+      const entries = (await fm2.listFolder(drive.id, ROOT_PATH)).entries;
       if (!entries.some((e) => e.path === 'orphan.txt')) {
         throw new Error('explicit recover not yet propagated to a fresh instance');
       }
@@ -207,15 +207,15 @@ describe('Lifecycle management', () => {
 
     const count = await fileManager.emptyTrash(drive.id);
     expect(count).toBeGreaterThan(0);
-    expect(await fileManager.listTrash(drive.id)).toEqual([]);
+    expect((await fileManager.listTrash(drive.id)).entries).toEqual([]);
 
     const listed = await retryOnPropagationDelay(async () => {
       const fm2 = await freshInstance();
-      const entries = await fm2.listTrash(drive.id);
+      const entries = (await fm2.listTrash(drive.id)).entries;
       if (entries.length > 0) {
         throw new Error('emptied trash not yet propagated to a fresh instance');
       }
-      return await fm2.listFolder(drive.id, ROOT_PATH);
+      return (await fm2.listFolder(drive.id, ROOT_PATH)).entries;
     });
 
     expect(listed.some((e) => e.path === 'keep.txt')).toBe(true);
@@ -249,10 +249,14 @@ describe('Lifecycle management', () => {
     expect(fileManager.recordList.find((fr) => fr.path === 'fa/dup.txt')).toBeUndefined();
     expect(fileManager.recordList.find((fr) => fr.path === 'fb/dup.txt')).toBeDefined();
 
-    const faEntries = await retryOnPropagationDelay(() => fileManager.listFolder(drive.id, 'fa', ListDepth.Shallow));
+    const faEntries = await retryOnPropagationDelay(() =>
+      fileManager.listFolder(drive.id, 'fa', ListDepth.Shallow).then((r) => r.entries),
+    );
     expect(faEntries.some((e) => e.type === NodeType.File)).toBe(false);
 
-    const fbEntries = await retryOnPropagationDelay(() => fileManager.listFolder(drive.id, 'fb', ListDepth.Shallow));
+    const fbEntries = await retryOnPropagationDelay(() =>
+      fileManager.listFolder(drive.id, 'fb', ListDepth.Shallow).then((r) => r.entries),
+    );
     expect(fbEntries.some((e) => e.type === NodeType.File && e.path === 'fb/dup.txt')).toBe(true);
   });
 });

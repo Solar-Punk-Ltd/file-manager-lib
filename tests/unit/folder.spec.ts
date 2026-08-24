@@ -4,10 +4,10 @@ import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID, make
 
 import { applyDefaultMocks, createMockDriveInfo, createMockNodeAddresses, seedDummyFile, seedRecords } from './mock';
 
-import { ListDepth, type NodeHeader, NodeType } from '@/types';
+import { FailureScope, ListDepth, type NodeHeader, NodeType } from '@/types';
 import { FileManagerEvents } from '@/utils';
 import { getFeedData } from '@/utils/bee';
-import { MANIFEST_METADATA_NODE_TOPIC, SWARM_ZERO_ADDRESS } from '@/utils/constants';
+import { FEED_INDEX_ZERO, MANIFEST_METADATA_NODE_TOPIC, ROOT_PATH, SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
 describe('Folder operations', () => {
   const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
@@ -135,7 +135,7 @@ describe('Folder operations', () => {
       );
 
       // listFolder now returns hydrated FileRecords (not raw headers): a.txt fetched, b.txt from cache.
-      const results = await fm.listFolder(drive.id, '');
+      const results = (await fm.listFolder(drive.id, '')).entries;
 
       expect(results).toHaveLength(2);
       const byTopic = Object.fromEntries(results.map((r) => [r.topic, r]));
@@ -146,6 +146,147 @@ describe('Folder operations', () => {
       expect(fm.recordList.filter((f) => f.topic === topicB)).toHaveLength(1);
       // Only a.txt triggers a feed lookup; b.txt is served from the cache.
       expect(getFeedData).toHaveBeenCalledTimes(1);
+    });
+
+    // A node present in the manifest that cannot be resolved is reported, never dropped: silently
+    // omitting it makes a broken entry indistinguishable from one that was never there.
+    describe('failure reporting', () => {
+      it('reports an unloadable file as an entry-scoped failure and still returns its siblings', async () => {
+        const fm = await createInitializedFileManager();
+        const drive = fm.driveList[0];
+
+        const goodTopic = Topic.fromString('report-good').toString();
+        const badTopic = Topic.fromString('report-bad').toString();
+
+        // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+        const { getAllNodeEntries } = require('@/utils/mantaray');
+        getAllNodeEntries.mockReturnValue([
+          { path: 'good.txt', type: NodeType.File, topic: goodTopic, rawMetadata: {} },
+          { path: 'bad.txt', type: NodeType.File, topic: badTopic, rawMetadata: {} },
+        ]);
+
+        seedRecords(fm, {
+          type: NodeType.File,
+          batchId: DUMMY_BATCH_ID,
+          owner,
+          actPublisher,
+          redundancyLevel: RedundancyLevel.OFF,
+          topic: goodTopic,
+          driveId: drive.id,
+          name: 'good.txt',
+          path: 'good.txt',
+          content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        });
+
+        // Only bad.txt reaches the feed: good.txt is served from the cache.
+        (getFeedData as jest.Mock).mockRejectedValue(new Error('feed unreachable'));
+
+        const { entries, failed } = await fm.listFolder(drive.id, '');
+
+        expect(entries.map((e) => e.path)).toEqual(['good.txt']);
+        expect(failed).toHaveLength(1);
+        expect(failed[0]).toMatchObject({
+          path: 'bad.txt',
+          scope: FailureScope.Entry,
+          type: NodeType.File,
+          topic: badTopic,
+        });
+        expect(failed[0].error).toContain('feed unreachable');
+      });
+
+      it('reports an unresolvable folder as a subtree-scoped failure', async () => {
+        const fm = await createInitializedFileManager();
+        const drive = fm.driveList[0];
+
+        const folderTopic = Topic.fromString('report-folder').toString();
+
+        // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+        const { getAllNodeEntries } = require('@/utils/mantaray');
+        getAllNodeEntries.mockReturnValue([
+          { path: 'broken', type: NodeType.Folder, topic: folderTopic, rawMetadata: {} },
+        ]);
+
+        // A folder whose feed has no update at all — previously a warn-and-skip.
+        (getFeedData as jest.Mock).mockResolvedValue({
+          feedIndex: FeedIndex.MINUS_ONE,
+          feedIndexNext: FEED_INDEX_ZERO,
+          payload: {
+            toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
+          },
+        });
+
+        const { entries, failed } = await fm.listFolder(drive.id, '', ListDepth.Deep);
+
+        expect(entries).toEqual([]);
+        expect(failed).toHaveLength(1);
+        // Its manifest never loaded, so its descendants were never enumerated either.
+        expect(failed[0]).toMatchObject({
+          path: 'broken',
+          scope: FailureScope.Subtree,
+          type: NodeType.Folder,
+          topic: folderTopic,
+        });
+      });
+
+      it('reports a folder whose manifest cannot be expanded, keeping the folder itself listed', async () => {
+        const fm = await createInitializedFileManager();
+        const drive = fm.driveList[0];
+
+        const folderTopic = Topic.fromString('expand-broken').toString();
+
+        // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+        const { getAllNodeEntries, loadMantaray } = require('@/utils/mantaray');
+        getAllNodeEntries.mockReturnValue([
+          { path: 'readable', type: NodeType.Folder, topic: folderTopic, rawMetadata: {} },
+        ]);
+
+        // The folder's feed resolves, so the node itself is listed...
+        (getFeedData as jest.Mock).mockResolvedValue({
+          feedIndex: FEED_INDEX_ZERO,
+          feedIndexNext: FeedIndex.fromBigInt(1n),
+          payload: {
+            toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
+          },
+        });
+        // ...but its manifest cannot be read, so descending into it fails. The drive root is served
+        // from the cache seeded at init, so only the folder's own expansion breaks.
+        loadMantaray.mockRejectedValue(new Error('manifest unreadable'));
+
+        const { entries, failed } = await fm.listFolder(drive.id, '', ListDepth.Deep);
+
+        // Distinct from an unresolvable folder: this one exists and is returned, only its contents
+        // are unknown.
+        expect(entries.map((e) => e.path)).toEqual(['readable']);
+        expect(failed).toHaveLength(1);
+        expect(failed[0]).toMatchObject({
+          path: 'readable',
+          scope: FailureScope.Subtree,
+          topic: folderTopic,
+        });
+        expect(failed[0].error).toContain('manifest unreadable');
+      });
+
+      it('folds listing failures into downloadFolder results', async () => {
+        const fm = await createInitializedFileManager();
+        const drive = fm.driveList[0];
+
+        const badTopic = Topic.fromString('download-bad').toString();
+
+        // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+        const { getAllNodeEntries } = require('@/utils/mantaray');
+        getAllNodeEntries.mockReturnValue([{ path: 'bad.txt', type: NodeType.File, topic: badTopic, rawMetadata: {} }]);
+
+        (getFeedData as jest.Mock).mockRejectedValue(new Error('feed unreachable'));
+
+        const result = await fm.downloadFolder(drive.id, ROOT_PATH);
+
+        // A file that never made it into the listing cannot be fetched, so reporting only fetch
+        // failures would let the caller read a partial download as a complete one.
+        expect(result.succeeded).toEqual([]);
+        expect(result.failed).toHaveLength(1);
+        expect(result.failed[0].path).toBe('bad.txt');
+        expect(result.failed[0].error).toContain('feed unreachable');
+      });
     });
 
     it('throws when a segment of the folder path does not exist', async () => {
@@ -173,7 +314,7 @@ describe('Folder operations', () => {
         },
       });
 
-      const results = await fm.listFolder(drive.id, '', ListDepth.Deep, 1);
+      const results = (await fm.listFolder(drive.id, '', ListDepth.Deep, 1)).entries;
 
       // Resolved into a hydrated FolderInfo; maxDepth=1 stops before recursing into it.
       expect(results).toHaveLength(1);

@@ -1,4 +1,4 @@
-import { type Bee, type PublicKey } from '@ethersphere/bee-js';
+import { type Bee, type PublicKey, Reference, Topic } from '@ethersphere/bee-js';
 import path from 'path';
 import { setTimeout } from 'timers';
 
@@ -8,8 +8,9 @@ import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
 import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
-import { type DriveInfo, type FileRecord, type FolderInfo, ListDepth } from '@/types';
-import { ROOT_PATH } from '@/utils/constants';
+import { type DriveInfo, FailureScope, type FileRecord, type FolderInfo, ListDepth, NodeType } from '@/types';
+import { MANIFEST_METADATA_NODE_TOPIC, MANIFEST_METADATA_NODE_TYPE, ROOT_PATH } from '@/utils/constants';
+import { generateRandomBytes } from '@/utils/crypto';
 
 describe('Abort signal handling', () => {
   let bee: Bee;
@@ -172,7 +173,7 @@ describe('Abort signal handling', () => {
 
       const verifier = new FileManagerBase(bee);
       await verifier.initialize();
-      const rootEntries = await verifier.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow);
+      const rootEntries = (await verifier.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow)).entries;
       expect(rootEntries.some((e) => e.path === 'abortbatch')).toBe(false);
     });
 
@@ -204,14 +205,14 @@ describe('Abort signal handling', () => {
       const verifier = await retryOnPropagationDelay(async () => {
         const fresh = new FileManagerBase(bee);
         await fresh.initialize();
-        const entries = await fresh.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow);
+        const entries = (await fresh.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow)).entries;
         if (!entries.some((e) => e.path === 'it-abortbatch-later-kept.txt')) {
           throw new Error('follow-up upload not yet propagated');
         }
         return fresh;
       });
 
-      const entries = await verifier.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow);
+      const entries = (await verifier.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow)).entries;
       expect(entries.some((e) => e.path === 'it-abortbatch-later-kept.txt')).toBe(true);
       expect(entries.some((e) => e.path === 'later-abort')).toBe(false);
     });
@@ -348,6 +349,36 @@ describe('Abort signal handling', () => {
       });
     });
 
+    it('reports a genuinely unresolvable fork while a live signal is attached', async () => {
+      const orphanTopic = new Topic(generateRandomBytes(Topic.LENGTH)).toString();
+      const orphanName = 'it-abort-orphan-folder';
+      const store = (fileManager as any).store;
+      const publisher = (fileManager as any).publisher.toCompressedHex();
+      const { host, node } = await store.resolveHostMantaray(drive, ROOT_PATH, publisher);
+
+      node.addFork(orphanName, new Reference(orphanTopic), {
+        [MANIFEST_METADATA_NODE_TOPIC]: orphanTopic,
+        [MANIFEST_METADATA_NODE_TYPE]: NodeType.Folder,
+      });
+      const newManifestRef = await store.saveMantarayNode(node, host);
+      drive.manifestRef = newManifestRef;
+
+      const controller = new AbortController();
+      const { entries, failed } = await fileManager.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow, undefined, {
+        signal: controller.signal,
+      });
+
+      expect(controller.signal.aborted).toBe(false);
+      expect(entries.some((e) => e.path === folderName)).toBe(true);
+      const orphan = failed.find((f) => f.path === orphanName);
+      expect(orphan).toBeDefined();
+      expect(orphan!.scope).toBe(FailureScope.Subtree);
+      expect(orphan!.topic).toBe(orphanTopic);
+
+      node.removeFork(orphanName);
+      drive.manifestRef = await store.saveMantarayNode(node, host);
+    });
+
     it('should throw error when listFolder is aborted with pre-aborted signal', async () => {
       const controller = new AbortController();
       controller.abort(); // Pre-abort
@@ -372,9 +403,11 @@ describe('Abort signal handling', () => {
     it('should complete listFolder successfully when signal is not aborted', async () => {
       const controller = new AbortController();
 
-      const result = await fileManager.listFolder(drive.id, folderInfo.path, ListDepth.Shallow, undefined, {
-        signal: controller.signal,
-      });
+      const result = (
+        await fileManager.listFolder(drive.id, folderInfo.path, ListDepth.Shallow, undefined, {
+          signal: controller.signal,
+        })
+      ).entries;
 
       expect(result).toBeDefined();
       expect(Array.isArray(result)).toBe(true);
@@ -391,9 +424,11 @@ describe('Abort signal handling', () => {
       ).rejects.toThrow();
 
       // Second call should succeed (not aborted)
-      const result = await fileManager.listFolder(drive.id, folderInfo.path, ListDepth.Shallow, undefined, {
-        signal: controller2.signal,
-      });
+      const result = (
+        await fileManager.listFolder(drive.id, folderInfo.path, ListDepth.Shallow, undefined, {
+          signal: controller2.signal,
+        })
+      ).entries;
 
       expect(result).toBeDefined();
       expect(Array.isArray(result)).toBe(true);
