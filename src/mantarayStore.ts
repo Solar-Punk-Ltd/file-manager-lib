@@ -1,12 +1,5 @@
-import {
-  type BeeRequestOptions,
-  Bytes,
-  FeedIndex,
-  type MantarayNode,
-  type RedundancyLevel,
-  Reference,
-  Topic,
-} from '@ethersphere/bee-js';
+import { type BeeRequestOptions, Bytes, FeedIndex, type RedundancyLevel, Reference, Topic } from '@ethersphere/bee-js';
+import { type MantarayNode } from '@ethersphere/core-sdk';
 
 import { type DriveInfo, type FileRecord, type FolderInfo, type ManifestHost, NodeType } from './types/info';
 import { type SwarmClient } from './types/swarmClient';
@@ -142,9 +135,12 @@ export class MantarayStore {
   async saveRecord(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<FeedWriteResult> {
     const prevRef = this.getNodeRef(record.topic);
 
+    // Derived state: every one of these is reconstructed by the manifest walk, so persisting them
+    // would only create a second copy that can disagree with the tree.
     const persistable: FileRecord = { ...record };
     delete persistable.status;
     delete persistable.driveId;
+    delete (persistable as Partial<FileRecord>).path;
 
     const { contentRefs, index, nextIndex } = await writeActFeed(
       this.swarmClient,
@@ -187,6 +183,8 @@ export class MantarayStore {
 
     const record = new Bytes(fileBytes).toJSON() as FileRecord;
     assertFileRecord(record);
+
+    record.path = record.name;
 
     if (topic !== record.topic) {
       throw new FileRecordError(

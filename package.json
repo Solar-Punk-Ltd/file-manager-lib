@@ -61,17 +61,13 @@
     "url": "https://github.com/Solar-Punk-Ltd/file-manager-lib.git"
   },
   "dependencies": {
-    "@ethersphere/bee-js": "npm:@solarpunkltd/bee-js@0.0.0-fmv2.1",
+    "@ethersphere/bee-js": "^13.0.0",
+    "@ethersphere/core-sdk": "^0.1.1",
     "cafe-utility": "^36.3.0",
     "std-env": "^3.10.0"
   },
-  "overrides": {
-    "@ethersphere/bee-factory": {
-      "@ethersphere/bee-js": "npm:@solarpunkltd/bee-js@0.0.0-fmv2.1"
-    }
-  },
   "peerDependencies": {
-    "@snaha/swarm-id": "^0.2.0"
+    "@snaha/swarm-id": "^0.3.0"
   },
   "peerDependenciesMeta": {
     "@snaha/swarm-id": {

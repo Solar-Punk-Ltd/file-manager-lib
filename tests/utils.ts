@@ -17,6 +17,7 @@ export const DEFAULT_BATCH_AMOUNT = '500000000';
 export const DEFAULT_MOCK_SIGNER = new PrivateKey('634fb5a872396d9693e5c9f9d7233cfa93f395c093371017ff44aa9ae6564cdd');
 export const OTHER_MOCK_SIGNER = new PrivateKey('734fb5a872396d9693e5c9f9d7233cfa93f395c093371017ff44aa9ae6564cd7');
 export const DUMMY_BATCH_ID = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
+export const MOCK_NODE_SIGNER = new PrivateKey('22'.repeat(32));
 
 export function getTestFile(relativePath: string): string {
   return fs.readFileSync(path.resolve(__dirname, relativePath), 'utf-8');
@@ -84,12 +85,12 @@ async function buyStamp(
   label?: string,
   requestOptions?: BeeRequestOptions,
 ): Promise<BatchId> {
-  const stamp = (await bee.getPostageBatches(requestOptions)).find((b) => b.label === label);
+  const stamp = (await bee.stamp.getAll(requestOptions)).find((b) => b.label === label);
   if (stamp && stamp.usable) {
     return stamp.batchID;
   }
 
-  return await bee.createPostageBatch(amount, depth, {
+  return await bee.stamp.create(amount, depth, {
     waitForUsable: true,
     label,
   });

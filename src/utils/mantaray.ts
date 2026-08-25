@@ -1,4 +1,5 @@
-import { type BeeRequestOptions, MantarayNode, RedundancyLevel, Reference } from '@ethersphere/bee-js';
+import { type BeeRequestOptions, RedundancyLevel, Reference } from '@ethersphere/bee-js';
+import { MantarayNode } from '@ethersphere/core-sdk';
 
 import {
   type DriveInfo,
@@ -20,7 +21,6 @@ import {
   MANIFEST_METADATA_DRIVE_IS_ADMIN,
   MANIFEST_METADATA_DRIVE_NAME,
   MANIFEST_METADATA_DRIVE_OWNER,
-  MANIFEST_METADATA_FILE_TOPIC,
   MANIFEST_METADATA_NODE_ACT_PUBLISHER,
   MANIFEST_METADATA_NODE_OWNER,
   MANIFEST_METADATA_NODE_TOPIC,
@@ -142,7 +142,6 @@ export async function saveNodeManifest(
 
 export function fileForkMetadata(record: FileRecord): Record<string, string> {
   return {
-    [MANIFEST_METADATA_FILE_TOPIC]: record.topic,
     [MANIFEST_METADATA_NODE_TOPIC]: record.topic,
     [MANIFEST_METADATA_NODE_TYPE]: NodeType.File,
     [MANIFEST_METADATA_NODE_OWNER]: record.owner,

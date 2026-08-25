@@ -147,6 +147,12 @@ Each domain area lives in its own spec file, mirrored across `unit/` and `integr
 - **ACT** wraps content per file (`content.historyRef`, `actPublisher`).
 - **Trash is a reserved `.trash` folder** at the drive root: trashing relocates the node's fork into it keyed by topic,
   so status is _derived_ from a node's location and a fresh instance sees it by walking the tree.
+- **A node's name is its fork label**, not part of the record payload, so `move` (rename or relocate) rewrites no record
+  and bumps no version. Tests assert the version is _unchanged_ across a move.
+- **Listings report what they cannot resolve.** `listFolder` / `listTrash` return `{ entries, failed }`; a node present
+  in a manifest but unresolvable lands in `failed` with a `FailureScope` rather than being dropped. `downloadFolder`
+  folds those listing failures into its own `failed`.
+- **A drive that cannot be loaded emits `DRIVE_UNRESOLVED`** during `initialize` instead of vanishing silently.
 - `FileManagerConfig` lets clients cap `uploadConcurrency` and `feedFetchConcurrency`.
 - Sharing / grantees are **not** part of v2 and are not tested.
 
@@ -161,13 +167,17 @@ Executed against live bee-factory nodes.
   re-initialization with a valid vs. expired admin stamp (user drives and admin stamp survive re-init).
 - **`drive.spec.ts`** — _Drive operations_: `createDrive` persists id/owner/batch/redundancy; forgetting a user drive
   removes it, prunes its records, emits `DRIVE_FORGOTTEN`, and persists; destroying/forgetting the **admin** drive and
-  forgetting a non-existent drive throw `DriveError`.
+  forgetting a non-existent drive throw `DriveError`. Drive **rename** via `move('/', newName, driveId)`: emits
+  `DRIVE_RENAMED`, leaves topic/`manifestRef`/files untouched, survives a cold instance, and refuses the admin drive or
+  a name another drive holds.
 - **`file.spec.ts`** — split into `uploadFile`, `uploadFiles`, `updateFile`, `downloadFile and downloadFiles`, `move`:
   single- and multi-file uploads (each with its own topic), implicit folder creation with batched manifest saves, the
   two-hop ACT-unwrap download round-trip, `updateFile` re-versioning (content vs. metadata-only), directory-source
-  guards, rename/move within a drive, and a foreign-drive path failing to resolve (there is no cross-drive move).
+  guards, rename/move within a drive **at an unchanged version**, a renamed file reading back under its new name on a
+  cold instance, and a foreign-drive path failing to resolve (there is no cross-drive move).
 - **`folder.spec.ts`** — _Folder operations_: `listFolder` (relative paths, empty folders, deep nesting, empty-path
-  rejection), `downloadFolder` destination-path composition, and moving a folder as a unit.
+  rejection), `downloadFolder` destination-path composition, moving a folder as a unit, and `downloadFolder` reporting a
+  file it could not list rather than returning a partial download as complete.
 - **`version.spec.ts`** — _Version control_: invalid index rejection, sequential slot indices, cold-cache lazy
   hydration, drive-mismatch guard, independently downloadable version bytes, cached-head fast path, restoring a prior
   version as the new head, no-op restore of the head, and restore keeping the current (post-move) location.
@@ -176,7 +186,9 @@ Executed against live bee-factory nodes.
   same-named nodes kept apart, recover to an explicit destination after the origin was forgotten, the write guards,
   `emptyTrash`, and `forget` (hard de-reference).
 - **`abort.spec.ts`** — _Abort signal handling_: `AbortSignal` forwarding for `uploadFile`, `downloadFiles`, and
-  `listFolder` — pre-aborted, mid-flight cancel, and clean completion when not aborted.
+  `listFolder` — pre-aborted, mid-flight cancel, and clean completion when not aborted; plus a live (never-aborted)
+  signal not suppressing failure reporting. An _aborted_ walk rejects via `throwIfAborted`, so it never produces a
+  `ListFolderResult` to inspect — only the live-signal half is assertable.
 - **`e2e.spec.ts`** — _End-to-End User Workflow_: in-place folder update (one file changes, siblings untouched), adding
   a new folder version without disturbing old files, and multi-branch relative-path listing.
 
@@ -194,12 +206,20 @@ Key strategies:
 - `seedRecords()` injects `FileRecord`s directly into the cache to test read paths without uploading.
 
 - **`init.spec.ts`** — _constructor_ (missing signer, emitter wiring), _initialize_ (emits `INITIALIZED`; idempotent),
-  _reinitialization_.
-- **`drive.spec.ts`** — `creatAdminDrive`, `createDrive` (duplicate name/batchId → `DriveError`), `destroyDrive`
-  (`bee.diluteBatch` / admin-stamp guard), `forgetDrive`.
+  _reinitialization_, and `DRIVE_UNRESOLVED` for a drive whose manifest feed is missing as well as one whose fork
+  metadata is unparseable (id/name fall back to `'unknown'`).
+- **`drive.spec.ts`** — `creatAdminDrive`, `createDrive` (duplicate name/batchId → `DriveError`), `forgetDrive`, and
+  _rename via move_ (admin-fork metadata rewritten in place under its id-keyed path; admin drive, duplicate and no-op
+  names refused; every other root move still rejected).
 - **`file.spec.ts`** — _File operations_ → `downloadFile`, `downloadFiles`, `uploadFile`, `updateFile`, `move` (correct
-  ACT params, no duplicate records on re-version, directory guards).
-- **`folder.spec.ts`** — `downloadFolder`, `listFolder`, `createFolder`, `move`.
+  ACT params, no duplicate records on re-version, directory guards; rename and relocate write no record and pin no new
+  version, and a cold file is relocated without its feed being read), plus a _record persistence contract_ block: `name`
+  is persisted while `path` / `driveId` / `status` are stripped, and `path` falls back to `name` when a record is read
+  straight off its feed.
+- **`folder.spec.ts`** — `downloadFolder`, `listFolder`, `createFolder`, `move`, plus a _failure reporting_ block:
+  entry-scoped file failure (siblings still returned), subtree-scoped unresolvable folder, a folder whose manifest
+  cannot be expanded (listed _and_ reported — it exists, only its contents are unknown), and `downloadFolder` folding
+  listing failures into its result.
 - **`version.spec.ts`** — `getFileVersion` (indexed vs. head, cache reuse, missing-feed error), `restoreFileVersion`
   (head restore is a no-op / emits no event).
 - **`trash.spec.ts`** — _Lifecycle management_ → `trash`, `recover`, `listTrash`, `emptyTrash`, `forget` (fork
@@ -210,8 +230,10 @@ Key strategies:
 
 Emitted events live in `FileManagerEvents` (`src/utils/events.ts`): `FILE_UPLOADED`, `FILE_UPDATED`, `FILE_TRASHED`,
 `FILE_RECOVERED`, `FILE_FORGOTTEN`, `FILE_VERSION_RESTORED`, `FILE_MOVED`, `INITIALIZED`, `DRIVE_CREATED`,
-`DRIVE_FORGOTTEN`, `FOLDER_*` (including `FOLDER_MOVED`), `FILES_UPLOADED`, `TRASH_EMPTIED`, `STATE_INVALID`. The
-file/folder pairs of a path-addressed operation carry the same payload shape — see
+`DRIVE_RENAMED`, `DRIVE_UNRESOLVED`, `DRIVE_FORGOTTEN`, `FOLDER_*` (including `FOLDER_MOVED`), `FILES_UPLOADED`,
+`TRASH_EMPTIED`, `STATE_INVALID`. Events emitted _during_ `initialize` (`INITIALIZED`, `STATE_INVALID`,
+`DRIVE_UNRESOLVED`) require the emitter to be injected via the constructor before initializing — tests that assert them
+do exactly that. The file/folder pairs of a path-addressed operation carry the same payload shape — see
 [REFERENCE.md](../REFERENCE.md#events).
 
 ---

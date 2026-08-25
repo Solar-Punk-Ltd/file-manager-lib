@@ -1,14 +1,5 @@
-import {
-  BatchId,
-  Bee,
-  Bytes,
-  FeedIndex,
-  Identifier,
-  type MantarayNode,
-  PublicKey,
-  RedundancyLevel,
-  Topic,
-} from '@ethersphere/bee-js';
+import { BatchId, Bee, Bytes, FeedIndex, Identifier, PublicKey, RedundancyLevel, Topic } from '@ethersphere/bee-js';
+import { type MantarayNode } from '@ethersphere/core-sdk';
 
 import {
   createInitializedFileManager,
@@ -41,6 +32,7 @@ describe('Version control', () => {
     owner,
     batchId: DUMMY_BATCH_ID,
     driveId: Identifier.fromString('version-drive').toString(),
+    name: 'x.txt',
     path: 'x.txt',
     actPublisher,
     version: FeedIndex.fromBigInt(0n).toString(),
@@ -157,7 +149,7 @@ describe('Version control', () => {
         payload: { toJSON: () => oldRefs },
       });
       jest
-        .spyOn(Bee.prototype, 'downloadData')
+        .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'download')
         .mockResolvedValue(getEncodedData(JSON.stringify({ ...dummyFi, version: FEED_INDEX_ZERO.toString() })));
 
       const got = await fm.getFileVersion(dummyFi, FEED_INDEX_ZERO);
@@ -179,7 +171,7 @@ describe('Version control', () => {
         payload: { toJSON: () => headRefs },
       });
       jest
-        .spyOn(Bee.prototype, 'downloadData')
+        .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'download')
         .mockResolvedValue(
           getEncodedData(JSON.stringify({ ...dummyFi, version: FeedIndex.fromBigInt(7n).toString() })),
         );
@@ -243,6 +235,7 @@ describe('Version control', () => {
         ...dummyFi,
         driveId: di.id,
         topic: Topic.fromString('impostor-topic').toString(),
+        name: 'report.pdf',
         path: 'report.pdf',
         version: FEED_INDEX_ZERO.toString(),
       };

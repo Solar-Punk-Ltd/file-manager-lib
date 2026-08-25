@@ -1,4 +1,5 @@
-import { FeedIndex, Identifier, type MantarayNode, Topic } from '@ethersphere/bee-js';
+import { FeedIndex, Identifier, Topic } from '@ethersphere/bee-js';
+import { type MantarayNode } from '@ethersphere/core-sdk';
 
 import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, makeUploadSource } from '../utils';
 
@@ -253,7 +254,7 @@ describe('Lifecycle management', () => {
 
   describe('listTrash', () => {
     it('returns [] for a drive that never had anything trashed', async () => {
-      expect(await fm.listTrash(drive.id)).toEqual([]);
+      expect((await fm.listTrash(drive.id)).entries).toEqual([]);
     });
   });
 

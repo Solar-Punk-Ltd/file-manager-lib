@@ -80,8 +80,8 @@ export function assertFileRecord(value: unknown): asserts value is FileRecord {
     new Identifier(fr.driveId);
   }
 
-  if (typeof fr.path !== 'string' || fr.path.length === 0) {
-    throw new TypeError('path property of FileRecord has to be a non-empty string!');
+  if (typeof fr.name !== 'string' || fr.name.length === 0) {
+    throw new TypeError('name property of FileRecord has to be a non-empty string!');
   }
 
   if (fr.version !== undefined) {

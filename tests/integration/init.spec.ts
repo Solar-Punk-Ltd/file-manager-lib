@@ -110,7 +110,7 @@ describe('Initialization and construction', () => {
 
     try {
       await retryOnPropagationDelay(() =>
-        otherBee.downloadData(new Reference(feedTopicState.reference), {
+        otherBee.data.download(new Reference(feedTopicState.reference), {
           actHistoryAddress: new Reference(feedTopicState.historyRef),
           actPublisher,
         }),
@@ -125,7 +125,7 @@ describe('Initialization and construction', () => {
     const unwritten = new Topic(generateRandomBytes(Topic.LENGTH));
     const address = client.owner;
 
-    await expect(bee.makeFeedReader(unwritten.toUint8Array(), address).downloadPayload()).rejects.toMatchObject({
+    await expect(bee.feed.makeReader(unwritten.toUint8Array(), address).downloadPayload()).rejects.toMatchObject({
       status: 404,
     });
 
@@ -190,7 +190,7 @@ describe('Initialization and construction', () => {
     fm.emitter.on(FileManagerEvents.INITIALIZED, (ok: boolean) => events.push(ok));
 
     const spy = jest
-      .spyOn(Bee.prototype, 'getNodeAddresses')
+      .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').connectivity), 'getNodeAddresses')
       .mockRejectedValueOnce(new Error('transient node failure'));
 
     await fm.initialize();
@@ -213,8 +213,8 @@ describe('reinitialization', () => {
     const { client, bee, ownerStamp } = await ensureUniqueSignerWithStamp();
     await createInitializedFileManager(client, ownerStamp);
 
-    const originalFn = bee.getPostageBatches.bind(bee);
-    const spy = jest.spyOn(bee, 'getPostageBatches');
+    const originalFn = bee.stamp.getAll.bind(bee.stamp);
+    const spy = jest.spyOn(bee.stamp, 'getAll');
 
     spy.mockImplementation(async () => {
       await originalFn();
@@ -328,9 +328,9 @@ describe('reinitialization', () => {
   });
 
   it('should emit correct events during revalidation failure', async () => {
-    const { client, bee, ownerStamp } = await ensureUniqueSignerWithStamp();
-    const originalFn = bee.getPostageBatches.bind(bee);
-    const spy = jest.spyOn(bee, 'getPostageBatches');
+    const { client, bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
+    const originalFn = beeDev.stamp.getAll.bind(beeDev.stamp);
+    const spy = jest.spyOn(beeDev.stamp, 'getAll');
 
     spy.mockImplementation(async () => {
       const batches = await originalFn();

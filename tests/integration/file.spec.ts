@@ -14,7 +14,7 @@ import { ensureUniqueSignerWithStamp, setupUserDrive, tempFileRegistry } from '.
 
 import { type FileManagerBase } from '@/fileManager';
 import { type BeeClient } from '@/swarm';
-import { type DriveInfo, ListDepth, NodeType } from '@/types';
+import { type DriveInfo, type FileRecord, ListDepth, NodeType } from '@/types';
 import { FileManagerEvents } from '@/utils';
 import { FEED_INDEX_ZERO, ROOT_PATH } from '@/utils/constants';
 
@@ -55,7 +55,7 @@ describe('uploadFile', () => {
 
     const fm2 = await retryOnPropagationDelay(async () => {
       const fresh = await createInitializedFileManager(client, ownerStamp);
-      const entries = await fresh.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow);
+      const entries = (await fresh.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow)).entries;
       if (!entries.some((e) => e.path === name)) {
         throw new Error('upload not yet propagated to a fresh instance');
       }
@@ -124,7 +124,9 @@ describe('uploadFiles', () => {
     expect(result.succeeded).toHaveLength(3);
     expect(result.failed).toHaveLength(0);
 
-    const entries = await retryOnPropagationDelay(() => fileManager.listFolder(drive.id, '', ListDepth.Shallow));
+    const entries = await retryOnPropagationDelay(() =>
+      fileManager.listFolder(drive.id, '', ListDepth.Shallow).then((r) => r.entries),
+    );
     const fileEntries = entries.filter((e) => e.type === NodeType.File);
     expect(fileEntries.map((e) => e.path).sort()).toEqual(['a.txt', 'b.txt', 'c.txt']);
 
@@ -164,18 +166,20 @@ describe('uploadFiles', () => {
       expect(folderCreatedEvents).toHaveLength(2);
       expect(filesUploadedEvents).toHaveLength(1);
 
-      const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(drive.id, '', ListDepth.Shallow));
+      const rootEntries = await retryOnPropagationDelay(() =>
+        fileManager.listFolder(drive.id, '', ListDepth.Shallow).then((r) => r.entries),
+      );
       expect(rootEntries.some((e) => e.type === NodeType.File && e.path === 'readme.md')).toBe(true);
       expect(rootEntries.some((e) => e.type === NodeType.Folder && e.path.endsWith('docs'))).toBe(true);
 
       const docsEntries = await retryOnPropagationDelay(() =>
-        fileManager.listFolder(drive.id, 'docs', ListDepth.Shallow),
+        fileManager.listFolder(drive.id, 'docs', ListDepth.Shallow).then((r) => r.entries),
       );
       expect(docsEntries.some((e) => e.type === NodeType.File && e.path === 'docs/report.pdf')).toBe(true);
       expect(docsEntries.some((e) => e.type === NodeType.Folder && e.path.endsWith('img'))).toBe(true);
 
       const imgEntries = await retryOnPropagationDelay(() =>
-        fileManager.listFolder(drive.id, 'docs/img', ListDepth.Shallow),
+        fileManager.listFolder(drive.id, 'docs/img', ListDepth.Shallow).then((r) => r.entries),
       );
       expect(imgEntries.some((e) => e.type === NodeType.File && e.path === 'docs/img/logo.png')).toBe(true);
     } finally {
@@ -194,17 +198,17 @@ describe('uploadFiles', () => {
     expect(result.succeeded).toHaveLength(1);
 
     const existingEntries = await retryOnPropagationDelay(() =>
-      fileManager.listFolder(drive.id, 'existing', ListDepth.Shallow),
+      fileManager.listFolder(drive.id, 'existing', ListDepth.Shallow).then((r) => r.entries),
     );
     const subFolders = existingEntries.filter((e) => e.type === NodeType.Folder && e.path.endsWith('sub'));
     expect(subFolders).toHaveLength(1);
 
     const subEntries = await retryOnPropagationDelay(() =>
-      fileManager.listFolder(drive.id, 'existing/sub', ListDepth.Shallow),
+      fileManager.listFolder(drive.id, 'existing/sub', ListDepth.Shallow).then((r) => r.entries),
     );
     expect(subEntries.some((e) => e.type === NodeType.File && e.path === 'existing/sub/x.txt')).toBe(true);
 
-    const rootEntries = await fileManager.listFolder(drive.id, '', ListDepth.Shallow);
+    const rootEntries = (await fileManager.listFolder(drive.id, '', ListDepth.Shallow)).entries;
     expect(rootEntries.filter((e) => e.type === NodeType.Folder && e.path.endsWith('existing'))).toHaveLength(1);
   });
 
@@ -254,7 +258,7 @@ describe('uploadFiles', () => {
       fileManager.uploadFiles(drive.id, [{ path: `${blockerPath}/inner.txt`, sourcePath: innerFile }], ''),
     ).rejects.toThrow(/not a folder/i);
 
-    const rootEntries = await fileManager.listFolder(drive.id, '', ListDepth.Shallow);
+    const rootEntries = (await fileManager.listFolder(drive.id, '', ListDepth.Shallow)).entries;
     expect(rootEntries.some((e) => e.path === 'inner.txt')).toBe(false);
     expect(rootEntries.some((e) => e.type === NodeType.Folder && e.path.endsWith(blockerPath))).toBe(false);
     expect(fileManager.recordList.some((fr) => fr.path.includes('inner.txt'))).toBe(false);
@@ -325,7 +329,7 @@ describe('uploadFiles', () => {
 
     // The occupied name still resolves to the first upload, and its bytes are unchanged.
     const entries = await retryOnPropagationDelay(() =>
-      fileManager.listFolder(drive.id, 'occupied', ListDepth.Shallow),
+      fileManager.listFolder(drive.id, 'occupied', ListDepth.Shallow).then((r) => r.entries),
     );
     const seen = entries.find((e) => e.path === 'occupied/taken.txt');
     expect(seen).toBeDefined();
@@ -361,7 +365,9 @@ describe('uploadFiles', () => {
     );
     expect(result.failed).toHaveLength(0);
 
-    const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(drive.id, '', ListDepth.Shallow));
+    const rootEntries = await retryOnPropagationDelay(() =>
+      fileManager.listFolder(drive.id, '', ListDepth.Shallow).then((r) => r.entries),
+    );
     expect(rootEntries.some((e) => e.type === NodeType.File && e.path === 'root.txt')).toBe(true);
     expect(rootEntries.some((e) => e.type === NodeType.Folder && e.path.endsWith('docs'))).toBe(true);
 
@@ -543,10 +549,16 @@ describe('downloadFile and downloadFiles', () => {
 describe('move', () => {
   let fileManager: FileManagerBase;
   let driveA: DriveInfo;
+  let ownerStamp: BatchId;
+  let client: BeeClient;
+  let bee: Bee;
   const { writeTempFile, writeTempDir, cleanup } = tempFileRegistry();
 
   beforeAll(async () => {
-    const { client, bee, ownerStamp } = await ensureUniqueSignerWithStamp();
+    const { client: bc, bee: beeDev, ownerStamp: os } = await ensureUniqueSignerWithStamp();
+    client = bc;
+    bee = beeDev;
+    ownerStamp = os;
     const batchIdA = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'moveIntegrationA');
     fileManager = await createInitializedFileManager(client, ownerStamp);
 
@@ -558,7 +570,7 @@ describe('move', () => {
 
   afterAll(cleanup);
 
-  it('renames a file within the drive root, preserving content and bumping the version', async () => {
+  it('renames a file within the drive root, preserving content and its version', async () => {
     const fileA = 'it-move-a.txt';
     const src = writeTempFile(fileA, 'Move Content A');
     await fileManager.uploadFile(driveA.id, { path: fileA, sourcePath: src });
@@ -570,20 +582,61 @@ describe('move', () => {
 
     await fileManager.move(fileA, 'it-move-b.txt', driveA.id);
 
-    const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA.id, '', ListDepth.Shallow));
+    const rootEntries = await retryOnPropagationDelay(() =>
+      fileManager.listFolder(driveA.id, '', ListDepth.Shallow).then((r) => r.entries),
+    );
     expect(rootEntries.some((e) => e.path === fileA)).toBe(false);
     expect(rootEntries.some((e) => e.type === NodeType.File && e.path === 'it-move-b.txt')).toBe(true);
 
     const moved = fileManager.recordList.find((fr) => fr.topic.toString() === topic)!;
     expect(moved).toBeDefined();
     expect(moved.path).toBe('it-move-b.txt');
-    expect(BigInt(moved.version!.toString())).toBe(beforeVersion + 1n);
+    expect(moved.name).toBe('it-move-b.txt');
+    expect(BigInt(moved.version!.toString())).toBe(beforeVersion);
 
     const downloadResults = await retryOnPropagationDelay(() => fileManager.downloadFolder(driveA.id, '/'));
     const downloaded = downloadResults.succeeded.find((d) => d.path === 'it-move-b.txt');
     expect(downloaded).toBeDefined();
     expect(downloadResults.failed).toEqual([]);
     expect(Buffer.from(await streamToUint8Array(downloaded!.result)).toString('utf-8')).toBe('Move Content A');
+  });
+
+  it('a renamed file reads back under its new name on a cold instance, at the same version', async () => {
+    const original = 'it-cold-rename.txt';
+    const src = writeTempFile(original, 'Cold Rename Content');
+
+    const batchId = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'moveColdRename');
+    await fileManager.createDrive(batchId, 'move-cold-rename');
+    const drive = fileManager.driveList.find((d) => d.name === 'move-cold-rename')!;
+    expect(drive).toBeDefined();
+
+    await fileManager.uploadFile(drive.id, { path: original, sourcePath: src });
+
+    const before = fileManager.recordList.find((fr) => fr.path === original)!;
+    const topic = before.topic.toString();
+    const versionBefore = before.version;
+
+    await fileManager.move(original, 'it-cold-renamed.txt', drive.id);
+
+    const found = await retryOnPropagationDelay(async () => {
+      const reader = await createInitializedFileManager(client, ownerStamp);
+      const entries = (await reader.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow)).entries;
+      const hit = entries.find((e) => e.path === 'it-cold-renamed.txt');
+      if (!hit) {
+        throw new Error('rename not yet propagated to a fresh instance');
+      }
+      return hit as FileRecord;
+    });
+
+    expect(found.topic.toString()).toBe(topic);
+    expect(found.name).toBe('it-cold-renamed.txt');
+    expect(found.version).toBe(versionBefore);
+
+    const downloaded = await fileManager.downloadFiles([found]);
+    expect(downloaded.failed).toEqual([]);
+    expect(Buffer.from(await streamToUint8Array(downloaded.succeeded[0].result)).toString('utf-8')).toBe(
+      'Cold Rename Content',
+    );
   });
 
   it('moves a root file into a newly created folder', async () => {
@@ -594,11 +647,13 @@ describe('move', () => {
 
     await fileManager.move(docFile, 'archive/doc.txt', driveA.id);
 
-    const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA.id, '', ListDepth.Shallow));
+    const rootEntries = await retryOnPropagationDelay(() =>
+      fileManager.listFolder(driveA.id, '', ListDepth.Shallow).then((r) => r.entries),
+    );
     expect(rootEntries.some((e) => e.path === docFile)).toBe(false);
 
     const archiveEntries = await retryOnPropagationDelay(() =>
-      fileManager.listFolder(driveA.id, 'archive', ListDepth.Shallow),
+      fileManager.listFolder(driveA.id, 'archive', ListDepth.Shallow).then((r) => r.entries),
     );
     expect(archiveEntries.some((e) => e.type === NodeType.File && e.path === 'archive/doc.txt')).toBe(true);
 
@@ -620,11 +675,13 @@ describe('move', () => {
 
     await fileManager.move(inboxFilePath, 'note.txt', driveA.id);
 
-    const rootEntries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA.id, '', ListDepth.Shallow));
+    const rootEntries = await retryOnPropagationDelay(() =>
+      fileManager.listFolder(driveA.id, '', ListDepth.Shallow).then((r) => r.entries),
+    );
     expect(rootEntries.some((e) => e.type === NodeType.File && e.path === 'note.txt')).toBe(true);
 
     const folderEntries = await retryOnPropagationDelay(() =>
-      fileManager.listFolder(driveA.id, folderName, ListDepth.Shallow),
+      fileManager.listFolder(driveA.id, folderName, ListDepth.Shallow).then((r) => r.entries),
     );
     expect(folderEntries.some((e) => e.path === inboxFilePath)).toBe(false);
 
@@ -656,7 +713,9 @@ describe('move', () => {
 
     await expect(fileManager.move(f1, f2, driveA.id)).rejects.toThrow(/already exists/i);
 
-    const entries = await retryOnPropagationDelay(() => fileManager.listFolder(driveA.id, '', ListDepth.Shallow));
+    const entries = await retryOnPropagationDelay(() =>
+      fileManager.listFolder(driveA.id, '', ListDepth.Shallow).then((r) => r.entries),
+    );
     expect(entries.some((e) => e.type === NodeType.File && e.path === f1)).toBe(true);
     expect(entries.some((e) => e.type === NodeType.File && e.path === f2)).toBe(true);
 

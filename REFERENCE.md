@@ -16,7 +16,7 @@ method for cancellation (`signal`) and retries; it is omitted from the descripti
 - [Drives](#drives) — `forgetDrive`
 - [Files — write](#files--write) — `uploadFile`, `uploadFiles`, `updateFile`
 - [Files — read](#files--read) — `downloadFile`, `downloadFiles`, `downloadFolder`
-- [Folders](#folders) — `createFolder`, `listFolder`, `move`, `forget`
+- [Folders](#folders) — `createFolder`, `listFolder`, `move` (also rename, and drive rename), `forget`
 - [Versioning](#versioning) — `getFileVersion`, `restoreFileVersion`
 - [Trash](#trash) — `trash`, `recover`, `listTrash`, `emptyTrash`
 - [Getters](#getters) — `adminStamp`, `driveList`, `recordList`, `emitter`, `isInitialized`
@@ -226,7 +226,11 @@ Downloads every file in a folder subtree, resolved fresh via `listFolder`. `path
 
 - **Returns**: one `DownloadFilesResult` marking per file success and failure in the subtree.
 - **Throws**: `DriveError` (not initialized, drive not found, or folder path missing); `FolderError` (`path` is the
-  reserved `.trash` folder); `SignerError`; `FileRecordError` (a folder feed is missing). Per-file failures are logged.
+  reserved `.trash` folder); `SignerError`.
+
+`failed` covers **both** halves: files that could not be fetched, and files the listing walk could not resolve in the
+first place (folded in from `listFolder`, prefixed `Could not list …`). A file dropped during the walk can never be
+fetched, so reporting only fetch failures would let a partial download read as a complete one.
 
 ---
 
@@ -247,7 +251,7 @@ Creates a new empty folder (a nested mantaray) within a drive.
 `mkdir` semantics, not upsert: a duplicate name is rejected before a feed is minted for it. `uploadFiles` differs
 deliberately — it reuses an existing folder on the way to a file rather than failing.
 
-### `listFolder(driveId, path, depth?, maxDepth?, requestOptions?): Promise<NodeEntry[]>`
+### `listFolder(driveId, path, depth?, maxDepth?, requestOptions?): Promise<ListFolderResult>`
 
 Lists entries in a folder (or drive root) from the drive manifest, hydrating and caching any file entries into
 `recordList`. The reserved `.trash` folder is omitted from the drive root and cannot be listed here — use `listTrash`.
@@ -255,19 +259,46 @@ Lists entries in a folder (or drive root) from the drive manifest, hydrating and
 - **path** — absolute folder path, or `'/'` for the drive root.
 - **depth?** [`ListDepth`](#enums) — `Shallow` (one level, default) or `Deep` (full BFS).
 - **maxDepth?** — max BFS levels when `Deep`; must be positive, unlimited if omitted.
-- **Returns**: [`NodeEntry[]`](#nodeentry) (`FileRecord | FolderInfo`) for every node at or below `path`.
+- **Returns**: [`ListFolderResult`](#listfolderresult) — `entries` ([`NodeEntry`](#nodeentry)) for every node resolved
+  at or below `path`, and `failed` ([`NodeFailure`](#nodefailure)) for every node that could not be.
 - **Throws**: `DriveError` (not initialized, drive not found, or a path segment missing); `FolderError` (`path` is the
-  reserved `.trash` folder, or `maxDepth` is not positive); `SignerError`; `FileRecordError` (a folder feed is missing).
+  reserved `.trash` folder, or `maxDepth` is not positive); `SignerError`.
+
+A node present in the manifest that the walk cannot resolve is **reported, never omitted**: an unreadable file record, a
+folder whose feed is missing, or a manifest that fails to load all land in `failed`. Omitting them would make a broken
+node indistinguishable from one that was never there. `scope` says how much is hidden — `entry` is that node alone,
+`subtree` means its descendants were never enumerated, so their number and names are unknown.
+
+A subtree-scoped failure does not imply the node itself is absent from `entries`: a folder whose feed resolves but whose
+manifest cannot be read is listed _and_ reported, because it exists — only its contents are unknown.
 
 ### `move(fromPath, toPath, sourceDriveId, requestOptions?): Promise<void>`
 
-Moves a file or folder from one path to another **within a single drive**. Path-addressed and dispatches on node type,
-so it works for both files and folders.
+Moves or renames a file or folder **within a single drive**. Path-addressed and dispatches on node type, so it works for
+both files and folders. Same parent ⇒ rename; different parent ⇒ relocate.
 
-- **Emits**: `FILE_MOVED`.
-- **Throws**: `DriveError` (not initialized, drive not found, or a folder along either path missing); `FolderError`
-  (source is root, invalid destination, source == destination, source not found, destination occupied, or either path
-  under `.trash`); `SignerError`; `FileRecordError` (a folder feed or the source record is missing).
+- **Emits**: `FILE_MOVED` (file), `FOLDER_MOVED` (folder), or `DRIVE_RENAMED` (drive rename, see below).
+- **Throws**: `DriveError` (not initialized, drive not found, or a folder along either path missing; on a drive rename:
+  the drive is the admin drive, the name is unchanged, or another drive already carries that name); `FolderError`
+  (source is root with an invalid destination, invalid destination, source == destination, source not found, destination
+  occupied, or either path under `.trash`); `SignerError`; `FileRecordError` (a folder feed or the source record is
+  missing).
+
+**No version bump.** A node's name is its fork label in the parent manifest, not part of the record payload, so a move
+or rename rewrites no record and pins no new version — the file's version history is untouched either way. This is the
+same rule `trash` and `recover` follow. It also means a moved file needs no feed read at all: relocation is a pure
+manifest operation.
+
+**Renaming a drive** — pass `'/'` as `fromPath` and the new name as `toPath`:
+
+```ts
+await fm.move('/', 'My Renamed Drive', drive.id);
+```
+
+`toPath` must not contain `/`. This edits the **admin** manifest rather than the drive's own — a drive's name lives
+solely in its admin-manifest fork metadata, and that fork is keyed by drive id, so nothing is relabelled and the drive's
+own feed is not written. Identity, contents and `manifestRef` are untouched. The admin drive cannot be renamed. Every
+other use of `'/'` as `fromPath` still throws `Cannot move root folder`.
 
 There is no cross-drive move: a relocated node keeps its drive's `batchId`, so a file "in" another drive would still be
 paid for — and die — with the original stamp. Both paths are resolved against `sourceDriveId`, so a path from another
@@ -349,7 +380,7 @@ caller passes an explicit `toPath`. An occupied destination is refused, never ov
   (destination under `.trash`); `SignerError`; `FileRecordError` (`trashedPath` is not `.trash/<topic>`, invalid
   destination path, not in the trash, or no stamped origin and no `toPath`).
 
-### `listTrash(driveId, depth?, maxDepth?, requestOptions?): Promise<NodeEntry[]>`
+### `listTrash(driveId, depth?, maxDepth?, requestOptions?): Promise<ListFolderResult>`
 
 Walks `.trash` with the same machinery as `listFolder`, so `depth` controls the cost: `Shallow` (default) returns the
 trashed roots only, `Deep` descends into trashed folders. Returns `[]` for a drive with no trash node.
@@ -395,6 +426,8 @@ Emitted on the provided `EventEmitter` as `FileManagerEvents`:
 | `INITIALIZED`           | `initialize` (success or failure)                  | `boolean`                                            |
 | `STATE_INVALID`         | `initialize` (unparseable state)                   | `boolean`                                            |
 | `DRIVE_CREATED`         | `createAdminDrive`, `createDrive`                  | `{ driveInfo }`                                      |
+| `DRIVE_RENAMED`         | `move` with `'/'` as source                        | `{ driveInfo }`                                      |
+| `DRIVE_UNRESOLVED`      | `initialize` (per unloadable drive)                | `{ id, name, error }`                                |
 | `DRIVE_FORGOTTEN`       | `forgetDrive`                                      | `{ driveInfo }`                                      |
 | `FILE_UPLOADED`         | `uploadFile`, `uploadFiles` (per file)             | `{ record }`                                         |
 | `FILES_UPLOADED`        | `uploadFiles` (once, batch summary)                | `{ succeeded, failed }`                              |
@@ -421,6 +454,15 @@ Every event fires only after the Swarm writes behind it have landed, so a receiv
 state, never an operation still in flight — a failed operation rejects and emits nothing. Consequently events are not a
 progress feed; for batch progress use the `succeeded` / `failed` result.
 
+`INITIALIZED`, `STATE_INVALID` and `DRIVE_UNRESOLVED` are emitted **during** `initialize`, so a listener attached
+afterwards misses them. Pass your own emitter to the constructor to observe them.
+
+`DRIVE_UNRESOLVED` ([`UnresolvedDrive`](#unresolveddrive)) fires once per drive that is registered in the admin manifest
+but cannot be loaded — most often one whose own manifest feed has not propagated or was never fully written. Such a
+drive is absent from `driveList`, so every later call addressing it fails with "drive not found"; the event is the only
+signal that it exists but is broken. `id` and `name` fall back to `'unknown'` when the fork metadata itself is
+unparseable.
+
 ---
 
 ## Types
@@ -440,6 +482,10 @@ enum NodeStatus {
 enum ListDepth {
   Shallow = 'shallow',
   Deep = 'deep',
+}
+enum FailureScope {
+  Entry = 'entry', // this node alone
+  Subtree = 'subtree', // this node's descendants were never enumerated
 }
 ```
 
@@ -478,16 +524,23 @@ A file leaf. Its `content` is the ACT-wrapped content reference; version history
 ```ts
 interface FileRecord extends NodeResource {
   type: NodeType.File;
-  // Not persisted: stripped before persist and hydrated. A record belongs to whichever drive's manifest references it
+  // Derived, not persisted — stripped before writing and rehydrated by the manifest walk.
+  // A record belongs to whichever drive's manifest references it.
   driveId?: string;
-  path: string;
+  status?: NodeStatus;
+  path: string; // absolute path within the drive
+  name: string; // bare filename — the one identity field of the three that IS persisted
   content: ActReferences; // { reference, historyRef }
   timestamp?: number;
-  shared?: boolean;
   customMetadata?: Record<string, string>;
-  granteeListRef?: string;
+  trashedFrom?: string;
 }
 ```
+
+`name` and `path` are not interchangeable. The **fork label in the parent manifest is authoritative** for a node's name;
+`path` is composed during the walk and never written. `name` is persisted only so a record read by topic alone is
+self-describing — and because a rename rewrites no record, it can lag behind the fork label until the next content
+write. Trust `path` on anything obtained from a listing.
 
 ### `DriveInfo`
 
@@ -531,6 +584,43 @@ interface ManifestHost extends NodeResource {
 
 ```ts
 type NodeEntry = FileRecord | FolderInfo; // discriminate on `.type`
+```
+
+### `ListFolderResult`
+
+Returned by `listFolder` and `listTrash`.
+
+```ts
+interface ListFolderResult {
+  entries: NodeEntry[];
+  failed: NodeFailure[];
+}
+```
+
+### `NodeFailure`
+
+A node present in a manifest that a listing could not resolve. Reported, never silently dropped.
+
+```ts
+interface NodeFailure {
+  path: string;
+  scope: FailureScope; // 'entry' = this node; 'subtree' = its descendants are unknown too
+  error: string;
+  type?: NodeType; // absent when the walk never learned what the node was
+  topic?: string;
+}
+```
+
+### `UnresolvedDrive`
+
+Payload of `DRIVE_UNRESOLVED`.
+
+```ts
+interface UnresolvedDrive {
+  id: string; // 'unknown' if the fork metadata itself was unparseable
+  name: string; // 'unknown' likewise
+  error: string;
+}
 ```
 
 ### `UploadItem`

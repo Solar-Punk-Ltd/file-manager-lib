@@ -1,4 +1,5 @@
-import { BatchId, Bee, type BeeRequestOptions, MantarayNode, RedundancyLevel, Topic } from '@ethersphere/bee-js';
+import { BatchId, Bee, type BeeRequestOptions, RedundancyLevel, Topic } from '@ethersphere/bee-js';
+import { MantarayNode } from '@ethersphere/core-sdk';
 
 import {
   abortAfterFirstRecordWrite,
@@ -15,8 +16,9 @@ import { applyDefaultMocks, createMockDriveInfo, createMockNodeAddresses, seedRe
 import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
 import { BeeClient } from '@/swarm';
-import { type DriveInfo, type FileRecord, ListDepth, NodeType } from '@/types';
+import { type DriveInfo, FailureScope, type FileRecord, ListDepth, NodeType } from '@/types';
 import { DriveError } from '@/utils';
+import { getFeedData } from '@/utils/bee';
 import { SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
 describe('Abort signal handling', () => {
@@ -49,7 +51,7 @@ describe('Abort signal handling', () => {
     await fm.createDrive(otherMockBatchId, 'Test Drive');
     const di = fm.driveList[1];
 
-    const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
+    const uploadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'upload');
     const controller = new AbortController();
 
     await fm.uploadFile(di.id, { path: 'package.json', ...makeUploadSource('package.json') }, undefined, {
@@ -68,13 +70,13 @@ describe('Abort signal handling', () => {
     await fm.createDrive(otherMockBatchId, 'Test Drive');
     const di = fm.driveList[1];
 
-    const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
+    const uploadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'upload');
 
     await fm.uploadFile(di.id, { path: 'package.json', ...makeUploadSource('package.json') });
 
     expect(uploadDataSpy).toHaveBeenCalled();
     for (const call of uploadDataSpy.mock.calls) {
-      expect(call[3]?.signal).toBeUndefined();
+      expect((call[3] as { signal?: AbortSignal } | undefined)?.signal).toBeUndefined();
     }
   });
 
@@ -110,7 +112,7 @@ describe('Abort signal handling', () => {
       const controller = new AbortController();
       controller.abort();
 
-      const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
+      const uploadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'upload');
       uploadDataSpy.mockClear();
 
       await expect(
@@ -129,7 +131,7 @@ describe('Abort signal handling', () => {
       const controller = new AbortController();
       abortAfterFirstRecordWrite(fm, controller);
 
-      const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
+      const uploadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'upload');
       uploadDataSpy.mockClear();
 
       await expect(
@@ -208,6 +210,34 @@ describe('Abort signal handling', () => {
     });
   });
 
+  // The suppression guard in walkFolder's failure handlers is `signal?.aborted`, one slipped word
+  // away from `signal`, which would drop every NodeFailure whenever a signal is passed at all — and
+  // callers pass one on essentially every listing. An aborted walk cannot be asserted from the other
+  // side: it rejects via throwIfAborted, so no ListFolderResult is ever produced.
+  it('reports node failures normally when a signal is present but never aborted', async () => {
+    const fm = await createInitializedFileManager();
+    const drive = fm.driveList[0];
+
+    const badTopic = Topic.fromString('abort-live-signal-bad').toString();
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
+    const { loadMantaray, getAllNodeEntries } = require('@/utils/mantaray');
+    loadMantaray.mockResolvedValue(new MantarayNode());
+    getAllNodeEntries.mockReturnValue([{ path: 'bad.txt', type: NodeType.File, topic: badTopic, rawMetadata: {} }]);
+
+    (getFeedData as jest.Mock).mockRejectedValue(new Error('feed unreachable'));
+
+    const controller = new AbortController();
+    const { entries, failed } = await fm.listFolder(drive.id, '', ListDepth.Shallow, undefined, {
+      signal: controller.signal,
+    });
+
+    expect(controller.signal.aborted).toBe(false);
+    expect(entries).toEqual([]);
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toMatchObject({ path: 'bad.txt', scope: FailureScope.Entry, topic: badTopic });
+  });
+
   it('throw if listFolder is called on a non-existent drive', async () => {
     const fm = await createInitializedFileManager();
     const freshDrive = createMockDriveInfo(actPublisher);
@@ -234,7 +264,7 @@ describe('Abort signal handling', () => {
     getAllNodeEntries.mockReturnValue([]);
     (fm as any).driveList.push(freshDrive);
 
-    const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
+    const downloadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'download');
     const controller = new AbortController();
 
     await fm.listFolder(freshDrive.id, '', ListDepth.Shallow, undefined, {
@@ -271,13 +301,17 @@ describe('Abort signal handling', () => {
       actPublisher,
       topic: Topic.fromString('signal-file').toString(),
       driveId: drive.id,
+      name: 'a.txt',
       path: 'a.txt',
       content: { reference: '1'.repeat(64), historyRef: SWARM_ZERO_ADDRESS.toString() },
       redundancyLevel: RedundancyLevel.OFF,
     };
     seedRecords(fm, rec);
 
-    const downloadReadableDataSpy = jest.spyOn(Bee.prototype, 'downloadReadableData');
+    const downloadReadableDataSpy = jest.spyOn(
+      Object.getPrototypeOf(new Bee('http://localhost:1633').data),
+      'downloadReadable',
+    );
     const controller = new AbortController();
 
     await fm.downloadFile(rec, undefined, { signal: controller.signal });

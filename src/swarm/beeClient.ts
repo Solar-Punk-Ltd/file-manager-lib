@@ -72,7 +72,7 @@ export class BeeClient implements SwarmClient {
     const ro = toBeeRequestOptions(requestOptions);
     await verifySupportedBeeVersions(this.bee, ro);
 
-    this.nodePublicKey = (await this.bee.getNodeAddresses(ro)).publicKey.toCompressedHex();
+    this.nodePublicKey = (await this.bee.connectivity.getNodeAddresses(ro)).publicKey.toCompressedHex();
   }
 
   // eslint-disable-next-line require-await
@@ -85,7 +85,7 @@ export class BeeClient implements SwarmClient {
   async getStamp(batchId?: Hex, requestOptions?: SwarmRequestOptions): Promise<StampInfo | undefined> {
     if (!batchId) return undefined;
 
-    const batches = await this.bee.getPostageBatches(toBeeRequestOptions(requestOptions));
+    const batches = await this.bee.stamp.getAll(toBeeRequestOptions(requestOptions));
     const batch = batches.find((b) => b.batchID.toString() === batchId.toString());
     if (!batch) return undefined;
 
@@ -100,7 +100,7 @@ export class BeeClient implements SwarmClient {
     options?: SwarmUploadOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<{ reference: Hex }> {
-    const result = await this.bee.uploadData(
+    const result = await this.bee.data.upload(
       batchId,
       data,
       { redundancyLevel: toRedundancyLevel(options?.redundancyLevel) },
@@ -115,7 +115,7 @@ export class BeeClient implements SwarmClient {
     options?: SwarmDownloadOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<Uint8Array> {
-    const bytes = await this.bee.downloadData(
+    const bytes = await this.bee.data.download(
       reference,
       toDownloadOptions(options),
       toBeeRequestOptions(requestOptions),
@@ -129,7 +129,7 @@ export class BeeClient implements SwarmClient {
     options?: SwarmDownloadOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<ReadableStream<Uint8Array>> {
-    return this.bee.downloadReadableData(reference, toDownloadOptions(options), toBeeRequestOptions(requestOptions));
+    return this.bee.data.downloadReadable(reference, toDownloadOptions(options), toBeeRequestOptions(requestOptions));
   }
 
   // --- ACT-protected bytes ---
@@ -141,7 +141,7 @@ export class BeeClient implements SwarmClient {
     options?: SwarmUploadOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<ClientProtectedUploadResult> {
-    const result = await this.bee.uploadData(
+    const result = await this.bee.data.upload(
       batchId,
       data,
       { act: true, actHistoryAddress: historyRef, redundancyLevel: toRedundancyLevel(options?.redundancyLevel) },
@@ -163,7 +163,7 @@ export class BeeClient implements SwarmClient {
     options?: SwarmDownloadOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<Uint8Array> {
-    const bytes = await this.bee.downloadData(
+    const bytes = await this.bee.data.download(
       refs.reference,
       {
         actHistoryAddress: refs.historyRef,
@@ -183,7 +183,7 @@ export class BeeClient implements SwarmClient {
     options?: SwarmDownloadOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<ReadableStream<Uint8Array>> {
-    const bytes = await this.bee.downloadReadableData(
+    const bytes = await this.bee.data.downloadReadable(
       refs.reference,
       {
         actHistoryAddress: refs.historyRef,
@@ -206,7 +206,7 @@ export class BeeClient implements SwarmClient {
     _options?: SwarmUploadOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<ClientUploadResult> {
-    const result = await this.bee.uploadChunk(batchId, data, undefined, toBeeRequestOptions(requestOptions));
+    const result = await this.bee.chunk.upload(batchId, data, undefined, toBeeRequestOptions(requestOptions));
 
     return { reference: result.reference.toString(), tagUid: result.tagUid };
   }
@@ -216,7 +216,7 @@ export class BeeClient implements SwarmClient {
     options?: SwarmDownloadOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<Uint8Array> {
-    return this.bee.downloadChunk(reference, toDownloadOptions(options), toBeeRequestOptions(requestOptions));
+    return this.bee.chunk.download(reference, toDownloadOptions(options), toBeeRequestOptions(requestOptions));
   }
 
   // --- Feed operations ---
@@ -230,7 +230,7 @@ export class BeeClient implements SwarmClient {
     const ro = toBeeRequestOptions(requestOptions);
 
     try {
-      const reader = this.bee.makeFeedReader(new Topic(topic).toUint8Array(), owner, ro);
+      const reader = this.bee.feed.makeReader(new Topic(topic).toUint8Array(), owner, ro);
       const result = await reader.downloadPayload(index !== undefined ? { index: toFeedIndex(index) } : undefined);
 
       return {
@@ -260,7 +260,7 @@ export class BeeClient implements SwarmClient {
     _options?: SwarmUploadOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<FeedWrite> {
-    const writer = this.bee.makeFeedWriter(
+    const writer = this.bee.feed.makeWriter(
       new Topic(topic).toUint8Array(),
       this.signer,
       toBeeRequestOptions(requestOptions),
@@ -300,7 +300,7 @@ function toDownloadOptions(options?: SwarmDownloadOptions): DownloadOptions | un
 }
 
 async function verifySupportedBeeVersions(bee: Bee, requestOptions?: BeeRequestOptions): Promise<void> {
-  const supportedApi = await bee.isSupportedApiVersion(requestOptions);
+  const supportedApi = await bee.status.isSupportedApiVersion(requestOptions);
 
   if (!supportedApi) {
     throw new BeeVersionError('Bee or Bee API version not supported');

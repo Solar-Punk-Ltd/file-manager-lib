@@ -1,4 +1,5 @@
-import { type MantarayNode, type RedundancyLevel } from '@ethersphere/bee-js';
+import { type RedundancyLevel } from '@ethersphere/bee-js';
+import { type MantarayNode } from '@ethersphere/core-sdk';
 
 import { type ActReferences } from './utils';
 
@@ -31,6 +32,8 @@ export interface NodeResource {
 export interface FileRecord extends NodeResource {
   type: NodeType.File;
   driveId?: string;
+  name: string;
+  // On a record loaded straight off its feed this falls back to `name` until a listing hydrates it.
   path: string;
   content: ActReferences;
   timestamp?: number;
@@ -58,6 +61,30 @@ export interface FolderInfo extends ManifestHost {
 }
 
 export type NodeEntry = FileRecord | FolderInfo;
+
+export enum FailureScope {
+  Entry = 'entry',
+  Subtree = 'subtree',
+}
+
+export interface NodeFailure {
+  path: string;
+  scope: FailureScope;
+  error: string;
+  type?: NodeType;
+  topic?: string;
+}
+
+export interface ListFolderResult {
+  entries: NodeEntry[];
+  failed: NodeFailure[];
+}
+
+export interface UnresolvedDrive {
+  id: string;
+  name: string;
+  error: string;
+}
 
 export interface NodeHeader {
   path: string;

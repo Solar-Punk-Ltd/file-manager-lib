@@ -153,9 +153,10 @@ await fm.uploadFiles(
   '/', // destination folder within the drive
 );
 
-// 5. list the drive tree
-const entries = await fm.listFolder(drive.id, '/', ListDepth.Deep);
+// 5. list the drive tree — entries plus anything the walk could not resolve
+const { entries, failed } = await fm.listFolder(drive.id, '/', ListDepth.Deep);
 console.log(entries.map((e) => `${e.type}: ${e.path}`));
+failed.forEach((f) => console.warn(`${f.path} unreadable (${f.scope}): ${f.error}`));
 
 // 6. download a file (ReadableStream in both Node and browser)
 const record = fm.recordList.find((r) => r.path === 'docs/readme.md')!;
@@ -165,7 +166,14 @@ const { result } = await fm.downloadFile(record);
 //    a version is a feed slot index — pass a FeedIndex, not a plain number string
 const v0 = await fm.getFileVersion(record, FeedIndex.fromBigInt(0n));
 await fm.restoreFileVersion(v0);
+
+// 7b. move and rename are the same call: same parent = rename, different parent = relocate.
+//     Neither rewrites the record, so the file's version history is untouched.
 await fm.move('docs/readme.md', 'docs/README.md', drive.id);
+await fm.move('docs/README.md', 'README.md', drive.id); // out to the drive root
+
+// 7c. passing '/' as the source renames the drive itself
+await fm.move('/', 'My Renamed Drive', drive.id);
 ```
 
 ### Node vs Browser
@@ -228,11 +236,24 @@ The FileManager emits `FileManagerEvents` on its `emitter`:
 fm.emitter.on(FileManagerEvents.FILE_UPLOADED, ({ record }) => console.log('uploaded', record.path));
 ```
 
-`INITIALIZED`, `STATE_INVALID`, `DRIVE_CREATED`, `DRIVE_FORGOTTEN`, `FILE_UPLOADED`, `FILES_UPLOADED`, `FILE_UPDATED`,
-`FILE_MOVED`, `FILE_TRASHED`, `FILE_RECOVERED`, `FILE_FORGOTTEN`, `FILE_VERSION_RESTORED`, `FOLDER_CREATED`,
-`FOLDER_MOVED`, `FOLDER_TRASHED`, `FOLDER_RECOVERED`, `FOLDER_FORGOTTEN`, `TRASH_EMPTIED`. Path-addressed operations
-(`move`, `trash`, `recover`, `forget`) emit the file or folder variant with the same payload shape. See
-[REFERENCE.md](REFERENCE.md#events) for each payload.
+`INITIALIZED`, `STATE_INVALID`, `DRIVE_CREATED`, `DRIVE_RENAMED`, `DRIVE_UNRESOLVED`, `DRIVE_FORGOTTEN`,
+`FILE_UPLOADED`, `FILES_UPLOADED`, `FILE_UPDATED`, `FILE_MOVED`, `FILE_TRASHED`, `FILE_RECOVERED`, `FILE_FORGOTTEN`,
+`FILE_VERSION_RESTORED`, `FOLDER_CREATED`, `FOLDER_MOVED`, `FOLDER_TRASHED`, `FOLDER_RECOVERED`, `FOLDER_FORGOTTEN`,
+`TRASH_EMPTIED`. Path-addressed operations (`move`, `trash`, `recover`, `forget`) emit the file or folder variant with
+the same payload shape. See [REFERENCE.md](REFERENCE.md#events) for each payload.
+
+`DRIVE_UNRESOLVED` fires **during `initialize`** for a drive that is registered in the admin manifest but cannot be
+loaded. Such a drive is absent from `driveList`, so every later call addressing it fails with "drive not found" — the
+event is the only signal that it exists but is broken. Because it is emitted mid-initialization, attach the listener
+first by passing your own emitter to the constructor, exactly as with `INITIALIZED` and `STATE_INVALID`:
+
+```ts
+const emitter = new EventEmitterBase();
+emitter.on(FileManagerEvents.DRIVE_UNRESOLVED, ({ id, name, error }) => reportBrokenDrive(id, name, error));
+
+const fm = new FileManagerBase(bee, emitter);
+await fm.initialize();
+```
 
 ---
 
@@ -256,6 +277,11 @@ From `package.json`:
 - **Source path does not exist / is a directory** → `uploadFile` takes a single file; use `uploadFiles` for trees.
 - **Postage expired** → buy a new stamp and re-initialize.
 - **ACT unwrap errors** → ensure the `FileRecord` carries a valid `actPublisher` and content history reference.
+- **A file or folder is missing from a listing** → check `failed` on the `listFolder` result. A node that cannot be
+  resolved is reported there, never dropped silently; `scope: 'subtree'` means its descendants were never enumerated, so
+  their number and names are unknown.
+- **A drive is "not found" that you know exists** → listen for `DRIVE_UNRESOLVED` during `initialize`. Its most common
+  cause is a drive whose own manifest feed has not propagated yet, or was never fully written.
 
 ---
 

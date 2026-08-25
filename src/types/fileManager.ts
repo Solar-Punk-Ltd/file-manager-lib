@@ -12,7 +12,7 @@ import {
 import { type EventEmitter } from '../eventEmitter';
 
 import { type DownloadFilesResult, type DownloadResult } from './download';
-import { type DriveInfo, type FileRecord, type FolderInfo, type ListDepth, type NodeEntry } from './info';
+import { type DriveInfo, type FileRecord, type FolderInfo, type ListDepth, type ListFolderResult } from './info';
 import type { StampInfo } from './swarmClient';
 import { type UpdateItem, type UploadFilesResult, type UploadItem } from './upload';
 
@@ -135,7 +135,8 @@ export interface FileManager {
 
   /**
    * Re-versions or changes metadata of an EXISTING file. Reuses the file's feed topic, writes a
-   * new feed slot, and never touches the drive manifest (no rename — use  {@link move()} to relocate).
+   * new feed slot, and never touches the drive manifest (no rename — use {@link move} to rename or
+   * relocate; that path writes no new version).
    * Everything derives from `record`, including the ACT-history continuation reference.
    * @param driveId - The ID of the drive the file belongs to.
    * @param record - The existing file's FileRecord (the single source of truth).
@@ -225,11 +226,11 @@ export interface FileManager {
    * @param depth - Shallow (one level) or Deep (full BFS). Defaults to Shallow.
    * @param maxDepth - Maximum BFS levels when depth is Deep; must be positive, unlimited if omitted.
    * @param requestOptions - Additional Bee request options.
-   * @returns Array of {@link NodeEntry} (FileRecord | FolderInfo) for every node found at or below the given path.
+   * @returns {@link ListFolderResult}: `entries` ({@link NodeEntry}) for every node resolved at or
+   *   below the given path, and `failed` for every node that could not be.
    * @throws {DriveError} If not initialized, driveId is not found, or a path segment does not exist.
    * @throws {FolderError} If the path is the reserved `.trash` folder, or `maxDepth` is not positive.
    * @throws {SignerError} If the publisher/signer is unavailable.
-   * @throws {FileRecordError} If a folder feed is missing.
    */
   listFolder(
     driveId: string | Identifier,
@@ -237,7 +238,7 @@ export interface FileManager {
     depth?: ListDepth,
     maxDepth?: number,
     requestOptions?: BeeRequestOptions,
-  ): Promise<NodeEntry[]>;
+  ): Promise<ListFolderResult>;
 
   /**
    * Soft-delete a file or folder: relocates its fork into the drive's reserved `.trash` folder.
@@ -297,7 +298,7 @@ export interface FileManager {
     depth?: ListDepth,
     maxDepth?: number,
     requestOptions?: BeeRequestOptions,
-  ): Promise<NodeEntry[]>;
+  ): Promise<ListFolderResult>;
 
   /**
    * De-reference every node in a drive's trash in one manifest write. Like {@link forget}, the
@@ -369,18 +370,29 @@ export interface FileManager {
   restoreFileVersion(versionToRestore: FileRecord, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
-   * Moves a file or folder within a drive from one path to another. There is no cross-drive move: a
-   * relocated node keeps its drive's stamp, so both paths resolve against `sourceDriveId` and a path
-   * from another drive is simply not found — {@link forget} it and re-upload to the other drive.
+   * Moves or renames a file or folder within a drive. There is no cross-drive move: a relocated node
+   * keeps its drive's stamp, so both paths resolve against `sourceDriveId` and a path from another
+   * drive is simply not found — {@link forget} it and re-upload to the other drive.
    *
-   * @param fromPath - Absolute path of the entry within the drive manifest.
-   * @param toPath - Destination path within the drive manifest.
+   * A node's name is its fork label in the parent manifest, so this rewrites no record and bumps no
+   * version: `fromPath` and `toPath` sharing a parent is a rename, and the file's version history is
+   * untouched either way.
+   *
+   * Passing `/` as `fromPath` renames the drive itself — `toPath` is then the new drive name and
+   * must not contain `/`. That edits the admin manifest, not the drive's, and emits
+   * FileManagerEvents.DRIVE_RENAMED.
+   *
+   * @param fromPath - Absolute path of the entry within the drive manifest, or `/` to rename the drive.
+   * @param toPath - Destination path within the drive manifest, or the new drive name.
    * @param sourceDriveId - The ID of the drive containing both paths.
    * @param requestOptions - Optional BeeRequestOptions for upload operations.
-   * @emits FileManagerEvents.FILE_MOVED (file) or FileManagerEvents.FOLDER_MOVED (folder)
+   * @emits FileManagerEvents.FILE_MOVED (file), FileManagerEvents.FOLDER_MOVED (folder) or
+   *   FileManagerEvents.DRIVE_RENAMED (drive rename)
    * @throws {DriveError} If not initialized, the driveId is not found, or a folder along either path
    *   does not exist.
-   * @throws {FolderError} If the source is the root, the destination is invalid, source and
+   * @throws {DriveError} On a drive rename: if the drive is the admin drive, the name is unchanged,
+   *   or another drive already carries that name.
+   * @throws {FolderError} If the destination is invalid, source and
    *   destination are identical, the source does not exist, the destination is already occupied, or
    *   either path is under the reserved `.trash` folder — trashing goes through {@link trash}.
    * @throws {SignerError} If the publisher/signer is unavailable.

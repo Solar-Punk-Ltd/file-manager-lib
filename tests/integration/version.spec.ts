@@ -133,7 +133,7 @@ describe('Version control', () => {
 
     const v0Bytes = await retryOnPropagationDelay(async () => {
       return streamToUint8Array(
-        await bee.downloadReadableData(v0.content.reference, {
+        await bee.data.downloadReadable(v0.content.reference, {
           actHistoryAddress: v0.content.historyRef,
           actPublisher: v0.actPublisher,
         }),
@@ -143,7 +143,7 @@ describe('Version control', () => {
 
     const headBytes = await retryOnPropagationDelay(async () => {
       return streamToUint8Array(
-        await bee.downloadReadableData(head.content.reference, {
+        await bee.data.downloadReadable(head.content.reference, {
           actHistoryAddress: head.content.historyRef,
           actPublisher: head.actPublisher,
         }),
@@ -288,8 +288,9 @@ describe('Version control', () => {
 
     const cached = fileManager.recordList.find((f) => f.topic.toString() === topic)!;
     expect(cached).toBeDefined();
-    // Restoring content must not regress the tree position back to v0's own recorded path.
+    // Restoring content must not regress the tree position back to v0's own recorded name.
     expect(cached.path).toBe(destPath);
+    expect(cached.name).toBe('restore-move-file.txt');
 
     const { feedIndex: headAfterRestore } = await retryOnPropagationDelay(async () => {
       const result = await getFeedData(client, new Topic(topic), signer.publicKey().address().toString());
@@ -323,7 +324,8 @@ describe('Version control', () => {
     const destPath = 'coldsub/moved.txt';
     await fileManager.move(NAME, destPath, drive.id);
 
-    // A decoy now occupies the leaf name that the old version's payload still records.
+    // A rename/move writes no record, so every version's payload — including the head's — still
+    // carries the pre-move leaf name. A decoy now occupies exactly that name at the root.
     const decoySrc = writeTempFile(`decoy-${NAME}`, 'Decoy Content');
     await fileManager.uploadFile(drive.id, { path: NAME, sourcePath: decoySrc });
     const decoy = fileManager.recordList.find((f) => f.path === NAME)!;
@@ -331,7 +333,7 @@ describe('Version control', () => {
 
     const movedRecord = await retryOnPropagationDelay(async () => {
       const reader = await createInitializedFileManager(client, ownerStamp);
-      const entries = await reader.listFolder(drive.id, 'coldsub', ListDepth.Shallow);
+      const entries = (await reader.listFolder(drive.id, 'coldsub', ListDepth.Shallow)).entries;
       const found = entries.find((e) => e.path === destPath);
       if (!found) {
         throw new Error('move not yet propagated to a fresh instance');
@@ -347,6 +349,7 @@ describe('Version control', () => {
     const v0 = await coldFm.getFileVersion(movedRecord, FEED_INDEX_ZERO);
     expect(v0.version).toBe(FEED_INDEX_ZERO.toString());
     expect(v0.path).toBe(destPath);
+    expect(v0.name).toBe('moved.txt');
 
     await coldFm.restoreFileVersion(v0);
 
@@ -364,10 +367,11 @@ describe('Version control', () => {
     // The decoy sharing the leaf name kept its own topic, version and bytes.
     const verifier = await createInitializedFileManager(client, ownerStamp);
     const rootEntries = await retryOnPropagationDelay(() =>
-      verifier.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow),
+      verifier.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow).then((r) => r.entries),
     );
     const decoySeen = rootEntries.find((e) => e.path === NAME);
     expect(decoySeen).toBeDefined();
+    expect(decoySeen!.path).toBe(NAME);
     expect(decoySeen!.topic.toString()).toBe(decoy.topic.toString());
     expect(decoySeen!.version).toBe(decoy.version);
 

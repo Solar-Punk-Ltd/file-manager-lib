@@ -43,7 +43,7 @@ describe('End-to-End User Workflow', () => {
     await fileManager.updateFile(drive.id, reportFi, { item: { sourcePath: path.join(projectDir, 'report.txt') } });
 
     const projectEntries = await retryOnPropagationDelay(() =>
-      fileManager.listFolder(drive.id, 'it-e2e-project', ListDepth.Shallow),
+      fileManager.listFolder(drive.id, 'it-e2e-project', ListDepth.Shallow).then((r) => r.entries),
     );
     expect(projectEntries.filter((e) => e.type === NodeType.File)).toHaveLength(2);
 
@@ -82,7 +82,7 @@ describe('End-to-End User Workflow', () => {
     expect(v2Result.failed).toHaveLength(0);
 
     const entries = await retryOnPropagationDelay(() =>
-      fileManager.listFolder(drive.id, 'gallery-v2', ListDepth.Shallow),
+      fileManager.listFolder(drive.id, 'gallery-v2', ListDepth.Shallow).then((r) => r.entries),
     );
     const fileEntries = entries.filter((e) => e.type === NodeType.File);
     expect(fileEntries.map((e) => e.path).sort()).toEqual(['gallery-v2/a.txt', 'gallery-v2/b.txt', 'gallery-v2/c.txt']);
@@ -121,7 +121,9 @@ describe('End-to-End User Workflow', () => {
     );
     expect(result.failed).toHaveLength(0);
 
-    const entries = await retryOnPropagationDelay(() => fileManager.listFolder(drive.id, 'structure', ListDepth.Deep));
+    const entries = await retryOnPropagationDelay(() =>
+      fileManager.listFolder(drive.id, 'structure', ListDepth.Deep).then((r) => r.entries),
+    );
     const filePaths = entries
       .filter((e) => e.type === NodeType.File)
       .map((e) => e.path)
