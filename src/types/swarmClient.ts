@@ -56,7 +56,7 @@ export interface ClientProtectedUploadResult {
  *
  * Implementations:
  * - `BeeClient`  — direct bee-js + a local signer. Node and browser.
- * - `SwarmIdSwarmClient` — `@snaha/swarm-id`, browser only; keys never leave the trusted iframe.
+ * - `SnahaClient` — `@snaha/swarm-id`, browser only; keys never leave the trusted iframe.
  */
 export interface SwarmClient {
   /**

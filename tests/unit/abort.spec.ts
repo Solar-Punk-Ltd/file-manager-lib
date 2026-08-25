@@ -13,9 +13,9 @@ import {
 
 import { applyDefaultMocks, createMockDriveInfo, createMockNodeAddresses, seedRecords } from './mock';
 
+import { BeeClient } from '@/clients';
 import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
-import { BeeClient } from '@/swarm';
 import { type DriveInfo, FailureScope, type FileRecord, ListDepth, NodeType } from '@/types';
 import { DriveError } from '@/utils';
 import { getFeedData } from '@/utils/bee';

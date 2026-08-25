@@ -4,9 +4,9 @@ import { BEE_URL, createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH
 
 import { applyDefaultMocks, createMockNodeAddresses, mockStampInfo } from './mock';
 
+import { BeeClient } from '@/clients';
 import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
-import { BeeClient } from '@/swarm';
 import { NodeType, type UnresolvedDrive } from '@/types';
 import { FileManagerEvents, SignerError } from '@/utils';
 import { fetchStamp, getFeedData } from '@/utils/bee';

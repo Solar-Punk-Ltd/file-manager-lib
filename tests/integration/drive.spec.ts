@@ -10,9 +10,9 @@ import {
 
 import { ensureUniqueSignerWithStamp, tempFileRegistry } from './setup/utils';
 
+import type { BeeClient } from '@/clients';
 import { EventEmitterBase } from '@/eventEmitter';
 import { type FileManagerBase } from '@/fileManager';
-import type { BeeClient } from '@/swarm';
 import { type DriveInfo, ListDepth, type StampInfo, type UnresolvedDrive } from '@/types';
 import { DriveError, FileManagerEvents } from '@/utils';
 import { ROOT_PATH } from '@/utils/constants';

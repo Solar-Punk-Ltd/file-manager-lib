@@ -1,5 +1,5 @@
 import { Bytes, FeedIndex } from '@ethersphere/bee-js';
-import type { DownloadOptions as SnahaDownloadOptions, SwarmIdClient as SnahaClient } from '@snaha/swarm-id';
+import type { DownloadOptions as SnahaDownloadOptions, SwarmIdClient } from '@snaha/swarm-id';
 import type { Readable } from 'stream';
 
 import {
@@ -61,8 +61,8 @@ interface SnahaRequestOptions {
  *   parameter.
  * - **`redundancyLevel` is dropped on upload.
  */
-export class SwarmIdSwarmClient implements SwarmClient {
-  constructor(private readonly client: SnahaClient) {}
+export class SnahaClient implements SwarmClient {
+  constructor(private readonly client: SwarmIdClient) {}
 
   get owner(): Hex {
     return this.appKey().address;
@@ -284,7 +284,7 @@ const HAS_TIMESTAMP = false;
 /**
  * The port's not-found sentinel, matching what {@link BeeClient} emits from bee-js `MINUS_ONE`.
  * TODO: promote to a port-level constant so this adapter can drop bee-js once swarm-id can derive
- * secrets and the mocked {@link SwarmIdSwarmClient.deriveSecret} goes away.
+ * secrets and the mocked {@link SnahaClient.deriveSecret} goes away.
  */
 const FEED_INDEX_NOT_FOUND: FeedIndexString = FeedIndex.MINUS_ONE.toBigInt().toString();
 

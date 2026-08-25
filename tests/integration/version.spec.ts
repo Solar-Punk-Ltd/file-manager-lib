@@ -11,8 +11,8 @@ import {
 
 import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
+import type { BeeClient } from '@/clients';
 import { FileManagerBase } from '@/fileManager';
-import type { BeeClient } from '@/swarm';
 import { type DriveInfo, type FileRecord, ListDepth } from '@/types';
 import { getFeedData } from '@/utils/bee';
 import { FEED_INDEX_ZERO, ROOT_PATH } from '@/utils/constants';

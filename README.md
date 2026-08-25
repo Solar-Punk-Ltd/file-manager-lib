@@ -91,9 +91,9 @@ pnpm install @solarpunkltd/file-manager-lib
 ```
 
 Requires **Node.js ≥ 22**. `@ethersphere/bee-js` is a regular dependency. `@snaha/swarm-id` is an **optional** peer
-dependency — install it only if you use the Swarm ID backend. The package ships dual **ESM + CJS** builds with
-separate **Node** and **browser** bundles, selected automatically via `package.json` `exports` conditions — bundlers get
-a `fs`/`path`-free browser build.
+dependency — install it only if you use the Swarm ID backend. The package ships dual **ESM + CJS** builds with separate
+**Node** and **browser** bundles, selected automatically via `package.json` `exports` conditions — bundlers get a
+`fs`/`path`-free browser build.
 
 ---
 
@@ -189,13 +189,13 @@ The only difference is the byte source for uploads and updates:
 
 `FileManagerBase` depends on the `SwarmClient` port, not on `Bee`. Two backends ship with the library:
 
-| Backend               | Runtime           | Key custody                              |
-| --------------------- | ----------------- | ---------------------------------------- |
-| `BeeClient`           | Node + browser    | You hold the `PrivateKey`                |
-| `SwarmIdSwarmClient`  | Browser only      | Keys stay inside the Swarm ID iframe     |
+| Backend       | Runtime        | Key custody                          |
+| ------------- | -------------- | ------------------------------------ |
+| `BeeClient`   | Node + browser | You hold the `PrivateKey`            |
+| `SnahaClient` | Browser only   | Keys stay inside the Swarm ID iframe |
 
 ```ts
-import { SwarmIdSwarmClient } from '@solarpunkltd/file-manager-lib';
+import { SnahaClient } from '@solarpunkltd/file-manager-lib';
 import { SwarmIdClient } from '@snaha/swarm-id';
 
 // You own the SDK lifecycle: construct, initialize, connect.
@@ -205,13 +205,13 @@ await client.connect();
 
 // Build the adapter only *after* authentication lands — `appKey` does not exist
 // before then, and it is the first thing FileManagerBase reads.
-const fm = new FileManagerBase(new SwarmIdSwarmClient(client));
+const fm = new FileManagerBase(new SnahaClient(client));
 await fm.initialize();
 ```
 
 Known gaps on the Swarm ID backend: `AbortSignal` is dropped at the postMessage boundary, downloads are buffered (the
 stream variants wrap one chunk), ACT history is re-minted on every protected write, and the account exposes a single
-usable postage batch. See the class doc on `SwarmIdSwarmClient` for details.
+usable postage batch. See the class doc on `SnahaClient` for details.
 
 ### Tuning concurrency
 

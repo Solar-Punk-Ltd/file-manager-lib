@@ -6,9 +6,9 @@ import { abortAfterFirstRecordWrite, retryOnPropagationDelay } from '../utils';
 
 import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
+import type { BeeClient } from '@/clients';
 import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
-import type { BeeClient } from '@/swarm';
 import { type DriveInfo, FailureScope, type FileRecord, type FolderInfo, ListDepth, NodeType } from '@/types';
 import { MANIFEST_METADATA_NODE_TOPIC, MANIFEST_METADATA_NODE_TYPE, ROOT_PATH } from '@/utils/constants';
 import { generateRandomBytes } from '@/utils/crypto';

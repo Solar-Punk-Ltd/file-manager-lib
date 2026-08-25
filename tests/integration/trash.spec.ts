@@ -4,8 +4,8 @@ import { createInitializedFileManager, retryOnPropagationDelay } from '../utils'
 
 import { setupUserDrive, tempFileRegistry } from './setup/utils';
 
+import type { BeeClient } from '@/clients';
 import { FileManagerBase } from '@/fileManager';
-import type { BeeClient } from '@/swarm';
 import { type DriveInfo, type FileRecord, ListDepth, NodeStatus, NodeType } from '@/types';
 import { ROOT_PATH, TRASH_FOLDER_NAME } from '@/utils/constants';
 

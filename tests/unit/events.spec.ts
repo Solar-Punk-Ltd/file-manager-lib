@@ -4,9 +4,9 @@ import { BEE_URL, createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH
 
 import { applyDefaultMocks } from './mock';
 
+import { BeeClient } from '@/clients';
 import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
-import { BeeClient } from '@/swarm';
 import { NodeStatus } from '@/types';
 import { FileManagerEvents } from '@/utils';
 

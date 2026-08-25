@@ -3,9 +3,9 @@ import * as fs from 'fs';
 import path from 'path';
 import { isNode } from 'std-env';
 
+import { BeeClient } from '@/clients';
 import { type EventEmitter } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
-import { BeeClient } from '@/swarm';
 import { FileManagerEvents } from '@/utils';
 
 // bee-factory queen node

@@ -12,8 +12,8 @@ import {
 
 import { ensureUniqueSignerWithStamp } from './setup/utils';
 
+import { BeeClient } from '@/clients';
 import { FileManagerBase } from '@/fileManager';
-import { BeeClient } from '@/swarm';
 import { type ActReferences } from '@/types';
 import { FileManagerEvents, StampError } from '@/utils';
 import { assertActReferences } from '@/utils/asserts';

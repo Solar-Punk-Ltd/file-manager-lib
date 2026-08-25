@@ -12,8 +12,8 @@ import {
 
 import { ensureUniqueSignerWithStamp, setupUserDrive, tempFileRegistry } from './setup/utils';
 
+import { type BeeClient } from '@/clients';
 import { type FileManagerBase } from '@/fileManager';
-import { type BeeClient } from '@/swarm';
 import { type DriveInfo, type FileRecord, ListDepth, NodeType } from '@/types';
 import { FileManagerEvents } from '@/utils';
 import { FEED_INDEX_ZERO, ROOT_PATH } from '@/utils/constants';

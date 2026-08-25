@@ -11,8 +11,8 @@ import {
   DEFAULT_MOCK_SIGNER,
 } from '../../utils';
 
+import { BeeClient } from '@/clients';
 import { type FileManagerBase } from '@/fileManager';
-import { BeeClient } from '@/swarm';
 import { type DriveInfo } from '@/types';
 import { ADMIN_DRIVE_NAME } from '@/utils/constants';
 import { generateRandomBytes } from '@/utils/crypto';
