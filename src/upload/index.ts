@@ -6,8 +6,8 @@ import type {
 } from '@ethersphere/bee-js';
 import { isNode } from 'std-env';
 
+import { type SwarmClient } from '../types/client/swarmClient';
 import type { DriveInfo } from '../types/info';
-import { type SwarmClient } from '../types/swarmClient';
 import type { BrowserUploadOptions, NodeUploadOptions, UploadSource } from '../types/upload';
 import type { ActReferences } from '../types/utils';
 import { FileError } from '../utils/errors';

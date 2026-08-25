@@ -7,8 +7,8 @@ import {
 } from '@ethersphere/bee-js';
 import { Optional } from 'cafe-utility';
 
+import type { SwarmClient } from '../types/client/swarmClient';
 import { type DriveInfo } from '../types/info';
-import type { SwarmClient } from '../types/swarmClient';
 import { type NodeUploadOptions } from '../types/upload';
 import { type ActReferences } from '../types/utils';
 import { ErrorHandler, FileError } from '../utils/errors';

@@ -12,6 +12,8 @@ import {
 } from '@ethersphere/bee-js';
 import { MantarayNode } from '@ethersphere/core-sdk';
 
+import type { SwarmClient } from './types/client/swarmClient';
+import type { StampInfo } from './types/client/utils';
 import { type DownloadFilesResult, type DownloadResource, type DownloadResult } from './types/download';
 import { type FileManager, type FileManagerConfig } from './types/fileManager';
 import {
@@ -30,7 +32,6 @@ import {
   type ResolvedFileFork,
   type UnresolvedDrive,
 } from './types/info';
-import type { StampInfo, SwarmClient } from './types/swarmClient';
 import { type UpdateItem, type UploadFilesResult, type UploadItem } from './types/upload';
 import { type ActReferences, type FailedResult } from './types/utils';
 import { assertActReferences, assertDriveInfoFromMetadata, assertReady } from './utils/asserts';
@@ -79,6 +80,31 @@ import { type EventEmitter, EventEmitterBase } from './eventEmitter';
 import { MantarayStore } from './mantarayStore';
 import { assertUploadableSource, processUpload } from './upload';
 
+/**
+ * Reference {@link FileManager} implementation.
+ *
+ * Every Swarm operation goes through the injected {@link SwarmClient} port: this class never
+ * constructs a `Bee`, never holds key material, and never manages postage stamps. The backend is
+ * a required constructor argument — there is no default — and it decides both the runtime and the
+ * key custody model:
+ *
+ * - `BeeClient` — direct bee-js plus a locally held `PrivateKey`. Node and browser.
+ * - `SnahaClient` — `@snaha/swarm-id`; browser only, keys never leave the trusted iframe. Build it
+ *   *after* authentication lands: `appKey` does not exist before then, and the adapter's `owner`
+ *   is the first thing this class reads.
+ *
+ * The port is exported, so any other implementation works too — an in-memory fake for tests, or a
+ * proxy across a worker boundary. Nothing here assumes bee-js.
+ *
+ * Construction performs no I/O. The instance is inert until {@link initialize} resolves, and a
+ * fresh identity additionally needs {@link createAdminDrive} once.
+ *
+ * @example
+ * ```ts
+ * const fm = new FileManagerBase(new BeeClient(bee, signer));
+ * await fm.initialize();
+ * ```
+ */
 export class FileManagerBase implements FileManager {
   private readonly swarmClient: SwarmClient;
   private stateFeedTopic: Topic | undefined = undefined;
@@ -116,6 +142,14 @@ export class FileManagerBase implements FileManager {
 
   // --- Initialization ---
 
+  /**
+   * @param swarmClient - Transport and identity for every Swarm operation. Required; see the class
+   *   doc for the two backends that ship with the library.
+   * @param emitter - Sink for {@link FileManagerEvents}. Defaults to a fresh
+   *   {@link EventEmitterBase}; pass one in to share a bus across instances.
+   * @param config - Concurrency tuning. Omitted fields fall back to the library defaults, and both
+   *   are clamped to a minimum of 1.
+   */
   constructor(swarmClient: SwarmClient, emitter: EventEmitter = new EventEmitterBase(), config?: FileManagerConfig) {
     this.swarmClient = swarmClient;
 

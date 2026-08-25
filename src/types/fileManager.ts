@@ -11,9 +11,9 @@ import {
 
 import { type EventEmitter } from '../eventEmitter';
 
+import type { StampInfo } from './client/utils';
 import { type DownloadFilesResult, type DownloadResult } from './download';
 import { type DriveInfo, type FileRecord, type FolderInfo, type ListDepth, type ListFolderResult } from './info';
-import type { StampInfo } from './swarmClient';
 import { type UpdateItem, type UploadFilesResult, type UploadItem } from './upload';
 
 /**

@@ -7,7 +7,8 @@ import {
   Topic,
 } from '@ethersphere/bee-js';
 
-import type { StampInfo, SwarmClient } from '../types/swarmClient';
+import type { SwarmClient } from '../types/client/swarmClient';
+import type { StampInfo } from '../types/client/utils';
 import { type ActReferences, type FeedResultWithIndex } from '../types/utils';
 
 import { FEED_INDEX_ZERO } from './constants';

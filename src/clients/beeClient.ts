@@ -1,33 +1,32 @@
-import {
-  type Bee,
-  type BeeRequestOptions,
-  Bytes,
-  type DownloadOptions,
-  FeedIndex,
-  type PrivateKey,
-  type RedundancyLevel,
-  type RedundancyStrategy,
-  Topic,
-} from '@ethersphere/bee-js';
+import { type Bee, Bytes, FeedIndex, type PrivateKey, Topic } from '@ethersphere/bee-js';
 import type { Readable } from 'stream';
 
-import {
-  type ClientProtectedUploadResult,
-  type ClientUploadResult,
-  type FeedIndexString,
-  type FeedRead,
-  type FeedWrite,
-  type Hex,
-  type ProtectedRefs,
-  type StampInfo,
-  type SwarmClient,
-  type SwarmDownloadOptions,
-  type SwarmRequestOptions,
-  type SwarmUploadOptions,
-} from '../types/swarmClient';
+import type { SwarmClient } from '../types/client/swarmClient';
+import type {
+  ClientProtectedUploadResult,
+  ClientUploadResult,
+  FeedIndexString,
+  FeedRead,
+  FeedWrite,
+  Hex,
+  ProtectedRefs,
+  StampInfo,
+  SwarmDownloadOptions,
+  SwarmRequestOptions,
+  SwarmUploadOptions,
+} from '../types/client/utils';
 import { isNotFoundError } from '../utils/common';
 import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '../utils/constants';
-import { BeeVersionError, SignerError } from '../utils/errors';
+import { SignerError } from '../utils/errors';
+
+import {
+  toBeeRequestOptions,
+  toDownloadOptions,
+  toFeedIndex,
+  toIndexString,
+  toRedundancyLevel,
+  verifySupportedBeeVersions,
+} from './utils';
 
 /**
  * {@link SwarmClient} backed by a direct bee-js connection and a locally held signer.
@@ -269,40 +268,5 @@ export class BeeClient implements SwarmClient {
     const result = await writer.uploadPayload(batchId, payload, { index: toFeedIndex(index) });
 
     return { reference: result.reference.toString(), index };
-  }
-}
-
-function toFeedIndex(index: FeedIndexString): FeedIndex {
-  return FeedIndex.fromBigInt(BigInt(index));
-}
-
-function toIndexString(index: FeedIndex): FeedIndexString {
-  return index.toBigInt().toString();
-}
-
-function toBeeRequestOptions(options?: SwarmRequestOptions): BeeRequestOptions | undefined {
-  if (!options) return undefined;
-
-  return { signal: options.signal, timeout: options.timeout, headers: options.headers };
-}
-
-function toRedundancyLevel(level?: number): RedundancyLevel | undefined {
-  return level === undefined ? undefined : (level as RedundancyLevel);
-}
-
-function toDownloadOptions(options?: SwarmDownloadOptions): DownloadOptions | undefined {
-  if (!options) return undefined;
-
-  return {
-    redundancyStrategy: options.redundancyStrategy as RedundancyStrategy | undefined,
-    fallback: options.fallback,
-  };
-}
-
-async function verifySupportedBeeVersions(bee: Bee, requestOptions?: BeeRequestOptions): Promise<void> {
-  const supportedApi = await bee.status.isSupportedApiVersion(requestOptions);
-
-  if (!supportedApi) {
-    throw new BeeVersionError('Bee or Bee API version not supported');
   }
 }

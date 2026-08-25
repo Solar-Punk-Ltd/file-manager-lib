@@ -1,8 +1,8 @@
 import { type BeeRequestOptions, Bytes, FeedIndex, type RedundancyLevel, Reference, Topic } from '@ethersphere/bee-js';
 import { type MantarayNode } from '@ethersphere/core-sdk';
 
+import { type SwarmClient } from './types/client/swarmClient';
 import { type DriveInfo, type FileRecord, type FolderInfo, type ManifestHost, NodeType } from './types/info';
-import { type SwarmClient } from './types/swarmClient';
 import { type ActReferences, type FeedResultWithIndex } from './types/utils';
 import { assertActReferences, assertFileRecord } from './utils/asserts';
 import { type FeedWriteResult, getFeedData, writeActFeed } from './utils/bee';

@@ -10,6 +10,7 @@ import {
 } from '@ethersphere/bee-js';
 import { Types } from 'cafe-utility';
 
+import { type SwarmClient } from '../types/client/swarmClient';
 import {
   type DriveInfo,
   type FileRecord,
@@ -18,7 +19,6 @@ import {
   NodeStatus,
   NodeType,
 } from '../types/info';
-import { type SwarmClient } from '../types/swarmClient';
 import { type ActReferences } from '../types/utils';
 
 import {

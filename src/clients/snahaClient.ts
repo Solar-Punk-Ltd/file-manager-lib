@@ -2,20 +2,20 @@ import { Bytes, FeedIndex } from '@ethersphere/bee-js';
 import type { DownloadOptions as SnahaDownloadOptions, SwarmIdClient } from '@snaha/swarm-id';
 import type { Readable } from 'stream';
 
-import {
-  type ClientProtectedUploadResult,
-  type ClientUploadResult,
-  type FeedIndexString,
-  type FeedRead,
-  type FeedWrite,
-  type Hex,
-  type ProtectedRefs,
-  type StampInfo,
-  type SwarmClient,
-  type SwarmDownloadOptions,
-  type SwarmRequestOptions,
-  type SwarmUploadOptions,
-} from '../types/swarmClient';
+import type { SwarmClient } from '../types/client/swarmClient';
+import type {
+  ClientProtectedUploadResult,
+  ClientUploadResult,
+  FeedIndexString,
+  FeedRead,
+  FeedWrite,
+  Hex,
+  ProtectedRefs,
+  StampInfo,
+  SwarmDownloadOptions,
+  SwarmRequestOptions,
+  SwarmUploadOptions,
+} from '../types/client/utils';
 import { isNotFoundError } from '../utils/common';
 import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '../utils/constants';
 import { FileError, SignerError } from '../utils/errors';
