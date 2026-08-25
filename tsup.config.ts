@@ -22,6 +22,8 @@ const stubBrowserInNode = stubForeignPlatform('stub-browser-in-node', /(?:^|\/)u
   'processUploadBrowser',
 ]);
 
+const KEEP_EXTERNAL = ['@ethersphere/bee-js', '@ethersphere/core-sdk'];
+
 export default defineConfig([
   {
     entry: { index: 'src/index.ts' },
@@ -31,6 +33,7 @@ export default defineConfig([
     dts: { resolve: ['@snaha/swarm-id'] },
     treeshake: true,
     clean: true,
+    external: KEEP_EXTERNAL,
     esbuildPlugins: [stubBrowserInNode],
     outExtension({ format }) {
       return { js: format === 'cjs' ? '.cjs' : '.mjs' };
@@ -43,7 +46,7 @@ export default defineConfig([
     outDir: 'dist/browser',
     dts: false,
     treeshake: true,
-    external: ['fs', 'path', 'node:fs', 'node:path'],
+    external: [...KEEP_EXTERNAL, 'fs', 'path', 'node:fs', 'node:path'],
     esbuildPlugins: [stubNodeInBrowser],
     outExtension({ format }) {
       return { js: format === 'cjs' ? '.cjs' : '.mjs' };

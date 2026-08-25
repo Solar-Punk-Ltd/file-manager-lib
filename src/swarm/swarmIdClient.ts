@@ -59,6 +59,7 @@ interface SnahaRequestOptions {
  *   matters once sharing lands, not before.
  * - **`redundancyStrategy` is dropped on protected downloads** — `actDownloadData` has no options
  *   parameter.
+ * - **`redundancyLevel` is dropped on upload.
  */
 export class SwarmIdSwarmClient implements SwarmClient {
   constructor(private readonly client: SnahaClient) {}
@@ -112,14 +113,11 @@ export class SwarmIdSwarmClient implements SwarmClient {
     /** swarm-id resolves the stamp itself; accepted for port symmetry and ignored. */
     _batchId: Hex,
     data: Uint8Array | string,
-    options?: SwarmUploadOptions,
+    /** `redundancyLevel` is the only member and swarm-id has no home for it */
+    _options?: SwarmUploadOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<ClientUploadResult> {
-    const result = await this.client.uploadData(
-      toBytes(data),
-      { redundancyLevel: options?.redundancyLevel },
-      toSnahaRequestOptions(requestOptions),
-    );
+    const result = await this.client.uploadData(toBytes(data), undefined, toSnahaRequestOptions(requestOptions));
 
     return { reference: result.reference.toString(), tagUid: result.tagUid };
   }
@@ -147,14 +145,15 @@ export class SwarmIdSwarmClient implements SwarmClient {
     data: Uint8Array | string | Blob | Readable,
     /** Ignored — `actUploadData` always mints a fresh history. See the class note. */
     _historyRef?: Hex,
-    options?: SwarmUploadOptions,
+    /** `redundancyLevel` is the only member and swarm-id has no home for it */
+    _options?: SwarmUploadOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<ClientProtectedUploadResult> {
     const result = await this.client.actUploadData(
       await toBytesAsync(data),
       // The publisher is always granted access to its own upload, so self needs no entry.
       [],
-      { redundancyLevel: options?.redundancyLevel },
+      undefined,
       toSnahaRequestOptions(requestOptions),
     );
 
