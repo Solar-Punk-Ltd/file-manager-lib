@@ -1577,7 +1577,7 @@ export class FileManagerBase implements FileManager {
   // --- Private helpers ---
 
   private async initPublisher(requestOptions?: BeeRequestOptions): Promise<void> {
-    this.publisher = (await this.bee.getNodeAddresses(requestOptions)).publicKey;
+    this.publisher = (await this.bee.connectivity.getNodeAddresses(requestOptions)).publicKey;
   }
 
   private resetState(): void {
@@ -1634,7 +1634,7 @@ export class FileManagerBase implements FileManager {
 
     let topicBytes: Bytes;
     try {
-      topicBytes = await this.bee.downloadData(
+      topicBytes = await this.bee.data.download(
         stateTopicRef,
         {
           actHistoryAddress: topicHistoryRef,
@@ -1752,7 +1752,7 @@ export class FileManagerBase implements FileManager {
 
     const randomTopic = generateRandomBytes(Topic.LENGTH);
     const newStateFeedTopic = new Topic(randomTopic);
-    const topicUploadRes = await this.bee.uploadData(
+    const topicUploadRes = await this.bee.data.upload(
       batchId,
       newStateFeedTopic.toUint8Array(),
       { act: true, redundancyLevel },
@@ -1764,7 +1764,7 @@ export class FileManagerBase implements FileManager {
       historyRef: historyRef,
     };
 
-    const statefw = this.bee.makeFeedWriter(FILEMANAGER_STATE_TOPIC.toUint8Array(), this.signer, requestOptions);
+    const statefw = this.bee.feed.makeWriter(FILEMANAGER_STATE_TOPIC.toUint8Array(), this.signer, requestOptions);
     await statefw.uploadPayload(batchId, JSON.stringify(topicState), { index: feedIndexNext });
 
     if (reset) {

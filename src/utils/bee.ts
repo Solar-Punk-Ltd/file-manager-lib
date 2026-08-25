@@ -29,7 +29,7 @@ export async function getFeedData(
   requestOptions?: BeeRequestOptions,
 ): Promise<FeedResultWithIndex> {
   try {
-    const feedReader = bee.makeFeedReader(topic.toUint8Array(), address, requestOptions);
+    const feedReader = bee.feed.makeReader(topic.toUint8Array(), address, requestOptions);
 
     const feedOptions = index !== undefined ? { index: FeedIndex.fromBigInt(index) } : undefined;
     const data = await feedReader.downloadPayload(feedOptions);
@@ -107,7 +107,7 @@ export async function writeActFeed(
   target: FeedTarget,
   requestOptions?: BeeRequestOptions,
 ): Promise<FeedWriteResult> {
-  const upload = await bee.uploadData(
+  const upload = await bee.data.upload(
     target.batchId,
     payload,
     { act: true, actHistoryAddress: target.actHistoryAddress, redundancyLevel: target.redundancyLevel },
@@ -130,7 +130,7 @@ export async function writeActFeed(
     writeIndex = feedIndexNext.toBigInt();
   }
 
-  const fw = bee.makeFeedWriter(new Topic(target.topic).toUint8Array(), signer, requestOptions);
+  const fw = bee.feed.makeWriter(new Topic(target.topic).toUint8Array(), signer, requestOptions);
   await fw.uploadPayload(target.batchId, JSON.stringify(contentRefs), { index: FeedIndex.fromBigInt(writeIndex) });
 
   return { contentRefs, index: writeIndex, nextIndex: writeIndex + 1n };
@@ -142,7 +142,7 @@ export async function fetchStamp(
   requestOptions?: BeeRequestOptions,
 ): Promise<PostageBatch | undefined> {
   try {
-    return (await bee.getPostageBatches(requestOptions)).find((s) => s.batchID.toString() === batchId.toString());
+    return (await bee.stamp.getAll(requestOptions)).find((s) => s.batchID.toString() === batchId.toString());
   } catch (err: unknown) {
     errorHandler.handleError(err, 'Failed to fetch stamp');
     return;
@@ -163,10 +163,10 @@ export const verifyStampUsability = (
 };
 
 export async function verifySupportedBeeVersions(bee: Bee, requestOptions?: BeeRequestOptions): Promise<void> {
-  const beeVersions = await bee.getVersions(requestOptions);
+  const beeVersions = await bee.status.getVersions(requestOptions);
   logger.debug(`Bee version: ${beeVersions.beeVersion}`);
   logger.debug(`Bee API version: ${beeVersions.beeApiVersion}`);
-  const supportedApi = await bee.isSupportedApiVersion(requestOptions);
+  const supportedApi = await bee.status.isSupportedApiVersion(requestOptions);
 
   if (!supportedApi) {
     logger.error('Supported bee API version: ', beeVersions.supportedBeeApiVersion);

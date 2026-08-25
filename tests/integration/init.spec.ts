@@ -43,7 +43,7 @@ describe('Initialization and construction', () => {
     adminBatchId = ownerStamp;
     signer = newSigner;
     fileManager = await createInitializedFileManager(bee, adminBatchId);
-    actPublisher = (await bee.getNodeAddresses()).publicKey;
+    actPublisher = (await bee.connectivity.getNodeAddresses()).publicKey;
   });
 
   beforeEach(async () => {
@@ -80,14 +80,14 @@ describe('Initialization and construction', () => {
     );
     const feedTopicState = payload.toJSON() as ActReferences;
     assertActReferences(feedTopicState);
-    const topicHex = await bee.downloadData(new Reference(feedTopicState.reference), {
+    const topicHex = await bee.data.download(new Reference(feedTopicState.reference), {
       actHistoryAddress: new Reference(feedTopicState.historyRef),
       actPublisher,
     });
     expect(topicHex).not.toEqual(SWARM_ZERO_ADDRESS);
 
     await fileManager.initialize();
-    const reinitTopicHex = await bee.downloadData(new Reference(feedTopicState.reference), {
+    const reinitTopicHex = await bee.data.download(new Reference(feedTopicState.reference), {
       actHistoryAddress: new Reference(feedTopicState.historyRef),
       actPublisher,
     });
@@ -103,7 +103,7 @@ describe('Initialization and construction', () => {
     const feedTopicState = payload.toJSON() as ActReferences;
 
     try {
-      await bee.downloadData(new Reference(feedTopicState.reference), {
+      await bee.data.download(new Reference(feedTopicState.reference), {
         actHistoryAddress: new Reference(feedTopicState.historyRef),
         actPublisher: OTHER_MOCK_SIGNER.publicKey(),
       });
@@ -114,7 +114,7 @@ describe('Initialization and construction', () => {
 
     try {
       await retryOnPropagationDelay(() =>
-        otherBee.downloadData(new Reference(feedTopicState.reference), {
+        otherBee.data.download(new Reference(feedTopicState.reference), {
           actHistoryAddress: new Reference(feedTopicState.historyRef),
           actPublisher,
         }),
@@ -129,7 +129,7 @@ describe('Initialization and construction', () => {
     const unwritten = new Topic(generateRandomBytes(Topic.LENGTH));
     const address = signer.publicKey().address();
 
-    await expect(bee.makeFeedReader(unwritten.toUint8Array(), address).downloadPayload()).rejects.toMatchObject({
+    await expect(bee.feed.makeReader(unwritten.toUint8Array(), address).downloadPayload()).rejects.toMatchObject({
       status: 404,
     });
 
@@ -194,7 +194,7 @@ describe('Initialization and construction', () => {
     fm.emitter.on(FileManagerEvents.INITIALIZED, (ok: boolean) => events.push(ok));
 
     const spy = jest
-      .spyOn(Bee.prototype, 'getNodeAddresses')
+      .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').connectivity), 'getNodeAddresses')
       .mockRejectedValueOnce(new Error('transient node failure'));
 
     await fm.initialize();
@@ -217,8 +217,8 @@ describe('reinitialization', () => {
     const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
     await createInitializedFileManager(beeDev, ownerStamp);
 
-    const originalFn = beeDev.getPostageBatches.bind(beeDev);
-    const spy = jest.spyOn(beeDev, 'getPostageBatches');
+    const originalFn = beeDev.stamp.getAll.bind(beeDev.stamp);
+    const spy = jest.spyOn(beeDev.stamp, 'getAll');
 
     spy.mockImplementation(async () => {
       await originalFn();
@@ -333,8 +333,8 @@ describe('reinitialization', () => {
 
   it('should emit correct events during revalidation failure', async () => {
     const { bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
-    const originalFn = beeDev.getPostageBatches.bind(beeDev);
-    const spy = jest.spyOn(beeDev, 'getPostageBatches');
+    const originalFn = beeDev.stamp.getAll.bind(beeDev.stamp);
+    const spy = jest.spyOn(beeDev.stamp, 'getAll');
 
     spy.mockImplementation(async () => {
       const batches = await originalFn();

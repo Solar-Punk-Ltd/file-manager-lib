@@ -47,7 +47,7 @@ async function uploadFile(
     const { readFile } = await import('../utils/fs/fs-node');
     const { data } = await readFile(resolvedPath);
 
-    return await bee.uploadData(batchId, data, uploadOptions, requestOptions);
+    return await bee.data.upload(batchId, data, uploadOptions, requestOptions);
   } catch (err: unknown) {
     errorHandler.handleError(err, `Failed to upload file ${resolvedPath}`);
     throw new FileError(`Failed to upload file ${resolvedPath}`, err);

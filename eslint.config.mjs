@@ -85,6 +85,7 @@ export default [
         FileList: 'readonly',
         ReadableStream: 'readonly',
         AbortController: 'readonly',
+        AbortSignal: 'readonly',
         Response: 'readonly',
         Blob: 'readonly',
       },

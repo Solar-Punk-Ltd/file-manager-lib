@@ -49,7 +49,7 @@ describe('Abort signal handling', () => {
     await fm.createDrive(otherMockBatchId, 'Test Drive');
     const di = fm.driveList[1];
 
-    const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
+    const uploadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'upload');
     const controller = new AbortController();
 
     await fm.uploadFile(di.id, { path: 'package.json', ...makeUploadSource('package.json') }, undefined, {
@@ -68,13 +68,13 @@ describe('Abort signal handling', () => {
     await fm.createDrive(otherMockBatchId, 'Test Drive');
     const di = fm.driveList[1];
 
-    const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
+    const uploadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'upload');
 
     await fm.uploadFile(di.id, { path: 'package.json', ...makeUploadSource('package.json') });
 
     expect(uploadDataSpy).toHaveBeenCalled();
     for (const call of uploadDataSpy.mock.calls) {
-      expect(call[3]?.signal).toBeUndefined();
+      expect((call[3] as { signal?: AbortSignal } | undefined)?.signal).toBeUndefined();
     }
   });
 
@@ -109,7 +109,7 @@ describe('Abort signal handling', () => {
       const controller = new AbortController();
       controller.abort();
 
-      const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
+      const uploadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'upload');
       uploadDataSpy.mockClear();
 
       await expect(
@@ -128,7 +128,7 @@ describe('Abort signal handling', () => {
       const controller = new AbortController();
       abortAfterFirstRecordWrite(fm, controller);
 
-      const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
+      const uploadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'upload');
       uploadDataSpy.mockClear();
 
       await expect(
@@ -261,7 +261,7 @@ describe('Abort signal handling', () => {
     getAllNodeEntries.mockReturnValue([]);
     (fm as any).driveList.push(freshDrive);
 
-    const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
+    const downloadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'download');
     const controller = new AbortController();
 
     await fm.listFolder(freshDrive.id, '', ListDepth.Shallow, undefined, {
@@ -305,7 +305,10 @@ describe('Abort signal handling', () => {
     };
     seedRecords(fm, rec);
 
-    const downloadReadableDataSpy = jest.spyOn(Bee.prototype, 'downloadReadableData');
+    const downloadReadableDataSpy = jest.spyOn(
+      Object.getPrototypeOf(new Bee('http://localhost:1633').data),
+      'downloadReadable',
+    );
     const controller = new AbortController();
 
     await fm.downloadFile(rec, undefined, { signal: controller.signal });

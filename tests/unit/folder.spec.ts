@@ -27,7 +27,10 @@ describe('Folder operations', () => {
         seedDummyFile(drive, 'b.txt', '2'.repeat(64), owner, actPublisher),
       );
 
-      const downloadReadableDataSpy = jest.spyOn(Bee.prototype, 'downloadReadableData');
+      const downloadReadableDataSpy = jest.spyOn(
+        Object.getPrototypeOf(new Bee('http://localhost:1633').data),
+        'downloadReadable',
+      );
 
       const results = await fm.downloadFolder(drive.id, '/');
 
@@ -68,7 +71,10 @@ describe('Folder operations', () => {
       seedRecords(fm, seedDummyFile(drive, 'mine.txt', '1'.repeat(64), owner, actPublisher));
       seedRecords(fm, seedDummyFile(otherDrive, 'not-mine.txt', '2'.repeat(64), owner, actPublisher));
 
-      const downloadReadableDataSpy = jest.spyOn(Bee.prototype, 'downloadReadableData');
+      const downloadReadableDataSpy = jest.spyOn(
+        Object.getPrototypeOf(new Bee('http://localhost:1633').data),
+        'downloadReadable',
+      );
 
       const downloadResults = await fm.downloadFolder(drive.id, '/');
 
@@ -117,7 +123,7 @@ describe('Folder operations', () => {
           toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
         },
       });
-      jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(
+      jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'download').mockResolvedValue(
         Bytes.fromUtf8(
           JSON.stringify({
             type: NodeType.File,
@@ -398,7 +404,7 @@ describe('Folder operations', () => {
 
       await fm.createFolder(drive.id, '', 'Documents');
 
-      const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
+      const uploadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'upload');
       uploadDataSpy.mockClear();
 
       await expect(fm.createFolder(drive.id, '', 'Documents')).rejects.toThrow(/already exists/);

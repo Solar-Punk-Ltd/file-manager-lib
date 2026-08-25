@@ -245,7 +245,7 @@ describe('Abort signal handling', () => {
       expect(fr).toBeDefined();
       uploadedFileInfo = fr!;
 
-      actPublisher = (await bee.getNodeAddresses()).publicKey;
+      actPublisher = (await bee.connectivity.getNodeAddresses()).publicKey;
     });
 
     it('should throw error when download is aborted with pre-aborted signal', async () => {

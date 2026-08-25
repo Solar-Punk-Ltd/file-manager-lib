@@ -19,7 +19,7 @@ export async function processDownload(
 
   await settlePromises(
     resources.map(async (r) => {
-      return await bee.downloadReadableData(
+      return await bee.data.downloadReadable(
         r.reference,
         { ...options, actHistoryAddress: r.actHistoryAddress, actPublisher: r.actPublisher },
         requestOptions,

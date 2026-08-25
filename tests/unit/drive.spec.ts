@@ -109,7 +109,7 @@ describe('Drive operations', () => {
         },
       );
 
-      const diluteSpy = jest.spyOn(Bee.prototype, 'diluteBatch');
+      const diluteSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').stamp), 'dilute');
 
       const eventPromise = new Promise<void>((resolve) => {
         const handler = ({ driveInfo }: { driveInfo: DriveInfo }): void => {

@@ -197,7 +197,9 @@ describe('Initialization and construction', () => {
       emitter.on(FileManagerEvents.INITIALIZED, (ok: boolean) => events.push(ok));
 
       const fm = new FileManagerBase(bee, emitter);
-      jest.spyOn(Bee.prototype, 'getNodeAddresses').mockRejectedValueOnce(new Error('bee offline'));
+      jest
+        .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').connectivity), 'getNodeAddresses')
+        .mockRejectedValueOnce(new Error('bee offline'));
 
       await fm.initialize();
 
@@ -248,7 +250,7 @@ describe('Initialization and construction', () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const emitter = new EventEmitterBase();
 
-      const getPostageBatchesSpy = jest.spyOn(Bee.prototype, 'getPostageBatches');
+      const getPostageBatchesSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').stamp), 'getAll');
       getPostageBatchesSpy.mockResolvedValue([
         {
           ...mockPostageBatch,
@@ -318,7 +320,7 @@ describe('Initialization and construction', () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       await createInitializedFileManager(bee, DUMMY_BATCH_ID);
 
-      const getPostageBatchesSpy = jest.spyOn(Bee.prototype, 'getPostageBatches');
+      const getPostageBatchesSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').stamp), 'getAll');
       getPostageBatchesSpy.mockResolvedValue([
         {
           ...mockPostageBatch,
@@ -379,7 +381,7 @@ describe('Initialization and construction', () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       await createInitializedFileManager(bee, DUMMY_BATCH_ID);
 
-      const getPostageBatchesSpy = jest.spyOn(Bee.prototype, 'getPostageBatches');
+      const getPostageBatchesSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').stamp), 'getAll');
       getPostageBatchesSpy.mockResolvedValue([
         {
           ...mockPostageBatch,

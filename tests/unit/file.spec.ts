@@ -58,7 +58,10 @@ describe('File operations', () => {
       const a = seedDummyFile(drive, 'a.txt', '1'.repeat(64), owner, actPublisher);
       seedRecords(fm, a, seedDummyFile(drive, 'b.txt', '2'.repeat(64), owner, actPublisher));
 
-      const downloadReadableDataSpy = jest.spyOn(Bee.prototype, 'downloadReadableData');
+      const downloadReadableDataSpy = jest.spyOn(
+        Object.getPrototypeOf(new Bee('http://localhost:1633').data),
+        'downloadReadable',
+      );
       const result = await fm.downloadFile(a);
 
       expect(downloadReadableDataSpy).toHaveBeenCalledTimes(1);
@@ -97,7 +100,10 @@ describe('File operations', () => {
         },
       ];
 
-      const downloadReadableDataSpy = jest.spyOn(Bee.prototype, 'downloadReadableData');
+      const downloadReadableDataSpy = jest.spyOn(
+        Object.getPrototypeOf(new Bee('http://localhost:1633').data),
+        'downloadReadable',
+      );
       const listFolderSpy = jest.spyOn(fm, 'listFolder');
 
       const results = await fm.downloadFiles(records);
@@ -115,7 +121,7 @@ describe('File operations', () => {
 
     it('returns an empty array without touching Bee when given no records', async () => {
       const fm = await createInitializedFileManager();
-      const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
+      const downloadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'download');
 
       const results = await fm.downloadFiles([]);
 
@@ -129,17 +135,19 @@ describe('File operations', () => {
       const good = seedDummyFile(drive, 'good.txt', '1'.repeat(64), owner, actPublisher);
       const bad = seedDummyFile(drive, 'bad.txt', '2'.repeat(64), owner, actPublisher);
 
-      jest.spyOn(Bee.prototype, 'downloadReadableData').mockImplementation(async (ref: unknown) => {
-        if (ref === '2'.repeat(64)) {
-          throw new Error('boom');
-        }
-        return new ReadableStream<Uint8Array>({
-          start(controller) {
-            controller.enqueue(SWARM_ZERO_ADDRESS.toUint8Array());
-            controller.close();
-          },
+      jest
+        .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'downloadReadable')
+        .mockImplementation(async (ref: unknown) => {
+          if (ref === '2'.repeat(64)) {
+            throw new Error('boom');
+          }
+          return new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(SWARM_ZERO_ADDRESS.toUint8Array());
+              controller.close();
+            },
+          });
         });
-      });
 
       const results = await fm.downloadFiles([good, bad]);
 
@@ -283,7 +291,7 @@ describe('File operations', () => {
 
       await fm.uploadFile(di.id, { path: 'package.json', ...makeUploadSource('package.json') });
 
-      const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
+      const uploadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'upload');
       uploadDataSpy.mockClear();
 
       await expect(fm.uploadFile(di.id, { path: 'package.json', ...makeUploadSource('package.json') })).rejects.toThrow(
@@ -301,7 +309,7 @@ describe('File operations', () => {
         await fm.createDrive(otherMockBatchId, 'Test Drive');
         const di = fm.driveList[1];
 
-        const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
+        const uploadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'upload');
         uploadDataSpy.mockClear();
 
         await expect(fm.uploadFile(di.id, { path: badPath, ...makeUploadSource('package.json') })).rejects.toThrow(
@@ -350,7 +358,7 @@ describe('File operations', () => {
       await fm.createDrive(otherMockBatchId, 'Test Drive');
       const di = fm.driveList[1];
 
-      const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
+      const uploadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'upload');
       uploadDataSpy.mockClear();
 
       await expect(
@@ -450,7 +458,7 @@ describe('File operations', () => {
     it('uploads new bytes: re-versions an existing file and derives ACT history from the record', async () => {
       // A real upload seeds the fork; update now syncs that fork's version, so the fork must exist.
       const { fm, di, record } = await seedUploadedFile();
-      const uploadDataSpy = jest.spyOn(Bee.prototype, 'uploadData');
+      const uploadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'upload');
 
       await fm.updateFile(di.id, record, { item: { ...makeUploadSource('package.json') } });
       // New content bytes are uploaded; updateFile derives actHistoryAddress from record.content.
@@ -661,7 +669,9 @@ describe('File operations', () => {
         content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
       };
 
-      jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(Bytes.fromUtf8(JSON.stringify(stored)));
+      jest
+        .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'download')
+        .mockResolvedValue(Bytes.fromUtf8(JSON.stringify(stored)));
 
       const record = await (fm as any).store.getRecord(
         fileTopic,
@@ -778,7 +788,9 @@ describe('File operations', () => {
           toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
         },
       });
-      jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(Bytes.fromUtf8(JSON.stringify(coldFileRecord)));
+      jest
+        .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'download')
+        .mockResolvedValue(Bytes.fromUtf8(JSON.stringify(coldFileRecord)));
 
       expect(fm.recordList.find((f) => f.topic === fileTopic)).toBeUndefined();
 

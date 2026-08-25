@@ -14,7 +14,6 @@ import {
   type NumberString,
   PeerAddress,
   type PostageBatch,
-  PublicKey,
   RedundancyLevel,
   Reference,
   Size,
@@ -23,7 +22,7 @@ import {
 } from '@ethersphere/bee-js';
 import { Optional } from 'cafe-utility';
 
-import { DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
+import { DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID, MOCK_NODE_SIGNER } from '../utils';
 
 import { type FileManagerBase } from '@/fileManager';
 import { type DriveInfo, type FileRecord, NodeType } from '@/types';
@@ -50,8 +49,8 @@ export function createMockNodeAddresses(): NodeAddresses {
     overlay: new PeerAddress('1'.repeat(64)),
     underlay: ['mock-underlay'],
     ethereum: new EthAddress('33'.repeat(20)),
-    publicKey: new PublicKey('22'.repeat(64)),
-    pssPublicKey: new PublicKey('22'.repeat(64)),
+    publicKey: MOCK_NODE_SIGNER.publicKey(),
+    pssPublicKey: MOCK_NODE_SIGNER.publicKey(),
   };
 }
 
@@ -128,14 +127,22 @@ export function createMockFeedWriter(char: string = '1'): FeedWriter {
 
 export function createInitMocks(data?: Reference): any {
   jest
-    .spyOn(Bee.prototype, 'getVersions')
+    .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').status), 'getVersions')
     .mockResolvedValue({ beeApiVersion: '0.0.0', beeVersion: '0.0.0' } as BeeVersions);
-  jest.spyOn(Bee.prototype, 'isSupportedApiVersion').mockResolvedValue(true);
-  jest.spyOn(Bee.prototype, 'getNodeAddresses').mockResolvedValue(createMockNodeAddresses());
+  jest
+    .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').status), 'isSupportedApiVersion')
+    .mockResolvedValue(true);
+  jest
+    .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').connectivity), 'getNodeAddresses')
+    .mockResolvedValue(createMockNodeAddresses());
   loadStampListMock();
-  jest.spyOn(Bee.prototype, 'downloadData').mockResolvedValue(new Bytes(data || SWARM_ZERO_ADDRESS));
-  jest.spyOn(Bee.prototype, 'downloadFile').mockResolvedValue({ data: new Bytes(SWARM_ZERO_ADDRESS) });
-  jest.spyOn(Bee.prototype, 'downloadReadableData').mockResolvedValue(
+  jest
+    .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'download')
+    .mockResolvedValue(new Bytes(data || SWARM_ZERO_ADDRESS));
+  jest
+    .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').file), 'download')
+    .mockResolvedValue({ data: new Bytes(SWARM_ZERO_ADDRESS) });
+  jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'downloadReadable').mockResolvedValue(
     new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue((data || SWARM_ZERO_ADDRESS).toUint8Array());
@@ -143,17 +150,23 @@ export function createInitMocks(data?: Reference): any {
       },
     }),
   );
-  jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValue({
+  jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'upload').mockResolvedValue({
     reference: data || SWARM_ZERO_ADDRESS,
     historyAddress: Optional.of(data || SWARM_ZERO_ADDRESS),
   } as unknown as UploadResult);
-  jest.spyOn(Bee.prototype, 'makeFeedWriter').mockReturnValue(createMockFeedWriter());
-  jest.spyOn(Bee.prototype, 'makeFeedReader').mockReturnValue(createMockFeedReader());
-  jest.spyOn(Bee.prototype, 'getPostageBatches').mockResolvedValue(loadStampListMock());
+  jest
+    .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').feed), 'makeWriter')
+    .mockReturnValue(createMockFeedWriter());
+  jest
+    .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').feed), 'makeReader')
+    .mockReturnValue(createMockFeedReader());
+  jest
+    .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').stamp), 'getAll')
+    .mockResolvedValue(loadStampListMock());
 }
 
 export function createUploadDataSpy(char: string): jest.SpyInstance {
-  return jest.spyOn(Bee.prototype, 'uploadData').mockResolvedValueOnce({
+  return jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'upload').mockResolvedValueOnce({
     reference: new Reference(char.repeat(64)),
     historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
   });

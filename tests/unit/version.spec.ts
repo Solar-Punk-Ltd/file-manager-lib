@@ -158,7 +158,7 @@ describe('Version control', () => {
         payload: { toJSON: () => oldRefs },
       });
       jest
-        .spyOn(Bee.prototype, 'downloadData')
+        .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'download')
         .mockResolvedValue(getEncodedData(JSON.stringify({ ...dummyFi, version: FEED_INDEX_ZERO.toString() })));
 
       const got = await fm.getFileVersion(dummyFi, FEED_INDEX_ZERO);
@@ -180,7 +180,7 @@ describe('Version control', () => {
         payload: { toJSON: () => headRefs },
       });
       jest
-        .spyOn(Bee.prototype, 'downloadData')
+        .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'download')
         .mockResolvedValue(
           getEncodedData(JSON.stringify({ ...dummyFi, version: FeedIndex.fromBigInt(7n).toString() })),
         );

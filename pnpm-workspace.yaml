@@ -1,4 +1,4 @@
-packages: [ '.' ]
+packages: ['.']
 
 allowBuilds:
   cpu-features: true
@@ -7,7 +7,8 @@ allowBuilds:
   ssh2: true
   unrs-resolver: true
 minimumReleaseAgeExclude:
-  - '@solarpunkltd/bee-js@0.0.0-fmv2.1'
+  - '@ethersphere/bee-js@13.0.0'
+  - '@ethersphere/core-sdk@0.1.1'
   - '@typescript-eslint/eslint-plugin@8.67.0'
   - '@typescript-eslint/parser@8.67.0'
   - '@typescript-eslint/project-service@8.67.0'

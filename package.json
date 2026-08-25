@@ -61,14 +61,9 @@
     "url": "https://github.com/Solar-Punk-Ltd/file-manager-lib.git"
   },
   "dependencies": {
-    "@ethersphere/bee-js": "npm:@solarpunkltd/bee-js@0.0.0-fmv2.1",
+    "@ethersphere/bee-js": "^13.0.0",
     "cafe-utility": "^36.3.0",
     "std-env": "^3.10.0"
-  },
-  "overrides": {
-    "@ethersphere/bee-factory": {
-      "@ethersphere/bee-js": "npm:@solarpunkltd/bee-js@0.0.0-fmv2.1"
-    }
   },
   "devDependencies": {
     "@commitlint/cli": "^20.4.1",

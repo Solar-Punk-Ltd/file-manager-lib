@@ -91,7 +91,7 @@ export class MantarayStore {
     // Concurrent getMantarayNode calls for the same but not yet cached topic must share one load (and thus one MantarayNode instance) — otherwise
     // each caller mutates its own copy and all but the last are dropped before the batched save.
     const loadPromise = (async (): Promise<MantarayNode> => {
-      const raw = await this.bee.downloadData(
+      const raw = await this.bee.data.download(
         manifestRef.reference,
         { actHistoryAddress: manifestRef.historyRef, actPublisher: publisher },
         requestOptions,
@@ -185,7 +185,7 @@ export class MantarayStore {
     const contentRefs = feedData.payload.toJSON() as ActReferences;
     assertActReferences(contentRefs);
 
-    const fileBytes = await this.bee.downloadData(
+    const fileBytes = await this.bee.data.download(
       contentRefs.reference,
       { actHistoryAddress: contentRefs.historyRef, actPublisher },
       requestOptions,

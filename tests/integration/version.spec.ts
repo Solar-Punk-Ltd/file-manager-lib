@@ -131,7 +131,7 @@ describe('Version control', () => {
 
     const v0Bytes = await retryOnPropagationDelay(async () => {
       return streamToUint8Array(
-        await bee.downloadReadableData(v0.content.reference, {
+        await bee.data.downloadReadable(v0.content.reference, {
           actHistoryAddress: v0.content.historyRef,
           actPublisher: v0.actPublisher,
         }),
@@ -141,7 +141,7 @@ describe('Version control', () => {
 
     const headBytes = await retryOnPropagationDelay(async () => {
       return streamToUint8Array(
-        await bee.downloadReadableData(head.content.reference, {
+        await bee.data.downloadReadable(head.content.reference, {
           actHistoryAddress: head.content.historyRef,
           actPublisher: head.actPublisher,
         }),

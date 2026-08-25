@@ -27,7 +27,7 @@ describe('Drive operations', () => {
     const { bee: beeDev, ownerStamp, signer: newSigner } = await ensureUniqueSignerWithStamp();
     bee = beeDev;
     signer = newSigner;
-    const stamp = (await bee.getPostageBatches()).find((s) => s.batchID.toString() === ownerStamp.toString());
+    const stamp = (await bee.stamp.getAll()).find((s) => s.batchID.toString() === ownerStamp.toString());
 
     expect(stamp).toBeDefined();
     expect(stamp?.batchID.toString() === ownerStamp.toString()).toBeTruthy();
