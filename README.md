@@ -49,7 +49,7 @@ flowchart TD
   AM -->|fork: My Drive| DF1["Drive feed<br/>(per drive)"]
   AM -->|fork: Photos| DF2["Drive feed"]
   DF1 -->|head slot| DM["Drive manifest<br/>(MantarayNode)"]
-  DM -->|"fork /report.pdf"| FF1["File feed<br/>swarm-file-topic"]
+  DM -->|"fork /report.pdf"| FF1["File feed<br/>swarm-node-topic"]
   DM -->|"fork /documents/"| SUB["Sub-manifest<br/>(folder)"]
   SUB -->|"fork /contract.pdf"| FF2["File feed"]
   FF1 -->|"slot n (ACT)"| C1["content reference"]

@@ -31,8 +31,6 @@ tests/**/bee-dev/
 tests/integration/tmp/
 **.tgz
 
-*.md
-!README.md
-!changelog/*.md
+CLAUDE.md
 memory/
 *-recovery.txt

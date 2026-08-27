@@ -21,7 +21,7 @@ method for cancellation (`signal`) and retries; it is omitted from the descripti
 - [Trash](#trash) — `trash`, `recover`, `listTrash`, `emptyTrash`
 - [Getters](#getters) — `adminStamp`, `driveList`, `recordList`, `emitter`, `isInitialized`
 - [Events](#events)
-- [Types](#types)
+- [Types](#types) — including the [port vocabulary](#port-vocabulary) a custom `SwarmClient` implements against
 - [Manifest metadata keys](#manifest-metadata-keys)
 - [Errors](#errors)
 
@@ -36,8 +36,8 @@ constructor(swarmClient: SwarmClient, emitter?: EventEmitter, config?: FileManag
 ```
 
 - **swarmClient** — a [`SwarmClient`](#swarmclient) backend. Ships with `BeeClient` (bee-js + a local `PrivateKey`, Node
-  and browser) and `SwarmIdSwarmClient` (`@snaha/swarm-id`, browser only). The FileManager never holds key material —
-  the backend exposes only an owner address and public keys.
+  and browser) and `SnahaClient` (`@snaha/swarm-id`, browser only). The FileManager never holds key material — the
+  backend exposes only an owner address and public keys.
 - **emitter** _(optional)_ — an `EventEmitter` to receive `FileManagerEvents`; a default in-memory emitter is created if
   omitted.
 - **config** _(optional)_ — concurrency tuning, see [`FileManagerConfig`](#filemanagerconfig).
@@ -53,9 +53,13 @@ hex strings, payloads are `Uint8Array`, and feed indexes are **decimal** strings
 `deriveSecret`, and a read-only `getStamp`. Stamp _management_ is deliberately out of scope — that belongs to the host
 application.
 
-`readFeed` reports "no update yet" as a **successful** return carrying the sentinel index `18446744073709551615`
-(`FeedIndex.MINUS_ONE`) and a zero-address payload, rather than throwing. Callers branch on the sentinel; retry helpers
-must test for it instead of catching.
+`readFeed` reports "no update yet" as a **successful** return carrying the sentinel index
+[`FEED_INDEX_NOT_FOUND`](#feed-index-constants) and a zero-address payload, rather than throwing. Callers branch on the
+sentinel; retry helpers must test for it instead of catching.
+
+The vocabulary the port speaks — hex aliases, option shapes, result shapes and the feed-index constants — is exported
+from the package root and documented under [Port vocabulary](#port-vocabulary). Implement the interface against those
+types to supply your own backend.
 
 ### `FileManagerConfig`
 
@@ -489,6 +493,103 @@ enum FailureScope {
 }
 ```
 
+### Port vocabulary
+
+Everything [`SwarmClient`](#swarmclient) speaks, exported from the package root. Deliberately free of bee-js and
+swarm-id types — hex strings and plain bytes only, converted on each side of the port. That is what keeps the seam
+stable across backend SDK major versions, and what makes a third-party backend possible without depending on either SDK.
+
+#### Aliases
+
+```ts
+type Hex = string; // reference / address / public key, unprefixed hex
+type FeedIndexString = string; // uint64 feed index as a DECIMAL string, e.g. '0', '42'
+type SwarmRedundancyLevel = number; // 0–4; bee-js spells these RedundancyLevel.OFF … PARANOID
+type SwarmRedundancyStrategy = number; // 0–3; bee-js spells these RedundancyStrategy.NONE … RACE
+```
+
+Feed indexes are **decimal** across the port. Note that bee-js's `FeedIndex.toString()` emits 16-char **hex**, so never
+hand its output to a port method: `BigInt('0000000000000000')` is still `0`, which makes the mismatch silent. Convert
+with `FeedIndex.fromBigInt(BigInt(s))` and `index.toBigInt().toString()`.
+
+#### Feed index constants
+
+```ts
+const FEED_INDEX_NOT_FOUND: FeedIndexString = '18446744073709551615'; // uint64 max
+const FEED_INDEX_START: FeedIndexString = '0';
+```
+
+A feed with no update yet is an expected state, not a failure, so [`readFeed`](#swarmclient) reports it **in band**: a
+successful return carrying `FEED_INDEX_NOT_FOUND` as `index`, `FEED_INDEX_START` as `nextIndex`, and a zero-address
+payload. Every backend must emit exactly these values, and every caller must test for them.
+
+Two consequences follow from nothing being thrown:
+
+- Retry-on-throw helpers never fire. A retry loop must test `FEED_INDEX_NOT_FOUND`, not `catch`.
+- A missed check reads as a valid index whose payload is 32 zero bytes — which typically surfaces far away as
+  `JSON.parse` failing on `""`.
+
+#### Options
+
+```ts
+interface SwarmRequestOptions {
+  signal?: AbortSignal;
+  timeout?: number;
+  headers?: Record<string, string>;
+}
+interface SwarmUploadOptions {
+  redundancyLevel?: SwarmRedundancyLevel;
+}
+interface SwarmDownloadOptions {
+  redundancyStrategy?: SwarmRedundancyStrategy;
+  fallback?: boolean;
+}
+```
+
+These are the only options that reach a backend. `BeeClient` honours all of them. `SnahaClient` drops `redundancyLevel`,
+`redundancyStrategy` and `signal` — see its class doc for the full list of gaps and why each one is absorbed rather than
+emulated.
+
+#### References and results
+
+```ts
+interface ActReferences {
+  reference: string; // the ACT-encrypted content reference
+  historyRef: string; // ACT history, required to decrypt it later
+}
+interface ProtectedRefs extends ActReferences {
+  publisher: Hex; // compressed public key of whoever encrypted — see actPublisher
+}
+
+interface FeedRead {
+  payload: Uint8Array;
+  index: FeedIndexString;
+  nextIndex: FeedIndexString;
+}
+interface FeedWrite {
+  reference: Hex;
+  index: FeedIndexString;
+}
+
+interface ClientUploadResult {
+  reference: Hex;
+  tagUid?: number;
+}
+interface ClientProtectedUploadResult {
+  contentRefs: ActReferences;
+  tagUid?: number;
+}
+
+interface FailedResult {
+  path: string;
+  error: string;
+}
+```
+
+`FailedResult` is the shared per-item failure shape in the partial-success results
+([`UploadFilesResult`](#uploadfilesresult), [`DownloadFilesResult`](#downloadfilesresult)). [`StampInfo`](#stampinfo)
+below is also part of this vocabulary — it is what `getStamp` returns.
+
 ### `StampInfo`
 
 The port's stamp view — deliberately narrower than bee-js's `PostageBatch`, since the library only ever reads stamps.
@@ -691,22 +792,21 @@ interface NodeHeader {
 
 Each manifest fork carries a metadata map that mirrors inode metadata. Keys are stable string constants:
 
-| Constant                                | Key                         | On    | Purpose                                   |
-| --------------------------------------- | --------------------------- | ----- | ----------------------------------------- |
-| `MANIFEST_METADATA_NODE_TOPIC`          | `swarm-node-topic`          | all   | The node's own topic                      |
-| `MANIFEST_METADATA_NODE_TYPE`           | `swarm-node-type`           | all   | `file` / `folder` / `drive`               |
-| `MANIFEST_METADATA_FILE_TOPIC`          | `swarm-file-topic`          | file  | Feed topic for the file's version history |
-| `MANIFEST_METADATA_NODE_OWNER`          | `swarm-node-owner`          | all   | Owner address                             |
-| `MANIFEST_METADATA_NODE_ACT_PUBLISHER`  | `swarm-node-act-publisher`  | all   | ACT publisher for unwrapping              |
-| `MANIFEST_METADATA_NODE_VERSION`        | `swarm-node-version`        | all   | Version / feed index                      |
-| `MANIFEST_METADATA_REDUNDANCY_LEVEL`    | `swarm-redundancy-level`    | all   | Redundancy strategy                       |
-| `MANIFEST_METADATA_DRIVE_ID`            | `swarm-drive-id`            | drive | Drive identifier                          |
-| `MANIFEST_METADATA_DRIVE_NAME`          | `swarm-drive-name`          | drive | Drive display name                        |
-| `MANIFEST_METADATA_DRIVE_OWNER`         | `swarm-drive-owner`         | drive | Drive owner                               |
-| `MANIFEST_METADATA_DRIVE_IS_ADMIN`      | `swarm-drive-is-admin`      | drive | Admin-drive flag                          |
-| `MANIFEST_METADATA_DRIVE_BATCH_ID`      | `swarm-drive-batch-id`      | drive | Backing postage batch                     |
-| `MANIFEST_METADATA_DRIVE_ACT_PUBLISHER` | `swarm-drive-act-publisher` | drive | Drive-level ACT publisher                 |
-| `MANIFEST_METADATA_TRASHED_FROM`        | `swarm-trashed-from`        | trash | Path the node was trashed from            |
+| Constant                                | Key                         | On    | Purpose                        |
+| --------------------------------------- | --------------------------- | ----- | ------------------------------ |
+| `MANIFEST_METADATA_NODE_TOPIC`          | `swarm-node-topic`          | all   | The node's own topic           |
+| `MANIFEST_METADATA_NODE_TYPE`           | `swarm-node-type`           | all   | `file` / `folder` / `drive`    |
+| `MANIFEST_METADATA_NODE_OWNER`          | `swarm-node-owner`          | all   | Owner address                  |
+| `MANIFEST_METADATA_NODE_ACT_PUBLISHER`  | `swarm-node-act-publisher`  | all   | ACT publisher for unwrapping   |
+| `MANIFEST_METADATA_NODE_VERSION`        | `swarm-node-version`        | all   | Version / feed index           |
+| `MANIFEST_METADATA_REDUNDANCY_LEVEL`    | `swarm-redundancy-level`    | all   | Redundancy strategy            |
+| `MANIFEST_METADATA_DRIVE_ID`            | `swarm-drive-id`            | drive | Drive identifier               |
+| `MANIFEST_METADATA_DRIVE_NAME`          | `swarm-drive-name`          | drive | Drive display name             |
+| `MANIFEST_METADATA_DRIVE_OWNER`         | `swarm-drive-owner`         | drive | Drive owner                    |
+| `MANIFEST_METADATA_DRIVE_IS_ADMIN`      | `swarm-drive-is-admin`      | drive | Admin-drive flag               |
+| `MANIFEST_METADATA_DRIVE_BATCH_ID`      | `swarm-drive-batch-id`      | drive | Backing postage batch          |
+| `MANIFEST_METADATA_DRIVE_ACT_PUBLISHER` | `swarm-drive-act-publisher` | drive | Drive-level ACT publisher      |
+| `MANIFEST_METADATA_TRASHED_FROM`        | `swarm-trashed-from`        | trash | Path the node was trashed from |
 
 ---
 
