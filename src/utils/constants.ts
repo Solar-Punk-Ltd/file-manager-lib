@@ -1,9 +1,27 @@
-import { FeedIndex, NULL_ADDRESS, Reference } from '@ethersphere/bee-js';
+import { NULL_ADDRESS } from '@ethersphere/bee-js';
+import { FeedIndex, Reference } from '@ethersphere/core-sdk';
+
+import { FEED_INDEX_NOT_FOUND } from '../types/utils';
 
 export const STATE_TOPIC_LABEL = 'filemanager-state/v2';
 export const ADMIN_DRIVE_NAME = 'admin';
 export const SWARM_ZERO_ADDRESS = new Reference(NULL_ADDRESS);
+// --- Feed indexes ---
+//
+// Two representations of the same two values, because the layers speak different languages:
+// the `SwarmClient` port uses decimal strings (`FEED_INDEX_START`, `FEED_INDEX_NOT_FOUND` in
+// `types/utils.ts`), while the domain layer compares `FeedIndex` objects. The pair below is the
+// domain-side form. Do not stringify them for the port — `FeedIndex.toString()` emits 16-char
+// **hex**, not decimal, and the mismatch is silent because `BigInt('0000000000000000')` is still 0.
+
+/** The first writable slot. `.toString()` gives the 16-hex form persisted as a node's `version`. */
 export const FEED_INDEX_ZERO = FeedIndex.fromBigInt(0n);
+/**
+ * "This feed has no update yet" — the domain-side twin of the port's {@link FEED_INDEX_NOT_FOUND},
+ * which is what `readFeed` reports for an empty feed. **Derived from that constant, never re-typed**,
+ * so the two spellings cannot drift apart.
+ */
+export const FEED_INDEX_NONE = FeedIndex.fromBigInt(BigInt(FEED_INDEX_NOT_FOUND));
 export const ROOT_PATH = '/';
 export const TRASH_FOLDER_NAME = '.trash';
 export const MAX_CONCURRENT_FEED_FETCHES = 10;

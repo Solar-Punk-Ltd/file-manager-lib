@@ -1,4 +1,5 @@
-import { type BeeRequestOptions, type RedundantUploadOptions, Reference, type UploadResult } from '@ethersphere/bee-js';
+import type { BeeRequestOptions, RedundantUploadOptions, UploadResult } from '@ethersphere/bee-js';
+import { Reference } from '@ethersphere/core-sdk';
 import { Optional } from 'cafe-utility';
 
 import type { SwarmClient } from '../types';

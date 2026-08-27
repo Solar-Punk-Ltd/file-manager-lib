@@ -20,12 +20,14 @@ export type {
   UploadFilesResult,
 } from './upload';
 export type { DownloadFilesResult, DownloadResource, DownloadResult } from './download';
-export type { ActReferences, FailedResult } from './utils';
 export type { FileManager, FileManagerConfig } from './fileManager';
-export type { SwarmClient } from './client/swarmClient';
+export type { SwarmClient } from './swarmClient';
+export { FEED_INDEX_NOT_FOUND, FEED_INDEX_START } from './utils';
 export type {
-  ClientUploadResult,
+  ActReferences,
   ClientProtectedUploadResult,
+  ClientUploadResult,
+  FailedResult,
   FeedIndexString,
   FeedRead,
   FeedWrite,
@@ -37,4 +39,4 @@ export type {
   SwarmRedundancyStrategy,
   SwarmRequestOptions,
   SwarmUploadOptions,
-} from './client/utils';
+} from './utils';

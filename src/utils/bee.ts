@@ -1,17 +1,10 @@
-import {
-  type BatchId,
-  type BeeRequestOptions,
-  Bytes,
-  FeedIndex,
-  type RedundancyLevel,
-  Topic,
-} from '@ethersphere/bee-js';
+import type { BeeRequestOptions, RedundancyLevel } from '@ethersphere/bee-js';
+import { type BatchId, Bytes, FeedIndex, Topic } from '@ethersphere/core-sdk';
 
-import type { SwarmClient } from '../types/client/swarmClient';
-import type { StampInfo } from '../types/client/utils';
-import { type ActReferences, type FeedResultWithIndex } from '../types/utils';
+import type { SwarmClient } from '../types/swarmClient';
+import { type ActReferences, type FeedResultWithIndex, type StampInfo } from '../types/utils';
 
-import { FEED_INDEX_ZERO } from './constants';
+import { FEED_INDEX_NONE, FEED_INDEX_ZERO } from './constants';
 import { generateRandomBytes } from './crypto';
 import { ErrorHandler, StampError } from './errors';
 
@@ -70,7 +63,7 @@ export async function getTopicAndVersion(
     undefined,
     requestOptions,
   );
-  if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
+  if (feedIndex.equals(FEED_INDEX_NONE)) {
     return { topic, version: FEED_INDEX_ZERO.toString() };
   }
 

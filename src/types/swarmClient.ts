@@ -23,19 +23,6 @@ import type {
  */
 export interface SwarmClient {
   /**
-   * Derives a secret from the master key
-   * @param seed Input string necessary for deriving the secret
-   * @returns a 32 byte hex string
-   */
-  deriveSecret(seed: string): Promise<string>;
-
-  /**
-   * Prepare the backend: version/compatibility checks for Bee, connection handshake for swarm-id.
-   * {@link owner} and {@link publicKey} are only valid once this resolves.
-   */
-  initialize(requestOptions?: SwarmRequestOptions): Promise<void>;
-
-  /**
    * Ethereum **address** (20 bytes / 40 hex chars) that owns the feeds this client writes.
    *
    * This is the value to pass wherever a feed owner is expected, and the value to persist as a
@@ -61,6 +48,19 @@ export interface SwarmClient {
    * swarm-id it is the origin-scoped `appKey`. Only valid after {@link initialize}.
    */
   readonly actPublisher: Hex;
+
+  /**
+   * Derives a secret from the master key
+   * @param seed Input string necessary for deriving the secret
+   * @returns a 32 byte hex string
+   */
+  deriveSecret(seed: string): Promise<string>;
+
+  /**
+   * Prepare the backend: version/compatibility checks for Bee, connection handshake for swarm-id.
+   * {@link owner} and {@link publicKey} are only valid once this resolves.
+   */
+  initialize(requestOptions?: SwarmRequestOptions): Promise<void>;
 
   /** Read-only stamp lookup. Returns undefined when the batch is unknown. */
   getStamp(batchId?: Hex, requestOptions?: SwarmRequestOptions): Promise<StampInfo | undefined>;
@@ -127,6 +127,15 @@ export interface SwarmClient {
 
   // --- feed operations ---
 
+  /**
+   * Reads one feed slot — the latest when `index` is omitted.
+   *
+   * **A feed with no update yet resolves rather than rejecting**, carrying `FEED_INDEX_NOT_FOUND`
+   * as `index`, `FEED_INDEX_START` as `nextIndex`, and a zero-address payload. Implementations must
+   * map their backend's not-found signal onto exactly that; callers must test for it. Both
+   * constants are exported alongside these types — see `FEED_INDEX_NOT_FOUND` for why absence is
+   * reported in band rather than thrown.
+   */
   readFeed(topic: Hex, owner: Hex, index?: FeedIndexString, requestOptions?: SwarmRequestOptions): Promise<FeedRead>;
 
   writeFeed(

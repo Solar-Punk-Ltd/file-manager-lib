@@ -1,14 +1,15 @@
 import type { Bee, BeeRequestOptions, DownloadOptions, RedundancyLevel, RedundancyStrategy } from '@ethersphere/bee-js';
 import { FeedIndex } from '@ethersphere/core-sdk';
 
-import type { FeedIndexString, SwarmDownloadOptions, SwarmRequestOptions } from '../types/client/utils';
-import { BeeVersionError } from '../utils/errors';
+import type { FeedIndexString, SwarmDownloadOptions, SwarmRequestOptions } from '../../types/utils';
+import { BeeVersionError } from '../../utils/errors';
 
 /**
  * Conversions from the backend-agnostic port vocabulary into **bee-js** types, for
- * {@link BeeClient} only. `SnahaClient` keeps its own equivalents as file-locals, because
- * `@snaha/swarm-id` exports several identically-named types (`DownloadOptions` above all) that are
- * *not* structurally interchangeable with bee-js's. Nothing here may reference the swarm-id SDK.
+ * {@link BeeClient} only. `SnahaClient` has its own deliberately separate set in `../snaha/utils`,
+ * because `@snaha/swarm-id` exports several identically-named types (`DownloadOptions` above all)
+ * that are *not* interchangeable with bee-js's. Nothing here may reference the swarm-id SDK, and
+ * nothing there may reference bee-js — that is the whole point of the split.
  */
 
 export function toFeedIndex(index: FeedIndexString): FeedIndex {

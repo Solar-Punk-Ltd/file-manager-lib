@@ -1,33 +1,35 @@
-import { Bytes, FeedIndex } from '@ethersphere/bee-js';
-import type { DownloadOptions as SnahaDownloadOptions, SwarmIdClient } from '@snaha/swarm-id';
+import { Bytes } from '@ethersphere/core-sdk';
+import type { SwarmIdClient } from '@snaha/swarm-id';
 import type { Readable } from 'stream';
 
-import type { SwarmClient } from '../types/client/swarmClient';
-import type {
-  ClientProtectedUploadResult,
-  ClientUploadResult,
-  FeedIndexString,
-  FeedRead,
-  FeedWrite,
-  Hex,
-  ProtectedRefs,
-  StampInfo,
-  SwarmDownloadOptions,
-  SwarmRequestOptions,
-  SwarmUploadOptions,
-} from '../types/client/utils';
-import { isNotFoundError } from '../utils/common';
-import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '../utils/constants';
-import { FileError, SignerError } from '../utils/errors';
+import type { SwarmClient } from '../../types/swarmClient';
+import {
+  type ClientProtectedUploadResult,
+  type ClientUploadResult,
+  FEED_INDEX_NOT_FOUND,
+  FEED_INDEX_START,
+  type FeedIndexString,
+  type FeedRead,
+  type FeedWrite,
+  type Hex,
+  type ProtectedRefs,
+  type StampInfo,
+  type SwarmDownloadOptions,
+  type SwarmRequestOptions,
+  type SwarmUploadOptions,
+} from '../../types/utils';
+import { SWARM_ZERO_ADDRESS } from '../../utils/constants';
+import { SignerError } from '../../utils/errors';
 
-/**
- * Options passed to `@snaha/swarm-id`. Structurally what its `RequestOptions` is today, declared
- * locally so the value-level package never has to be imported (see the note on packaging below).
- */
-interface SnahaRequestOptions {
-  timeout?: number;
-  headers?: Record<string, string>;
-}
+import {
+  HAS_TIMESTAMP,
+  isFeedNotFound,
+  toBytes,
+  toBytesAsync,
+  toDownloadOptions,
+  toSnahaRequestOptions,
+  toStream,
+} from './utils';
 
 /**
  * {@link SwarmClient} backed by `@snaha/swarm-id`. **Browser only** — the SDK mounts a hidden
@@ -232,7 +234,7 @@ export class SnahaClient implements SwarmClient {
       if (isFeedNotFound(err)) {
         return {
           index: FEED_INDEX_NOT_FOUND,
-          nextIndex: FEED_INDEX_ZERO.toBigInt().toString(),
+          nextIndex: FEED_INDEX_START,
           payload: SWARM_ZERO_ADDRESS.toUint8Array(),
         };
       }
@@ -273,73 +275,4 @@ export class SnahaClient implements SwarmClient {
 
     return appKey;
   }
-}
-
-/**
- * swarm-id prefixes feed payloads with a timestamp unless told otherwise. fm-lib needs its payloads
- * back byte-for-byte, so it is disabled on both the read and the write side.
- */
-const HAS_TIMESTAMP = false;
-
-/**
- * The port's not-found sentinel, matching what {@link BeeClient} emits from bee-js `MINUS_ONE`.
- * TODO: promote to a port-level constant so this adapter can drop bee-js once swarm-id can derive
- * secrets and the mocked {@link SnahaClient.deriveSecret} goes away.
- */
-const FEED_INDEX_NOT_FOUND: FeedIndexString = FeedIndex.MINUS_ONE.toBigInt().toString();
-
-/**
- * An empty sequential feed reports its own message rather than a 404 — a missing update at an
- * explicitly requested index still surfaces as one.
- */
-function isFeedNotFound(err: unknown): boolean {
-  return isNotFoundError(err) || (err as Error)?.message?.includes('Sequential feed has no updates');
-}
-
-function toBytes(data: Uint8Array | string): Uint8Array {
-  return typeof data === 'string' ? new TextEncoder().encode(data) : data;
-}
-
-/** swarm-id takes bytes only — `File`/`Blob` sources have to be buffered up front. */
-async function toBytesAsync(data: Uint8Array | string | Blob | Readable): Promise<Uint8Array> {
-  if (typeof data === 'string' || data instanceof Uint8Array) {
-    return toBytes(data);
-  }
-
-  if (typeof Blob !== 'undefined' && data instanceof Blob) {
-    return new Uint8Array(await data.arrayBuffer());
-  }
-
-  // The Node upload path cannot reach this backend — swarm-id needs a browser to host its iframe.
-  throw new FileError('Node streams are not supported by the Swarm ID backend');
-}
-
-function toStream(data: Uint8Array): ReadableStream<Uint8Array> {
-  return new ReadableStream<Uint8Array>({
-    start(controller): void {
-      controller.enqueue(data);
-      controller.close();
-    },
-  });
-}
-
-function toSnahaRequestOptions(options?: SwarmRequestOptions): SnahaRequestOptions | undefined {
-  // `signal` is deliberately dropped — swarm-id has no equivalent across the postMessage boundary.
-  if (!options) return undefined;
-
-  return { timeout: options.timeout, headers: options.headers };
-}
-
-/**
- * swarm-id's `DownloadOptions` declares its three ACT fields as required, so a partial object is
- * rejected by the compiler even though the runtime treats every field as optional. The ACT fields
- * are unreachable here anyway — protected reads go through `actDownloadData`.
- */
-function toDownloadOptions(options?: SwarmDownloadOptions): SnahaDownloadOptions | undefined {
-  if (!options) return undefined;
-
-  return {
-    redundancyStrategy: options.redundancyStrategy,
-    fallback: options.fallback,
-  } as unknown as SnahaDownloadOptions;
 }

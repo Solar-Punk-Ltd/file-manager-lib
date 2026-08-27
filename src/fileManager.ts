@@ -1,19 +1,12 @@
 import {
-  type BatchId,
   type BeeRequestOptions,
   type DownloadOptions,
-  FeedIndex,
   type FileUploadOptions,
-  Identifier,
   RedundancyLevel,
   type RedundantUploadOptions,
-  Reference,
-  Topic,
 } from '@ethersphere/bee-js';
-import { MantarayNode } from '@ethersphere/core-sdk';
+import { type BatchId, FeedIndex, Identifier, MantarayNode, Reference, Topic } from '@ethersphere/core-sdk';
 
-import type { SwarmClient } from './types/client/swarmClient';
-import type { StampInfo } from './types/client/utils';
 import { type DownloadFilesResult, type DownloadResource, type DownloadResult } from './types/download';
 import { type FileManager, type FileManagerConfig } from './types/fileManager';
 import {
@@ -32,13 +25,15 @@ import {
   type ResolvedFileFork,
   type UnresolvedDrive,
 } from './types/info';
+import type { SwarmClient } from './types/swarmClient';
 import { type UpdateItem, type UploadFilesResult, type UploadItem } from './types/upload';
-import { type ActReferences, type FailedResult } from './types/utils';
+import { type ActReferences, type FailedResult, type StampInfo } from './types/utils';
 import { assertActReferences, assertDriveInfoFromMetadata, assertReady } from './utils/asserts';
 import { fetchStamp, getFeedData, getTopicAndVersion, verifyStampUsability } from './utils/bee';
 import { awaitAllPromisesBounded, errorMessage, getRecordStatus, joinPath, settlePromises } from './utils/common';
 import {
   ADMIN_DRIVE_NAME,
+  FEED_INDEX_NONE,
   FEED_INDEX_ZERO,
   MANIFEST_METADATA_DRIVE_ID,
   MANIFEST_METADATA_DRIVE_NAME,
@@ -495,7 +490,7 @@ export class FileManagerBase implements FileManager {
         requestOptions,
       );
 
-      if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
+      if (feedIndex.equals(FEED_INDEX_NONE)) {
         throw new DriveError(`Folder feed not found for path: ${path}`);
       }
       const manifestRef: ActReferences = payload.toJSON() as ActReferences;
@@ -815,7 +810,7 @@ export class FileManagerBase implements FileManager {
     const topic = new Topic(fr.topic);
     const index = version !== undefined ? new FeedIndex(version).toBigInt() : undefined;
     const feedData = await getFeedData(this.swarmClient, topic, fr.owner, index, requestOptions);
-    if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
+    if (feedData.feedIndex.equals(FEED_INDEX_NONE)) {
       throw new FileRecordError(`File feed not found for topic: ${fr.topic.slice(0, 6)}`);
     }
 
@@ -849,7 +844,7 @@ export class FileManagerBase implements FileManager {
       undefined,
       requestOptions,
     );
-    if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
+    if (feedIndex.equals(FEED_INDEX_NONE)) {
       throw new FileRecordError('Record feed not found');
     }
 
@@ -1082,7 +1077,7 @@ export class FileManagerBase implements FileManager {
             requestOptions,
           );
 
-          if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
+          if (feedIndex.equals(FEED_INDEX_NONE)) {
             throw new FolderError(`Folder feed not found for path: ${e.path}`);
           }
 
@@ -1646,7 +1641,7 @@ export class FileManagerBase implements FileManager {
       requestOptions,
     );
 
-    if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
+    if (feedIndex.equals(FEED_INDEX_NONE)) {
       this.logger.debug('State not found.');
       return false;
     }
@@ -1760,7 +1755,7 @@ export class FileManagerBase implements FileManager {
       requestOptions,
     );
 
-    if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
+    if (feedIndex.equals(FEED_INDEX_NONE)) {
       this.logger.debug('Admin manifest feed empty — no drives to load');
       return;
     }
@@ -1802,7 +1797,7 @@ export class FileManagerBase implements FileManager {
           requestOptions,
         );
 
-        if (driveFeedIndex.equals(FeedIndex.MINUS_ONE)) {
+        if (driveFeedIndex.equals(FEED_INDEX_NONE)) {
           throw new DriveError('Drive has no manifest feed — corrupt or incomplete');
         }
 
@@ -2081,7 +2076,7 @@ export class FileManagerBase implements FileManager {
     }
 
     const feedData = await getFeedData(this.swarmClient, new Topic(topic), owner, version, requestOptions);
-    if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
+    if (feedData.feedIndex.equals(FEED_INDEX_NONE)) {
       throw new FileRecordError(`File record not found for topic: ${topic.slice(0, 6)}`);
     }
 

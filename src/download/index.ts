@@ -1,7 +1,7 @@
 import type { BeeRequestOptions, DownloadOptions } from '@ethersphere/bee-js';
 
-import type { SwarmClient } from '../types/client/swarmClient';
 import { type DownloadFilesResult, type DownloadResource, type DownloadResult } from '../types/download';
+import type { SwarmClient } from '../types/swarmClient';
 import type { FailedResult } from '../types/utils';
 import { errorMessage, settlePromises } from '../utils/common';
 import { Logger } from '../utils/logger';

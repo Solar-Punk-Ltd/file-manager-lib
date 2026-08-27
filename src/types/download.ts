@@ -1,4 +1,4 @@
-import { type PublicKey } from '@ethersphere/bee-js';
+import type { PublicKey } from '@ethersphere/core-sdk';
 
 import { type FailedResult } from './utils';
 

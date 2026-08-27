@@ -1,23 +1,26 @@
-import { type Bee, Bytes, FeedIndex, type PrivateKey, Topic } from '@ethersphere/bee-js';
+import type { Bee } from '@ethersphere/bee-js';
+import { Bytes, type PrivateKey, Topic } from '@ethersphere/core-sdk';
 import type { Readable } from 'stream';
 
-import type { SwarmClient } from '../types/client/swarmClient';
-import type {
-  ClientProtectedUploadResult,
-  ClientUploadResult,
-  FeedIndexString,
-  FeedRead,
-  FeedWrite,
-  Hex,
-  ProtectedRefs,
-  StampInfo,
-  SwarmDownloadOptions,
-  SwarmRequestOptions,
-  SwarmUploadOptions,
-} from '../types/client/utils';
-import { isNotFoundError } from '../utils/common';
-import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '../utils/constants';
-import { SignerError } from '../utils/errors';
+import type { SwarmClient } from '../../types/swarmClient';
+import {
+  type ClientProtectedUploadResult,
+  type ClientUploadResult,
+  FEED_INDEX_NOT_FOUND,
+  FEED_INDEX_START,
+  type FeedIndexString,
+  type FeedRead,
+  type FeedWrite,
+  type Hex,
+  type ProtectedRefs,
+  type StampInfo,
+  type SwarmDownloadOptions,
+  type SwarmRequestOptions,
+  type SwarmUploadOptions,
+} from '../../types/utils';
+import { isNotFoundError } from '../../utils/common';
+import { SWARM_ZERO_ADDRESS } from '../../utils/constants';
+import { SignerError } from '../../utils/errors';
 
 import {
   toBeeRequestOptions,
@@ -240,8 +243,8 @@ export class BeeClient implements SwarmClient {
     } catch (err) {
       if (isNotFoundError(err)) {
         return {
-          index: toIndexString(FeedIndex.MINUS_ONE),
-          nextIndex: toIndexString(FEED_INDEX_ZERO),
+          index: FEED_INDEX_NOT_FOUND,
+          nextIndex: FEED_INDEX_START,
           payload: SWARM_ZERO_ADDRESS.toUint8Array(),
         };
       }

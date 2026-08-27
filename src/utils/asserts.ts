@@ -1,16 +1,7 @@
-import {
-  BatchId,
-  EthAddress,
-  FeedIndex,
-  Identifier,
-  PublicKey,
-  type RedundancyLevel,
-  Reference,
-  Topic,
-} from '@ethersphere/bee-js';
+import type { RedundancyLevel } from '@ethersphere/bee-js';
+import { BatchId, EthAddress, FeedIndex, Identifier, PublicKey, Reference, Topic } from '@ethersphere/core-sdk';
 import { Types } from 'cafe-utility';
 
-import { type SwarmClient } from '../types/client/swarmClient';
 import {
   type DriveInfo,
   type FileRecord,
@@ -19,6 +10,7 @@ import {
   NodeStatus,
   NodeType,
 } from '../types/info';
+import { type SwarmClient } from '../types/swarmClient';
 import { type ActReferences } from '../types/utils';
 
 import {

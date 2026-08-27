@@ -1,12 +1,13 @@
-import { type BeeRequestOptions, Bytes, FeedIndex, type RedundancyLevel, Reference, Topic } from '@ethersphere/bee-js';
-import { type MantarayNode } from '@ethersphere/core-sdk';
+import type { BeeRequestOptions, RedundancyLevel } from '@ethersphere/bee-js';
+import { Bytes, FeedIndex, type MantarayNode, Reference, Topic } from '@ethersphere/core-sdk';
 
-import { type SwarmClient } from './types/client/swarmClient';
 import { type DriveInfo, type FileRecord, type FolderInfo, type ManifestHost, NodeType } from './types/info';
+import { type SwarmClient } from './types/swarmClient';
 import { type ActReferences, type FeedResultWithIndex } from './types/utils';
 import { assertActReferences, assertFileRecord } from './utils/asserts';
 import { type FeedWriteResult, getFeedData, writeActFeed } from './utils/bee';
 import {
+  FEED_INDEX_NONE,
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
@@ -167,7 +168,7 @@ export class MantarayStore {
     options: { isHeadRead: boolean },
     requestOptions?: BeeRequestOptions,
   ): Promise<FileRecord> {
-    if (feedData.feedIndex.equals(FeedIndex.MINUS_ONE)) {
+    if (feedData.feedIndex.equals(FEED_INDEX_NONE)) {
       throw new FileRecordError(`File record not found for topic: ${topic.slice(0, 6)}`);
     }
 
@@ -343,7 +344,7 @@ export class MantarayStore {
       undefined,
       requestOptions,
     );
-    if (feedIndex.equals(FeedIndex.MINUS_ONE)) {
+    if (feedIndex.equals(FEED_INDEX_NONE)) {
       throw new DriveError(`Folder feed not found for path: ${currentPath}`);
     }
 

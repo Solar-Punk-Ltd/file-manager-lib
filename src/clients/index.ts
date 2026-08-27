@@ -1,2 +1,2 @@
-export { BeeClient } from './beeClient';
-export { SnahaClient } from './snahaClient';
+export { BeeClient } from './bee/client';
+export { SnahaClient } from './snaha/client';

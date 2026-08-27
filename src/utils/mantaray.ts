@@ -1,8 +1,6 @@
-import { type BeeRequestOptions, RedundancyLevel, Reference } from '@ethersphere/bee-js';
-import { MantarayNode } from '@ethersphere/core-sdk';
+import { type BeeRequestOptions, RedundancyLevel } from '@ethersphere/bee-js';
+import { MantarayNode, Reference } from '@ethersphere/core-sdk';
 
-import type { SwarmClient } from '../types/client/swarmClient';
-import type { SwarmDownloadOptions, SwarmRequestOptions, SwarmUploadOptions } from '../types/client/utils';
 import {
   type DriveInfo,
   type FileRecord,
@@ -11,6 +9,8 @@ import {
   type NodeHeader,
   NodeType,
 } from '../types/info';
+import type { SwarmClient } from '../types/swarmClient';
+import type { SwarmDownloadOptions, SwarmRequestOptions, SwarmUploadOptions } from '../types/utils';
 
 import { type FeedWriteResult, writeActFeed } from './bee';
 import { getRecordStatus } from './common';
