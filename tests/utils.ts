@@ -1,20 +1,32 @@
-import { BatchId, Bee, Bytes, MantarayNode, PrivateKey } from '@ethersphere/bee-js';
+import { type BatchId, Bee, type BeeRequestOptions, Bytes, PrivateKey, RedundancyLevel } from '@ethersphere/bee-js';
 import * as fs from 'fs';
 import path from 'path';
+import { isNode } from 'std-env';
 
-import { FileInfo, FileManager } from '@/types';
-import { ReferenceWithHistory, WrappedUploadResult } from '@/types/utils';
-import { SWARM_ZERO_ADDRESS } from '@/utils/constants';
+import { BeeClient } from '@/clients';
+import { type EventEmitter } from '@/eventEmitter';
+import { FileManagerBase } from '@/fileManager';
+import { FileManagerEvents } from '@/utils';
 
+// bee-factory queen node
 export const BEE_URL = 'http://127.0.0.1:1633';
-export const OTHER_BEE_URL = 'http://127.0.0.1:1733';
+// bee-factory worker 1 — a non-admin peer
+export const OTHER_BEE_URL = 'http://127.0.0.1:1635';
 export const DEFAULT_BATCH_DEPTH = 21;
 export const DEFAULT_BATCH_AMOUNT = '500000000';
 export const DEFAULT_MOCK_SIGNER = new PrivateKey('634fb5a872396d9693e5c9f9d7233cfa93f395c093371017ff44aa9ae6564cdd');
 export const OTHER_MOCK_SIGNER = new PrivateKey('734fb5a872396d9693e5c9f9d7233cfa93f395c093371017ff44aa9ae6564cd7');
+export const DUMMY_BATCH_ID = 'ee0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
+export const MOCK_NODE_SIGNER = new PrivateKey('22'.repeat(32));
 
 export function getTestFile(relativePath: string): string {
   return fs.readFileSync(path.resolve(__dirname, relativePath), 'utf-8');
+}
+
+export const IS_BROWSER = !isNode;
+
+export function makeUploadSource(sourcePath: string): { sourcePath: string } | { file: File } {
+  return IS_BROWSER ? { file: new Blob(['test content']) as unknown as File } : { sourcePath };
 }
 
 export async function readFilesOrDirectory(fullPath: string, name?: string): Promise<string[]> {
@@ -45,36 +57,113 @@ export async function readFilesOrDirectory(fullPath: string, name?: string): Pro
   return relativeFilePaths;
 }
 
-export async function dowloadAndCompareFiles(
-  fileManager: FileManager,
-  publicKey: string,
-  fiList: FileInfo[],
-  expArr: string[][],
-): Promise<void> {
-  if (fiList.length !== expArr.length) {
-    expect(fiList).toHaveLength(expArr.length);
-    return;
-  }
+export async function streamToUint8Array(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  const buffer = await new Response(stream).arrayBuffer();
 
-  for (const [ix, fi] of fiList.entries()) {
-    const fetchedFiles = (await fileManager.download(fi, undefined, {
-      actHistoryAddress: fi.file.historyRef,
-      actPublisher: publicKey,
-    })) as Bytes[];
-    const fetchedFilesStrings = fetchedFiles.map((f) => f.toUtf8());
-    expect(expArr[ix]).toEqual(fetchedFilesStrings);
-  }
+  return new Uint8Array(buffer);
 }
 
-export async function createWrappedData(bee: Bee, batchId: BatchId, node: MantarayNode): Promise<ReferenceWithHistory> {
-  const manatarayResult = await node.saveRecursively(bee, batchId);
-  const wrappedData: WrappedUploadResult = {
-    uploadFilesRes: manatarayResult.reference.toString(),
-    uploadPreviewRes: SWARM_ZERO_ADDRESS.toString(),
-  };
-  const wrappedRes = await bee.uploadData(batchId, JSON.stringify(wrappedData), { act: true });
-  return {
-    reference: wrappedRes.reference.toString(),
-    historyRef: wrappedRes.historyAddress.getOrThrow().toString(),
-  };
+export async function retryOnPropagationDelay<T>(fn: () => Promise<T>, attempts = 5, delayMs = 500): Promise<T> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err: unknown) {
+      lastError = err;
+      if (i < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  throw lastError;
 }
+
+async function buyStamp(
+  bee: Bee,
+  amount: string | bigint,
+  depth: number,
+  label?: string,
+  requestOptions?: BeeRequestOptions,
+): Promise<BatchId> {
+  const stamp = (await bee.stamp.getAll(requestOptions)).find((b) => b.label === label);
+  if (stamp && stamp.usable) {
+    return stamp.batchID;
+  }
+
+  return await bee.stamp.create(amount, depth, {
+    waitForUsable: true,
+    label,
+  });
+}
+
+// Stamp creation is an on-chain op; a Bee node rejects simultaneous ones
+const ON_CHAIN_BUSY = /simultaneous on-chain operations|too many requests|\b429\b/i;
+
+export async function buyStampSerialized(
+  bee: Bee,
+  amount: string | bigint,
+  depth: number,
+  label?: string,
+  requestOptions?: BeeRequestOptions,
+  attempts = 20,
+): Promise<BatchId> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await buyStamp(bee, amount, depth, label, requestOptions);
+    } catch (err: unknown) {
+      lastError = err;
+      const haystack = `${(err as any)?.message ?? ''} ${(err as any)?.status ?? ''} ${(err as any)?.code ?? ''}`;
+      if (i === attempts - 1 || !ON_CHAIN_BUSY.test(haystack)) {
+        throw err;
+      }
+      const base = 500 * (i + 1);
+      await new Promise((resolve) => setTimeout(resolve, base + Math.floor(Math.random() * base)));
+    }
+  }
+  throw lastError;
+}
+
+export async function createInitializedFileManager(
+  client: BeeClient = new BeeClient(new Bee(BEE_URL), DEFAULT_MOCK_SIGNER),
+  batchId?: string | BatchId,
+  emitter?: EventEmitter,
+): Promise<FileManagerBase> {
+  const fm = new FileManagerBase(client, emitter);
+
+  let isFirstInit = true;
+  fm.emitter.on(FileManagerEvents.INITIALIZED, (ok: boolean) => {
+    if (isFirstInit) {
+      expect(ok).toBe(true);
+      isFirstInit = false;
+    }
+  });
+
+  await fm.initialize();
+
+  if (!fm.driveList.some((d) => d.isAdmin)) {
+    await fm.createAdminDrive(batchId ?? DUMMY_BATCH_ID, RedundancyLevel.MEDIUM);
+  }
+
+  return fm;
+}
+
+export function abortAfterFirstRecordWrite(fm: FileManagerBase, controller: AbortController): void {
+  const store = (fm as any).store;
+  const saveRecord = store.saveRecord.bind(store);
+
+  let armed = true;
+  jest.spyOn(store, 'saveRecord').mockImplementation(async (...args: unknown[]) => {
+    const result = await saveRecord(...args);
+    if (armed) {
+      armed = false;
+      controller.abort();
+    }
+
+    return result;
+  });
+}
+
+export const getEncodedData = (input: string): Bytes => {
+  return new Bytes(new TextEncoder().encode(input));
+};

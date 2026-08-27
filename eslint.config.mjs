@@ -49,13 +49,12 @@ export default [
   {
     ignores: [
       '**/node_modules/**',
-      '**/dist/**',
+      'dist/**',
       'eslint.config.mjs',
       'eslint-compat.cjs',
       'commitlint.config.cjs',
-      'tests/fixtures/**',
-      'tests/**/bee-dev/**',
-      '**/coverage/**',
+      'tests/coverage/**',
+      'tsup.config.ts',
     ],
   },
   {
@@ -86,6 +85,9 @@ export default [
         FileList: 'readonly',
         ReadableStream: 'readonly',
         AbortController: 'readonly',
+        AbortSignal: 'readonly',
+        Response: 'readonly',
+        Blob: 'readonly',
       },
     },
   },
@@ -101,10 +103,12 @@ export default [
       'simple-import-sort': simpleImportSort,
     },
     rules: {
+      '@typescript-eslint/consistent-type-imports': ['error', { fixStyle: 'inline-type-imports' }],
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/explicit-function-return-type': 'error',
       '@typescript-eslint/no-non-null-assertion': 'error',
       'require-await': 'error',
+      eqeqeq: 'error',
       '@typescript-eslint/no-unused-vars': [
         'warn',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
@@ -137,6 +141,7 @@ export default [
       'jest/no-disabled-tests': 'warn',
       'jest/no-focused-tests': 'error',
       'jest/no-identical-title': 'error',
+      '@typescript-eslint/explicit-function-return-type': 'off',
       'jest/prefer-to-have-length': 'warn',
       'jest/valid-expect': 'error',
       '@typescript-eslint/no-explicit-any': 'off',

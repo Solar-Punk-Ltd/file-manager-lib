@@ -1,0 +1,120 @@
+import { type BatchId, Bee, PrivateKey } from '@ethersphere/bee-js';
+import * as fs from 'fs';
+import path from 'path';
+
+import {
+  BEE_URL,
+  buyStampSerialized,
+  createInitializedFileManager,
+  DEFAULT_BATCH_AMOUNT,
+  DEFAULT_BATCH_DEPTH,
+  DEFAULT_MOCK_SIGNER,
+} from '../../utils';
+
+import { BeeClient } from '@/clients';
+import { type FileManagerBase } from '@/fileManager';
+import { type DriveInfo } from '@/types';
+import { ADMIN_DRIVE_NAME } from '@/utils/constants';
+import { generateRandomBytes } from '@/utils/crypto';
+
+interface BeeWithStampAndSigner {
+  client: BeeClient;
+  bee: Bee;
+  ownerStamp: BatchId;
+  signer: PrivateKey;
+}
+
+let globalAdminStamp: BatchId | null = null;
+
+export async function ensureUniqueSignerWithStamp(isNewSigner: boolean = true): Promise<BeeWithStampAndSigner> {
+  const signerBytes = generateRandomBytes(PrivateKey.LENGTH);
+  const signer = isNewSigner ? new PrivateKey(signerBytes) : DEFAULT_MOCK_SIGNER;
+
+  const bee = new Bee(BEE_URL, { signer });
+  const client = new BeeClient(bee, signer);
+
+  if (!globalAdminStamp) {
+    try {
+      globalAdminStamp = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, ADMIN_DRIVE_NAME);
+    } catch (error: any) {
+      console.error('Failed to create/find owner stamp:', error);
+      throw error;
+    }
+  }
+
+  return { client, bee, ownerStamp: globalAdminStamp, signer };
+}
+
+export function resetGlobalStampState(): void {
+  globalAdminStamp = null;
+}
+
+export interface UserDriveFixture {
+  client: BeeClient;
+  bee: Bee;
+  fileManager: FileManagerBase;
+  drive: DriveInfo;
+  ownerStamp: BatchId;
+  batchId: BatchId;
+  signer: PrivateKey;
+}
+
+export async function setupUserDrive(
+  driveName: string,
+  opts: { stampLabel?: string; reuseOwnerStamp?: boolean } = { reuseOwnerStamp: true },
+): Promise<UserDriveFixture> {
+  const { stampLabel = driveName, reuseOwnerStamp } = opts;
+
+  const { client, bee, ownerStamp, signer } = await ensureUniqueSignerWithStamp();
+  const fileManager = await createInitializedFileManager(client, ownerStamp);
+
+  const batchId = reuseOwnerStamp
+    ? ownerStamp
+    : await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, stampLabel);
+
+  await fileManager.createDrive(batchId, driveName);
+  const drive = fileManager.driveList.find((d) => d.name === driveName);
+  expect(drive).toBeDefined();
+
+  return { client, bee, fileManager, drive: drive!, ownerStamp, batchId, signer };
+}
+
+export interface TempFileRegistry {
+  writeTempFile: (name: string, content: string | Uint8Array) => string;
+  writeTempDir: (dir: string, files: Record<string, string>) => string;
+  cleanup: () => void;
+}
+
+const TMP_DIR = path.resolve(__dirname, '../tmp');
+
+export function tempFileRegistry(): TempFileRegistry {
+  const paths: string[] = [];
+  const track = (p: string): string => {
+    paths.push(p);
+    return p;
+  };
+
+  return {
+    writeTempFile(name, content) {
+      const full = path.join(TMP_DIR, name);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, content);
+      return track(full);
+    },
+    writeTempDir(dir, files) {
+      const root = path.join(TMP_DIR, dir);
+      fs.mkdirSync(root, { recursive: true });
+      for (const [relativePath, content] of Object.entries(files)) {
+        const full = path.join(root, relativePath);
+        fs.mkdirSync(path.dirname(full), { recursive: true });
+        fs.writeFileSync(full, content);
+      }
+      return track(root);
+    },
+    cleanup() {
+      for (const p of paths) {
+        fs.rmSync(p, { recursive: true, force: true });
+      }
+    },
+  };
+}

@@ -1,14 +1,13 @@
 export { FileManagerEvents } from './events';
-export { ADMIN_STAMP_LABEL, FILEMANAGER_STATE_TOPIC } from './constants';
+export { ADMIN_DRIVE_NAME, STATE_TOPIC_LABEL } from './constants';
 export {
   BeeVersionError,
   DriveError,
+  ErrorHandler,
   FileError,
-  FileInfoError,
-  GranteeError,
-  SendShareMessageError,
+  FileRecordError,
+  FileManagerError,
+  FolderError,
   SignerError,
   StampError,
-  SubscriptionError,
 } from './errors';
-export { estimateDriveListMetadataSize, estimateFileInfoMetadataSize } from './capacity';

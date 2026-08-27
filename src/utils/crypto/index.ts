@@ -1,4 +1,4 @@
-import { Bytes } from '@ethersphere/bee-js';
+import { Bytes } from '@ethersphere/core-sdk';
 
 export function generateRandomBytes(len: number): Bytes {
   const arr = new Uint8Array(len);

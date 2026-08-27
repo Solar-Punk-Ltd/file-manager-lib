@@ -1,105 +1,153 @@
-import {
-  BatchId,
-  Bee,
-  BeeRequestOptions,
-  DownloadOptions,
-  EthAddress,
-  FeedIndex,
-  PostageBatch,
-  PublicKey,
-  Reference,
-  Topic,
-} from '@ethersphere/bee-js';
+import type { BeeRequestOptions, RedundancyLevel } from '@ethersphere/bee-js';
+import { type BatchId, Bytes, FeedIndex, Topic } from '@ethersphere/core-sdk';
 
-import { FeedResultWithIndex, WrappedUploadResult } from '../types/utils';
+import type { SwarmClient } from '../types/swarmClient';
+import { type ActReferences, type FeedResultWithIndex, type StampInfo } from '../types/utils';
 
-import { assertWrappedUploadResult } from './asserts';
-import { isNotFoundError } from './common';
-import { FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from './constants';
-import { FileInfoError } from './errors';
+import { FEED_INDEX_NONE, FEED_INDEX_ZERO } from './constants';
+import { generateRandomBytes } from './crypto';
+import { ErrorHandler, StampError } from './errors';
+
+const errorHandler = ErrorHandler.getInstance();
 
 export async function getFeedData(
-  bee: Bee,
+  swarmClient: SwarmClient,
   topic: Topic,
-  address: string | EthAddress,
+  owner?: string,
   index?: bigint,
   requestOptions?: BeeRequestOptions,
 ): Promise<FeedResultWithIndex> {
-  try {
-    const feedReader = bee.makeFeedReader(topic.toUint8Array(), address, requestOptions);
+  const res = await swarmClient.readFeed(
+    topic.toString(),
+    owner ?? swarmClient.owner,
+    index?.toString(),
+    requestOptions,
+  );
 
-    // TODO: act options
-    const feedOptions = index !== undefined ? { index: FeedIndex.fromBigInt(index) } : undefined;
-    const data = await feedReader.downloadPayload(feedOptions);
-
-    return {
-      feedIndex: data.feedIndex,
-      feedIndexNext: data.feedIndexNext ?? data.feedIndex.next(),
-      payload: data.payload,
-    };
-  } catch (error) {
-    if (isNotFoundError(error)) {
-      return {
-        feedIndex: FeedIndex.MINUS_ONE,
-        feedIndexNext: FEED_INDEX_ZERO,
-        payload: SWARM_ZERO_ADDRESS,
-      };
-    }
-
-    throw error;
-  }
+  return {
+    feedIndex: FeedIndex.fromBigInt(BigInt(res.index)),
+    feedIndexNext: FeedIndex.fromBigInt(BigInt(res.nextIndex)),
+    payload: new Bytes(res.payload),
+  };
 }
 
-export async function buyStamp(
-  bee: Bee,
-  amount: string | bigint,
-  depth: number,
-  label?: string,
+export async function getTopicAndVersion(
+  swarmClient: SwarmClient,
+  currentVersion?: string,
+  currentTopic?: string | Topic,
   requestOptions?: BeeRequestOptions,
-): Promise<BatchId> {
-  const stamp = (await bee.getPostageBatches(requestOptions)).find((b) => b.label === label);
-  if (stamp && stamp.usable) {
-    return stamp.batchID;
+): Promise<{ topic: string; version: string }> {
+  let version: string | undefined;
+  let topic: string;
+
+  if (!currentTopic) {
+    const randomTopic = generateRandomBytes(Topic.LENGTH);
+    version = FEED_INDEX_ZERO.toString();
+    topic = new Topic(randomTopic).toString();
+  } else {
+    topic = currentTopic.toString();
   }
 
-  return await bee.createPostageBatch(amount, depth, {
-    waitForUsable: true,
-    label,
-  });
+  if (version) {
+    return { topic, version };
+  }
+
+  if (currentVersion !== undefined) {
+    return { topic, version: new FeedIndex(currentVersion).next().toString() };
+  }
+
+  const { feedIndex, feedIndexNext } = await getFeedData(
+    swarmClient,
+    new Topic(topic),
+    swarmClient.owner,
+    undefined,
+    requestOptions,
+  );
+  if (feedIndex.equals(FEED_INDEX_NONE)) {
+    return { topic, version: FEED_INDEX_ZERO.toString() };
+  }
+
+  return { topic, version: feedIndexNext.toString() };
 }
 
-export async function getWrappedData(
-  bee: Bee,
-  ref: string | Reference,
-  actPublisher: string | PublicKey,
-  actHistoryAddress: string | Reference,
-  options?: DownloadOptions,
+export interface FeedTarget {
+  batchId: string;
+  topic: string;
+  redundancyLevel?: RedundancyLevel;
+  actHistoryAddress?: string;
+  index?: bigint;
+}
+
+export interface FeedWriteResult {
+  contentRefs: ActReferences;
+  index: bigint;
+  nextIndex: bigint;
+}
+
+export async function writeActFeed(
+  swarmClient: SwarmClient,
+  payload: string | Uint8Array,
+  target: FeedTarget,
   requestOptions?: BeeRequestOptions,
-): Promise<WrappedUploadResult> {
-  try {
-    const rawData = await bee.downloadData(
-      ref.toString(),
-      { ...options, actPublisher, actHistoryAddress },
+): Promise<FeedWriteResult> {
+  const upload = await swarmClient.uploadProtected(
+    target.batchId,
+    payload,
+    target.actHistoryAddress,
+    { redundancyLevel: target.redundancyLevel },
+    requestOptions,
+  );
+  const contentRefs: ActReferences = {
+    reference: upload.contentRefs.reference.toString(),
+    historyRef: upload.contentRefs.historyRef.toString(),
+  };
+
+  let writeIndex = target.index;
+  if (writeIndex === undefined) {
+    const { feedIndexNext } = await getFeedData(
+      swarmClient,
+      new Topic(target.topic),
+      swarmClient.owner,
+      undefined,
       requestOptions,
     );
-    const wrappedResult = rawData.toJSON() as WrappedUploadResult;
-    assertWrappedUploadResult(wrappedResult);
-    return wrappedResult;
-  } catch (error) {
-    throw new FileInfoError(`Failed to get wrapped data: ${error}`);
+    writeIndex = feedIndexNext.toBigInt();
   }
+
+  await swarmClient.writeFeed(
+    target.batchId,
+    target.topic,
+    JSON.stringify(contentRefs),
+    writeIndex.toString(),
+    undefined,
+    requestOptions,
+  );
+
+  return { contentRefs, index: writeIndex, nextIndex: writeIndex + 1n };
 }
 
 export async function fetchStamp(
-  bee: Bee,
+  swarmClient: SwarmClient,
   batchId: string | BatchId,
   requestOptions?: BeeRequestOptions,
-): Promise<PostageBatch | undefined> {
+): Promise<StampInfo | undefined> {
   try {
-    return (await bee.getPostageBatches(requestOptions)).find((s) => s.batchID.toString() === batchId.toString());
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  } catch (error: any) {
-    console.error(`Failed to fetch stamp: ${error.message || error}`);
+    return await swarmClient.getStamp(batchId.toString(), requestOptions);
+  } catch (err: unknown) {
+    errorHandler.handleError(err, 'Failed to fetch stamp');
     return;
   }
 }
+
+export const verifyStampUsability = (
+  s: StampInfo | undefined,
+  requestedBatchId?: string,
+  mustBeUsable: boolean = true,
+): StampInfo => {
+  if (!s || (mustBeUsable && !s.usable)) {
+    const batchIdStr = s ? s.batchId.toString().slice(0, 6) : (requestedBatchId?.slice(0, 6) ?? 'unknown');
+    throw new StampError(`Stamp with batchId: ${batchIdStr}... not found OR not usable`);
+  }
+
+  return s;
+};

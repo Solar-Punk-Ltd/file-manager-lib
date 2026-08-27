@@ -1,19 +1,42 @@
-import { Bee, BeeRequestOptions, Bytes, DownloadOptions, Reference } from '@ethersphere/bee-js';
-import { isNode } from 'std-env';
+import type { BeeRequestOptions, DownloadOptions } from '@ethersphere/bee-js';
 
-const bytesEndpoint = 'bytes';
+import { type DownloadFilesResult, type DownloadResource, type DownloadResult } from '../types/download';
+import type { SwarmClient } from '../types/swarmClient';
+import type { FailedResult } from '../types/utils';
+import { errorMessage, settlePromises } from '../utils/common';
+import { Logger } from '../utils/logger';
+
+const logger = Logger.getInstance();
 
 export async function processDownload(
-  bee: Bee,
-  resources: string[] | Reference[],
+  swarmClient: SwarmClient,
+  resources: DownloadResource[],
   options?: DownloadOptions,
   requestOptions?: BeeRequestOptions,
-): Promise<ReadableStream<Uint8Array>[] | Bytes[]> {
-  if (isNode) {
-    const { downloadNode } = await import('./download.node');
-    return await downloadNode(bee, Object.values(resources), options, requestOptions);
-  }
+): Promise<DownloadFilesResult> {
+  requestOptions?.signal?.throwIfAborted();
+  const succeeded: DownloadResult[] = [];
+  const failed: FailedResult[] = [];
 
-  const { downloadBrowser } = await import('./download.browser');
-  return await downloadBrowser(Object.values(resources), bee.url, bytesEndpoint, options, requestOptions);
+  await settlePromises(
+    resources.map(async (r) => {
+      return await swarmClient.downloadProtectedStream(
+        { reference: r.reference, historyRef: r.actHistoryAddress, publisher: r.actPublisher.toString() },
+        undefined,
+        options,
+        requestOptions,
+      );
+    }),
+    (value, ix) => succeeded.push({ path: resources[ix].path, result: value }),
+    (reason, ix) => {
+      if (requestOptions?.signal?.aborted) return;
+      const message = errorMessage(reason);
+      logger.error(`processDownload: failed to fetch ${resources[ix].path}: ${message}`);
+      failed.push({ path: resources[ix].path, error: message });
+    },
+  );
+
+  requestOptions?.signal?.throwIfAborted();
+
+  return { succeeded, failed };
 }

@@ -4,18 +4,14 @@
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "module": "ES2022",
-    "baseUrl": ".",
-    "moduleResolution": "node",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "verbatimModuleSyntax": true,
     "resolveJsonModule": true,
-    "declaration": true,
-    "emitDeclarationOnly": false,
-    "declarationDir": "dist/types",
     "esModuleInterop": true,
+    "noEmit": true,
     "types": ["node", "jest"],
     "skipLibCheck": true,
-    "declarationMap": true,
-    "sourceMap": true,
     "strict": true,
     "alwaysStrict": true,
     "noUnusedLocals": true,
@@ -28,7 +24,7 @@
     "typeRoots": ["src/@types", "node_modules/@types"],
     "noImplicitReturns": true,
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     }
   }
 }
