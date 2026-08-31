@@ -10,7 +10,7 @@ export async function downloadNode(
 ): Promise<Bytes[]> {
   const dataPromises: Promise<Bytes>[] = [];
   for (const resource of resources) {
-    dataPromises.push(bee.downloadData(resource, options, requestOptions));
+    dataPromises.push(bee.data.download(resource, options, requestOptions));
   }
 
   const files: Bytes[] = [];

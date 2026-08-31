@@ -155,7 +155,7 @@ describe('FileManager', () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const emitter = new EventEmitterBase();
 
-      const getPostageBatchesSpy = jest.spyOn(Bee.prototype, 'getPostageBatches');
+      const getPostageBatchesSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').stamp), 'getAll');
       getPostageBatchesSpy.mockResolvedValue([
         {
           ...mockPostageBatch,
@@ -225,7 +225,7 @@ describe('FileManager', () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       await createInitializedFileManager(bee, MOCK_BATCH_ID);
 
-      const getPostageBatchesSpy = jest.spyOn(Bee.prototype, 'getPostageBatches');
+      const getPostageBatchesSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').stamp), 'getAll');
       getPostageBatchesSpy.mockResolvedValue([
         {
           ...mockPostageBatch,
@@ -248,7 +248,7 @@ describe('FileManager', () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       const emitter = new EventEmitterBase();
 
-      const getPostageBatchesSpy = jest.spyOn(Bee.prototype, 'getPostageBatches');
+      const getPostageBatchesSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').stamp), 'getAll');
       getPostageBatchesSpy.mockImplementation(async () => [
         {
           ...mockPostageBatch,
@@ -314,7 +314,7 @@ describe('FileManager', () => {
       const bee = new Bee(BEE_URL, { signer: DEFAULT_MOCK_SIGNER });
       await createInitializedFileManager(bee, MOCK_BATCH_ID);
 
-      const getPostageBatchesSpy = jest.spyOn(Bee.prototype, 'getPostageBatches');
+      const getPostageBatchesSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').stamp), 'getAll');
       getPostageBatchesSpy.mockResolvedValue([
         {
           ...mockPostageBatch,
@@ -363,11 +363,11 @@ describe('FileManager', () => {
       jest.restoreAllMocks();
     });
 
-    it('should call mantaray.collect()', async () => {
+    it('should call mantaray.collectAndMap()', async () => {
       createInitMocks();
       const fm = await createInitializedFileManager();
       const mockFi = await createMockFileInfo(owner, actPublisher, mockSelfAddr.toString());
-      const mantarayCollectSpy = jest.spyOn(MantarayNode.prototype, 'collect');
+      const mantarayCollectSpy = jest.spyOn(MantarayNode.prototype, 'collectAndMap');
       await fm.download(mockFi);
 
       expect(mantarayCollectSpy).toHaveBeenCalled();
@@ -376,12 +376,12 @@ describe('FileManager', () => {
     it('should call bee.downloadData with only correct fork reference', async () => {
       createInitMocks();
       const fm = await createInitializedFileManager();
-      const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
+      const downloadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'download');
       const mockFi = await createMockFileInfo(owner, actPublisher, mockSelfAddr.toString());
 
       const mockMantarayNode = createMockMantarayNode(false);
       jest.spyOn(MantarayNode, 'unmarshal').mockResolvedValue(new MantarayNode());
-      jest.spyOn(MantarayNode.prototype, 'collect').mockReturnValue(mockMantarayNode.collect());
+      jest.spyOn(MantarayNode.prototype, 'collectAndMap').mockReturnValue(mockMantarayNode.collectAndMap());
 
       await fm.download(mockFi, ['/root/2.txt']);
 
@@ -398,7 +398,7 @@ describe('FileManager', () => {
       const fm = await createInitializedFileManager();
       const mockFi = await createMockFileInfo(owner, actPublisher, mockSelfAddr.toString());
 
-      const downloadDataSpy = jest.spyOn(Bee.prototype, 'downloadData');
+      const downloadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'download');
 
       const { settlePromises } = jest.requireActual('@/utils/common');
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
@@ -443,12 +443,12 @@ describe('FileManager', () => {
       const fm = await createInitializedFileManager();
       const mockMantarayNode = createMockMantarayNode(false);
       jest.spyOn(MantarayNode, 'unmarshal').mockResolvedValue(new MantarayNode());
-      jest.spyOn(MantarayNode.prototype, 'collect').mockReturnValue(mockMantarayNode.collect());
+      jest.spyOn(MantarayNode.prototype, 'collectAndMap').mockReturnValue(mockMantarayNode.collectAndMap());
 
       const mockFi = await createMockFileInfo(owner, actPublisher);
 
       jest
-        .spyOn(Bee.prototype, 'downloadData')
+        .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'download')
         .mockResolvedValueOnce(Bytes.fromUtf8(JSON.stringify({ uploadFilesRes: '1'.repeat(64) })));
 
       const result = await fm.listFiles(mockFi);
@@ -718,7 +718,9 @@ describe('FileManager', () => {
     });
 
     it('destroyDrive should call diluteBatch with batchId and MAX_DEPTH', async () => {
-      const diluteSpy = jest.spyOn(Bee.prototype, 'diluteBatch').mockResolvedValue(otherMockBatchId);
+      const diluteSpy = jest
+        .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').stamp), 'dilute')
+        .mockResolvedValue(otherMockBatchId);
       const fm = await createInitializedFileManager();
       await fm.createDrive(otherMockBatchId, 'Test Drive', false);
       const di = fm.driveList[1];
@@ -782,7 +784,7 @@ describe('FileManager', () => {
       fm.fileInfoList.push(mkFi('topic-x', 'x.txt'));
       fm.fileInfoList.push(mkFi('topic-y', 'y.txt'));
 
-      const diluteSpy = jest.spyOn(Bee.prototype, 'diluteBatch');
+      const diluteSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').stamp), 'dilute');
       const saveSpy = jest.spyOn(fm as any, 'saveDriveList');
 
       const eventPromise = new Promise<void>((resolve) => {

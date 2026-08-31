@@ -114,10 +114,10 @@ export class FileManagerBase implements FileManager {
 
   // verifies if the bee and bee-api versions are supported
   private async verifySupportedVersions(): Promise<void> {
-    const beeVersions = await this.bee.getVersions();
+    const beeVersions = await this.bee.status.getVersions();
     console.debug(`Bee version: ${beeVersions.beeVersion}`);
     console.debug(`Bee API version: ${beeVersions.beeApiVersion}`);
-    const supportedApi = await this.bee.isSupportedApiVersion();
+    const supportedApi = await this.bee.status.isSupportedApiVersion();
     if (!supportedApi) {
       console.error('Supported bee API version: ', beeVersions.supportedBeeApiVersion);
       console.error('Supported bee version: ', beeVersions.supportedBeeVersion);
@@ -127,7 +127,7 @@ export class FileManagerBase implements FileManager {
 
   // fetches the node public key neccessary for ACT handling
   private async initPublisher(): Promise<void> {
-    this.publisher = (await this.bee.getNodeAddresses()).publicKey;
+    this.publisher = (await this.bee.connectivity.getNodeAddresses()).publicKey;
   }
 
   private async tryToFetchAdminState(): Promise<boolean> {
@@ -158,7 +158,7 @@ export class FileManagerBase implements FileManager {
 
     let topicBytes: Bytes;
     try {
-      topicBytes = await this.bee.downloadData(stateTopicRef, {
+      topicBytes = await this.bee.data.download(stateTopicRef, {
         actHistoryAddress: topicHistoryRef,
         actPublisher: this.publisher,
       });
@@ -195,7 +195,7 @@ export class FileManagerBase implements FileManager {
 
     const randomTopic = generateRandomBytes(Topic.LENGTH);
     const newStateFeedTopic = new Topic(randomTopic);
-    const topicUploadRes = await this.bee.uploadData(verifiedAdminStamp.batchID, newStateFeedTopic.toUint8Array(), {
+    const topicUploadRes = await this.bee.data.upload(verifiedAdminStamp.batchID, newStateFeedTopic.toUint8Array(), {
       act: true,
     });
 
@@ -204,7 +204,7 @@ export class FileManagerBase implements FileManager {
       historyAddress: topicUploadRes.historyAddress.getOrThrow().toString(),
       index: feedIndexNext.toString(),
     };
-    const fw = this.bee.makeFeedWriter(FILEMANAGER_STATE_TOPIC.toUint8Array(), this.signer);
+    const fw = this.bee.feed.makeWriter(FILEMANAGER_STATE_TOPIC.toUint8Array(), this.signer);
     await fw.uploadPayload(verifiedAdminStamp.batchID, JSON.stringify(topicState), { index: feedIndexNext });
 
     this.stateFeedTopic = newStateFeedTopic;
@@ -236,7 +236,7 @@ export class FileManagerBase implements FileManager {
     this.driveListNextIndex = feedIndexNext.toBigInt();
     const refWithHistory = payload.toJSON() as ReferenceWithHistory;
 
-    const driveListRawData = await this.bee.downloadData(refWithHistory.reference, {
+    const driveListRawData = await this.bee.data.download(refWithHistory.reference, {
       actHistoryAddress: refWithHistory.historyRef,
       actPublisher: this.publisher,
     });
@@ -315,7 +315,7 @@ export class FileManagerBase implements FileManager {
               const feedData = await getFeedData(this.bee, new Topic(feed.topic), this.signerAddress);
 
               const fileInfoFeedData = feedData.payload.toJSON() as ReferenceWithHistory;
-              const rawData = await this.bee.downloadData(fileInfoFeedData.reference.toString(), {
+              const rawData = await this.bee.data.download(fileInfoFeedData.reference.toString(), {
                 actHistoryAddress: fileInfoFeedData.historyRef,
                 actPublisher: tmpPublisher,
               });
@@ -608,7 +608,7 @@ export class FileManagerBase implements FileManager {
 
   private async uploadFileInfo(fileInfo: FileInfo, requestOptions?: BeeRequestOptions): Promise<ReferenceWithHistory> {
     try {
-      const uploadInfoRes = await this.bee.uploadData(
+      const uploadInfoRes = await this.bee.data.upload(
         fileInfo.batchId,
         JSON.stringify(fileInfo),
         {
@@ -644,7 +644,7 @@ export class FileManagerBase implements FileManager {
         historyRef: fileInfoResult.historyRef.toString(),
       } as ReferenceWithHistory);
 
-      const fw = this.bee.makeFeedWriter(new Topic(fi.topic).toUint8Array(), this.signer, requestOptions);
+      const fw = this.bee.feed.makeWriter(new Topic(fi.topic).toUint8Array(), this.signer, requestOptions);
 
       await fw.uploadPayload(fi.batchId, fileInfoState, {
         index: fi.version !== undefined ? new FeedIndex(fi.version) : undefined,
@@ -662,7 +662,7 @@ export class FileManagerBase implements FileManager {
 
     const data = feeData.payload.toJSON() as ReferenceWithHistory;
 
-    const fileBytes = await this.bee.downloadData(data.reference.toString(), {
+    const fileBytes = await this.bee.data.download(data.reference.toString(), {
       actHistoryAddress: data.historyRef.toString(),
       actPublisher: fi.actPublisher,
     });
@@ -683,7 +683,7 @@ export class FileManagerBase implements FileManager {
     const adminRedundancyLevel = this.driveList.find((d) => d.isAdmin)?.redundancyLevel || RedundancyLevel.OFF;
 
     try {
-      const driveListUploadResult = await this.bee.uploadData(
+      const driveListUploadResult = await this.bee.data.upload(
         verifiedAdminStamp.batchID,
         JSON.stringify(this.driveList),
         {
@@ -698,7 +698,7 @@ export class FileManagerBase implements FileManager {
         historyRef: driveListUploadResult.historyAddress.getOrThrow().toString(),
       });
 
-      const fw = this.bee.makeFeedWriter(this.stateFeedTopic.toUint8Array(), this.signer, requestOptions);
+      const fw = this.bee.feed.makeWriter(this.stateFeedTopic.toUint8Array(), this.signer, requestOptions);
       await fw.uploadPayload(verifiedAdminStamp.batchID, driveListState, {
         index: FeedIndex.fromBigInt(this.driveListNextIndex),
       });
@@ -820,7 +820,7 @@ export class FileManagerBase implements FileManager {
     const ttlDays = stamp.duration.toDays();
     const halvings = Math.floor(Math.log2(ttlDays));
 
-    await this.bee.diluteBatch(driveInfo.batchId.toString(), stamp.depth + halvings);
+    await this.bee.stamp.dilute(driveInfo.batchId.toString(), stamp.depth + halvings);
     await this.pruneDriveMetadata(driveInfo);
 
     console.debug(`Drive destroyed: ${driveInfo.name}`);
@@ -849,7 +849,7 @@ export class FileManagerBase implements FileManager {
       throw new GranteeError(`Grantee list or file not found for file: ${fileInfo.name}`);
     }
 
-    return this.bee.getGrantees(info.eGranteeRef);
+    return this.bee.grantee.get(info.eGranteeRef);
   }
 
   // eslint-disable-next-line require-await
