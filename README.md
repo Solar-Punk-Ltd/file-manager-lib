@@ -33,6 +33,10 @@ The library requires a running [Bee](https://github.com/ethersphere/bee) node wi
 
 ### Local Development (Dev Mode)
 
+> **⚠️ Deprecated:** Bee dev mode (`bee dev`) is no longer supported as of Bee `v2.8.2` and
+> `@ethersphere/bee-js` `v13.0.0`. Use a full Bee node (see Mainnet / Production below) for
+> local development going forward.
+
 ```bash
 bee dev --cors-allowed-origins="*"
 ```
@@ -123,7 +127,12 @@ const data = await fm.download(fi, ['README.md'], {
 From `package.json`:
 
 - `pnpm run build` → compile Node + browser + types.
-- `pnpm run test` → run Jest integration tests (see [TESTS.md](TESTS.md)).
+- `pnpm run test` → run Jest unit + integration tests (see [TESTS.md](tests/TESTS.md)).
+- `pnpm run test:ut` → run unit tests only (this is what CI runs).
+- `pnpm run test:it` → run integration tests against a real Bee node.
+  > **⚠️ Not run in CI:** `test:it` still relies on `BeeDev`, which was removed in
+  > `@ethersphere/bee-js` v13, and on Bee's now-deprecated `dev` mode. It's excluded from CI
+  > until it's migrated off both; run it locally against your own Bee node in the meantime.
 - `pnpm run lint` / `pnpm run lint:fix` → linting.
 - `pnpm init:husky` → husky init
 - `pnpm run depcheck` → check dependencies
