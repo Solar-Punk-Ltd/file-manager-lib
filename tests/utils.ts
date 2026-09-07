@@ -72,7 +72,7 @@ export async function createWrappedData(bee: Bee, batchId: BatchId, node: Mantar
     uploadFilesRes: manatarayResult.reference.toString(),
     uploadPreviewRes: SWARM_ZERO_ADDRESS.toString(),
   };
-  const wrappedRes = await bee.uploadData(batchId, JSON.stringify(wrappedData), { act: true });
+  const wrappedRes = await bee.data.upload(batchId, JSON.stringify(wrappedData), { act: true });
   return {
     reference: wrappedRes.reference.toString(),
     historyRef: wrappedRes.historyAddress.getOrThrow().toString(),

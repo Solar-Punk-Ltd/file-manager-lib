@@ -26,7 +26,7 @@ export async function getFeedData(
   requestOptions?: BeeRequestOptions,
 ): Promise<FeedResultWithIndex> {
   try {
-    const feedReader = bee.makeFeedReader(topic.toUint8Array(), address, requestOptions);
+    const feedReader = bee.feed.makeReader(topic.toUint8Array(), address, requestOptions);
 
     // TODO: act options
     const feedOptions = index !== undefined ? { index: FeedIndex.fromBigInt(index) } : undefined;
@@ -57,12 +57,12 @@ export async function buyStamp(
   label?: string,
   requestOptions?: BeeRequestOptions,
 ): Promise<BatchId> {
-  const stamp = (await bee.getPostageBatches(requestOptions)).find((b) => b.label === label);
+  const stamp = (await bee.stamp.getAll(requestOptions)).find((b) => b.label === label);
   if (stamp && stamp.usable) {
     return stamp.batchID;
   }
 
-  return await bee.createPostageBatch(amount, depth, {
+  return await bee.stamp.create(amount, depth, {
     waitForUsable: true,
     label,
   });
@@ -77,7 +77,7 @@ export async function getWrappedData(
   requestOptions?: BeeRequestOptions,
 ): Promise<WrappedUploadResult> {
   try {
-    const rawData = await bee.downloadData(
+    const rawData = await bee.data.download(
       ref.toString(),
       { ...options, actPublisher, actHistoryAddress },
       requestOptions,
@@ -96,7 +96,7 @@ export async function fetchStamp(
   requestOptions?: BeeRequestOptions,
 ): Promise<PostageBatch | undefined> {
   try {
-    return (await bee.getPostageBatches(requestOptions)).find((s) => s.batchID.toString() === batchId.toString());
+    return (await bee.stamp.getAll(requestOptions)).find((s) => s.batchID.toString() === batchId.toString());
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     console.error(`Failed to fetch stamp: ${error.message || error}`);

@@ -43,7 +43,7 @@ async function uploadNode(
     uploadPreviewRes: uploadPreviewRes?.reference.toString(),
   };
 
-  return await bee.uploadData(batchId, JSON.stringify(wrappedData), { ...uploadOptions, act: true }, requestOptions);
+  return await bee.data.upload(batchId, JSON.stringify(wrappedData), { ...uploadOptions, act: true }, requestOptions);
 }
 
 async function uploadFileOrDirectory(
@@ -74,7 +74,7 @@ async function uploadFile(
     const { readFile } = await import('../utils/fs/fs.node');
     const { data, name, contentType } = await readFile(resolvedPath);
 
-    return await bee.uploadFile(
+    return await bee.file.upload(
       batchId,
       data,
       name,
@@ -98,7 +98,7 @@ async function uploadDirectory(
   requestOptions?: BeeRequestOptions,
 ): Promise<UploadResult> {
   try {
-    return await bee.uploadFilesFromDirectory(batchId, resolvedPath, uploadOptions, requestOptions);
+    return await bee.collection.uploadFromDirectory(batchId, resolvedPath, uploadOptions, requestOptions);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } catch (error: any) {
     throw new FileError(`Failed to upload directory ${resolvedPath}: ${error}`);

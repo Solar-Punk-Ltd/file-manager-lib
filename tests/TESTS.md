@@ -13,10 +13,15 @@ and troubleshoot it. It covers both **unit** and **integration** tests (includin
 
 - **Jest** test runner (Node + JSDOM where needed)
 - **Unit tests** mock Swarm internals and focus on _FileManagerBase_ behavior
-- **Integration tests** exercise real Bee devnodes via `BeeDev` and verify ACT, feeds, manifests, versioning, and
-  sharing workflows
+- **Integration tests** exercise a real Bee devnode via a `Bee` client and verify ACT, feeds, manifests, versioning,
+  and sharing workflows
 - Tests run **serially** (`--runInBand`) to avoid shared Bee/port conflicts
 - Coverage supported via `pnpm run test:coverage`
+
+> **⚠️ `test:it` is currently not run in CI.** It still references the `BeeDev` class, which was
+> removed in `@ethersphere/bee-js` v13, and relies on Bee's `dev` mode, deprecated as of Bee
+> `v2.8.2` / bee-js `v13.0.0`. It needs to be migrated off both before it can be re-added to CI —
+> until then, run it locally against your own Bee node.
 
 ---
 
@@ -34,13 +39,21 @@ and troubleshoot it. It covers both **unit** and **integration** tests (includin
 # All tests (unit + integration), verbose and serial
 pnpm test
 
+# Unit tests only (this is what CI runs)
+pnpm run test:ut
+
+# Integration tests only (not run in CI — see warning above; requires a local Bee dev node)
+pnpm run test:it
+
 # With coverage
 pnpm run test:coverage
 ```
 
 Jest options are configured via `jest.config.ts`. The project’s `package.json` exposes these scripts:
 
-- **`pnpm test`** → `jest --config=jest.config.ts --runInBand --verbose`
+- **`pnpm test`** → `jest --config=jest.config.ts --runInBand --verbose --silent`
+- **`pnpm run test:ut`** → `pnpm run test --selectProjects=unit`
+- **`pnpm run test:it`** → `pnpm run test --selectProjects=integration`
 - **`pnpm run test:coverage`** → `jest --coverage`
 
 ---
@@ -73,13 +86,13 @@ Helper modules you will see in specs:
 
 ## Integration tests — what they verify
 
-Located primarily in `tests/integration/` and executed against a live **BeeDev** node.
+Located primarily in `tests/integration/` and executed against a live **Bee** node (dev mode).
 
 ### 1) Initialization
 
 - Creates a new `FileManagerBase` and asserts default state (`fileInfoList`, `sharedWithMe` are empty).
 - Emits **`FILEMANAGER_INITIALIZED`** with success when owner/admin stamp can be found.
-- When a non-owner node attempts to read the owner feed, proper **404/500** errors surface from `downloadData()`.
+- When a non-owner node attempts to read the owner feed, proper **404/500** errors surface from `bee.data.download()`.
 - Owner feed/topic is **stable** across reinitialization (re-reads same topic hex).
 
 ### 2) Upload + fetch nested structure
@@ -90,8 +103,9 @@ Located primarily in `tests/integration/` and executed against a live **BeeDev**
 
 ### 3) Bee node sanity
 
-- Asserts `getVersions()` returns `beeVersion` and `beeApiVersion` and `isSupportedApiVersion()` is true.
-- Asserts `getNodeAddresses()` returns a `publicKey` for ACT.
+- Asserts `bee.status.getVersions()` returns `beeVersion` and `beeApiVersion` and `bee.status.isSupportedApiVersion()`
+  is true.
+- Asserts `bee.connectivity.getNodeAddresses()` returns a `publicKey` for ACT.
 
 ### 4) Drive handling
 
@@ -162,7 +176,7 @@ Key strategies:
 
 - Replace `getFeedData`, `getWrappedData`, `generateRandomBytes` with jest mocks
 - Replace mantaray operations via mocked `MantarayNode` + controlled `collect()` output
-- Spy on Bee client methods (`downloadData`, `diluteBatch`) to assert parameters
+- Spy on Bee client methods (`data.download`, `stamp.dilute`) to assert parameters
 
 ### Constructor & initialization
 
@@ -173,7 +187,7 @@ Key strategies:
 
 - Asserts mantaray **`collect()`** is called.
 - For a selected path (e.g. `/root/2.txt`) only the **correct fork** reference is downloaded.
-- When collecting all forks, each ref is passed to `bee.downloadData()` and the returned `Bytes` array is propagated.
+- When collecting all forks, each ref is passed to `bee.data.download()` and the returned `Bytes` array is propagated.
 - `listFiles()` returns a **path → reference** map (`{'/root/2.txt': '…'}`).
 
 ### Upload
@@ -195,7 +209,7 @@ Key strategies:
 - Creating an **admin drive** normalizes the name to the admin label and sets flags accordingly.
 - Creating a normal drive persists id/batch/owner metadata.
 - Creating a drive with duplicate **name** or **batchId** throws `DriveError`.
-- Destroying a drive calls `bee.diluteBatch(batchId, STAMPS_DEPTH_MAX)`.
+- Destroying a drive calls `bee.stamp.dilute(batchId, STAMPS_DEPTH_MAX)`.
 - Attempting to destroy the admin drive/stamp throws `DriveError`.
 
 ### File operations
@@ -215,7 +229,7 @@ Key strategies:
 ## Writing new tests
 
 - **When to choose unit vs. integration**
-  - If logic depends on **Bee responses** (feeds, ACT, mantaray), prefer **integration** tests using `BeeDev`.
+  - If logic depends on **Bee responses** (feeds, ACT, mantaray), prefer **integration** tests using a `Bee` client.
   - If you’re validating **pure FileManagerBase behavior** or edge branches, mock out Bee and write **unit** tests.
 
 - **Use ACT options correctly** when downloading in integration tests:
@@ -223,7 +237,7 @@ Key strategies:
   ```ts
   const files = await fm.download(fi, ['path.txt'], {
     actHistoryAddress: fi.file.historyRef,
-    actPublisher: fi.actPublisher, // usually from bee.getNodeAddresses().publicKey
+    actPublisher: fi.actPublisher, // usually from bee.connectivity.getNodeAddresses().publicKey
   });
   ```
 
