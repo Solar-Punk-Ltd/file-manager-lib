@@ -1,6 +1,7 @@
 import { type BeeRequestOptions, RedundancyLevel } from '@ethersphere/bee-js';
 import { MantarayNode, Reference } from '@ethersphere/core-sdk';
 
+import type { Identity } from '../types/identity';
 import {
   type DriveInfo,
   type FileRecord,
@@ -16,13 +17,11 @@ import { type FeedWriteResult, writeActFeed } from './bee';
 import { getRecordStatus } from './common';
 import {
   DRIVE_FORK_PREFIX,
-  MANIFEST_METADATA_DRIVE_ACT_PUBLISHER,
   MANIFEST_METADATA_DRIVE_BATCH_ID,
   MANIFEST_METADATA_DRIVE_ID,
   MANIFEST_METADATA_DRIVE_IS_ADMIN,
   MANIFEST_METADATA_DRIVE_NAME,
   MANIFEST_METADATA_DRIVE_OWNER,
-  MANIFEST_METADATA_NODE_ACT_PUBLISHER,
   MANIFEST_METADATA_NODE_OWNER,
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
@@ -110,7 +109,6 @@ export function getAllNodeEntries(root: MantarayNode): NodeHeader[] {
         type: nodeType,
         topic: nodeTopic,
         owner: meta[MANIFEST_METADATA_NODE_OWNER],
-        actPublisher: meta[MANIFEST_METADATA_NODE_ACT_PUBLISHER],
         version: meta[MANIFEST_METADATA_NODE_VERSION],
         rawMetadata: { ...meta },
       };
@@ -118,8 +116,10 @@ export function getAllNodeEntries(root: MantarayNode): NodeHeader[] {
     .filter((e): e is NodeHeader => e !== null);
 }
 
+/** Save the manifest tree, then publish its root through the identity's feed. */
 export async function saveNodeManifest(
   swarmClient: SwarmClient,
+  identity: Identity,
   node: MantarayNode,
   host: ManifestHost,
   index?: bigint,
@@ -129,6 +129,7 @@ export async function saveNodeManifest(
 
   return writeActFeed(
     swarmClient,
+    identity,
     rootReference.toUint8Array(),
     {
       batchId: host.batchId,
@@ -146,7 +147,6 @@ export function fileForkMetadata(record: FileRecord): Record<string, string> {
     [MANIFEST_METADATA_NODE_TOPIC]: record.topic,
     [MANIFEST_METADATA_NODE_TYPE]: NodeType.File,
     [MANIFEST_METADATA_NODE_OWNER]: record.owner,
-    [MANIFEST_METADATA_NODE_ACT_PUBLISHER]: record.actPublisher,
     ...(record.version !== undefined ? { [MANIFEST_METADATA_NODE_VERSION]: record.version } : {}),
   };
 }
@@ -157,7 +157,6 @@ export function folderForkMetadata(folder: FolderInfo): Record<string, string> {
     [MANIFEST_METADATA_NODE_TYPE]: NodeType.Folder,
     [MANIFEST_METADATA_REDUNDANCY_LEVEL]: folder.redundancyLevel.toString(),
     [MANIFEST_METADATA_NODE_OWNER]: folder.owner,
-    [MANIFEST_METADATA_NODE_ACT_PUBLISHER]: folder.actPublisher,
   };
 }
 
@@ -171,7 +170,7 @@ export function folderInfoFromMetadata(
     type: NodeType.Folder,
     topic: meta[MANIFEST_METADATA_NODE_TOPIC],
     owner: meta[MANIFEST_METADATA_NODE_OWNER] ?? fallback.owner,
-    actPublisher: meta[MANIFEST_METADATA_NODE_ACT_PUBLISHER] ?? fallback.actPublisher,
+    actPublisher: fallback.actPublisher,
     batchId: drive.batchId,
     redundancyLevel: getRlevel(meta, drive.redundancyLevel),
     path,
@@ -190,7 +189,6 @@ export function driveForkMetadata(drive: DriveInfo): Record<string, string> {
     [MANIFEST_METADATA_DRIVE_OWNER]: drive.owner,
     [MANIFEST_METADATA_DRIVE_IS_ADMIN]: String(drive.isAdmin),
     [MANIFEST_METADATA_DRIVE_BATCH_ID]: drive.batchId,
-    [MANIFEST_METADATA_DRIVE_ACT_PUBLISHER]: drive.actPublisher,
     [MANIFEST_METADATA_REDUNDANCY_LEVEL]: drive.redundancyLevel.toString(),
   };
 }

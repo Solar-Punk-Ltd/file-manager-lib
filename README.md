@@ -58,17 +58,18 @@ flowchart TD
 
 ### The UNIX mapping
 
-| Swarm / mantaray primitive                  | UNIX filesystem analogue    | Role                                             |
-| ------------------------------------------- | --------------------------- | ------------------------------------------------ |
-| `SwarmClient` identity (`owner`)            | volume owner                | Owns and signs the whole tree                    |
-| State feed head (topic from `deriveSecret`) | root pointer                | Resolves the current drive registry              |
-| Admin manifest                              | volume table (`/etc/fstab`) | Registry of all drives                           |
-| Drive = mantaray under a per-drive feed     | mounted volume              | A named, stamp-backed collection                 |
-| Folder = sub-manifest fork                  | directory (inode)           | Nested namespace                                 |
-| File fork → per-file feed                   | file (inode) with history   | Stable identity + full version chain             |
-| Fork metadata map (`swarm-node-*`)          | inode metadata              | Owner, type, version, ACT publisher, path        |
-| New feed slot on every structural change    | filesystem snapshot         | Automatic drive/folder/file version history      |
-| Reserved `.trash` folder per drive          | recycle bin / `.Trash`      | Soft-delete without mutating data or the subtree |
+| Swarm / mantaray primitive                   | UNIX filesystem analogue    | Role                                             |
+| -------------------------------------------- | --------------------------- | ------------------------------------------------ |
+| Identity (`fm.identity.owner`)               | volume owner                | Owns and signs the whole tree                    |
+| Sealed identity envelope (feed)              | LUKS header / keyring       | Turns a login into the volume owner              |
+| State feed head (topic derived from the FMK) | root pointer                | Resolves the current drive registry              |
+| Admin manifest                               | volume table (`/etc/fstab`) | Registry of all drives                           |
+| Drive = mantaray under a per-drive feed      | mounted volume              | A named, stamp-backed collection                 |
+| Folder = sub-manifest fork                   | directory (inode)           | Nested namespace                                 |
+| File fork → per-file feed                    | file (inode) with history   | Stable identity + full version chain             |
+| Fork metadata map (`swarm-node-*`)           | inode metadata              | Owner, type, version, ACT publisher, path        |
+| New feed slot on every structural change     | filesystem snapshot         | Automatic drive/folder/file version history      |
+| Reserved `.trash` folder per drive           | recycle bin / `.Trash`      | Soft-delete without mutating data or the subtree |
 
 ### Key design points
 
@@ -129,14 +130,15 @@ import { BeeClient, FileManagerBase, ListDepth } from '@solarpunkltd/file-manage
 // BeeClient owns the signer — no key material ever reaches the FileManager.
 const swarmClient = new BeeClient(new Bee('http://localhost:1633'), signer);
 
-// optional third arg: { uploadConcurrency?, feedFetchConcurrency? }
+// optional third arg: { credential?, uploadConcurrency?, feedFetchConcurrency? }
 const fm = new FileManagerBase(swarmClient);
 
 // 1. rehydrate any existing state from Swarm
 await fm.initialize();
 
-// 2. FIRST-TIME SETUP ONLY: bootstrap the admin state + admin drive.
+// 2. FIRST-TIME SETUP ONLY: bootstrap the identity, admin state and admin drive.
 //    On later runs, initialize() alone restores everything — skip this.
+//    `fm.identity === undefined` is the check; see "Identity" below.
 const adminBatchId = 'your-admin-batch-id';
 await fm.createAdminDrive(adminBatchId);
 
@@ -213,6 +215,61 @@ Known gaps on the Swarm ID backend: `AbortSignal` is dropped at the postMessage 
 stream variants wrap one chunk), ACT history is re-minted on every protected write, and the account exposes a single
 usable postage batch. See the class doc on `SnahaClient` for details.
 
+### Identity — three roles, three homes
+
+The login you sign in with is **not** the owner of your drives. Keeping those separate is what lets one user reach one
+set of drives from several login methods, and it is worth understanding before you persist any address.
+
+| Value               | What it is                                      | What it is for                                        |
+| ------------------- | ----------------------------------------------- | ----------------------------------------------------- |
+| `swarmClient.owner` | address of the login (`PrivateKey` or `appKey`) | locates the sealed identity envelope — nothing else   |
+| `identity.owner`    | address derived from the FileManager Key (FMK)  | owns and signs the state feed and every node feed     |
+| `identity.keyId`    | non-secret fingerprint of the FMK               | detects an envelope belonging to a different identity |
+
+**Owner and signer are not two things.** A Swarm feed is addressed by the pair _(topic, owner-address)_, and the signer
+is simply the private key whose address that is — one keypair, seen from outside and from inside. What is genuinely
+doubled here is the _number of keypairs_: the login's, which signs only the envelope, and the identity's, which signs
+everything else. `identity.signer` is not part of `IdentityInfo` and never leaves the library.
+
+The FMK is 32 random bytes minted once, sealed under a key derived from the login's secret, and stored in a feed under
+the login's own address. Resolving it is a read, so `initialize()` needs no stamp:
+
+```ts
+const fm = new FileManagerBase(swarmClient);
+await fm.initialize();
+
+if (!fm.identity) {
+  // First run for this login: no identity yet. Minting one is a write, so it needs a stamp.
+  await fm.createAdminDrive(adminBatchId);
+}
+
+console.log(fm.identity.owner); // who owns the drives
+console.log(swarmClient.owner); //  who is signed in — usually a different address
+```
+
+Three consequences worth planning around:
+
+- **`fm.identity === undefined` is a normal state, not an error.** It means "no identity provisioned for this login
+  yet", which is exactly what a newcomer with no stamp looks like. Render a first-run screen, not a failure.
+- **Persist `keyId`, never `owner`, as "which identity is this".** Both are FMK-derived and stable today, but `keyId` is
+  the value the design guarantees; the login address is per-session and changes with the login method.
+- **A wrong login fails loudly.** An envelope that exists but will not open raises `IdentityError` and emits
+  `IDENTITY_INVALID` ahead of `INITIALIZED false` — a distinct event, because "sign in with the other wallet" and "the
+  node is unreachable" need different screens. The check is AES-GCM's authentication tag, so a wallet that signs
+  non-deterministically surfaces here instead of presenting a silently empty drive list.
+
+`Credential` is the seam if you want a login method the library doesn't ship. It carries only `unlockSecret()` — where
+the envelope lives is always the client's address, since nothing else can sign a write there:
+
+```ts
+const fm = new FileManagerBase(swarmClient, undefined, {
+  credential: { unlockSecret: () => walletSignature('fm-identity-v2') },
+});
+```
+
+The secret must be **byte-stable** for a given user across sessions and devices; a different secret derives a different
+unlock key, which is an `IdentityError` rather than a recoverable state.
+
 ### Tuning concurrency
 
 Bee-facing fan-out is bounded and configurable through the constructor:
@@ -236,11 +293,11 @@ The FileManager emits `FileManagerEvents` on its `emitter`:
 fm.emitter.on(FileManagerEvents.FILE_UPLOADED, ({ record }) => console.log('uploaded', record.path));
 ```
 
-`INITIALIZED`, `STATE_INVALID`, `DRIVE_CREATED`, `DRIVE_RENAMED`, `DRIVE_UNRESOLVED`, `DRIVE_FORGOTTEN`,
-`FILE_UPLOADED`, `FILES_UPLOADED`, `FILE_UPDATED`, `FILE_MOVED`, `FILE_TRASHED`, `FILE_RECOVERED`, `FILE_FORGOTTEN`,
-`FILE_VERSION_RESTORED`, `FOLDER_CREATED`, `FOLDER_MOVED`, `FOLDER_TRASHED`, `FOLDER_RECOVERED`, `FOLDER_FORGOTTEN`,
-`TRASH_EMPTIED`. Path-addressed operations (`move`, `trash`, `recover`, `forget`) emit the file or folder variant with
-the same payload shape. See [REFERENCE.md](REFERENCE.md#events) for each payload.
+`INITIALIZED`, `IDENTITY_INVALID`, `STATE_INVALID`, `DRIVE_CREATED`, `DRIVE_RENAMED`, `DRIVE_UNRESOLVED`,
+`DRIVE_FORGOTTEN`, `FILE_UPLOADED`, `FILES_UPLOADED`, `FILE_UPDATED`, `FILE_MOVED`, `FILE_TRASHED`, `FILE_RECOVERED`,
+`FILE_FORGOTTEN`, `FILE_VERSION_RESTORED`, `FOLDER_CREATED`, `FOLDER_MOVED`, `FOLDER_TRASHED`, `FOLDER_RECOVERED`,
+`FOLDER_FORGOTTEN`, `TRASH_EMPTIED`. Path-addressed operations (`move`, `trash`, `recover`, `forget`) emit the file or
+folder variant with the same payload shape. See [REFERENCE.md](REFERENCE.md#events) for each payload.
 
 `DRIVE_UNRESOLVED` fires **during `initialize`** for a drive that is registered in the admin manifest but cannot be
 loaded. Such a drive is absent from `driveList`, so every later call addressing it fails with "drive not found" — the

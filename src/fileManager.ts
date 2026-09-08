@@ -9,6 +9,7 @@ import { type BatchId, FeedIndex, Identifier, MantarayNode, Reference, Topic } f
 
 import { type DownloadFilesResult, type DownloadResource, type DownloadResult } from './types/download';
 import { type FileManager, type FileManagerConfig } from './types/fileManager';
+import type { Credential, Identity, IdentityInfo } from './types/identity';
 import {
   type DriveInfo,
   FailureScope,
@@ -44,11 +45,10 @@ import {
   MAX_CONCURRENT_FEED_FETCHES,
   MAX_CONCURRENT_UPLOADS,
   ROOT_PATH,
-  STATE_TOPIC_LABEL,
   TRASH_FOLDER_NAME,
 } from './utils/constants';
 import { generateRandomBytes } from './utils/crypto';
-import { DriveError, ErrorHandler, FileError, FileRecordError, FolderError } from './utils/errors';
+import { DriveError, ErrorHandler, FileError, FileRecordError, FolderError, IdentityError } from './utils/errors';
 import { FileManagerEvents } from './utils/events';
 import { Logger } from './utils/logger';
 import {
@@ -72,6 +72,7 @@ import {
 } from './utils/path';
 import { processDownload } from './download';
 import { type EventEmitter, EventEmitterBase } from './eventEmitter';
+import { provisionIdentity, resolveIdentity, swarmClientCredential } from './identity';
 import { MantarayStore } from './mantarayStore';
 import { assertUploadableSource, processUpload } from './upload';
 
@@ -102,6 +103,8 @@ import { assertUploadableSource, processUpload } from './upload';
  */
 export class FileManagerBase implements FileManager {
   private readonly swarmClient: SwarmClient;
+  private readonly credential: Credential;
+  private _identity: Identity | undefined = undefined;
   private stateFeedTopic: Topic | undefined = undefined;
   private isInitializing: boolean = false;
   private adminRedundancyLevel: RedundancyLevel = RedundancyLevel.OFF;
@@ -118,6 +121,10 @@ export class FileManagerBase implements FileManager {
   // --- Public member getters ---
 
   readonly emitter: EventEmitter;
+
+  get identity(): IdentityInfo | undefined {
+    return this._identity;
+  }
 
   get adminStamp(): StampInfo | undefined {
     return this._adminStamp;
@@ -142,16 +149,17 @@ export class FileManagerBase implements FileManager {
    *   doc for the two backends that ship with the library.
    * @param emitter - Sink for {@link FileManagerEvents}. Defaults to a fresh
    *   {@link EventEmitterBase}; pass one in to share a bus across instances.
-   * @param config - Concurrency tuning. Omitted fields fall back to the library defaults, and both
+   * @param config - Credentials and concurrency tuning. Omitted fields fall back to the library defaults, and both
    *   are clamped to a minimum of 1.
    */
   constructor(swarmClient: SwarmClient, emitter: EventEmitter = new EventEmitterBase(), config?: FileManagerConfig) {
     this.swarmClient = swarmClient;
+    this.credential = config?.credential ?? swarmClientCredential(swarmClient);
 
     this.emitter = emitter;
     this.uploadConcurrency = Math.max(1, config?.uploadConcurrency ?? MAX_CONCURRENT_UPLOADS);
     this.feedFetchConcurrency = Math.max(1, config?.feedFetchConcurrency ?? MAX_CONCURRENT_FEED_FETCHES);
-    this.store = new MantarayStore(swarmClient);
+    this.store = new MantarayStore(this.swarmClient);
   }
 
   // File records are loaded lazily via listFolder / download / move as the user navigates — no eager full-drive load at init.
@@ -173,8 +181,10 @@ export class FileManagerBase implements FileManager {
     try {
       await this.swarmClient.initialize(requestOptions);
 
-      this.logger.debug('Trying to load state from Swarm.');
+      this.logger.debug('Trying to load identity from Swarm.');
+      this.setIdentity(await resolveIdentity(this.swarmClient, this.credential, requestOptions));
 
+      this.logger.debug('Trying to load state from Swarm.');
       const success = await this.tryToFetchAdminState(requestOptions);
       if (success) {
         await this.initDriveList(requestOptions);
@@ -184,6 +194,10 @@ export class FileManagerBase implements FileManager {
     } catch (err: unknown) {
       this.resetState();
       this.errorHandler.handleError(err, 'Failed to initialize FileManager');
+
+      if (err instanceof IdentityError) {
+        this.emitter.emit(FileManagerEvents.IDENTITY_INVALID, false);
+      }
       this.emitter.emit(FileManagerEvents.INITIALIZED, false);
 
       return;
@@ -211,14 +225,19 @@ export class FileManagerBase implements FileManager {
       throw new DriveError('Admin drive already exists');
     }
 
-    if (!this.stateFeedTopic) {
-      throw new DriveError('State feed topic not set');
+    const batchIdStr = batchId.toString();
+
+    if (!this._identity) {
+      this.setIdentity(await provisionIdentity(this.swarmClient, this.credential, batchIdStr, requestOptions));
     }
+
+    const identity = this.requireIdentity();
+    this.stateFeedTopic = identity.stateTopic;
 
     const { feedIndexNext } = await getFeedData(
       this.swarmClient,
       this.stateFeedTopic,
-      this.swarmClient.owner,
+      identity.owner,
       undefined,
       requestOptions,
     );
@@ -229,7 +248,6 @@ export class FileManagerBase implements FileManager {
     }
 
     const publisher = this.swarmClient.actPublisher;
-    const batchIdStr = batchId.toString();
     const level = redundancyLevel ?? RedundancyLevel.OFF;
 
     this.logger.debug('Creating admin drive with name: ', ADMIN_DRIVE_NAME);
@@ -326,8 +344,8 @@ export class FileManagerBase implements FileManager {
       throw new DriveError(`Node already exists at "${item.path}" — use updateFile to re-version a file`);
     }
 
-    const owner = this.swarmClient.owner;
-    const { topic, version } = await getTopicAndVersion(this.swarmClient, undefined, undefined, requestOptions);
+    const owner = this.requireIdentity().owner;
+    const { topic, version } = await getTopicAndVersion(this.swarmClient, owner, undefined, undefined, requestOptions);
 
     const { contentRefs, rLevel } = await processUpload(
       this.swarmClient,
@@ -481,23 +499,10 @@ export class FileManagerBase implements FileManager {
         throw new FileRecordError(`Folder fork missing topic: ${path}`);
       }
 
-      // Folder manifest reads always probe the feed head. A folder is a container and carries no stored version
-      const { payload, feedIndex } = await getFeedData(
-        this.swarmClient,
-        new Topic(folderTopic),
-        this.swarmClient.owner,
-        undefined,
-        requestOptions,
-      );
-
-      if (feedIndex.equals(FEED_INDEX_NONE)) {
-        throw new DriveError(`Folder feed not found for path: ${path}`);
-      }
-      const manifestRef: ActReferences = payload.toJSON() as ActReferences;
-      assertActReferences(manifestRef);
+      const manifestRef = await this.store.resolveFolderManifestRef(folderTopic, path, requestOptions);
 
       hostMap.set(path, {
-        owner: this.swarmClient.owner,
+        owner: this.requireIdentity().owner,
         topic: folderTopic,
         manifestRef,
         batchId: cachedDrive.batchId,
@@ -532,7 +537,7 @@ export class FileManagerBase implements FileManager {
 
     const succeeded: FileRecord[] = [];
     const failed: FailedResult[] = [];
-    const owner = this.swarmClient.owner;
+    const owner = this.requireIdentity().owner;
 
     await awaitAllPromisesBounded(
       plannedFiles.map((planned) => async (): Promise<FileRecord> => {
@@ -555,7 +560,13 @@ export class FileManagerBase implements FileManager {
           throw new DriveError(`Node already exists at "${planned.fullPath}" — use updateFile to re-version a file`);
         }
 
-        const { topic, version } = await getTopicAndVersion(this.swarmClient, undefined, undefined, requestOptions);
+        const { topic, version } = await getTopicAndVersion(
+          this.swarmClient,
+          owner,
+          undefined,
+          undefined,
+          requestOptions,
+        );
 
         const { contentRefs, rLevel } = await processUpload(
           this.swarmClient,
@@ -660,7 +671,7 @@ export class FileManagerBase implements FileManager {
       assertUploadableSource(changes.item);
     }
 
-    const owner = this.swarmClient.owner;
+    const owner = this.requireIdentity().owner;
     // Always resolve the current head
     const { record: cached, fromCache } = await this.loadRecord(
       record.topic,
@@ -687,7 +698,13 @@ export class FileManagerBase implements FileManager {
     }
     cached.status = NodeStatus.Active;
 
-    const { topic, version } = await getTopicAndVersion(this.swarmClient, cached.version, record.topic, requestOptions);
+    const { topic, version } = await getTopicAndVersion(
+      this.swarmClient,
+      owner,
+      cached.version,
+      record.topic,
+      requestOptions,
+    );
 
     const resolvedFork = await this.resolveFileFork(cachedDrive, cached.path, cached.topic, publisher, requestOptions);
     const filename = resolvedFork.filename;
@@ -1032,11 +1049,10 @@ export class FileManagerBase implements FileManager {
       const fileHeaders = headers.filter((e) => e.type === NodeType.File);
       await awaitAllPromisesBounded(
         fileHeaders.map((e) => async (): Promise<FileRecord> => {
-          const owner = e.owner ?? this.swarmClient.owner;
-          const actPublisher = e.actPublisher ?? publisher;
+          const owner = e.owner ?? this.requireIdentity().owner;
           const version = e.version ? new FeedIndex(e.version).toBigInt() : undefined;
 
-          const { record } = await this.loadRecord(e.topic, owner, actPublisher, version, requestOptions);
+          const { record } = await this.loadRecord(e.topic, owner, publisher, version, requestOptions);
           record.path = e.path;
           record.name = splitPath(e.path).name;
           record.driveId = cachedDrive.id;
@@ -1067,7 +1083,7 @@ export class FileManagerBase implements FileManager {
       const nextFrontier: { host: ManifestHost; basePath: string }[] = [];
       await awaitAllPromisesBounded(
         folderHeaders.map((e) => async (): Promise<FolderInfo> => {
-          const owner = e.owner ?? this.swarmClient.owner;
+          const owner = e.owner ?? this.requireIdentity().owner;
           // Probe the feed head. A folder is a container and carries no stored version
           const { payload, feedIndex, feedIndexNext } = await getFeedData(
             this.swarmClient,
@@ -1092,7 +1108,7 @@ export class FileManagerBase implements FileManager {
             manifestRef,
             batchId: cachedDrive.batchId,
             redundancyLevel: getRlevel(e.rawMetadata, cachedDrive.redundancyLevel),
-            actPublisher: e.actPublisher ?? publisher,
+            actPublisher: publisher,
             path: e.path,
             driveId: cachedDrive.id,
             status: getRecordStatus(e.path),
@@ -1271,7 +1287,7 @@ export class FileManagerBase implements FileManager {
         fromPath,
         toPath,
         folderInfo: folderInfoFromMetadata(forkMetadata, cachedSource, toPath, {
-          owner: this.swarmClient.owner,
+          owner: this.requireIdentity().owner,
           actPublisher: publisher,
         }),
       });
@@ -1350,7 +1366,7 @@ export class FileManagerBase implements FileManager {
         driveId: cachedDrive.id,
         path,
         folderInfo: folderInfoFromMetadata(meta, cachedDrive, path, {
-          owner: this.swarmClient.owner,
+          owner: this.requireIdentity().owner,
           actPublisher: publisher,
         }),
       });
@@ -1408,7 +1424,7 @@ export class FileManagerBase implements FileManager {
         path: sourcePath,
         trashedPath,
         folderInfo: folderInfoFromMetadata(trashedMetadata, cachedDrive, trashedPath, {
-          owner: this.swarmClient.owner,
+          owner: this.requireIdentity().owner,
           actPublisher: publisher,
         }),
       });
@@ -1493,7 +1509,7 @@ export class FileManagerBase implements FileManager {
         trashedPath: normalizedTrashedPath,
         restoredPath,
         folderInfo: folderInfoFromMetadata(metadata, cachedDrive, restoredPath, {
-          owner: this.swarmClient.owner,
+          owner: this.requireIdentity().owner,
           actPublisher: publisher,
         }),
       });
@@ -1609,8 +1625,23 @@ export class FileManagerBase implements FileManager {
 
   // --- Private helpers ---
 
+  /** Keeps the store's identity in step with this one. */
+  private setIdentity(identity: Identity | undefined): void {
+    this._identity = identity;
+    this.store.setIdentity(identity);
+  }
+
+  private requireIdentity(): Identity {
+    if (!this._identity) {
+      throw new IdentityError('No identity — initialize the FileManager, or create an admin drive first');
+    }
+
+    return this._identity;
+  }
+
   private resetState(): void {
     this._isInitialized = false;
+    this.setIdentity(undefined);
     this.stateFeedTopic = undefined;
     this._adminStamp = undefined;
     this.adminRedundancyLevel = RedundancyLevel.OFF;
@@ -1630,13 +1661,17 @@ export class FileManagerBase implements FileManager {
   }
 
   private async tryToFetchAdminState(requestOptions?: BeeRequestOptions): Promise<boolean> {
-    const stateSecret = await this.swarmClient.deriveSecret(STATE_TOPIC_LABEL);
-    this.stateFeedTopic = new Topic(stateSecret);
+    if (!this._identity) {
+      this.logger.debug('Identity not provisioned — no state to load.');
+      return false;
+    }
+
+    this.stateFeedTopic = this._identity.stateTopic;
 
     const { payload, feedIndex } = await getFeedData(
       this.swarmClient,
       this.stateFeedTopic,
-      this.swarmClient.owner,
+      this._identity.owner,
       undefined,
       requestOptions,
     );
@@ -1679,7 +1714,7 @@ export class FileManagerBase implements FileManager {
       id: new Identifier(generateRandomBytes(Identifier.LENGTH)).toString(),
       name,
       batchId,
-      owner: this.swarmClient.owner,
+      owner: this.requireIdentity().owner,
       redundancyLevel,
       topic: new Topic(generateRandomBytes(Topic.LENGTH)).toString(),
       isAdmin,
@@ -1750,7 +1785,7 @@ export class FileManagerBase implements FileManager {
     const { payload, feedIndex, feedIndexNext } = await getFeedData(
       this.swarmClient,
       this.stateFeedTopic,
-      this.swarmClient.owner,
+      this.requireIdentity().owner,
       undefined,
       requestOptions,
     );
@@ -1782,7 +1817,7 @@ export class FileManagerBase implements FileManager {
 
     await settlePromises(
       forks.map(async ({ entry }) => {
-        const driveInfo = assertDriveInfoFromMetadata(entry.rawMetadata);
+        const driveInfo = assertDriveInfoFromMetadata(entry.rawMetadata, this.swarmClient.actPublisher);
 
         // Probe the drive feed head. A drive is a container and carries no stored version
         const {
@@ -1792,7 +1827,7 @@ export class FileManagerBase implements FileManager {
         } = await getFeedData(
           this.swarmClient,
           new Topic(driveInfo.topic),
-          this.swarmClient.owner,
+          this.requireIdentity().owner,
           undefined,
           requestOptions,
         );
@@ -1917,7 +1952,7 @@ export class FileManagerBase implements FileManager {
     const newFolderTopic = new Topic(generateRandomBytes(Topic.LENGTH)).toString();
     const fi: FolderInfo = {
       type: NodeType.Folder,
-      owner: this.swarmClient.owner,
+      owner: this.requireIdentity().owner,
       topic: newFolderTopic,
       batchId: driveInfo.batchId,
       redundancyLevel: effectiveRedundancy,
@@ -2120,7 +2155,7 @@ export class FileManagerBase implements FileManager {
     }
 
     return {
-      owner: this.swarmClient.owner,
+      owner: this.requireIdentity().owner,
       topic: stateFeedTopic,
       batchId: this.adminStamp.batchId.toString(),
       redundancyLevel: this.adminRedundancyLevel,

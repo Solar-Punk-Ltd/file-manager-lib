@@ -91,7 +91,7 @@ export interface NodeHeader {
   type: NodeType;
   topic: string;
   owner?: string;
-  actPublisher?: string;
+  // No actPublisher: fork metadata is plaintext, so it is taken from the live client at read time.
   version?: string;
   head?: ActReferences;
   rawMetadata: Record<string, string>;

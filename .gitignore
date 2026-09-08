@@ -32,5 +32,6 @@ tests/integration/tmp/
 **.tgz
 
 CLAUDE.md
+versioning.md
 memory/
 *-recovery.txt

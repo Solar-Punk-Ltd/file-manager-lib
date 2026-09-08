@@ -10,6 +10,7 @@ import type {
   ProtectedRefs,
   StampInfo,
   SwarmDownloadOptions,
+  SwarmFeedWriteOptions,
   SwarmRequestOptions,
   SwarmUploadOptions,
 } from './utils';
@@ -23,11 +24,14 @@ import type {
  */
 export interface SwarmClient {
   /**
-   * Ethereum **address** (20 bytes / 40 hex chars) that owns the feeds this client writes.
+   * Ethereum **address** (20 bytes / 40 hex chars) of the backend's own key — whichever credential
+   * the user logged in with.
    *
-   * This is the value to pass wherever a feed owner is expected, and the value to persist as a
-   * node's `owner`. Do not substitute {@link publicKey}: it is 33 bytes, so bee-js rejects it with
-   * `Bytes#checkByteLength: bytes length is 33 but expected 20`.
+   * fm-lib uses it only to locate the identity envelope. Every other feed is owned by
+   * `identity.owner` and signed by `identity.signer`, so this is not the value to persist as a
+   * node's owner, and reading a node feed here finds nothing.
+   *
+   * Do not substitute `publicKey`: it is 33 bytes, and bee-js rejects it where 20 are expected.
    */
   readonly owner: Hex;
 
@@ -50,11 +54,15 @@ export interface SwarmClient {
   readonly actPublisher: Hex;
 
   /**
-   * Derives a secret from the master key
-   * @param seed Input string necessary for deriving the secret
-   * @returns a 32 byte hex string
+   * Derive 32 stable, secret bytes from the backend's own key material. Used for the identity
+   * envelope's unlock key.
+   *
+   * Must be **stable** — a different value on a later session means the identity stops unsealing —
+   * and must derive from key material the backend keeps **private**. Hashing a public value such as
+   * an address or public key compiles and passes tests, and leaves the envelope openable by anyone
+   * who can read it.
    */
-  deriveSecret(seed: string): Promise<string>;
+  deriveSecret(label: string): Promise<Uint8Array>;
 
   /**
    * Prepare the backend: version/compatibility checks for Bee, connection handshake for swarm-id.
@@ -138,12 +146,19 @@ export interface SwarmClient {
    */
   readFeed(topic: Hex, owner: Hex, index?: FeedIndexString, requestOptions?: SwarmRequestOptions): Promise<FeedRead>;
 
+  /**
+   * Writes one feed slot.
+   *
+   * Signed by `options.signer` when given, otherwise by the backend's own key — in which case the
+   * update lands under {@link owner}. Bee **silently no-ops on a taken index**, so `index` must come
+   * from a probe, never from a guess.
+   */
   writeFeed(
     batchId: Hex,
     topic: Hex,
     payload: Uint8Array | string,
     index: FeedIndexString,
-    options?: SwarmUploadOptions,
+    options?: SwarmFeedWriteOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<FeedWrite>;
 }

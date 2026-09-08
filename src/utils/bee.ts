@@ -1,6 +1,7 @@
 import type { BeeRequestOptions, RedundancyLevel } from '@ethersphere/bee-js';
 import { type BatchId, Bytes, FeedIndex, Topic } from '@ethersphere/core-sdk';
 
+import type { Identity } from '../types/identity';
 import type { SwarmClient } from '../types/swarmClient';
 import { type ActReferences, type FeedResultWithIndex, type StampInfo } from '../types/utils';
 
@@ -13,16 +14,11 @@ const errorHandler = ErrorHandler.getInstance();
 export async function getFeedData(
   swarmClient: SwarmClient,
   topic: Topic,
-  owner?: string,
+  owner: string,
   index?: bigint,
   requestOptions?: BeeRequestOptions,
 ): Promise<FeedResultWithIndex> {
-  const res = await swarmClient.readFeed(
-    topic.toString(),
-    owner ?? swarmClient.owner,
-    index?.toString(),
-    requestOptions,
-  );
+  const res = await swarmClient.readFeed(topic.toString(), owner, index?.toString(), requestOptions);
 
   return {
     feedIndex: FeedIndex.fromBigInt(BigInt(res.index)),
@@ -33,6 +29,7 @@ export async function getFeedData(
 
 export async function getTopicAndVersion(
   swarmClient: SwarmClient,
+  owner: string,
   currentVersion?: string,
   currentTopic?: string | Topic,
   requestOptions?: BeeRequestOptions,
@@ -56,13 +53,8 @@ export async function getTopicAndVersion(
     return { topic, version: new FeedIndex(currentVersion).next().toString() };
   }
 
-  const { feedIndex, feedIndexNext } = await getFeedData(
-    swarmClient,
-    new Topic(topic),
-    swarmClient.owner,
-    undefined,
-    requestOptions,
-  );
+  const feedTopic = new Topic(topic);
+  const { feedIndex, feedIndexNext } = await getFeedData(swarmClient, feedTopic, owner, undefined, requestOptions);
   if (feedIndex.equals(FEED_INDEX_NONE)) {
     return { topic, version: FEED_INDEX_ZERO.toString() };
   }
@@ -84,8 +76,15 @@ export interface FeedWriteResult {
   nextIndex: bigint;
 }
 
+/**
+ * ACT-wrap `payload` and publish the resulting refs to the identity's feed at `target.topic`.
+ *
+ * The library's only feed write outside the identity envelope. Signed by `identity.signer` so it
+ * lands under the identity's address rather than the backend's.
+ */
 export async function writeActFeed(
   swarmClient: SwarmClient,
+  identity: Identity,
   payload: string | Uint8Array,
   target: FeedTarget,
   requestOptions?: BeeRequestOptions,
@@ -107,7 +106,7 @@ export async function writeActFeed(
     const { feedIndexNext } = await getFeedData(
       swarmClient,
       new Topic(target.topic),
-      swarmClient.owner,
+      identity.owner,
       undefined,
       requestOptions,
     );
@@ -119,7 +118,7 @@ export async function writeActFeed(
     target.topic,
     JSON.stringify(contentRefs),
     writeIndex.toString(),
-    undefined,
+    { signer: identity.signer },
     requestOptions,
   );
 

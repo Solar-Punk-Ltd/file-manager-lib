@@ -2,7 +2,7 @@ import { Bee, FeedIndex, type PrivateKey, Topic } from '@ethersphere/bee-js';
 
 import { BEE_URL, createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
 
-import { applyDefaultMocks, createMockNodeAddresses, mockStampInfo } from './mock';
+import { applyDefaultMocks, mockStampInfo } from './mock';
 
 import { BeeClient } from '@/clients';
 import { EventEmitterBase } from '@/eventEmitter';
@@ -12,7 +12,6 @@ import { FileManagerEvents, SignerError } from '@/utils';
 import { fetchStamp, getFeedData } from '@/utils/bee';
 import {
   FEED_INDEX_ZERO,
-  MANIFEST_METADATA_DRIVE_ACT_PUBLISHER,
   MANIFEST_METADATA_DRIVE_BATCH_ID,
   MANIFEST_METADATA_DRIVE_ID,
   MANIFEST_METADATA_DRIVE_IS_ADMIN,
@@ -126,7 +125,6 @@ describe('Initialization and construction', () => {
             [MANIFEST_METADATA_DRIVE_OWNER]: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
             [MANIFEST_METADATA_DRIVE_BATCH_ID]: DUMMY_BATCH_ID.toString(),
             [MANIFEST_METADATA_DRIVE_IS_ADMIN]: 'false',
-            [MANIFEST_METADATA_DRIVE_ACT_PUBLISHER]: createMockNodeAddresses().publicKey.toCompressedHex(),
             [MANIFEST_METADATA_REDUNDANCY_LEVEL]: '0',
           },
         },

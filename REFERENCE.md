@@ -79,9 +79,9 @@ their _initiation_ would not bound live consumption.
 
 ## Lifecycle & bootstrap
 
-The state model has two feed levels: a per-identity **state feed** — its topic derived from the backend's key material
-via `SwarmClient.deriveSecret`, so it is unguessable from the owner address alone — whose head points at the **admin
-manifest** (the drive registry), and one **drive feed** per drive whose head points at that drive's mantaray. See
+The state model has two feed levels: a per-identity **state feed** — its topic derived from the FileManager Key, so it
+is unguessable from the owner address alone — whose head points at the **admin manifest** (the drive registry), and one
+**drive feed** per drive whose head points at that drive's mantaray. See
 [README → How it works](README.md#how-it-works--a-filesystem-mirrored-onto-swarm).
 
 ### `initialize(requestOptions?): Promise<void>`

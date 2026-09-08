@@ -1,6 +1,7 @@
 import type { BeeRequestOptions, RedundancyLevel } from '@ethersphere/bee-js';
 import { Bytes, FeedIndex, type MantarayNode, Reference, Topic } from '@ethersphere/core-sdk';
 
+import type { Identity } from './types/identity';
 import { type DriveInfo, type FileRecord, type FolderInfo, type ManifestHost, NodeType } from './types/info';
 import { type SwarmClient } from './types/swarmClient';
 import { type ActReferences, type FeedResultWithIndex } from './types/utils';
@@ -13,7 +14,7 @@ import {
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
   ROOT_PATH,
 } from './utils/constants';
-import { DriveError, FileRecordError } from './utils/errors';
+import { DriveError, FileRecordError, IdentityError } from './utils/errors';
 import { loadMantaray, saveNodeManifest } from './utils/mantaray';
 import { pathSegments } from './utils/path';
 
@@ -23,6 +24,7 @@ import { pathSegments } from './utils/path';
  */
 export class MantarayStore {
   private readonly swarmClient: SwarmClient;
+  private identity: Identity | undefined = undefined;
   private readonly nodeManifestCache: Map<string, MantarayNode> = new Map();
   private readonly nodeManifestLoading: Map<string, Promise<MantarayNode>> = new Map();
   private readonly nodeNextIndexCache: Map<string, bigint> = new Map();
@@ -32,6 +34,16 @@ export class MantarayStore {
 
   constructor(swarmClient: SwarmClient) {
     this.swarmClient = swarmClient;
+  }
+
+  /**
+   * Bind the store to the identity that owns and signs every feed it touches. Set after
+   * construction, since resolving the identity needs the client.
+   *
+   * Not folded into `clear()`, which is called mid-flight by `createAdminDrive(reset)`.
+   */
+  setIdentity(identity: Identity | undefined): void {
+    this.identity = identity;
   }
 
   // --- Swarm operations  ---
@@ -117,6 +129,7 @@ export class MantarayStore {
     try {
       ({ contentRefs, nextIndex } = await saveNodeManifest(
         this.swarmClient,
+        this.requireIdentity(),
         node,
         { ...host, manifestRef: prevManifestRef },
         cachedWriteIx,
@@ -145,6 +158,7 @@ export class MantarayStore {
 
     const { contentRefs, index, nextIndex } = await writeActFeed(
       this.swarmClient,
+      this.requireIdentity(),
       JSON.stringify(persistable),
       {
         batchId: record.batchId,
@@ -203,6 +217,38 @@ export class MantarayStore {
     return record;
   }
 
+  /**
+   * A folder carries no stored version, so its manifest root comes from its feed head. Caches the
+   * probed next index, which is what lets a later write to the same folder skip its own probe.
+   */
+  async resolveFolderManifestRef(
+    nodeTopic: string,
+    currentPath: string,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<ActReferences> {
+    const cachedRef = this.getNodeRef(nodeTopic);
+    if (cachedRef && this.getManifestCache(nodeTopic) && this.getNodeNextIndexCache(nodeTopic) !== undefined) {
+      return cachedRef;
+    }
+
+    const { payload, feedIndex, feedIndexNext } = await getFeedData(
+      this.swarmClient,
+      new Topic(nodeTopic),
+      this.requireIdentity().owner,
+      undefined,
+      requestOptions,
+    );
+    if (feedIndex.equals(FEED_INDEX_NONE)) {
+      throw new DriveError(`Folder feed not found for path: ${currentPath}`);
+    }
+
+    const manifestRef: ActReferences = payload.toJSON() as ActReferences;
+    assertActReferences(manifestRef);
+    this.setNodeNextIndexCache(nodeTopic, feedIndexNext.toBigInt());
+
+    return manifestRef;
+  }
+
   // --- Cache management  ---
 
   /** Cache a freshly loaded manifest under `topic` without touching its feed index. */
@@ -253,9 +299,17 @@ export class MantarayStore {
 
   // --- Private helpers  ---
 
+  private requireIdentity(): Identity {
+    if (!this.identity) {
+      throw new IdentityError('MantarayStore has no identity — FileManager is not initialized');
+    }
+
+    return this.identity;
+  }
+
   private driveRootHost(drive: DriveInfo): ManifestHost {
     return {
-      owner: this.swarmClient.owner,
+      owner: this.requireIdentity().owner,
       topic: drive.topic,
       manifestRef: drive.manifestRef,
       batchId: drive.batchId,
@@ -303,7 +357,7 @@ export class MantarayStore {
 
       currentFolderInfo = {
         type: NodeType.Folder,
-        owner: this.swarmClient.owner,
+        owner: this.requireIdentity().owner,
         topic: nodeTopic,
         manifestRef: folderManifestRef,
         batchId: driveInfo.batchId,
@@ -324,34 +378,5 @@ export class MantarayStore {
     }
 
     return currentFolderInfo;
-  }
-
-  // A folder carries no stored version, so its manifest root comes from its feed head.
-  private async resolveFolderManifestRef(
-    nodeTopic: string,
-    currentPath: string,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<ActReferences> {
-    const cachedRef = this.getNodeRef(nodeTopic);
-    if (cachedRef && this.getManifestCache(nodeTopic) && this.getNodeNextIndexCache(nodeTopic) !== undefined) {
-      return cachedRef;
-    }
-
-    const { payload, feedIndex, feedIndexNext } = await getFeedData(
-      this.swarmClient,
-      new Topic(nodeTopic),
-      this.swarmClient.owner,
-      undefined,
-      requestOptions,
-    );
-    if (feedIndex.equals(FEED_INDEX_NONE)) {
-      throw new DriveError(`Folder feed not found for path: ${currentPath}`);
-    }
-
-    const manifestRef: ActReferences = payload.toJSON() as ActReferences;
-    assertActReferences(manifestRef);
-    this.setNodeNextIndexCache(nodeTopic, feedIndexNext.toBigInt());
-
-    return manifestRef;
   }
 }

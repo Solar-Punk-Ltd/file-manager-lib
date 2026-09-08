@@ -2,6 +2,7 @@ import type { RedundancyLevel } from '@ethersphere/bee-js';
 import { BatchId, EthAddress, FeedIndex, Identifier, PublicKey, Reference, Topic } from '@ethersphere/core-sdk';
 import { Types } from 'cafe-utility';
 
+import type { IdentityEnvelope } from '../types/identity';
 import {
   type DriveInfo,
   type FileRecord,
@@ -14,7 +15,6 @@ import { type SwarmClient } from '../types/swarmClient';
 import { type ActReferences } from '../types/utils';
 
 import {
-  MANIFEST_METADATA_DRIVE_ACT_PUBLISHER,
   MANIFEST_METADATA_DRIVE_BATCH_ID,
   MANIFEST_METADATA_DRIVE_ID,
   MANIFEST_METADATA_DRIVE_IS_ADMIN,
@@ -140,13 +140,13 @@ export function assertFolderInfo(value: unknown): asserts value is FolderInfo {
   }
 }
 
-export function assertDriveInfoFromMetadata(meta: Record<string, string>): DriveInfo {
+/** `actPublisher` comes from the live client, not the manifest — fork metadata is plaintext. */
+export function assertDriveInfoFromMetadata(meta: Record<string, string>, actPublisher: string): DriveInfo {
   const id = meta[MANIFEST_METADATA_DRIVE_ID];
   const name = meta[MANIFEST_METADATA_DRIVE_NAME];
   const owner = meta[MANIFEST_METADATA_DRIVE_OWNER];
   const batchId = meta[MANIFEST_METADATA_DRIVE_BATCH_ID];
   const isAdmin = meta[MANIFEST_METADATA_DRIVE_IS_ADMIN] === 'true';
-  const actPublisher = meta[MANIFEST_METADATA_DRIVE_ACT_PUBLISHER];
   const redundancyLevel = parseInt(meta[MANIFEST_METADATA_REDUNDANCY_LEVEL] ?? '0') as RedundancyLevel;
   const topic = meta[MANIFEST_METADATA_NODE_TOPIC];
 
@@ -198,4 +198,21 @@ export function assertReady(
     isInitialized,
     stateFeedTopic: stateFeedTopic.toString(),
   };
+}
+
+export function assertIdentityEnvelope(value: unknown): asserts value is IdentityEnvelope {
+  if (!Types.isStrictlyObject(value)) {
+    throw new TypeError('IdentityEnvelope has to be object!');
+  }
+
+  const envelope = value as IdentityEnvelope;
+
+  if (
+    typeof envelope.v !== 'number' ||
+    typeof envelope.salt !== 'string' ||
+    typeof envelope.sealed !== 'string' ||
+    typeof envelope.keyId !== 'string'
+  ) {
+    throw new TypeError('IdentityEnvelope is malformed!');
+  }
 }

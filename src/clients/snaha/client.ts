@@ -1,4 +1,3 @@
-import { Bytes } from '@ethersphere/core-sdk';
 import type { SwarmIdClient } from '@snaha/swarm-id';
 import type { Readable } from 'stream';
 
@@ -15,6 +14,7 @@ import {
   type ProtectedRefs,
   type StampInfo,
   type SwarmDownloadOptions,
+  type SwarmFeedWriteOptions,
   type SwarmRequestOptions,
   type SwarmUploadOptions,
 } from '../../types/utils';
@@ -85,14 +85,14 @@ export class SnahaClient implements SwarmClient {
     this.appKey();
   }
 
-  // eslint-disable-next-line require-await
-  async deriveSecret(seed: string): Promise<string> {
-    const { publicKey } = this.appKey();
-    const appKeyBytes = new Bytes(publicKey).toUint8Array();
-    const seedBytes = Bytes.fromUtf8(seed);
-    const secretAsUint8Arr = new Uint8Array([...appKeyBytes, ...seedBytes.toUint8Array()]);
-
-    return Bytes.keccak256(secretAsUint8Arr).toString();
+  /**
+   * `HMAC(appSecret, label)`, computed inside the iframe. Requires `@snaha/swarm-id` >= 0.4.0.
+   *
+   * Scoped to `(identity, app origin)`, so an identity provisioned on one origin does not unseal on
+   * another.
+   */
+  async deriveSecret(label: string): Promise<Uint8Array> {
+    return await this.client.deriveAppSecret(label);
   }
 
   /**
@@ -248,12 +248,17 @@ export class SnahaClient implements SwarmClient {
     topic: Hex,
     payload: Uint8Array | string,
     index: FeedIndexString,
-    /** Feed updates are single chunks — no erasure coding to apply. */
-    _options?: SwarmUploadOptions,
+    /** Only `signer` is read: feed updates are single chunks, so there is no erasure coding to apply. */
+    options?: SwarmFeedWriteOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<FeedWrite> {
-    // No signer: the proxy signs with the app key, so the feed owner matches `owner`.
-    const writer = this.client.makeSequentialFeedWriter({ topic }, toSnahaRequestOptions(requestOptions));
+    // Without a signer the proxy signs with the app key, so the feed owner matches `owner`. With
+    // one, the key crosses the postMessage boundary into the swarm-id iframe — which already holds
+    // the master key this one ultimately descends from, so it adds no party to the trust boundary.
+    const writer = this.client.makeSequentialFeedWriter(
+      { topic, signer: options?.signer },
+      toSnahaRequestOptions(requestOptions),
+    );
 
     const result = await writer.uploadRawPayload(payload, { index: BigInt(index), hasTimestamp: HAS_TIMESTAMP });
 

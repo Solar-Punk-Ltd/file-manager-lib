@@ -1,5 +1,5 @@
 import type { Bee } from '@ethersphere/bee-js';
-import { Bytes, type PrivateKey, Topic } from '@ethersphere/core-sdk';
+import { Bytes, PrivateKey, Topic } from '@ethersphere/core-sdk';
 import type { Readable } from 'stream';
 
 import type { SwarmClient } from '../../types/swarmClient';
@@ -15,6 +15,7 @@ import {
   type ProtectedRefs,
   type StampInfo,
   type SwarmDownloadOptions,
+  type SwarmFeedWriteOptions,
   type SwarmRequestOptions,
   type SwarmUploadOptions,
 } from '../../types/utils';
@@ -77,11 +78,12 @@ export class BeeClient implements SwarmClient {
     this.nodePublicKey = (await this.bee.connectivity.getNodeAddresses(ro)).publicKey.toCompressedHex();
   }
 
+  /** `keccak256(signerBytes ‖ label)` — keccak is not length-extendable, so the concatenation is safe. */
   // eslint-disable-next-line require-await
-  async deriveSecret(seed: string): Promise<string> {
-    const seedBytes = Bytes.fromUtf8(seed);
+  async deriveSecret(label: string): Promise<Uint8Array> {
+    const seedBytes = Bytes.fromUtf8(label);
     const secretAsUint8Arr = new Uint8Array([...this.signer.toUint8Array(), ...seedBytes.toUint8Array()]);
-    return Bytes.keccak256(secretAsUint8Arr).toString();
+    return Bytes.keccak256(secretAsUint8Arr).toUint8Array();
   }
 
   async getStamp(batchId?: Hex, requestOptions?: SwarmRequestOptions): Promise<StampInfo | undefined> {
@@ -258,13 +260,13 @@ export class BeeClient implements SwarmClient {
     topic: Hex,
     payload: Uint8Array | string,
     index: FeedIndexString,
-    /** Feed updates are single chunks — no erasure coding to apply. */
-    _options?: SwarmUploadOptions,
+    /** Only `signer` is read: feed updates are single chunks, so there is no erasure coding to apply. */
+    options?: SwarmFeedWriteOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<FeedWrite> {
     const writer = this.bee.feed.makeWriter(
       new Topic(topic).toUint8Array(),
-      this.signer,
+      options?.signer ? new PrivateKey(options.signer) : this.signer,
       toBeeRequestOptions(requestOptions),
     );
 

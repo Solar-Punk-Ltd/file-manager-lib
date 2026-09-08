@@ -55,6 +55,17 @@ export interface SwarmRequestOptions {
 export interface SwarmUploadOptions {
   redundancyLevel?: SwarmRedundancyLevel;
 }
+export interface SwarmFeedWriteOptions extends SwarmUploadOptions {
+  /**
+   * Private key (64 hex chars) to sign the feed update with, overriding the backend's own key.
+   *
+   * The one place key material crosses the port, and deliberately so: it is never the *backend's*
+   * credential, only the FileManager's own FMK-derived signer. Omit it and the update is signed by
+   * the backend key — which is what the identity envelope needs, since it must land under the
+   * credential's address to be findable before the FMK exists.
+   */
+  signer?: Hex;
+}
 export type SwarmRedundancyStrategy = number;
 export interface SwarmDownloadOptions {
   redundancyStrategy?: SwarmRedundancyStrategy;

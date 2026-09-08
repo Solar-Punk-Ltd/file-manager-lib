@@ -1,4 +1,4 @@
-packages: ['.']
+packages: [ '.' ]
 
 allowBuilds:
   cpu-features: true
@@ -19,3 +19,4 @@ minimumReleaseAgeExclude:
   - '@typescript-eslint/typescript-estree@8.67.0'
   - '@typescript-eslint/utils@8.67.0'
   - '@typescript-eslint/visitor-keys@8.67.0'
+  - '@snaha/swarm-id@0.4.0'

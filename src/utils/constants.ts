@@ -3,8 +3,22 @@ import { FeedIndex, Reference } from '@ethersphere/core-sdk';
 
 import { FEED_INDEX_NOT_FOUND } from '../types/utils';
 
-export const STATE_TOPIC_LABEL = 'filemanager-state/v2';
+export const STATE_TOPIC_LABEL = 'fm-state-v2';
 export const ADMIN_DRIVE_NAME = 'admin';
+
+//
+// HKDF `info` labels. Changing one orphans every existing identity, hence the version suffixes.
+
+export const IDENTITY_ENVELOPE_TOPIC_LABEL = 'fm-identity-envelope-v3';
+export const UNLOCK_KDF_LABEL = 'fm-unlock-v2';
+export const KEY_ID_LABEL = 'fm-key-id-v2';
+export const SIGNER_LABEL = 'fm-signer-v2';
+
+export const IDENTITY_ENVELOPE_VERSION = 3;
+/** The envelope feed's only slot. Never append: nothing rotates in place, and Bee no-ops on a taken index. */
+export const IDENTITY_ENVELOPE_FEED_INDEX = 0n;
+export const FMK_LENGTH = 32;
+export const UNLOCK_SALT_LENGTH = 16;
 export const SWARM_ZERO_ADDRESS = new Reference(NULL_ADDRESS);
 // --- Feed indexes ---
 //
@@ -31,7 +45,6 @@ export const MANIFEST_METADATA_NODE_TOPIC = 'swarm-node-topic';
 export const MANIFEST_METADATA_NODE_TYPE = 'swarm-node-type';
 export const MANIFEST_METADATA_REDUNDANCY_LEVEL = 'swarm-redundancy-level';
 export const MANIFEST_METADATA_NODE_OWNER = 'swarm-node-owner';
-export const MANIFEST_METADATA_NODE_ACT_PUBLISHER = 'swarm-node-act-publisher';
 export const MANIFEST_METADATA_NODE_VERSION = 'swarm-node-version';
 export const MANIFEST_METADATA_TRASHED_FROM = 'swarm-trashed-from';
 export const MANIFEST_METADATA_DRIVE_ID = 'swarm-drive-id';
@@ -39,4 +52,3 @@ export const MANIFEST_METADATA_DRIVE_NAME = 'swarm-drive-name';
 export const MANIFEST_METADATA_DRIVE_OWNER = 'swarm-drive-owner';
 export const MANIFEST_METADATA_DRIVE_IS_ADMIN = 'swarm-drive-is-admin';
 export const MANIFEST_METADATA_DRIVE_BATCH_ID = 'swarm-drive-batch-id';
-export const MANIFEST_METADATA_DRIVE_ACT_PUBLISHER = 'swarm-drive-act-publisher';

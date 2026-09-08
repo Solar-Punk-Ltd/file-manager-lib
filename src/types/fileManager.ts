@@ -10,6 +10,7 @@ import type { BatchId, FeedIndex, Identifier } from '@ethersphere/core-sdk';
 import { type EventEmitter } from '../eventEmitter';
 
 import { type DownloadFilesResult, type DownloadResult } from './download';
+import type { Credential, IdentityInfo } from './identity';
 import { type DriveInfo, type FileRecord, type FolderInfo, type ListDepth, type ListFolderResult } from './info';
 import { type UpdateItem, type UploadFilesResult, type UploadItem } from './upload';
 import type { StampInfo } from './utils';
@@ -427,6 +428,12 @@ export interface FileManager {
   ): Promise<FolderInfo>;
 
   /**
+   * The identity of the feed owner.
+   * @returns an IdentityInfo object, or undefined if not set.
+   */
+  readonly identity: IdentityInfo | undefined;
+
+  /**
    * Admin postage batch used for drive management operations.
    * @returns The admin postage batch, or undefined if not set.
    */
@@ -456,6 +463,7 @@ export interface FileManager {
 }
 
 export interface FileManagerConfig {
-  uploadConcurrency?: number; // default MAX_CONCURRENT_UPLOADS (2)
-  feedFetchConcurrency?: number; // default MAX_CONCURRENT_FEED_FETCHES (10)
+  uploadConcurrency?: number; // default `MAX_CONCURRENT_UPLOADS` (2)
+  feedFetchConcurrency?: number; // default `MAX_CONCURRENT_FEED_FETCHES` (10)
+  credential?: Credential; // default `swarmClientCredential(swarmClient)`
 }

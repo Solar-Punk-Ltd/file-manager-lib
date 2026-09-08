@@ -35,8 +35,10 @@ export type {
   ProtectedRefs,
   StampInfo,
   SwarmDownloadOptions,
+  SwarmFeedWriteOptions,
   SwarmRedundancyLevel,
   SwarmRedundancyStrategy,
   SwarmRequestOptions,
   SwarmUploadOptions,
 } from './utils';
+export type { Credential, Identity, IdentityInfo, IdentityEnvelope } from './identity';
