@@ -1,5 +1,10 @@
+import type { RedundancyLevel } from '@ethersphere/bee-js';
 import { type Bytes, type FeedIndex, type Reference } from '@ethersphere/core-sdk';
 
+/**
+ * ACT reference pair. No longer part of the tree's vocabulary — kept for the share layer, which is
+ * the only thing that still uploads through ACT.
+ */
 export interface ActReferences {
   reference: string;
   historyRef: string;
@@ -45,6 +50,34 @@ export const FEED_INDEX_NOT_FOUND: FeedIndexString = '18446744073709551615';
  */
 export const FEED_INDEX_START: FeedIndexString = '0';
 
+/**
+ * What a node's feed payload resolves to, once opened: one Swarm reference and nothing else — a
+ * mantaray root for a folder or drive, a record blob for a file. Never the sealed form; that lives
+ * only in the feed slot.
+ *
+ * 64 hex chars for plain data, 128 for natively encrypted data — the longer form carries the
+ * decryption key alongside the address, so the reference *is* the capability, and sealing it is
+ * what gates the bytes behind it.
+ */
+export interface ContentRef {
+  reference: Hex;
+}
+
+/** A node's two symmetric keys. `meta` unlocks its listing, `content` unlocks its content pointer. */
+export interface NodeKeys {
+  meta: Uint8Array;
+  content: Uint8Array;
+}
+
+/**
+ * A child's {@link NodeKeys} sealed under its parent's, as stored in the parent's fork metadata.
+ * Each value is `iv || ciphertext`, hex-encoded.
+ */
+export interface WrappedKeys {
+  meta: Hex;
+  content: Hex;
+}
+
 export type SwarmRedundancyLevel = number;
 
 export interface SwarmRequestOptions {
@@ -54,6 +87,8 @@ export interface SwarmRequestOptions {
 }
 export interface SwarmUploadOptions {
   redundancyLevel?: SwarmRedundancyLevel;
+  /** Swarm native encryption: a random per-object key, returned embedded in a 64-byte reference. */
+  encrypt?: boolean;
 }
 export interface SwarmFeedWriteOptions extends SwarmUploadOptions {
   /**
@@ -113,4 +148,17 @@ export interface FeedReferenceResult extends FeedUpdateHeaders {
 }
 export interface FeedResultWithIndex extends FeedPayloadResult {
   feedIndexNext: FeedIndex;
+}
+
+export interface FeedTarget {
+  batchId: string;
+  topic: string;
+  redundancyLevel?: RedundancyLevel;
+  index?: bigint;
+}
+
+export interface FeedWriteResult {
+  contentRef: ContentRef;
+  index: bigint;
+  nextIndex: bigint;
 }

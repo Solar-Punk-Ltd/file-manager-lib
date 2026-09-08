@@ -1,5 +1,5 @@
 import type { RedundancyLevel } from '@ethersphere/bee-js';
-import { BatchId, EthAddress, FeedIndex, Identifier, PublicKey, Reference, Topic } from '@ethersphere/core-sdk';
+import { BatchId, EthAddress, FeedIndex, Identifier, Reference, Topic } from '@ethersphere/core-sdk';
 import { Types } from 'cafe-utility';
 
 import type { IdentityEnvelope } from '../types/identity';
@@ -11,8 +11,7 @@ import {
   NodeStatus,
   NodeType,
 } from '../types/info';
-import { type SwarmClient } from '../types/swarmClient';
-import { type ActReferences } from '../types/utils';
+import { type ActReferences, type ContentRef } from '../types/utils';
 
 import {
   MANIFEST_METADATA_DRIVE_BATCH_ID,
@@ -23,10 +22,18 @@ import {
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
 } from './constants';
-import { DriveError, SignerError } from './errors';
+import { DriveError } from './errors';
 
 export function isRecord(value: unknown): value is Record<string, string> {
   return Types.isStrictlyObject(value) && Object.values(value).every((v) => typeof v === 'string');
+}
+
+export function assertContentRef(value: unknown): asserts value is ContentRef {
+  if (!Types.isStrictlyObject(value)) {
+    throw new TypeError('ContentRef has to be object!');
+  }
+
+  new Reference((value as ContentRef).reference);
 }
 
 export function assertActReferences(value: unknown): asserts value is ActReferences {
@@ -50,7 +57,6 @@ export function assertNodeResource(value: unknown): asserts value is NodeResourc
   new BatchId(nr.batchId);
   new Topic(nr.topic);
   new EthAddress(nr.owner);
-  new PublicKey(nr.actPublisher);
 
   if (typeof nr.redundancyLevel !== 'number') {
     throw new TypeError('redundancyLevel property of NodeResource has to be number!');
@@ -66,7 +72,7 @@ export function assertFileRecord(value: unknown): asserts value is FileRecord {
     throw new TypeError('type property of FileRecord has to be NodeType.File!');
   }
 
-  assertActReferences(fr.content);
+  assertContentRef(fr.content);
 
   if (fr.driveId !== undefined) {
     new Identifier(fr.driveId);
@@ -116,7 +122,7 @@ export function assertDriveInfo(value: unknown): asserts value is DriveInfo {
   }
 
   if (di.manifestRef !== undefined) {
-    assertActReferences(di.manifestRef);
+    assertContentRef(di.manifestRef);
   }
 }
 
@@ -136,12 +142,11 @@ export function assertFolderInfo(value: unknown): asserts value is FolderInfo {
   }
 
   if (fi.manifestRef !== undefined) {
-    assertActReferences(fi.manifestRef);
+    assertContentRef(fi.manifestRef);
   }
 }
 
-/** `actPublisher` comes from the live client, not the manifest — fork metadata is plaintext. */
-export function assertDriveInfoFromMetadata(meta: Record<string, string>, actPublisher: string): DriveInfo {
+export function assertDriveInfoFromMetadata(meta: Record<string, string>): DriveInfo {
   const id = meta[MANIFEST_METADATA_DRIVE_ID];
   const name = meta[MANIFEST_METADATA_DRIVE_NAME];
   const owner = meta[MANIFEST_METADATA_DRIVE_OWNER];
@@ -150,7 +155,7 @@ export function assertDriveInfoFromMetadata(meta: Record<string, string>, actPub
   const redundancyLevel = parseInt(meta[MANIFEST_METADATA_REDUNDANCY_LEVEL] ?? '0') as RedundancyLevel;
   const topic = meta[MANIFEST_METADATA_NODE_TOPIC];
 
-  if (!id || !name || !owner || !batchId || !topic || !actPublisher) {
+  if (!id || !name || !owner || !batchId || !topic) {
     throw new DriveError(`Invalid drive fork metadata — missing required fields`);
   }
 
@@ -163,7 +168,6 @@ export function assertDriveInfoFromMetadata(meta: Record<string, string>, actPub
     isAdmin,
     redundancyLevel,
     topic,
-    actPublisher,
   };
   assertDriveInfo(driveInfo);
 
@@ -171,16 +175,11 @@ export function assertDriveInfoFromMetadata(meta: Record<string, string>, actPub
 }
 
 interface FMReadyState {
-  publisher: string;
   isInitialized: boolean;
   stateFeedTopic: string;
 }
 
-export function assertReady(
-  swarmClient: SwarmClient,
-  isInitialized: boolean | undefined,
-  stateFeedTopic: Topic | undefined,
-): FMReadyState {
+export function assertReady(isInitialized: boolean | undefined, stateFeedTopic: Topic | undefined): FMReadyState {
   if (!isInitialized) {
     throw new DriveError('FileManager is not initialized');
   }
@@ -188,16 +187,7 @@ export function assertReady(
     throw new DriveError('FileManager state feed topic not found.');
   }
 
-  const publisher = swarmClient.actPublisher;
-  if (!publisher) {
-    throw new SignerError('Publisher not found');
-  }
-
-  return {
-    publisher,
-    isInitialized,
-    stateFeedTopic: stateFeedTopic.toString(),
-  };
+  return { isInitialized, stateFeedTopic: stateFeedTopic.toString() };
 }
 
 export function assertIdentityEnvelope(value: unknown): asserts value is IdentityEnvelope {

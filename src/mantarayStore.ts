@@ -1,12 +1,12 @@
 import type { BeeRequestOptions, RedundancyLevel } from '@ethersphere/bee-js';
-import { Bytes, FeedIndex, type MantarayNode, Reference, Topic } from '@ethersphere/core-sdk';
+import { Bytes, FeedIndex, type MantarayNode, Topic } from '@ethersphere/core-sdk';
 
 import type { Identity } from './types/identity';
 import { type DriveInfo, type FileRecord, type FolderInfo, type ManifestHost, NodeType } from './types/info';
 import { type SwarmClient } from './types/swarmClient';
-import { type ActReferences, type FeedResultWithIndex } from './types/utils';
-import { assertActReferences, assertFileRecord } from './utils/asserts';
-import { type FeedWriteResult, getFeedData, writeActFeed } from './utils/bee';
+import { type ContentRef, type FeedResultWithIndex, type FeedWriteResult, type NodeKeys } from './types/utils';
+import { assertFileRecord } from './utils/asserts';
+import { getFeedData, openFeedRef, writeEncryptedFeed } from './utils/bee';
 import {
   FEED_INDEX_NONE,
   MANIFEST_METADATA_NODE_TOPIC,
@@ -15,20 +15,22 @@ import {
   ROOT_PATH,
 } from './utils/constants';
 import { DriveError, FileRecordError, IdentityError } from './utils/errors';
-import { loadMantaray, saveNodeManifest } from './utils/mantaray';
+import { loadMantaray, saveNodeManifest, wrappedKeysFromMetadata, wrappedKeysMetadata } from './utils/mantaray';
 import { pathSegments } from './utils/path';
+import { Keyring } from './keyring';
 
 /**
- * Owns the two per-node caches and the resolve/load/save layer that reads and saves them.
- * FileManager delegates all path resolution and manifest feed I/O here,
+ * Owns the per-node caches, the key chain, and the resolve/load/save layer that reads and saves
+ * them. FileManager delegates all path resolution and manifest feed I/O here,
  */
 export class MantarayStore {
   private readonly swarmClient: SwarmClient;
   private identity: Identity | undefined = undefined;
+  private _keyring: Keyring | undefined = undefined;
   private readonly nodeManifestCache: Map<string, MantarayNode> = new Map();
   private readonly nodeManifestLoading: Map<string, Promise<MantarayNode>> = new Map();
   private readonly nodeNextIndexCache: Map<string, bigint> = new Map();
-  private readonly nodeRefCache: Map<string, ActReferences> = new Map();
+  private readonly nodeRefCache: Map<string, ContentRef> = new Map();
 
   // --- Initialization ---
 
@@ -37,13 +39,23 @@ export class MantarayStore {
   }
 
   /**
-   * Bind the store to the identity that owns and signs every feed it touches. Set after
-   * construction, since resolving the identity needs the client.
+   * Bind the store to the identity that owns and signs every feed it touches, and open a fresh key
+   * chain rooted in its FMK. Set after construction, since resolving the identity needs the client.
    *
    * Not folded into `clear()`, which is called mid-flight by `createAdminDrive(reset)`.
    */
   setIdentity(identity: Identity | undefined): void {
     this.identity = identity;
+    this._keyring = identity ? new Keyring(identity) : undefined;
+  }
+
+  /** The key chain for the current identity. */
+  get keyring(): Keyring {
+    if (!this._keyring) {
+      throw new IdentityError('MantarayStore has no identity — FileManager is not initialized');
+    }
+
+    return this._keyring;
   }
 
   // --- Swarm operations  ---
@@ -56,10 +68,9 @@ export class MantarayStore {
   async resolveHost(
     drive: DriveInfo,
     path: string,
-    publisher: string,
     requestOptions?: BeeRequestOptions,
   ): Promise<{ host: ManifestHost; folder: FolderInfo | null }> {
-    const folder = await this.resolveFolder(drive, path, publisher, requestOptions);
+    const folder = await this.resolveFolder(drive, path, requestOptions);
     return { host: folder ?? this.driveRootHost(drive), folder };
   }
 
@@ -67,18 +78,16 @@ export class MantarayStore {
   async resolveHostMantaray(
     drive: DriveInfo,
     path: string,
-    publisher: string,
     requestOptions?: BeeRequestOptions,
   ): Promise<{ host: ManifestHost; folder: FolderInfo | null; node: MantarayNode }> {
-    const { host, folder } = await this.resolveHost(drive, path, publisher, requestOptions);
-    const node = await this.getMantarayNode(host.topic, publisher, host.manifestRef, requestOptions);
+    const { host, folder } = await this.resolveHost(drive, path, requestOptions);
+    const node = await this.getMantarayNode(host.topic, host.manifestRef, requestOptions);
     return { host, folder, node };
   }
 
   async getMantarayNode(
     topic: string,
-    publisher: string,
-    manifestRef?: ActReferences,
+    manifestRef?: ContentRef,
     requestOptions?: BeeRequestOptions,
   ): Promise<MantarayNode> {
     const cached = this.getManifestCache(topic);
@@ -94,13 +103,8 @@ export class MantarayStore {
     // Concurrent getMantarayNode calls for the same but not yet cached topic must share one load (and thus one MantarayNode instance) — otherwise
     // each caller mutates its own copy and all but the last are dropped before the batched save.
     const loadPromise = (async (): Promise<MantarayNode> => {
-      const raw = await this.swarmClient.downloadProtected(
-        { reference: manifestRef.reference, historyRef: manifestRef.historyRef, publisher },
-        undefined,
-        undefined,
-        requestOptions,
-      );
-      const node = await loadMantaray(this.swarmClient, new Reference(raw), undefined, requestOptions);
+      const { meta } = await this.keyring.requireKeys(topic);
+      const node = await loadMantaray(this.swarmClient, manifestRef.reference, meta, undefined, requestOptions);
 
       this.setManifestCache(topic, node);
       this.setNodeRef(topic, manifestRef);
@@ -120,18 +124,19 @@ export class MantarayStore {
     node: MantarayNode,
     host: ManifestHost,
     requestOptions?: BeeRequestOptions,
-  ): Promise<ActReferences> {
+  ): Promise<ContentRef> {
     const cachedWriteIx = this.getNodeNextIndexCache(host.topic);
-    const prevManifestRef = this.getNodeRef(host.topic) ?? host.manifestRef;
+    const { meta } = await this.keyring.requireKeys(host.topic);
 
-    let contentRefs: ActReferences;
+    let contentRef: ContentRef;
     let nextIndex: bigint;
     try {
-      ({ contentRefs, nextIndex } = await saveNodeManifest(
+      ({ contentRef, nextIndex } = await saveNodeManifest(
         this.swarmClient,
         this.requireIdentity(),
         node,
-        { ...host, manifestRef: prevManifestRef },
+        host,
+        meta,
         cachedWriteIx,
         requestOptions,
       ));
@@ -140,15 +145,13 @@ export class MantarayStore {
       throw err;
     }
     this.setNodeNextIndexCache(host.topic, nextIndex);
-    this.setNodeRef(host.topic, contentRefs);
+    this.setNodeRef(host.topic, contentRef);
 
-    return contentRefs;
+    return contentRef;
   }
 
-  /** Returns the refs written plus the feed index they landed on — the record's authoritative version. */
+  /** Returns the ref written plus the feed index it landed on — the record's authoritative version. */
   async saveRecord(record: FileRecord, requestOptions?: BeeRequestOptions): Promise<FeedWriteResult> {
-    const prevRef = this.getNodeRef(record.topic);
-
     // Derived state: every one of these is reconstructed by the manifest walk, so persisting them
     // would only create a second copy that can disagree with the tree.
     const persistable: FileRecord = { ...record };
@@ -156,28 +159,29 @@ export class MantarayStore {
     delete persistable.driveId;
     delete (persistable as Partial<FileRecord>).path;
 
-    const { contentRefs, index, nextIndex } = await writeActFeed(
+    const { content } = await this.keyring.requireKeys(record.topic);
+
+    const { contentRef, index, nextIndex } = await writeEncryptedFeed(
       this.swarmClient,
       this.requireIdentity(),
       JSON.stringify(persistable),
+      content,
       {
         batchId: record.batchId,
         topic: record.topic,
         redundancyLevel: record.redundancyLevel,
-        actHistoryAddress: prevRef?.historyRef,
         index: record.version !== undefined ? new FeedIndex(record.version).toBigInt() : undefined,
       },
       requestOptions,
     );
     this.setNodeNextIndexCache(record.topic, nextIndex);
-    this.setNodeRef(record.topic, contentRefs);
+    this.setNodeRef(record.topic, contentRef);
 
-    return { contentRefs, index, nextIndex };
+    return { contentRef, index, nextIndex };
   }
 
   async getRecord(
     topic: string,
-    actPublisher: string,
     feedData: FeedResultWithIndex,
     options: { isHeadRead: boolean },
     requestOptions?: BeeRequestOptions,
@@ -186,15 +190,9 @@ export class MantarayStore {
       throw new FileRecordError(`File record not found for topic: ${topic.slice(0, 6)}`);
     }
 
-    const contentRefs = feedData.payload.toJSON() as ActReferences;
-    assertActReferences(contentRefs);
-
-    const fileBytes = await this.swarmClient.downloadProtected(
-      { reference: contentRefs.reference, historyRef: contentRefs.historyRef, publisher: actPublisher },
-      undefined,
-      undefined,
-      requestOptions,
-    );
+    const { content } = await this.keyring.requireKeys(topic);
+    const contentRef = await openFeedRef(feedData.payload, content);
+    const fileBytes = await this.swarmClient.downloadData(contentRef.reference, undefined, requestOptions);
 
     const record = new Bytes(fileBytes).toJSON() as FileRecord;
     assertFileRecord(record);
@@ -210,7 +208,7 @@ export class MantarayStore {
     record.version = feedData.feedIndex.toString();
 
     if (options.isHeadRead) {
-      this.setNodeRef(topic, contentRefs);
+      this.setNodeRef(topic, contentRef);
       this.setNodeNextIndexCache(topic, new FeedIndex(record.version).next().toBigInt());
     }
 
@@ -225,7 +223,7 @@ export class MantarayStore {
     nodeTopic: string,
     currentPath: string,
     requestOptions?: BeeRequestOptions,
-  ): Promise<ActReferences> {
+  ): Promise<ContentRef> {
     const cachedRef = this.getNodeRef(nodeTopic);
     if (cachedRef && this.getManifestCache(nodeTopic) && this.getNodeNextIndexCache(nodeTopic) !== undefined) {
       return cachedRef;
@@ -242,11 +240,46 @@ export class MantarayStore {
       throw new DriveError(`Folder feed not found for path: ${currentPath}`);
     }
 
-    const manifestRef: ActReferences = payload.toJSON() as ActReferences;
-    assertActReferences(manifestRef);
+    const manifestRef = await this.openManifestRef(nodeTopic, payload);
     this.setNodeNextIndexCache(nodeTopic, feedIndexNext.toBigInt());
 
     return manifestRef;
+  }
+
+  /**
+   * Unseal a manifest host's feed payload into the mantaray root reference it carries.
+   *
+   * The one place a feed payload is opened for a folder, drive or the state node — callers hold the
+   * payload, the store holds the key.
+   */
+  async openManifestRef(topic: string, payload: Bytes): Promise<ContentRef> {
+    const { meta } = await this.keyring.requireKeys(topic);
+
+    return await openFeedRef(payload, meta);
+  }
+
+  // --- Key chain ---
+
+  /** Recover a child's keys from its fork metadata, sealed under `parentTopic`'s. */
+  async unwrapFork(parentTopic: string, childTopic: string, meta: Record<string, string>): Promise<NodeKeys> {
+    return await this.keyring.unwrapChild(parentTopic, childTopic, wrappedKeysFromMetadata(meta));
+  }
+
+  /**
+   * Re-seal a fork's keys for a new parent, returning the metadata to store there.
+   *
+   * Required on every relocation — move, trash, recover. A fork copied verbatim into another
+   * manifest carries keys wrapped under its old parent, so it lists correctly and opens for nobody.
+   */
+  async rewrapFork(
+    fromParentTopic: string,
+    toParentTopic: string,
+    childTopic: string,
+    meta: Record<string, string>,
+  ): Promise<Record<string, string>> {
+    await this.unwrapFork(fromParentTopic, childTopic, meta);
+
+    return { ...meta, ...wrappedKeysMetadata(await this.keyring.wrapFor(toParentTopic, childTopic)) };
   }
 
   // --- Cache management  ---
@@ -256,13 +289,17 @@ export class MantarayStore {
     this.nodeManifestCache.set(topic, node);
   }
 
-  /** The latest ACT ref written to `topic`'s feed — a manifest root or a file record. */
-  getNodeRef(topic: string): ActReferences | undefined {
+  /**
+   * The reference `topic`'s feed head currently resolves to — a mantaray root for a manifest host,
+   * a record blob for a file. **Opened**, which is what makes it a cache: holding it is what lets a
+   * later read skip both the feed fetch and the unseal. The feed itself holds this sealed.
+   */
+  getNodeRef(topic: string): ContentRef | undefined {
     return this.nodeRefCache.get(topic);
   }
 
-  /** Record the latest ACT ref for `topic`'s feed. Used by feed writes that bypass {@link saveMantarayNode}. */
-  setNodeRef(topic: string, refs: ActReferences): void {
+  /** Record what `topic`'s feed head resolves to. Used by feed writes that bypass {@link saveMantarayNode}. */
+  setNodeRef(topic: string, refs: ContentRef): void {
     this.nodeRefCache.set(topic, refs);
   }
 
@@ -281,7 +318,12 @@ export class MantarayStore {
     return this.nodeNextIndexCache.get(topic);
   }
 
-  /** Clear all cached state */
+  /**
+   * Clear all cached state for one node.
+   *
+   * Its keys are kept: they are not recoverable once dropped, since the only other copy is wrapped
+   * in a parent manifest this store may no longer be able to reach.
+   */
   evict(topic: string): void {
     this.nodeManifestCache.delete(topic);
     this.nodeManifestLoading.delete(topic);
@@ -295,6 +337,7 @@ export class MantarayStore {
     this.nodeManifestLoading.clear();
     this.nodeNextIndexCache.clear();
     this.nodeRefCache.clear();
+    this._keyring?.clear();
   }
 
   // --- Private helpers  ---
@@ -314,26 +357,20 @@ export class MantarayStore {
       manifestRef: drive.manifestRef,
       batchId: drive.batchId,
       redundancyLevel: drive.redundancyLevel,
-      actPublisher: drive.actPublisher,
     };
   }
 
   private async resolveFolder(
     driveInfo: DriveInfo,
     path: string,
-    publisher: string,
     requestOptions?: BeeRequestOptions,
   ): Promise<FolderInfo | null> {
     if (!path || path === ROOT_PATH) return null;
 
     const segments = pathSegments(path);
     const driveRootHost = this.driveRootHost(driveInfo);
-    let currentMantaray = await this.getMantarayNode(
-      driveRootHost.topic,
-      publisher,
-      driveRootHost.manifestRef,
-      requestOptions,
-    );
+    let currentMantaray = await this.getMantarayNode(driveRootHost.topic, driveRootHost.manifestRef, requestOptions);
+    let currentTopic = driveRootHost.topic;
     let currentPath = '';
     let currentFolderInfo: FolderInfo | null = null;
 
@@ -353,6 +390,8 @@ export class MantarayStore {
       if (!nodeTopic) {
         throw new FileRecordError(`Folder fork missing topic: ${currentPath}`);
       }
+
+      await this.unwrapFork(currentTopic, nodeTopic, meta);
       const folderManifestRef = await this.resolveFolderManifestRef(nodeTopic, currentPath, requestOptions);
 
       currentFolderInfo = {
@@ -366,15 +405,14 @@ export class MantarayStore {
           : driveInfo.redundancyLevel,
         path: currentPath,
         driveId: driveInfo.id,
-        actPublisher: publisher,
       };
 
       currentMantaray = await this.getMantarayNode(
         currentFolderInfo.topic,
-        publisher,
         currentFolderInfo.manifestRef,
         requestOptions,
       );
+      currentTopic = nodeTopic;
     }
 
     return currentFolderInfo;

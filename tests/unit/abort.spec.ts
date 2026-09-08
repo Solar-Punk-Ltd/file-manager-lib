@@ -11,7 +11,7 @@ import {
   makeUploadSource,
 } from '../utils';
 
-import { applyDefaultMocks, createMockDriveInfo, createMockNodeAddresses, seedRecords } from './mock';
+import { applyDefaultMocks, createMockDriveInfo, mockWrappedKeys, seedKeys, seedRecords } from './mock';
 
 import { BeeClient } from '@/clients';
 import { EventEmitterBase } from '@/eventEmitter';
@@ -19,12 +19,10 @@ import { FileManagerBase } from '@/fileManager';
 import { type DriveInfo, FailureScope, type FileRecord, ListDepth, NodeType } from '@/types';
 import { DriveError } from '@/utils';
 import { getFeedData } from '@/utils/bee';
-import { SWARM_ZERO_ADDRESS } from '@/utils/constants';
 
 describe('Abort signal handling', () => {
   const otherMockBatchId = new BatchId('4'.repeat(64));
   const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
-  const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
 
   const nodeOnly = IS_BROWSER ? it.skip : it;
 
@@ -223,7 +221,9 @@ describe('Abort signal handling', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
     const { loadMantaray, getAllNodeEntries } = require('@/utils/mantaray');
     loadMantaray.mockResolvedValue(new MantarayNode());
-    getAllNodeEntries.mockReturnValue([{ path: 'bad.txt', type: NodeType.File, topic: badTopic, rawMetadata: {} }]);
+    getAllNodeEntries.mockReturnValue([
+      { path: 'bad.txt', type: NodeType.File, topic: badTopic, rawMetadata: mockWrappedKeys() },
+    ]);
 
     (getFeedData as jest.Mock).mockRejectedValue(new Error('feed unreachable'));
 
@@ -240,7 +240,7 @@ describe('Abort signal handling', () => {
 
   it('throw if listFolder is called on a non-existent drive', async () => {
     const fm = await createInitializedFileManager();
-    const freshDrive = createMockDriveInfo(actPublisher);
+    const freshDrive = createMockDriveInfo();
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
     const { loadMantaray, getAllNodeEntries } = require('@/utils/mantaray');
@@ -256,29 +256,34 @@ describe('Abort signal handling', () => {
 
   it('forwards the abort signal to getMantarayNode downloads in listFolder', async () => {
     const fm = await createInitializedFileManager();
-    const freshDrive = createMockDriveInfo(actPublisher);
+    const freshDrive = createMockDriveInfo();
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
     const { loadMantaray, getAllNodeEntries } = require('@/utils/mantaray');
     loadMantaray.mockResolvedValue(new MantarayNode());
     getAllNodeEntries.mockReturnValue([]);
     (fm as any).driveList.push(freshDrive);
+    // Pushed straight into driveList, so no walk hydrated its keys.
+    seedKeys(fm, freshDrive.topic);
 
     const downloadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'download');
+    downloadDataSpy.mockClear();
     const controller = new AbortController();
 
     await fm.listFolder(freshDrive.id, '', ListDepth.Shallow, undefined, {
       signal: controller.signal,
     });
 
-    expect(downloadDataSpy).toHaveBeenCalledWith(
+    // The manifest root now comes straight out of the feed payload, so no blob is fetched for it —
+    // the only downloads are the manifest's own chunks, which loadMantaray owns.
+    expect(downloadDataSpy).not.toHaveBeenCalled();
+    expect(loadMantaray).toHaveBeenCalledWith(
+      expect.anything(),
       freshDrive.manifestRef!.reference,
-      { actHistoryAddress: freshDrive.manifestRef!.historyRef, actPublisher: expect.anything() },
+      expect.anything(),
+      undefined,
       { signal: controller.signal },
     );
-    expect(loadMantaray).toHaveBeenCalledWith(expect.anything(), expect.anything(), undefined, {
-      signal: controller.signal,
-    });
   });
 
   it('should allow listFolder to proceed when signal is not aborted', async () => {
@@ -298,12 +303,11 @@ describe('Abort signal handling', () => {
       type: NodeType.File,
       batchId: DUMMY_BATCH_ID,
       owner,
-      actPublisher,
       topic: Topic.fromString('signal-file').toString(),
       driveId: drive.id,
       name: 'a.txt',
       path: 'a.txt',
-      content: { reference: '1'.repeat(64), historyRef: SWARM_ZERO_ADDRESS.toString() },
+      content: { reference: '1'.repeat(64) },
       redundancyLevel: RedundancyLevel.OFF,
     };
     seedRecords(fm, rec);
@@ -316,11 +320,7 @@ describe('Abort signal handling', () => {
 
     await fm.downloadFile(rec, undefined, { signal: controller.signal });
 
-    expect(downloadReadableDataSpy).toHaveBeenCalledWith(
-      '1'.repeat(64),
-      { actHistoryAddress: SWARM_ZERO_ADDRESS.toString(), actPublisher },
-      { signal: controller.signal },
-    );
+    expect(downloadReadableDataSpy).toHaveBeenCalledWith('1'.repeat(64), undefined, { signal: controller.signal });
   });
 
   it('should allow downloadFolder to proceed when signal is not aborted', async () => {

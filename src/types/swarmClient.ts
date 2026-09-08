@@ -44,8 +44,7 @@ export interface SwarmClient {
   readonly publicKey: Hex;
 
   /**
-   * Compressed public key to quote as `actPublisher` when reading ACT-protected content, and to
-   * persist as a node's `actPublisher`.
+   * Compressed public key to quote as `actPublisher` when reading ACT-protected content.
    *
    * Distinct from {@link publicKey} and not interchangeable with it. Under bee-js the Bee **node**
    * performs the ACT encryption, so this is the node's key from `getNodeAddresses()`. Under
@@ -75,9 +74,10 @@ export interface SwarmClient {
 
   // --- plain bytes ---
 
+  /** With `options.encrypt` the returned reference is 64 bytes and carries the decryption key. */
   uploadData(
     batchId: Hex,
-    data: Uint8Array | string,
+    data: Uint8Array | string | Blob | Readable,
     options?: SwarmUploadOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<ClientUploadResult>;

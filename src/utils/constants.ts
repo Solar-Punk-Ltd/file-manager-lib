@@ -13,6 +13,8 @@ export const IDENTITY_ENVELOPE_TOPIC_LABEL = 'fm-identity-envelope-v3';
 export const UNLOCK_KDF_LABEL = 'fm-unlock-v2';
 export const KEY_ID_LABEL = 'fm-key-id-v2';
 export const SIGNER_LABEL = 'fm-signer-v2';
+export const ROOT_META_KEY_LABEL = 'fm-root-meta-v1';
+export const ROOT_CONTENT_KEY_LABEL = 'fm-root-content-v1';
 
 export const IDENTITY_ENVELOPE_VERSION = 3;
 /** The envelope feed's only slot. Never append: nothing rotates in place, and Bee no-ops on a taken index. */
@@ -46,6 +48,8 @@ export const MANIFEST_METADATA_NODE_TYPE = 'swarm-node-type';
 export const MANIFEST_METADATA_REDUNDANCY_LEVEL = 'swarm-redundancy-level';
 export const MANIFEST_METADATA_NODE_OWNER = 'swarm-node-owner';
 export const MANIFEST_METADATA_NODE_VERSION = 'swarm-node-version';
+export const MANIFEST_METADATA_WRAPPED_META_KEY = 'swarm-wrapped-meta-key';
+export const MANIFEST_METADATA_WRAPPED_CONTENT_KEY = 'swarm-wrapped-content-key';
 export const MANIFEST_METADATA_TRASHED_FROM = 'swarm-trashed-from';
 export const MANIFEST_METADATA_DRIVE_ID = 'swarm-drive-id';
 export const MANIFEST_METADATA_DRIVE_NAME = 'swarm-drive-name';

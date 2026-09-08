@@ -48,5 +48,11 @@ export interface Identity extends IdentityInfo {
    * secp256k1 is outside WebCrypto. Kept off `IdentityInfo` so it stays off the public surface.
    */
   readonly signer: Hex;
-  deriveKey(info: string): Promise<CryptoKey>;
+  /**
+   * 32 bytes from the FMK for `info` — the root of the tree's key chain.
+   *
+   * Raw rather than a `CryptoKey` because every node key below the root is wrapped into a manifest
+   * and, once sharing lands, handed to a grantee; a non-extractable root could not seal them.
+   */
+  deriveKeyBytes(info: string): Promise<Uint8Array>;
 }

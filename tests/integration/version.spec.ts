@@ -133,21 +133,14 @@ describe('Version control', () => {
 
     const v0Bytes = await retryOnPropagationDelay(async () => {
       return streamToUint8Array(
-        await bee.data.downloadReadable(v0.content.reference, {
-          actHistoryAddress: v0.content.historyRef,
-          actPublisher: v0.actPublisher,
-        }),
+        // A 64-byte reference carries its own key, so the bytes come back without any ACT context.
+        await bee.data.downloadReadable(v0.content.reference),
       );
     });
     expect(Buffer.from(v0Bytes).toString('utf-8')).toBe('Version bytes v0');
 
     const headBytes = await retryOnPropagationDelay(async () => {
-      return streamToUint8Array(
-        await bee.data.downloadReadable(head.content.reference, {
-          actHistoryAddress: head.content.historyRef,
-          actPublisher: head.actPublisher,
-        }),
-      );
+      return streamToUint8Array(await bee.data.downloadReadable(head.content.reference));
     });
     expect(Buffer.from(headBytes).toString('utf-8')).toBe('Version bytes v1');
   });

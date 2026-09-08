@@ -26,8 +26,14 @@ import { DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID, MOCK_NODE_SIGNER } from '../utils'
 
 import { type FileManagerBase } from '@/fileManager';
 import { type DriveInfo, type FileRecord, NodeType, type StampInfo } from '@/types';
-import { fetchStamp, getFeedData, writeActFeed } from '@/utils/bee';
-import { ADMIN_DRIVE_NAME, FEED_INDEX_ZERO, SWARM_ZERO_ADDRESS } from '@/utils/constants';
+import { fetchStamp, getFeedData, openFeedRef, writeEncryptedFeed, writeSealedRefFeed } from '@/utils/bee';
+import {
+  ADMIN_DRIVE_NAME,
+  FEED_INDEX_ZERO,
+  MANIFEST_METADATA_WRAPPED_CONTENT_KEY,
+  MANIFEST_METADATA_WRAPPED_META_KEY,
+  SWARM_ZERO_ADDRESS,
+} from '@/utils/constants';
 import { getAllNodeEntries, loadMantaray } from '@/utils/mantaray';
 
 export function createMockMantarayNode(all = true): MantarayNode {
@@ -56,7 +62,6 @@ export function createMockNodeAddresses(): NodeAddresses {
 
 export async function createMockFileInfo(
   owner: string,
-  actPublisher: string,
   ref: string = SWARM_ZERO_ADDRESS.toString(),
   overrides?: Partial<FileRecord>,
 ): Promise<FileRecord> {
@@ -68,17 +73,13 @@ export async function createMockFileInfo(
     topic: Topic.fromString('file-1').toString(),
     driveId: Identifier.fromString('123').toString(),
     owner,
-    actPublisher,
-    content: {
-      reference: ref,
-      historyRef: SWARM_ZERO_ADDRESS.toString(),
-    },
+    content: { reference: ref },
     redundancyLevel: RedundancyLevel.OFF,
     ...overrides,
   };
 }
 
-export function createMockDriveInfo(actPublisher: string, overrides?: Partial<DriveInfo>): DriveInfo {
+export function createMockDriveInfo(overrides?: Partial<DriveInfo>): DriveInfo {
   return {
     type: NodeType.Drive,
     id: Identifier.fromString('123').toString(),
@@ -87,13 +88,16 @@ export function createMockDriveInfo(actPublisher: string, overrides?: Partial<Dr
     name: 'Test Drive',
     topic: Topic.fromString('drive-topic-1').toString(),
     redundancyLevel: RedundancyLevel.MEDIUM,
-    manifestRef: {
-      reference: new Reference('1'.repeat(64)).toString(),
-      historyRef: new Reference('2'.repeat(64)).toString(),
-    },
+    manifestRef: { reference: new Reference('1'.repeat(64)).toString() },
     isAdmin: false,
-    actPublisher,
     ...overrides,
+  };
+}
+
+export function mockWrappedKeys(seed: string = 'ab'): Record<string, string> {
+  return {
+    [MANIFEST_METADATA_WRAPPED_META_KEY]: seed.repeat(64 / seed.length),
+    [MANIFEST_METADATA_WRAPPED_CONTENT_KEY]: seed.repeat(64 / seed.length),
   };
 }
 
@@ -249,6 +253,20 @@ export const seedRecords = (fm: FileManagerBase, ...records: FileRecord[]): void
   (fm as unknown as SeedableFm)._recordList.push(...records);
 };
 
+export const seedKeys = (fm: FileManagerBase, ...topics: string[]): void => {
+  const { keyring } = (fm as unknown as { store: { keyring: { mint: (topic: string) => unknown } } }).store;
+  for (const topic of topics) {
+    keyring.mint(topic);
+  }
+};
+
+export const refPayload = (
+  reference: string = SWARM_ZERO_ADDRESS.toString(),
+): { toUint8Array: () => Uint8Array; toJSON: () => object } => ({
+  toUint8Array: () => new Reference(reference).toUint8Array(),
+  toJSON: () => ({ reference }),
+});
+
 export function applyDefaultMocks(): void {
   jest.resetAllMocks();
   createInitMocks();
@@ -258,41 +276,33 @@ export function applyDefaultMocks(): void {
     feedIndexNext: FEED_INDEX_ZERO,
     payload: {
       toUint8Array: () => SWARM_ZERO_ADDRESS.toUint8Array(),
-      toJSON: () => ({
-        reference: SWARM_ZERO_ADDRESS.toString(),
-        historyRef: SWARM_ZERO_ADDRESS.toString(),
-      }),
+      toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString() }),
     },
   });
 
   (fetchStamp as jest.Mock).mockResolvedValue({ ...mockStampInfo });
 
-  (writeActFeed as jest.Mock).mockImplementation(jest.requireActual('@/utils/bee').writeActFeed);
+  (writeSealedRefFeed as jest.Mock).mockImplementation(jest.requireActual('@/utils/bee').writeSealedRefFeed);
+  (writeEncryptedFeed as jest.Mock).mockImplementation(jest.requireActual('@/utils/bee').writeEncryptedFeed);
+
+  (openFeedRef as jest.Mock).mockImplementation(async (payload: { toUint8Array: () => Uint8Array }) => ({
+    reference: new Reference(payload.toUint8Array()).toString(),
+  }));
 
   (loadMantaray as jest.Mock).mockResolvedValue(new MantarayNode());
   (getAllNodeEntries as jest.Mock).mockReturnValue([]);
 }
 
-export const seedDummyFile = (
-  drive: DriveInfo,
-  path: string,
-  ref: string,
-  owner: string,
-  actPublisher: string,
-): FileRecord => {
+export const seedDummyFile = (drive: DriveInfo, path: string, ref: string, owner: string): FileRecord => {
   return {
     type: NodeType.File,
     batchId: DUMMY_BATCH_ID,
     owner,
-    actPublisher,
     topic: Topic.fromString(`dl-${path}`).toString(),
     driveId: drive.id,
     name: path.split('/').filter(Boolean).pop() ?? path,
     path,
-    content: {
-      reference: ref,
-      historyRef: SWARM_ZERO_ADDRESS.toString(),
-    },
+    content: { reference: ref },
     redundancyLevel: RedundancyLevel.OFF,
   };
 };

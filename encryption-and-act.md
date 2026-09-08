@@ -1,6 +1,7 @@
 # Client-side encryption + ACT sharing — design
 
-**Branch:** `feat/encryption` · **Status:** design, not implemented · **Targets:** v2 (breaking)
+**Branch:** `feat/encryption` · **Status:** §§4–5 implemented, sharing (§2.5 phase 2) not started · **Targets:** v2
+(breaking)
 
 Replaces per-node ACT with client-side symmetric encryption over a two-chain key hierarchy, and narrows ACT to what it
 is actually good at: gating a small key blob to a named grantee list at share time.
@@ -182,11 +183,12 @@ flowchart TD
     C --> D["generate K_meta(X), K_content(X)<br/>32 random bytes each"]
     D --> E["swarmClient.uploadData(batchId, bytes, { encrypt: true })<br/>-> 64-byte contentRef"]
     E --> F["record = { topic, name, content: { reference: contentRef }, ... }"]
-    F --> G["payload = AES-GCM(K_content(X), JSON(record))"]
-    G --> H["writeEncryptedFeed -> uploadData(encrypt:true) + writeFeed"]
-    H --> I["parent.addFork(name, topic, forkMetadata)<br/>forkMetadata carries wrap_meta, wrap_content,<br/>size, timestamp, type, version"]
-    I --> J["saveNodeManifest(parent)<br/>marshal -> uploadData(encrypt:true) -> encrypt payload under K_meta(parent) -> writeFeed"]
-    J --> K["propagate manifestRef upward to the drive root"]
+    F --> G["uploadData(JSON(record), { encrypt: true })<br/>-> 64-byte recordRef"]
+    G --> H["writeFeed(AES-GCM(K_content(X), recordRef))<br/>the reference is sealed, not the payload"]
+    H --> I["parent.addFork(name, topic, forkMetadata)<br/>forkMetadata carries wrap_meta, wrap_content,<br/>type, version"]
+    I --> J["saveNodeManifest(parent)<br/>each node: AES-GCM(K_meta(parent), marshal()) -> uploadData (plain, 32-byte refs)"]
+    J --> J2["writeFeed(AES-GCM(K_meta(parent), rootRef))<br/>32-byte root goes straight into the slot"]
+    J2 --> K["propagate manifestRef upward to the drive root"]
 ```
 
 ### 2.4 Read paths
@@ -194,17 +196,17 @@ flowchart TD
 ```mermaid
 flowchart TD
     subgraph LIST["listFolder — needs K_meta only"]
-        L1["read folder feed head"] --> L2["AES-GCM-decrypt with K_meta(F)"]
-        L2 --> L3["manifestRef, 64-byte"]
-        L3 --> L4["downloadData -> unmarshal manifest"]
-        L4 --> L5["forks: name, topic, type, size,<br/>timestamp, version, wrapped keys"]
+        L1["read folder feed head"] --> L2["AES-GCM-decrypt with K_meta(F)<br/>-> 32-byte mantaray root"]
+        L2 --> L4["downloadData per node<br/>AES-GCM-decrypt with K_meta(F) -> unmarshal"]
+        L4 --> L5["forks: name, topic, type,<br/>version, wrapped keys"]
         L5 --> L6["render listing — no file content touched"]
     end
 
     subgraph OPEN["downloadFile — needs K_content"]
         O1["unwrap K_content(X) from parent fork"] --> O2["read file feed head"]
-        O2 --> O3["AES-GCM-decrypt with K_content(X)"]
-        O3 --> O4["FileRecord.content.reference, 64-byte"]
+        O2 --> O3["AES-GCM-decrypt with K_content(X)<br/>-> 64-byte recordRef"]
+        O3 --> O35["downloadData -> FileRecord JSON<br/>Swarm decrypts natively"]
+        O35 --> O4["FileRecord.content.reference, 64-byte"]
         O4 --> O5["downloadData -> plaintext bytes"]
     end
 
@@ -252,24 +254,24 @@ offers it; implementing it means breaking the `K_meta` chain at every subfolder 
 
 ## 3. Comparison with the current ACT implementation
 
-| #   | Concern                           | Current (v2, ACT everywhere)                                                                                     | Planned (v3)                                                                            |
-| --- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| 1   | Index confidentiality             | ACT-wrapped **pointer**; manifest bytes ride `/bytes` in **plaintext**, protected only by an unguessable address | AES-256-GCM on feed payloads + native encryption on manifest bytes                      |
-| 2   | Content confidentiality           | none requested — `uploadProtected` passes no `encrypt`                                                           | `encrypt: true`, random per-object key inside the 64-byte reference                     |
-| 3   | Who encrypts                      | Bee node (bee-js) or snaha iframe                                                                                | fm-lib, client-side, `crypto.subtle`                                                    |
-| 4   | Cost per node write               | ACT upload + feed write                                                                                          | AES encrypt (local) + upload + feed write                                               |
-| 5   | Cost per folder share             | O(subtree) ACT grants                                                                                            | 1 ACT write of a few hundred bytes                                                      |
-| 6   | Identity coupling                 | `actPublisher` still needed per read, but no longer written into plaintext fork metadata                         | none in the tree; identity only at the share boundary                                   |
-| 7   | Cross-origin drive access         | broken — origin-scoped `appKey` changes owner and state topic                                                    | FMK is origin-independent, but snaha's unlock secret is not — still blocked, one seam   |
-| 8   | Cross-login drive access          | impossible                                                                                                       | works via the envelope                                                                  |
-| 9   | snaha `actUploadData` history gap | blocks grantee amendment on tree nodes                                                                           | irrelevant — share blobs are rewritten wholesale                                        |
-| 10  | Listing without read              | not expressible                                                                                                  | native — `K_meta` / `K_content` split                                                   |
-| 11  | Share a file without re-upload    | needs `actResolveReference` from snaha                                                                           | native — fm-lib already holds the plain reference                                       |
-| 12  | Share a folder, live-tracking     | not expressible                                                                                                  | phase 2, one grant                                                                      |
-| 13  | Revocation                        | nominally via `actRevokeGrantees`; unavailable on snaha, and Swarm cannot unsee                                  | explicitly not offered. Key rotation denies _future_ reads at O(subtree) index rewrites |
-| 14  | Content re-upload on rotation     | no                                                                                                               | no — index only                                                                         |
-| 15  | Streaming                         | `downloadProtectedStream`; faked on snaha                                                                        | `downloadStream` on plain refs; unchanged semantics                                     |
-| 16  | Port surface                      | 5 ACT-specific members                                                                                           | ACT members retained but used **only** by the share layer                               |
+| #   | Concern                           | Current (v2, ACT everywhere)                                                                                     | Planned (v3)                                                                                 |
+| --- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| 1   | Index confidentiality             | ACT-wrapped **pointer**; manifest bytes ride `/bytes` in **plaintext**, protected only by an unguessable address | AES-256-GCM on feed payloads _and_ on manifest bytes (§7.1: not native, mantaray forbids it) |
+| 2   | Content confidentiality           | none requested — `uploadProtected` passes no `encrypt`                                                           | `encrypt: true`, random per-object key inside the 64-byte reference                          |
+| 3   | Who encrypts                      | Bee node (bee-js) or snaha iframe                                                                                | fm-lib, client-side, `crypto.subtle`                                                         |
+| 4   | Cost per node write               | ACT upload + feed write                                                                                          | AES encrypt (local) + upload + feed write                                                    |
+| 5   | Cost per folder share             | O(subtree) ACT grants                                                                                            | 1 ACT write of a few hundred bytes                                                           |
+| 6   | Identity coupling                 | `actPublisher` still needed per read, but no longer written into plaintext fork metadata                         | none in the tree; identity only at the share boundary                                        |
+| 7   | Cross-origin drive access         | broken — origin-scoped `appKey` changes owner and state topic                                                    | FMK is origin-independent, but snaha's unlock secret is not — still blocked, one seam        |
+| 8   | Cross-login drive access          | impossible                                                                                                       | works via the envelope                                                                       |
+| 9   | snaha `actUploadData` history gap | blocks grantee amendment on tree nodes                                                                           | irrelevant — share blobs are rewritten wholesale                                             |
+| 10  | Listing without read              | not expressible                                                                                                  | native — `K_meta` / `K_content` split                                                        |
+| 11  | Share a file without re-upload    | needs `actResolveReference` from snaha                                                                           | native — fm-lib already holds the plain reference                                            |
+| 12  | Share a folder, live-tracking     | not expressible                                                                                                  | phase 2, one grant                                                                           |
+| 13  | Revocation                        | nominally via `actRevokeGrantees`; unavailable on snaha, and Swarm cannot unsee                                  | explicitly not offered. Key rotation denies _future_ reads at O(subtree) index rewrites      |
+| 14  | Content re-upload on rotation     | no                                                                                                               | no — index only                                                                              |
+| 15  | Streaming                         | `downloadProtectedStream`; faked on snaha                                                                        | `downloadStream` on plain refs; unchanged semantics                                          |
+| 16  | Port surface                      | 5 ACT-specific members                                                                                           | ACT members retained but used **only** by the share layer                                    |
 
 ---
 
@@ -353,9 +355,13 @@ may see stays in the record.
 MANIFEST_METADATA_NODE_ACT_PUBLISHER = 'swarm-node-act-publisher';
 MANIFEST_METADATA_DRIVE_ACT_PUBLISHER = 'swarm-drive-act-publisher';
 
-// NEW
+// NEW — done
 MANIFEST_METADATA_WRAPPED_META_KEY = 'swarm-wrapped-meta-key';
 MANIFEST_METADATA_WRAPPED_CONTENT_KEY = 'swarm-wrapped-content-key';
+ROOT_META_KEY_LABEL = 'fm-root-meta-v1';
+ROOT_CONTENT_KEY_LABEL = 'fm-root-content-v1';
+
+// DEFERRED — listing data, see below
 MANIFEST_METADATA_NODE_SIZE = 'swarm-node-size';
 MANIFEST_METADATA_NODE_TIMESTAMP = 'swarm-node-timestamp';
 
@@ -366,6 +372,12 @@ UNLOCK_KDF_LABEL = 'fm-unlock-v2';
 KEY_ID_LABEL = 'fm-key-id-v2';
 SIGNER_LABEL = 'fm-signer-v2';
 ```
+
+**`size` and `timestamp` in fork metadata are deliberately deferred.** They are listing data, and their only reader is
+the `K_meta`-only grantee of §2.5 phase 2, who does not exist yet. Adding them now would put `timestamp` in two places —
+the fork and the content-keyed record — with no consumer to justify the second copy, and `size` is not even available:
+nothing on the upload path measures it today, so plumbing it means touching `File.size` on the browser side and a `stat`
+on the node side. Both land with the share layer, together with the reader that needs them.
 
 **The two publisher keys are already gone** — they did not need the keyring to justify removing them. Fork metadata is
 plaintext (only the root pointer is ACT-wrapped), and under swarm-id `actPublisher` is the login's own public key, so
@@ -378,75 +390,123 @@ a parameter, and `NodeHeader` no longer carries it.
 
 ## 5. Function-level changes, by file
 
-### 5.1 NEW — `src/utils/crypto/index.ts`
+### 5.1 `src/utils/crypto/index.ts`
 
-Currently holds only `generateRandomBytes`. Add, on `globalThis.crypto.subtle` (browser and Node 22, which
-`engines.node: ">=22.0.0"` already requires — **no new dependency**):
+On `globalThis.crypto.subtle` (browser and Node 22, which `engines.node: ">=22.0.0"` already requires — **no new
+dependency**). The HKDF and `CryptoKey`-level AES halves landed with the identity work; this adds the raw-key layer the
+node keys need:
 
 ```ts
-deriveKey(secret: Uint8Array, label: string): Promise<Uint8Array>      // HKDF-SHA256 -> 32 bytes
-encryptBytes(key: Uint8Array, plaintext: Uint8Array): Promise<Uint8Array>  // AES-256-GCM, 12-byte nonce prefixed
-decryptBytes(key: Uint8Array, sealed: Uint8Array): Promise<Uint8Array>
+importAesKey(raw: Uint8Array): Promise<CryptoKey>                     // non-extractable
+sealWithKey(key: Uint8Array, plaintext: Uint8Array): Promise<Uint8Array>   // AES-256-GCM, iv prefixed
+openWithKey(key: Uint8Array, sealed: Uint8Array): Promise<Uint8Array>
 wrapKey(kek: Uint8Array, key: Uint8Array): Promise<Hex>
 unwrapKey(kek: Uint8Array, wrapped: Hex): Promise<Uint8Array>
 generateNodeKeys(): NodeKeys                                          // 2 x 32 random bytes
 ```
+
+The raw-key helpers import on every call rather than caching a `CryptoKey` per node. An import is local work next to a
+network round trip, and a second cache keyed by topic would have to stay coherent with the keyring for no measurable
+gain.
 
 ### 5.2 NEW — `src/identity.ts` and `src/keyring.ts`
 
 `identity.ts` implements §2.1: resolve `K_unlock` from the login method, read or create the envelope feed, verify,
 produce the FMK.
 
-`keyring.ts` is the in-memory key cache and the unwrap path:
+`keyring.ts` is the in-memory key cache and the unwrap path, as built:
 
 ```ts
 class Keyring {
-  constructor(fmk: Uint8Array);
-  stateKey(): Uint8Array;
-  keysFor(topic: string): NodeKeys | undefined;
+  constructor(identity: Identity);
+  requireKeys(topic: string): Promise<NodeKeys>; // throws KeyringError if the node was never reached
+  mint(topic: string): NodeKeys;
   register(topic: string, keys: NodeKeys): void;
+  wrapFor(parentTopic: string, childTopic: string): Promise<WrappedKeys>;
   unwrapChild(parentTopic: string, childTopic: string, wrapped: WrappedKeys): Promise<NodeKeys>;
-  wrapForParent(parentTopic: string, keys: NodeKeys): Promise<WrappedKeys>;
+  clear(): void;
 }
 ```
 
-The keyring is populated as the tree is walked — the same lazy-hydration shape `MantarayStore` already uses for
-manifests and feed indexes, and it should live alongside those caches.
+`requireKeys` is async and special-cases the state topic, deriving `HKDF(FMK, 'fm-root-meta-v1')` /
+`'fm-root-content-v1'` on first use. That removes an initialization-order hazard: nothing has to remember to seed the
+root before the first save, and there is no window in which the store holds an identity but not its root keys.
 
-**Retention rule:** the keyring never discards a key on rotation. A partial or failed rotation must never be data loss
-for the owner; only the recipient's view is meant to change.
+**Root keys are raw bytes, not a non-extractable `CryptoKey`.** Every node key below the root is wrapped into a manifest
+and, once sharing lands, handed to a grantee, so none of them can be non-extractable; making the root the one exception
+would have split `NodeKeys` into two shapes and infected every signature that touches one. `Identity` gained
+`deriveKeyBytes(info)` for this and lost the unused `deriveKey(info): Promise<CryptoKey>`. The FMK itself stays
+non-extractable — what is in the heap is one generation below it.
+
+The keyring is populated as the tree is walked — the same lazy-hydration shape `MantarayStore` already uses for
+manifests and feed indexes, and it lives alongside those caches, rebuilt by `setIdentity`.
+
+**Consequence worth knowing: reaching a node means having walked to it.** `getFileVersion` and `updateFile` accept a
+caller-held `FileRecord`, and under ACT that was enough — the publisher was all a read needed. Under the key chain a
+record carries no key, so a record reconstructed outside a session that listed its folder throws `KeyringError`. In
+practice the app lists before it opens, so the keyring is warm; the failure is loud and names the node rather than
+returning an empty result.
+
+**Unwrapping is per entry, at the point of use** — `store.unwrapFork(parentTopic, childTopic, forkMetadata)`, called
+where the child is about to be read: each segment of `resolveFolder`'s descent, each header in `walkFolder`'s file and
+folder phases, each drive in `initDriveList`.
+
+An earlier version hydrated a whole manifest's keys in one eager pass. That was wrong, and the existing tests said so
+twice. `walkFolder` and `initDriveList` both have a deliberate per-entry failure model — `FailureScope.Entry` for a
+file, `FailureScope.Subtree` for a folder, `DRIVE_UNRESOLVED` for a drive — and a batched unwrap turns any single bad
+fork into a failure of the whole listing. One fork whose keys do not unwrap must cost the user that fork, not every
+sibling it happens to share a manifest with. `initDriveList` additionally unwraps _after_ `assertDriveInfoFromMetadata`,
+so a malformed fork is still reported as malformed rather than as a key error.
+
+**Retention rule:** the keyring never discards a key on rotation, and `MantarayStore.evict(topic)` deliberately leaves
+keys in place while dropping every other cache for that node. A partial or failed rotation must never be data loss for
+the owner; only the recipient's view is meant to change. Keys are dropped only by `clear()`, which is a full reset.
 
 ### 5.3 `src/utils/bee.ts`
 
-- **`writeActFeed` → `writeEncryptedFeed`.** Signature drops `actHistoryAddress`, gains a key:
+**A feed payload is one Swarm reference, sealed — and nothing else.** `AES-GCM(key, reference)`, written raw into the
+slot: 60 bytes for a 32-byte reference, 92 for a 64-byte one. Not JSON, and not a sealed _payload_ whose reference is
+then published.
 
-  ```ts
-  writeEncryptedFeed(
-    swarmClient: SwarmClient,
-    payload: string | Uint8Array,
-    key: Uint8Array,
-    target: FeedTarget,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<FeedWriteResult>
-  ```
+That distinction is the whole point and it is easy to get backwards. A 64-byte Swarm reference is `address ‖ key` — the
+reference **is** the capability. So sealing the payload and publishing the reference protects nothing that sealing the
+reference doesn't, costs AES over the whole payload instead of over 64 bytes, and makes native encryption dead weight,
+since the key it generated is published in the clear beside the address. Seal the reference; let Swarm encrypt the
+bytes.
 
-  Body: `encryptBytes(key, payload)` → `swarmClient.uploadData(batchId, sealed, { encrypt: true })` →
-  `writeFeed(JSON.stringify({ reference }))`. The `uploadProtected` call disappears.
+(Sealing only the key half of a 64-byte reference would be equally secure — the address alone yields ciphertext — but
+sealing all 64 costs 32 bytes and additionally hides _which chunk_ a feed points at, so an observer cannot correlate
+feed to chunk.)
+
+Two writers, because payload size decides whether a blob is needed at all:
+
+```ts
+// The reference already exists — every manifest root. No blob, no extra round trip.
+writeSealedRefFeed(swarmClient, identity, reference: Reference, key, target, requestOptions): Promise<FeedWriteResult>
+
+// The payload is unbounded — a file record. Upload it natively encrypted, then seal what comes back.
+writeEncryptedFeed(swarmClient, identity, payload, key, target, requestOptions): Promise<FeedWriteResult>
+```
+
+`writeEncryptedFeed` is `uploadData(payload, { encrypt: true })` followed by `writeSealedRefFeed`, so both end at the
+same place. `openFeedRef(payload, key)` is the read side for both — it unseals and validates the result as a 32/64-byte
+reference, so a mis-keyed read fails there rather than as a puzzling 404 further down.
 
 - **`FeedTarget`** — remove `actHistoryAddress`.
-- **`FeedWriteResult.contentRefs: ActReferences`** → `ContentRef`.
+- **`FeedWriteResult.contentRef: ActReferences`** → `reference: ContentRef`.
 - `getFeedData`, `getTopicAndVersion`, `fetchStamp`, `verifyStampUsability` — unchanged.
 
 ### 5.4 `src/utils/mantaray.ts`
 
-- **`saveMantarayRecursively`** — pass `{ encrypt: true }` to `swarmClient.uploadData`. Currently passes `options`
-  through as `undefined`, so manifest bytes are plaintext on Swarm today.
-- **`saveNodeManifest`** — call `writeEncryptedFeed` with `K_meta(host)`; drop
-  `actHistoryAddress: host.manifestRef?.historyRef`.
-- **`unmarshalNode` / `loadMantaray` / `loadForks`** — unchanged in logic, but must accept 64-byte references. See §7
-  for the verification this needs.
-- **`fileForkMetadata` (line 144)** — `MANIFEST_METADATA_NODE_ACT_PUBLISHER` is already dropped (§4.3); add wrapped
-  keys, size, timestamp:
+- **`saveMantarayRecursively`** — seal each node's marshaled bytes under `K_meta(host)` and upload them **plain**. Not
+  `{ encrypt: true }`, as originally specified: §7 item 1 verified that native manifest encryption breaks
+  prefix-overlapping entry names. The key threads down from `saveNodeManifest`.
+- **`saveNodeManifest`** — call `writeSealedRefFeed` with the root reference and `K_meta(host)`; drop
+  `actHistoryAddress: host.manifestRef?.historyRef`. The root is 32 bytes, so it goes into the feed slot directly —
+  uploading it as its own blob would add a round trip to every node a listing walks.
+- **`unmarshalNode` / `loadMantaray` / `loadForks`** — take the same `K_meta` and open each node after download.
+  References stay 32 bytes, so nothing about the format changes.
+- **`fileForkMetadata`** — `MANIFEST_METADATA_NODE_ACT_PUBLISHER` is already dropped (§4.3); add wrapped keys:
 
   ```ts
   export function fileForkMetadata(record: FileRecord, wrapped: WrappedKeys): Record<string, string> {
@@ -454,60 +514,72 @@ for the owner; only the recipient's view is meant to change.
       [MANIFEST_METADATA_NODE_TOPIC]: record.topic,
       [MANIFEST_METADATA_NODE_TYPE]: NodeType.File,
       [MANIFEST_METADATA_NODE_OWNER]: record.owner,
-      [MANIFEST_METADATA_WRAPPED_META_KEY]: wrapped.meta,
-      [MANIFEST_METADATA_WRAPPED_CONTENT_KEY]: wrapped.content,
-      [MANIFEST_METADATA_NODE_SIZE]: String(size),
-      [MANIFEST_METADATA_NODE_TIMESTAMP]: String(record.timestamp ?? Date.now()),
+      ...wrappedKeysMetadata(wrapped),
       ...(record.version !== undefined ? { [MANIFEST_METADATA_NODE_VERSION]: record.version } : {}),
     };
   }
   ```
 
-- **`folderForkMetadata` (line 154)** — same treatment. `driveForkMetadata` likewise already lost its publisher key.
+- **`folderForkMetadata` and `driveForkMetadata`** — same treatment; both already lost their publisher key.
+- **`wrappedKeysMetadata` / `wrappedKeysFromMetadata`** — the one place the two metadata keys are written and read, so a
+  fork missing them fails as a `KeyringError` naming the fork rather than as an unwrap of `undefined`.
+  `driveForkMetadata` is the reason this matters: `renameDrive` rebuilds drive fork metadata from scratch, so the
+  wrapped keys have to be re-sealed alongside the new name or the drive lists and never opens.
 
 ### 5.5 `src/mantarayStore.ts`
 
-- **New cache:** `nodeKeyCache: Map<string, NodeKeys>`, alongside `nodeManifestCache`, `nodeNextIndexCache`,
-  `nodeRefCache`. Same eviction rules.
-- **`getMantarayNode` (line 86)** — replace `swarmClient.downloadProtected({ reference, historyRef, publisher })` with
-  `downloadData(feedPayload.reference)` + `decryptBytes(K_meta(topic), …)`. The `publisher` parameter is removed from
-  the signature.
-- **`saveMantarayNode`** — unchanged in shape; the encryption happens inside `saveNodeManifest`. It must pass
-  `K_meta(host.topic)` down.
-- **`saveRecord`** — encrypt `JSON.stringify(persistable)` under `K_content(record.topic)` before `writeEncryptedFeed`.
-  The `actHistoryAddress: prevRef?.historyRef` argument disappears.
-- **`getRecord`** — replace `downloadProtected` with `downloadData` + `decryptBytes`. The `actPublisher` parameter is
-  removed.
-- **`resolveHost` / `resolveHostMantaray` / `resolveFolder`** — the `publisher: string` parameter becomes unnecessary;
-  these thread the keyring instead.
+- **The store owns the `Keyring`**, built in `setIdentity` and exposed as `store.keyring`, rather than a bare
+  `Map<string, NodeKeys>` beside the other caches. One source of truth: the key chain's lifetime is exactly the
+  identity's, and `FileManagerBase` reaches it through the store the same way it reaches the index caches.
+- **`getMantarayNode`** — `manifestRef` _is_ the mantaray root, so `downloadProtected` is replaced by nothing at all: it
+  goes straight to `loadMantaray(manifestRef.reference, K_meta(topic))`. The `publisher` parameter is removed.
+- **`openManifestRef(topic, payload)`** — the one place a folder, drive or state feed payload is unsealed back into a
+  root reference. Callers hold the payload, the store holds the key.
+- **`saveMantarayNode`** — resolves `K_meta(host.topic)` and passes it to `saveNodeManifest`. It no longer has to carry
+  the previous ref forward, since that existed only to continue an ACT history.
+- **`saveRecord`** — `writeEncryptedFeed` uploads `JSON.stringify(persistable)` natively encrypted and seals the
+  returned reference under `K_content(record.topic)`. The `actHistoryAddress: prevRef?.historyRef` argument disappears.
+- **`getRecord`** — `openFeedRef` under `K_content(topic)`, then a plain `downloadData`: Swarm decrypts the bytes itself
+  from the key inside the reference. The `actPublisher` parameter is removed.
+- **`resolveHost` / `resolveHostMantaray` / `resolveFolder`** — the `publisher: string` parameter is gone;
+  `resolveFolder` unwraps each segment's keys as it descends, so reaching a folder hydrates the chain down to it.
+- **New: `unwrapFork` / `rewrapFork`** — the three key-chain operations the domain layer needs, kept here rather than on
+  `FileManagerBase` because they pair with the caches they feed.
 
 ### 5.6 `src/fileManager.ts`
 
-- **`assertReady`** currently returns `{ publisher }`; it returns the keyring context instead.
-- **`initialize`** — after `swarmClient.initialize()`, resolve the FMK (§2.1) and derive `stateFeedTopic` from it rather
-  than from `swarmClient.deriveSecret`, whose only remaining job is the envelope's unlock key. This is the change that
-  makes drives portable across login methods — and across origins too, once snaha's secret stops being origin-scoped.
+- **`assertReady`** dropped `publisher` from both its parameters and its result — with ACT gone it had nothing left to
+  check, and the `SignerError` it raised is no longer reachable from any of the 19 methods that documented it.
+- **`initialize`** — unchanged by this step; the FMK and `stateFeedTopic` already came from §2.1's identity work.
 - **`createAdminDrive` / `createDrive` / `createFolder`** — mint `NodeKeys` for the new node, register in the keyring,
   wrap under the parent before `addFork`.
-- **`uploadFile` (line 361) / `uploadFiles` (line 590)** — pass `{ encrypt: true }` on the content upload; mint and wrap
-  node keys; extend the `addFork` metadata call.
-- **`move` (lines 1244, 1252) — REQUIRED, non-obvious.** These relocate a fork verbatim via `sourceFork.targetAddress`.
-  Under wrapped keys the child's keys are sealed under the **old** parent's keys; moving without unwrap-then-rewrap
-  leaves an entry that appears in the listing and cannot be opened by anyone. Still O(1) — one unwrap, one wrap — but
-  the failure is silent.
-- **`trash` (line 1396) / `recover` (line 1478)** — same re-wrap requirement; the trash host is a different parent with
-  different keys.
-- **`forgetDrive` (line 1699) / rename (line 1735) / `createFolder` (line 1941) / (line 2056)** — all `addFork` sites
-  need the new metadata shape.
+- **`uploadFile` / `uploadFiles`** — mint the file's keys straight after `getTopicAndVersion`, so the record write can
+  seal under `K_content` and the `addFork` can wrap under the parent.
+- **`move` — REQUIRED, non-obvious.** A cross-parent move relocates a fork verbatim via `sourceFork.targetAddress`.
+  Under wrapped keys the child's keys are sealed under the **old** parent's, so moving without unwrap-then-rewrap leaves
+  an entry that appears in the listing and cannot be opened by anyone. Still O(1) — one unwrap, one wrap — but the
+  failure is silent. A same-parent move (a rename) shares the KEK and needs nothing.
+- **`trash` / `recover`** — same re-wrap requirement; the trash host is a different parent with different keys.
+- **`renameDrive`** — the subtle one, because it is not a relocation. It rebuilds the drive's fork metadata from scratch
+  to change the name, which drops the wrapped keys unless they are re-sealed with it.
 - **`downloadFiles`** — the `DownloadResource` mapping drops `actHistoryAddress` and `actPublisher`, keeping only
-  `reference`.
+  `reference`. Content needs no keyring entry at all: the 64-byte reference carries its own key, which is what makes
+  §2.5 phase 1 a matter of publishing that reference.
 
 ### 5.7 `src/upload/*` and `src/download/*`
 
 - `upload-node.ts` / `upload-browser.ts` — `swarmClient.uploadProtected(...)` becomes
   `uploadData(batchId, data, { encrypt: true, redundancyLevel })`. The `historyRef` positional argument and the
-  `Optional.of(historyAddress)` return disappear.
+  `Optional.of(historyAddress)` return disappear, and with them the bee-js `UploadResult` round-trip both files did only
+  to unwrap it again.
+- `encrypt` is **forced**, not read from the caller's `uploadOptions`. The 64-byte reference is the only content
+  capability a record holds, so an unencrypted upload would leave the bytes readable to anyone who learns it — a
+  caller-flippable flag there is a footgun with no use case.
 - `processDownload` — `downloadProtected` / `downloadProtectedStream` become `downloadData` / `downloadStream`.
+- The port's `uploadData` widens to `Uint8Array | string | Blob | Readable`, matching `uploadProtected`, so the browser
+  path can still hand a `File` straight through. `BeeClient` passes it to `bee.data.upload`, which already accepts all
+  four; `SnahaClient` buffers via its existing `toBytesAsync`. `uploadData` also returns `tagUid` now, which is what
+  `onUploadProgress` was getting from `uploadProtected`.
 
 ### 5.8 `src/types/swarmClient.ts` and the two clients
 
@@ -515,7 +587,9 @@ The port keeps `uploadProtected` / `downloadProtected` / `downloadProtectedStrea
 **share layer's** API rather than the tree's. Nothing else changes.
 
 `BeeClient` and `SnahaClient` need only the additive `encrypt` in `SwarmUploadOptions`, forwarded to each SDK's own
-`UploadOptions.encrypt`.
+`UploadOptions.encrypt`. Verified present on both at the versions in the tree: bee-js v13's `UploadOptions.encrypt` and
+`@snaha/swarm-id@0.4.0`'s. Note the asymmetry that follows for swarm-id — `encrypt` survives its Zod `$strip` while
+`redundancyLevel` does not, so that backend now writes encrypted-but-unreplicated data.
 
 **Done:** `writeFeed`'s options widen to `SwarmFeedWriteOptions`, adding `signer?: Hex` — the FMK-derived feed key from
 §2.1. `BeeClient` builds a `PrivateKey` from it in place of its constructor signer; `SnahaClient` passes it as
@@ -551,10 +625,32 @@ taken index, so a naive retry loses writes without erroring. Requirements:
 
 ## 7. Open items and verification
 
-1. **64-byte references through mantaray.** `saveMantarayRecursively` assigns `node.selfAddress = saved.toUint8Array()`,
-   and `unmarshalFromData(data, reference.toUint8Array())` takes the same. With `encrypt: true` these become 64 bytes.
-   Verify core-sdk's `MantarayNode` marshals and round-trips encrypted references before committing to native manifest
-   encryption. _This is the single highest-risk assumption in the design._
+1. **64-byte references through mantaray — verified, and it fails. §5.4 changed as a result.**
+
+   A marshaled node stores **one** `refBytesSize` byte and applies it to its entry _and_ every fork: `marshal()` takes
+   it from `targetAddress.length` when the node has an entry, otherwise from the first fork's `selfAddress.length`, and
+   `unmarshalFromData` reads every fork at that one width. fm-lib's fork targets are 32-byte **topics**, so a natively
+   encrypted manifest mixes a 32-byte entry with 64-byte fork addresses, and any node carrying both parses back wrong.
+   That node is not exotic: it is what `addFork` builds whenever one entry name is a prefix of another — `report` beside
+   `report.pdf`, `a` beside `ab`.
+
+   Measured against `@ethersphere/core-sdk@0.1.1` with an in-memory chunk store, mirroring `saveMantarayRecursively` +
+   `loadMantaray`:
+
+   | entry names                         | 32-byte refs | 64-byte refs                                   |
+   | ----------------------------------- | ------------ | ---------------------------------------------- |
+   | `a.txt`, `b.txt`, `notes.md`        | round-trips  | round-trips                                    |
+   | `a`, `ab`, `abc`                    | round-trips  | `Fork#unmarshal not enough bytes for metadata` |
+   | `report`, `report.pdf`, `other.txt` | round-trips  | `Fork#unmarshal not enough bytes for metadata` |
+
+   It throws rather than corrupting silently, which is the one mercy — but it throws at **read** time, on a manifest
+   that was written successfully, so the damage is already durable when it surfaces.
+
+   **Resolution: manifest chunks are sealed client-side under `K_meta(host)` and uploaded plain.** Every reference stays
+   32 bytes, the format risk disappears, and the manifest key becomes ours to rotate instead of being embedded in the
+   reference. Native encryption is still used everywhere it is unconstrained — file content, and the sealed blobs behind
+   feed payloads — because those references are never mantaray entries.
+
 2. **Fork target vs. content reference.** Forks target the child **topic** (32 bytes) and are unaffected by (1).
    Confirmed in the current tree; keep it that way.
 3. **Feed payload size.** Payloads stay small — a JSON object with one reference plus a 12-byte nonce and 16-byte tag.

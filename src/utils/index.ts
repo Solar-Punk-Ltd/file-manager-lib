@@ -9,6 +9,7 @@ export {
   FileManagerError,
   FolderError,
   IdentityError,
+  KeyringError,
   SignerError,
   StampError,
 } from './errors';

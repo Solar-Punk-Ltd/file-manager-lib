@@ -100,18 +100,18 @@ export class BeeClient implements SwarmClient {
 
   async uploadData(
     batchId: Hex,
-    data: Uint8Array | string,
+    data: Uint8Array | string | Blob | Readable,
     options?: SwarmUploadOptions,
     requestOptions?: SwarmRequestOptions,
-  ): Promise<{ reference: Hex }> {
+  ): Promise<ClientUploadResult> {
     const result = await this.bee.data.upload(
       batchId,
       data,
-      { redundancyLevel: toRedundancyLevel(options?.redundancyLevel) },
+      { encrypt: options?.encrypt, redundancyLevel: toRedundancyLevel(options?.redundancyLevel) },
       toBeeRequestOptions(requestOptions),
     );
 
-    return { reference: result.reference.toString() };
+    return { reference: result.reference.toString(), tagUid: result.tagUid };
   }
 
   async downloadData(
@@ -137,7 +137,7 @@ export class BeeClient implements SwarmClient {
   }
 
   // --- ACT-protected bytes ---
-  // TODO: remove duplicate upload
+
   async uploadProtected(
     batchId: Hex,
     data: Uint8Array | string | Blob | Readable,

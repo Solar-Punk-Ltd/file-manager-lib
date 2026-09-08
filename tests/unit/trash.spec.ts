@@ -3,7 +3,7 @@ import { type MantarayNode } from '@ethersphere/core-sdk';
 
 import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, makeUploadSource } from '../utils';
 
-import { applyDefaultMocks, createMockNodeAddresses, seedDummyFile, seedRecords } from './mock';
+import { applyDefaultMocks, refPayload, seedDummyFile, seedRecords } from './mock';
 
 import { type FileManagerBase } from '@/fileManager';
 import { type DriveInfo, type FileRecord, NodeStatus, NodeType } from '@/types';
@@ -19,7 +19,6 @@ import { getAllNodeEntries } from '@/utils/mantaray';
 
 describe('Lifecycle management', () => {
   const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
-  const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
 
   let fm: FileManagerBase;
   let drive: DriveInfo;
@@ -38,9 +37,7 @@ describe('Lifecycle management', () => {
     (getFeedData as jest.Mock).mockResolvedValue({
       feedIndex: FeedIndex.fromBigInt(0n),
       feedIndexNext: FeedIndex.fromBigInt(1n),
-      payload: {
-        toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
-      },
+      payload: refPayload(),
     });
   };
 
@@ -95,7 +92,7 @@ describe('Lifecycle management', () => {
     it('rewrites descendant record paths when a folder is trashed', async () => {
       validFolderFeed();
       const folder = await fm.createFolder(drive.id, '', 'Docs');
-      seedRecords(fm, seedDummyFile(drive, 'Docs/a.txt', SWARM_ZERO_ADDRESS.toString(), owner, actPublisher));
+      seedRecords(fm, seedDummyFile(drive, 'Docs/a.txt', SWARM_ZERO_ADDRESS.toString(), owner));
 
       const handler = jest.fn();
       fm.emitter.on(FileManagerEvents.FOLDER_TRASHED, handler);
@@ -285,7 +282,7 @@ describe('Lifecycle management', () => {
     it('removes a folder fork and purges all descendant recordList entries', async () => {
       const folder = await fm.createFolder(drive.id, '', 'Docs');
 
-      seedRecords(fm, seedDummyFile(drive, 'Docs/a.txt', SWARM_ZERO_ADDRESS.toString(), owner, actPublisher));
+      seedRecords(fm, seedDummyFile(drive, 'Docs/a.txt', SWARM_ZERO_ADDRESS.toString(), owner));
 
       const handler = jest.fn();
       fm.emitter.on(FileManagerEvents.FOLDER_FORGOTTEN, handler);

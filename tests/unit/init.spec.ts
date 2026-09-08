@@ -2,7 +2,7 @@ import { Bee, FeedIndex, type PrivateKey, Topic } from '@ethersphere/bee-js';
 
 import { BEE_URL, createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
 
-import { applyDefaultMocks, mockStampInfo } from './mock';
+import { applyDefaultMocks, mockStampInfo, mockWrappedKeys, refPayload } from './mock';
 
 import { BeeClient } from '@/clients';
 import { EventEmitterBase } from '@/eventEmitter';
@@ -20,7 +20,6 @@ import {
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
-  SWARM_ZERO_ADDRESS,
 } from '@/utils/constants';
 import { getAllNodeEntries } from '@/utils/mantaray';
 
@@ -126,6 +125,7 @@ describe('Initialization and construction', () => {
             [MANIFEST_METADATA_DRIVE_BATCH_ID]: DUMMY_BATCH_ID.toString(),
             [MANIFEST_METADATA_DRIVE_IS_ADMIN]: 'false',
             [MANIFEST_METADATA_REDUNDANCY_LEVEL]: '0',
+            ...mockWrappedKeys(),
           },
         },
       ]);
@@ -133,13 +133,7 @@ describe('Initialization and construction', () => {
       const feedResult = (feedIndex: FeedIndex, feedIndexNext: FeedIndex): unknown => ({
         feedIndex,
         feedIndexNext,
-        payload: {
-          toUint8Array: () => SWARM_ZERO_ADDRESS.toUint8Array(),
-          toJSON: () => ({
-            reference: SWARM_ZERO_ADDRESS.toString(),
-            historyRef: SWARM_ZERO_ADDRESS.toString(),
-          }),
-        },
+        payload: refPayload(),
       });
 
       (getFeedData as jest.Mock).mockImplementation(async (_bee: Bee, topic: Topic) =>
@@ -177,13 +171,7 @@ describe('Initialization and construction', () => {
       (getFeedData as jest.Mock).mockResolvedValue({
         feedIndex: FEED_INDEX_ZERO,
         feedIndexNext: FeedIndex.fromBigInt(1n),
-        payload: {
-          toUint8Array: () => SWARM_ZERO_ADDRESS.toUint8Array(),
-          toJSON: () => ({
-            reference: SWARM_ZERO_ADDRESS.toString(),
-            historyRef: SWARM_ZERO_ADDRESS.toString(),
-          }),
-        },
+        payload: refPayload(),
       });
 
       await fm.initialize();
@@ -192,6 +180,50 @@ describe('Initialization and construction', () => {
       expect(unresolved).toHaveLength(1);
       expect(unresolved[0]).toMatchObject({ id: 'unknown', name: 'unknown' });
       expect(unresolved[0].error).toContain('drive fork metadata');
+    });
+
+    it('emits DRIVE_UNRESOLVED for a drive whose keys do not unwrap, keeping the rest of the list', async () => {
+      const client = new BeeClient(new Bee(BEE_URL), DEFAULT_MOCK_SIGNER);
+      const emitter = new EventEmitterBase();
+      const unresolved: UnresolvedDrive[] = [];
+      emitter.on(FileManagerEvents.DRIVE_UNRESOLVED, (d: UnresolvedDrive) => unresolved.push(d));
+
+      const fm = new FileManagerBase(client, emitter);
+
+      const driveFork = (id: string, name: string, wrapped: Record<string, string>): object => ({
+        path: `/drive-${id}`,
+        type: NodeType.Drive,
+        topic: Topic.fromString(name).toString(),
+        rawMetadata: {
+          [MANIFEST_METADATA_NODE_TOPIC]: Topic.fromString(name).toString(),
+          [MANIFEST_METADATA_NODE_TYPE]: NodeType.Drive,
+          [MANIFEST_METADATA_DRIVE_ID]: id,
+          [MANIFEST_METADATA_DRIVE_NAME]: name,
+          [MANIFEST_METADATA_DRIVE_OWNER]: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
+          [MANIFEST_METADATA_DRIVE_BATCH_ID]: DUMMY_BATCH_ID.toString(),
+          [MANIFEST_METADATA_DRIVE_IS_ADMIN]: 'false',
+          [MANIFEST_METADATA_REDUNDANCY_LEVEL]: '0',
+          ...wrapped,
+        },
+      });
+
+      // One fork carries no wrapped keys at all; the other is intact.
+      (getAllNodeEntries as jest.Mock).mockReturnValue([
+        driveFork('a'.repeat(64), 'keyless-drive', {}),
+        driveFork('b'.repeat(64), 'intact-drive', mockWrappedKeys()),
+      ]);
+
+      (getFeedData as jest.Mock).mockResolvedValue({
+        feedIndex: FEED_INDEX_ZERO,
+        feedIndexNext: FeedIndex.fromBigInt(1n),
+        payload: refPayload(),
+      });
+
+      await fm.initialize();
+
+      expect(unresolved.map((d) => d.name)).toEqual(['keyless-drive']);
+      expect(unresolved[0].error).toContain('wrapped keys');
+      expect(fm.driveList.map((d) => d.name)).toEqual(['intact-drive']);
     });
 
     it('reports failure and rolls partial state back, leaving the instance retryable', async () => {
@@ -229,10 +261,7 @@ describe('Initialization and construction', () => {
       (getFeedData as jest.Mock).mockResolvedValue({
         feedIndex: FEED_INDEX_ZERO,
         feedIndexNext: FeedIndex.fromBigInt(1n),
-        payload: {
-          toUint8Array: () => Topic.fromString('state-feed').toUint8Array(),
-          toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
-        },
+        payload: refPayload(Topic.fromString('state-feed').toString()),
       });
 
       const fm = new FileManagerBase(client, emitter);

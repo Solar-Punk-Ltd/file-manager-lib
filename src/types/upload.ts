@@ -18,16 +18,7 @@ export type UploadSource = BrowserUploadOptions | NodeUploadOptions;
 
 type UploadMetadata = Omit<
   FileRecord,
-  | 'type'
-  | 'owner'
-  | 'actPublisher'
-  | 'content'
-  | 'topic'
-  | 'driveId'
-  | 'batchId'
-  | 'redundancyLevel'
-  | 'status'
-  | 'name'
+  'type' | 'owner' | 'content' | 'topic' | 'driveId' | 'batchId' | 'redundancyLevel' | 'status' | 'name'
 >;
 
 export type UploadItem = UploadMetadata & UploadSource;

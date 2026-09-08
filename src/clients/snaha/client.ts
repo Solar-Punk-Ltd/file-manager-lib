@@ -24,7 +24,6 @@ import { SignerError } from '../../utils/errors';
 import {
   HAS_TIMESTAMP,
   isFeedNotFound,
-  toBytes,
   toBytesAsync,
   toDownloadOptions,
   toSnahaRequestOptions,
@@ -61,7 +60,8 @@ import {
  *   matters once sharing lands, not before.
  * - **`redundancyStrategy` is dropped on protected downloads** — `actDownloadData` has no options
  *   parameter.
- * - **`redundancyLevel` is dropped on upload.
+ * - **`redundancyLevel` is dropped on upload.** Data written through this backend has no erasure
+ *   coding; `encrypt` does survive, since swarm-id's `UploadOptions` carries it.
  */
 export class SnahaClient implements SwarmClient {
   constructor(private readonly client: SwarmIdClient) {}
@@ -114,12 +114,17 @@ export class SnahaClient implements SwarmClient {
   async uploadData(
     /** swarm-id resolves the stamp itself; accepted for port symmetry and ignored. */
     _batchId: Hex,
-    data: Uint8Array | string,
-    /** `redundancyLevel` is the only member and swarm-id has no home for it */
-    _options?: SwarmUploadOptions,
+    data: Uint8Array | string | Blob | Readable,
+    /** Only `encrypt` survives — swarm-id has no home for `redundancyLevel`. */
+    options?: SwarmUploadOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<ClientUploadResult> {
-    const result = await this.client.uploadData(toBytes(data), undefined, toSnahaRequestOptions(requestOptions));
+    const dataBytes = await toBytesAsync(data);
+    const result = await this.client.uploadData(
+      dataBytes,
+      { encrypt: options?.encrypt },
+      toSnahaRequestOptions(requestOptions),
+    );
 
     return { reference: result.reference.toString(), tagUid: result.tagUid };
   }

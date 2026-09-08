@@ -27,11 +27,13 @@ export type {
   ActReferences,
   ClientProtectedUploadResult,
   ClientUploadResult,
+  ContentRef,
   FailedResult,
   FeedIndexString,
   FeedRead,
   FeedWrite,
   Hex,
+  NodeKeys,
   ProtectedRefs,
   StampInfo,
   SwarmDownloadOptions,
@@ -40,5 +42,6 @@ export type {
   SwarmRedundancyStrategy,
   SwarmRequestOptions,
   SwarmUploadOptions,
+  WrappedKeys,
 } from './utils';
 export type { Credential, Identity, IdentityInfo, IdentityEnvelope } from './identity';

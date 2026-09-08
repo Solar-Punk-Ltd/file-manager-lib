@@ -31,7 +31,7 @@ export async function envelopeTopic(secret: Uint8Array): Promise<Topic> {
  * Import raw FMK bytes and derive the values hanging off them. The caller owns `fmkBytes` and must
  * zero it once this resolves.
  */
-export async function createIdentity(fmkBytes: Uint8Array, salt: Uint8Array): Promise<Identity> {
+export async function deriveIdentity(fmkBytes: Uint8Array, salt: Uint8Array): Promise<Identity> {
   if (fmkBytes.length !== FMK_LENGTH) {
     throw new IdentityError(`FMK must be ${FMK_LENGTH} bytes, got ${fmkBytes.length}`);
   }
@@ -70,7 +70,7 @@ export async function sealKey(
   salt: Uint8Array,
   keyBytes: Uint8Array,
 ): Promise<{ identity: Identity; sealed: Uint8Array }> {
-  const identity = await createIdentity(keyBytes, salt);
+  const identity = await deriveIdentity(keyBytes, salt);
   const unlockKey = await deriveUnlockKey(secret, salt);
   const sealed = await encryptBytes(unlockKey, keyBytes);
 
@@ -89,7 +89,7 @@ export async function unsealKey(secret: Uint8Array, envelope: IdentityEnvelope):
     );
   });
 
-  return await createIdentity(keyBytes, salt).finally(() => zeroBytes(keyBytes));
+  return await deriveIdentity(keyBytes, salt).finally(() => zeroBytes(keyBytes));
 }
 
 /** An unlocked FileManager identity. Construct via {@link resolveIdentity} or {@link provisionIdentity}. */
@@ -107,7 +107,7 @@ class IdentityBase implements Identity {
   }
 
   // eslint-disable-next-line require-await
-  async deriveKey(info: string): Promise<CryptoKey> {
-    return deriveAesKey(this.fmk, info, NO_SALT);
+  async deriveKeyBytes(info: string): Promise<Uint8Array> {
+    return deriveBits(this.fmk, info, NO_SALT);
   }
 }

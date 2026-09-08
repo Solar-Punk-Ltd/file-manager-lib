@@ -9,7 +9,7 @@ import { isNode } from 'std-env';
 import type { DriveInfo } from '../types/info';
 import { type SwarmClient } from '../types/swarmClient';
 import type { BrowserUploadOptions, NodeUploadOptions, UploadSource } from '../types/upload';
-import type { ActReferences } from '../types/utils';
+import type { ContentRef, SwarmUploadOptions } from '../types/utils';
 import { FileError } from '../utils/errors';
 
 export function assertUploadableSource(item: UploadSource): void {
@@ -25,26 +25,13 @@ export function assertUploadableSource(item: UploadSource): void {
   }
 }
 
-interface ProcessedOptions {
-  options: BrowserUploadOptions | NodeUploadOptions;
-  uploadOptions: RedundantUploadOptions | FileUploadOptions;
-  redundancyLevel: RedundancyLevel;
-}
-
-const processOptions = (
-  isNode: boolean,
-  item: UploadSource,
-  redundancyLevel: RedundancyLevel,
-  uploadOptions?: RedundantUploadOptions | FileUploadOptions,
-): ProcessedOptions => {
-  const effectiveRedundancyLevel = uploadOptions?.redundancyLevel ?? redundancyLevel;
-  const processedOptions = { ...uploadOptions, act: true, redundancyLevel: effectiveRedundancyLevel };
-
-  const options = isNode ? (item as NodeUploadOptions) : (item as BrowserUploadOptions);
-
-  return { options, uploadOptions: processedOptions, redundancyLevel: effectiveRedundancyLevel };
-};
-
+/**
+ * Upload one file's bytes with Swarm native encryption and return the 64-byte reference.
+ *
+ * `encrypt` is forced rather than taken from `uploadOptions`: the reference is the only content
+ * capability a record holds, so an unencrypted upload would leave the bytes readable to anyone who
+ * learns it.
+ */
 export async function processUpload(
   swarmClient: SwarmClient,
   driveInfo: DriveInfo,
@@ -52,34 +39,25 @@ export async function processUpload(
   redundancyLevel: RedundancyLevel,
   uploadOptions?: RedundantUploadOptions | FileUploadOptions,
   requestOptions?: BeeRequestOptions,
-): Promise<{ contentRefs: ActReferences; rLevel: RedundancyLevel }> {
-  const {
-    options,
-    uploadOptions: processedUploadOptions,
-    redundancyLevel: rLevel,
-  } = processOptions(isNode, item, redundancyLevel, uploadOptions);
+): Promise<{ content: ContentRef; rLevel: RedundancyLevel }> {
+  const rLevel = uploadOptions?.redundancyLevel ?? redundancyLevel;
+  const options: SwarmUploadOptions = { encrypt: true, redundancyLevel: rLevel };
 
   if (isNode) {
     const { processUploadNode } = await import('./upload-node');
-    const contentRefs = await processUploadNode(
-      swarmClient,
-      driveInfo,
-      options as NodeUploadOptions,
-      processedUploadOptions,
-      requestOptions,
-    );
+    const content = await processUploadNode(swarmClient, driveInfo, item as NodeUploadOptions, options, requestOptions);
 
-    return { contentRefs, rLevel };
+    return { content, rLevel };
   }
 
   const { processUploadBrowser } = await import('./upload-browser');
-  const contentRefs = await processUploadBrowser(
+  const content = await processUploadBrowser(
     swarmClient,
     driveInfo,
-    options as BrowserUploadOptions,
-    processedUploadOptions,
+    item as BrowserUploadOptions,
+    options,
     requestOptions,
   );
 
-  return { contentRefs, rLevel };
+  return { content, rLevel };
 }
