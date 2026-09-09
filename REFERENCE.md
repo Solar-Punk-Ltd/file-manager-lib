@@ -236,7 +236,7 @@ multi-file/folder uploads use
 
 - **item** [`UploadItem`](#uploaditem) — new content (`sourcePath` on Node / `file` in browser) plus placement metadata
   (`path`). No `topic`.
-- **uploadOptions?** `RedundantUploadOptions | FileUploadOptions`.
+- **uploadOptions?** [`UploadOptions`](#uploadoptions) — `redundancyLevel` only; defaults to the drive's.
 - **Returns**: the newly-created `FileRecord`.
 - **Emits**: `FILE_UPLOADED`.
 - **Throws**: `DriveError` (not initialized, drive not found, target folder path missing, or a node already occupies
@@ -260,6 +260,7 @@ errors are collected, not thrown.
 
 - **items** [`UploadItem[]`](#uploaditem) — each with a `path` relative to `destinationPath`.
 - **destinationPath?** — absolute destination folder; defaults to the drive root.
+- **uploadOptions?** [`UploadOptions`](#uploadoptions) — applied to every file in the batch.
 - **Returns**: [`UploadFilesResult`](#uploadfilesresult) — `{ succeeded, failed }`.
 - **Emits**: `FOLDER_CREATED` (per folder created), `FILE_UPLOADED` (per file), `FILES_UPLOADED` (once, batch summary).
   All of them fire **after** the last manifest is saved, so an emitted node is always in the drive tree — the batch is
@@ -287,6 +288,7 @@ relocate). Everything derives from `record`.
 - **record** — the existing file's `FileRecord` (the single source of truth).
 - **changes** [`UpdateItem`](#updateitem) — `item` present ⇒ new bytes; absent ⇒ metadata-only. `customMetadata` is
   merged over the record's existing metadata.
+- **uploadOptions?** [`UploadOptions`](#uploadoptions) — applies to the new version's bytes.
 - **Returns**: the newly-written `FileRecord` for the updated version.
 - **Emits**: `FILE_UPDATED`.
 - **Throws**: `FileRecordError` (neither new content nor `customMetadata` provided, the file is trashed, or the fork
@@ -546,9 +548,10 @@ screen and call `createAdminDrive`.
 
 `identity.owner` is **not** `swarmClient.owner`. The login's address only locates the sealed identity envelope; the
 identity's own address owns everything else, which is what lets one user reach one set of drives from several login
-methods. Persist `keyId` rather than `owner` as "which identity is this" — both are FMK-derived and stable today, but
-`keyId` is the value the design guarantees for that purpose. The identity's private key is deliberately not on this type
-and never leaves the library.
+methods. Persist `owner` rather than `keyId` as "which identity is this": `owner` is derived from the FMK unsalted, so
+every credential unsealing the same identity reports the same value, while `keyId` is salted with its own envelope's
+salt and so names one envelope. Two credentials linked to one FMK would look like two identities under `keyId`. The
+identity's private key is deliberately not on this type and never leaves the library.
 
 ---
 
@@ -905,6 +908,23 @@ interface UpdateItem {
   customMetadata?: Record<string, string>;
 }
 ```
+
+### `UploadOptions`
+
+```ts
+interface UploadOptions {
+  redundancyLevel?: RedundancyLevel; // bee-js enum; defaults to the drive's
+}
+```
+
+Deliberately narrower than bee-js's `FileUploadOptions`. Content rides the `SwarmClient` port, whose
+[`SwarmUploadOptions`](#port-vocabulary) carries only `redundancyLevel` and `encrypt` — pinning, tags and deferred
+uploads have nowhere to land, so they are not offered rather than accepted and dropped. `encrypt` is not offered either:
+it is forced on for every content upload, because a `FileRecord`'s 64-byte reference is the only thing guarding its
+bytes.
+
+`redundancyLevel` reaches Swarm on the `BeeClient` backend only. `SnahaClient` discards it (swarm-id removed the option
+in 0.3.0), so data written through swarm-id is encrypted but not erasure-coded.
 
 ### `UploadFilesResult`
 

@@ -1,5 +1,11 @@
+import type { RedundancyLevel } from '@ethersphere/bee-js';
+
 import { type FileRecord } from './info';
 import { type ActReferences, type FailedResult, type Hex } from './utils';
+
+export interface UploadOptions {
+  redundancyLevel?: RedundancyLevel;
+}
 
 export interface BrowserUploadOptions {
   file: File;

@@ -1,10 +1,4 @@
-import {
-  type BeeRequestOptions,
-  type DownloadOptions,
-  type FileUploadOptions,
-  RedundancyLevel,
-  type RedundantUploadOptions,
-} from '@ethersphere/bee-js';
+import { type BeeRequestOptions, type DownloadOptions, RedundancyLevel } from '@ethersphere/bee-js';
 import { type BatchId, FeedIndex, Identifier, MantarayNode, Reference, Topic } from '@ethersphere/core-sdk';
 
 import { type DownloadFilesResult, type DownloadResource, type DownloadResult } from './types/download';
@@ -28,7 +22,7 @@ import {
   type UnresolvedDrive,
 } from './types/info';
 import type { SwarmClient } from './types/swarmClient';
-import { type UpdateItem, type UploadFilesResult, type UploadItem } from './types/upload';
+import { type UpdateItem, type UploadFilesResult, type UploadItem, type UploadOptions } from './types/upload';
 import { type ContentRef, type FailedResult } from './types/utils';
 import { assertDriveInfoFromMetadata, assertReady } from './utils/asserts';
 import { fetchStamp, getFeedData, getTopicAndVersion, verifyStampUsability } from './utils/bee';
@@ -122,7 +116,12 @@ export class FileManagerBase implements FileManager {
   readonly emitter: EventEmitter;
 
   get identity(): IdentityInfo | undefined {
-    return this.store.identity;
+    return this.store.identity
+      ? {
+          owner: this.store.identity.owner,
+          keyId: this.store.identity.keyId,
+        }
+      : undefined;
   }
 
   get adminStamp(): StampInfo | undefined {
@@ -314,7 +313,7 @@ export class FileManagerBase implements FileManager {
   async uploadFile(
     driveId: string | Identifier,
     item: UploadItem,
-    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
+    uploadOptions?: UploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<FileRecord> {
     requestOptions?.signal?.throwIfAborted();
@@ -388,7 +387,7 @@ export class FileManagerBase implements FileManager {
     driveId: string | Identifier,
     items: UploadItem[],
     destinationPath: string = ROOT_PATH,
-    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
+    uploadOptions?: UploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<UploadFilesResult> {
     requestOptions?.signal?.throwIfAborted();
@@ -641,7 +640,7 @@ export class FileManagerBase implements FileManager {
     driveId: string | Identifier,
     record: FileRecord,
     changes: UpdateItem,
-    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
+    uploadOptions?: UploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<FileRecord> {
     requestOptions?.signal?.throwIfAborted();

@@ -1,14 +1,9 @@
-import type {
-  BeeRequestOptions,
-  FileUploadOptions,
-  RedundancyLevel,
-  RedundantUploadOptions,
-} from '@ethersphere/bee-js';
+import type { BeeRequestOptions, RedundancyLevel } from '@ethersphere/bee-js';
 import { isNode } from 'std-env';
 
 import type { DriveInfo } from '../types/info';
 import { type SwarmClient } from '../types/swarmClient';
-import type { BrowserUploadOptions, NodeUploadOptions, UploadSource } from '../types/upload';
+import type { BrowserUploadOptions, NodeUploadOptions, UploadOptions, UploadSource } from '../types/upload';
 import type { ContentRef, SwarmUploadOptions } from '../types/utils';
 import { FileError } from '../utils/errors';
 
@@ -37,7 +32,7 @@ export async function processUpload(
   driveInfo: DriveInfo,
   item: UploadSource,
   redundancyLevel: RedundancyLevel,
-  uploadOptions?: RedundantUploadOptions | FileUploadOptions,
+  uploadOptions?: UploadOptions,
   requestOptions?: BeeRequestOptions,
 ): Promise<{ content: ContentRef; rLevel: RedundancyLevel }> {
   const rLevel = uploadOptions?.redundancyLevel ?? redundancyLevel;

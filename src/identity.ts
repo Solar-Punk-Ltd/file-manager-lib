@@ -22,10 +22,6 @@ import { Logger } from './utils/logger';
 
 const logger = Logger.getInstance();
 
-// The FileManager Key (FMK) is the root of all index encryption. It is sealed under a
-// credential-derived key and stored as an envelope the credential can locate without holding the
-// FMK, so every login method that unseals it reaches the same drives. See encryption-and-act.md §2.1.
-
 /**
  * The default credential, derived from the backend's own key material.
  *
@@ -101,13 +97,20 @@ export async function resolveIdentity(
       throw new IdentityError('Identity envelope is not valid JSON', err);
     }
 
-    assertIdentityEnvelope(envelope);
+    let identity: Identity;
+    try {
+      assertIdentityEnvelope(envelope);
 
-    if (envelope.v !== KDF_EPOCH) {
-      throw new IdentityError(`Unsupported identity envelope version ${envelope.v}`);
+      if (envelope.v !== KDF_EPOCH) {
+        throw new IdentityError(`Unsupported identity envelope version ${envelope.v}`);
+      }
+
+      identity = await unsealKey(secret, envelope);
+    } catch (err: unknown) {
+      // let the IdentityError instance surface during init
+      if (err instanceof IdentityError) throw err;
+      throw new IdentityError('Identity envelope is malformed', err);
     }
-
-    const identity = await unsealKey(secret, envelope);
 
     if (identity.keyId !== envelope.keyId) {
       throw new IdentityError('Identity envelope was written by a different key');

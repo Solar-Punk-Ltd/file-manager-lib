@@ -95,6 +95,10 @@ export class Keyring {
   }
 
   clear(): void {
+    for (const keys of this.keys.values()) {
+      keys.meta.fill(0);
+      keys.content.fill(0);
+    }
     this.keys.clear();
   }
 }

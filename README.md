@@ -285,8 +285,8 @@ Three consequences worth planning around:
 
 - **`fm.identity === undefined` is a normal state, not an error.** It means "no identity provisioned for this login
   yet", which is exactly what a newcomer with no stamp looks like. Render a first-run screen, not a failure.
-- **Persist `keyId`, never `owner`, as "which identity is this".** Both are FMK-derived and stable today, but `keyId` is
-  the value the design guarantees; the login address is per-session and changes with the login method.
+- **Persist `owner`, not `keyId`, as "which identity is this".** `owner` is FMK-derived and stable across login methods;
+  `keyId` is salted per envelope and identifies only the credential envelope.
 - **A wrong login fails loudly.** An envelope that exists but will not open raises `IdentityError` and emits
   `IDENTITY_INVALID` ahead of `INITIALIZED false` — a distinct event, because "sign in with the other wallet" and "the
   node is unreachable" need different screens. The check is AES-GCM's authentication tag, so a wallet that signs

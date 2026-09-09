@@ -17,6 +17,7 @@ export type {
   NodeUploadOptions,
   UploadItem,
   UpdateItem,
+  UploadOptions,
   UploadSource,
   UploadFilesResult,
   ClientProtectedUploadResult,

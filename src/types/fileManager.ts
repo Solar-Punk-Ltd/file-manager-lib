@@ -1,10 +1,4 @@
-import type {
-  BeeRequestOptions,
-  DownloadOptions,
-  FileUploadOptions,
-  RedundancyLevel,
-  RedundantUploadOptions,
-} from '@ethersphere/bee-js';
+import type { BeeRequestOptions, DownloadOptions, RedundancyLevel } from '@ethersphere/bee-js';
 import type { BatchId, FeedIndex, Identifier } from '@ethersphere/core-sdk';
 
 import type { EventEmitter } from '../eventEmitter';
@@ -12,7 +6,7 @@ import type { EventEmitter } from '../eventEmitter';
 import type { DownloadFilesResult, DownloadResult } from './download';
 import type { Credential, IdentityInfo } from './identity';
 import type { DriveInfo, FileRecord, FolderInfo, ListDepth, ListFolderResult, StampInfo } from './info';
-import type { UpdateItem, UploadFilesResult, UploadItem } from './upload';
+import type { UpdateItem, UploadFilesResult, UploadItem, UploadOptions } from './upload';
 
 /**
  * Interface representing a file manager with various file, folder and drive operations.
@@ -77,7 +71,7 @@ export interface FileManager {
    * single opaque collection without per-file versioning, keys, or listing.
    * @param driveId - The ID of the drive to upload into
    * @param item - The options for the file info upload (new content: path/file; no topic).
-   * @param uploadOptions - File and collection related upload options.
+   * @param uploadOptions - Upload options. Only `redundancyLevel` is honoured; it defaults to the drive's.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FILE_UPLOADED
    * @returns The newly-created FileRecord.
@@ -91,7 +85,7 @@ export interface FileManager {
   uploadFile(
     driveId: string | Identifier,
     item: UploadItem,
-    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
+    uploadOptions?: UploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<FileRecord>;
 
@@ -105,7 +99,7 @@ export interface FileManager {
    * @param items - The files to upload, each with a path relative to destinationPath.
    * Aborting rejects as soon as the signal is seen and no manifest is saved.
    * @param destinationPath - Absolute path of the destination folder; defaults to the drive root.
-   * @param uploadOptions - File-related upload options.
+   * @param uploadOptions - Upload options. Only `redundancyLevel` is honoured; it defaults to the drive's.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FOLDER_CREATED (per folder created)
    * @emits FileManagerEvents.FILE_UPLOADED (per file uploaded)
@@ -123,7 +117,7 @@ export interface FileManager {
     driveId: string | Identifier,
     items: UploadItem[],
     destinationPath?: string,
-    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
+    uploadOptions?: UploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<UploadFilesResult>;
 
@@ -136,7 +130,7 @@ export interface FileManager {
    * @param record - The existing file's FileRecord (the single source of truth).
    * @param changes - `item` present = new bytes (browser File or node filesystem path); absent =
    *                  metadata-only. `customMetadata` is merged over the record's existing metadata.
-   * @param uploadOptions - File-related upload options.
+   * @param uploadOptions - Upload options. Only `redundancyLevel` is honoured; it defaults to the drive's.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FILE_UPDATED
    * @returns The newly-written FileRecord for the updated version.
@@ -151,7 +145,7 @@ export interface FileManager {
     driveId: string | Identifier,
     record: FileRecord,
     changes: UpdateItem,
-    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
+    uploadOptions?: UploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<FileRecord>;
 
