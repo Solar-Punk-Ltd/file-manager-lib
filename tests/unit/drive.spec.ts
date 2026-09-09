@@ -167,7 +167,7 @@ describe('Drive operations', () => {
 
       await fm.move(ROOT_PATH, 'Renamed Drive', drive.id);
 
-      const stateTopic = (fm as any).stateFeedTopic.toString();
+      const stateTopic = (fm as any).store.requireIdentity().stateTopic.toString();
       const adminMantaray = (fm as any).store.getManifestCache(stateTopic) as MantarayNode;
       const fork = adminMantaray.find(getDriveForkPath(drive.id));
 

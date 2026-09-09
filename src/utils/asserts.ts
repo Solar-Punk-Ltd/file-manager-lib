@@ -2,7 +2,7 @@ import type { RedundancyLevel } from '@ethersphere/bee-js';
 import { BatchId, EthAddress, FeedIndex, Identifier, Reference, Topic } from '@ethersphere/core-sdk';
 import { Types } from 'cafe-utility';
 
-import type { IdentityEnvelope } from '../types/identity';
+import type { Identity, IdentityEnvelope } from '../types/identity';
 import {
   type DriveInfo,
   type FileRecord,
@@ -176,18 +176,19 @@ export function assertDriveInfoFromMetadata(meta: Record<string, string>): Drive
 
 interface FMReadyState {
   isInitialized: boolean;
-  stateFeedTopic: string;
+  stateTopic: string;
+  owner: string;
 }
 
-export function assertReady(isInitialized: boolean | undefined, stateFeedTopic: Topic | undefined): FMReadyState {
+export function assertReady(isInitialized: boolean | undefined, identity: Identity | undefined): FMReadyState {
   if (!isInitialized) {
     throw new DriveError('FileManager is not initialized');
   }
-  if (!stateFeedTopic) {
-    throw new DriveError('FileManager state feed topic not found.');
+  if (!identity) {
+    throw new DriveError('No identity — create an admin drive first');
   }
 
-  return { isInitialized, stateFeedTopic: stateFeedTopic.toString() };
+  return { isInitialized, stateTopic: identity.stateTopic.toString(), owner: identity.owner };
 }
 
 export function assertIdentityEnvelope(value: unknown): asserts value is IdentityEnvelope {

@@ -28,7 +28,8 @@ describe('Initialization and construction', () => {
 
   // The state topic and the root keys are internal by design — a consumer never needs them, but a
   // test that asserts on what actually landed on Swarm does.
-  const adminIdentity = (): Identity => (fileManager as unknown as { _identity: Identity })._identity;
+  const adminIdentity = (): Identity =>
+    (fileManager as unknown as { store: { requireIdentity(): Identity } }).store.requireIdentity();
   const stateMetaKey = (): Promise<Uint8Array> => adminIdentity().deriveKeyBytes(ROOT_META_KEY_LABEL);
 
   beforeAll(async () => {

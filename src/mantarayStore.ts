@@ -26,7 +26,7 @@ import { Keyring } from './keyring';
  */
 export class MantarayStore {
   private readonly swarmClient: SwarmClient;
-  private identity: Identity | undefined = undefined;
+  private _identity: Identity | undefined = undefined;
   private _keyring: Keyring | undefined = undefined;
   private readonly nodeManifestCache: Map<string, MantarayNode> = new Map();
   private readonly nodeManifestLoading: Map<string, Promise<MantarayNode>> = new Map();
@@ -46,14 +46,18 @@ export class MantarayStore {
    * Not folded into `clear()`, which is called mid-flight by `createAdminDrive(reset)`.
    */
   setIdentity(identity: Identity | undefined): void {
-    this.identity = identity;
+    this._identity = identity;
     this._keyring = identity ? new Keyring(identity) : undefined;
+  }
+
+  get identity(): Identity | undefined {
+    return this._identity;
   }
 
   /** The key chain for the current identity. */
   get keyring(): Keyring {
     if (!this._keyring) {
-      throw new IdentityError('MantarayStore has no identity — FileManager is not initialized');
+      throw new IdentityError('No keyring found — FileManager is not initialized');
     }
 
     return this._keyring;
@@ -341,15 +345,15 @@ export class MantarayStore {
     this._keyring?.clear();
   }
 
-  // --- Private helpers  ---
-
-  private requireIdentity(): Identity {
-    if (!this.identity) {
-      throw new IdentityError('MantarayStore has no identity — FileManager is not initialized');
+  requireIdentity(): Identity {
+    if (!this._identity) {
+      throw new IdentityError('No identity found — FileManager is not initialized');
     }
 
-    return this.identity;
+    return this._identity;
   }
+
+  // --- Private helpers  ---
 
   private driveRootHost(drive: DriveInfo): ManifestHost {
     return {
