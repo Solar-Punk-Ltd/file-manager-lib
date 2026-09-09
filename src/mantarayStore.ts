@@ -1,10 +1,11 @@
 import type { BeeRequestOptions, RedundancyLevel } from '@ethersphere/bee-js';
 import { Bytes, FeedIndex, type MantarayNode, Topic } from '@ethersphere/core-sdk';
 
+import type { NodeKeys } from './types/crypto';
 import type { Identity } from './types/identity';
 import { type DriveInfo, type FileRecord, type FolderInfo, type ManifestHost, NodeType } from './types/info';
 import { type SwarmClient } from './types/swarmClient';
-import { type ContentRef, type FeedResultWithIndex, type FeedWriteResult, type NodeKeys } from './types/utils';
+import { type ContentRef, type FeedResultWithIndex, type FeedWriteResult } from './types/utils';
 import { assertFileRecord } from './utils/asserts';
 import { getFeedData, openFeedRef, writeEncryptedFeed } from './utils/bee';
 import {

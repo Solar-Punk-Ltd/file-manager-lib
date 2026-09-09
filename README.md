@@ -263,7 +263,7 @@ the envelope lives is always the client's address, since nothing else can sign a
 
 ```ts
 const fm = new FileManagerBase(swarmClient, undefined, {
-  credential: { unlockSecret: () => walletSignature('fm-identity-v2') },
+  credential: { unlockSecret: () => walletSignature('fm-identity-v1') },
 });
 ```
 

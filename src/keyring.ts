@@ -1,5 +1,5 @@
+import type { NodeKeys, WrappedKeys } from './types/crypto';
 import type { Identity } from './types/identity';
-import type { NodeKeys, WrappedKeys } from './types/utils';
 import { ROOT_CONTENT_KEY_LABEL, ROOT_META_KEY_LABEL } from './utils/constants';
 import { generateNodeKeys, unwrapKey, wrapKey } from './utils/crypto';
 import { KeyringError } from './utils/errors';
@@ -39,6 +39,11 @@ export class Keyring {
     this.keys.set(topic, root);
 
     return root;
+  }
+
+  /** Whether {@link requireKeys} would resolve `topic` without a walk. */
+  has(topic: string): boolean {
+    return this.keys.has(topic) || topic === this.rootTopic;
   }
 
   /** Fresh keys for a node being created. Registered immediately so the first save can use them. */

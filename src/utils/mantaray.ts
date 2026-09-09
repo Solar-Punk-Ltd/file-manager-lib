@@ -1,6 +1,7 @@
 import { type BeeRequestOptions, RedundancyLevel } from '@ethersphere/bee-js';
 import { MantarayNode, Reference } from '@ethersphere/core-sdk';
 
+import type { WrappedKeys } from '../types/crypto';
 import type { Identity } from '../types/identity';
 import {
   type DriveInfo,
@@ -11,13 +12,7 @@ import {
   NodeType,
 } from '../types/info';
 import type { SwarmClient } from '../types/swarmClient';
-import type {
-  FeedWriteResult,
-  SwarmDownloadOptions,
-  SwarmRequestOptions,
-  SwarmUploadOptions,
-  WrappedKeys,
-} from '../types/utils';
+import type { FeedWriteResult, SwarmDownloadOptions, SwarmRequestOptions, SwarmUploadOptions } from '../types/utils';
 
 import { writeSealedRefFeed } from './bee';
 import { getRecordStatus } from './common';

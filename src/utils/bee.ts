@@ -2,14 +2,9 @@ import type { BeeRequestOptions } from '@ethersphere/bee-js';
 import { type BatchId, Bytes, FeedIndex, Reference, Topic } from '@ethersphere/core-sdk';
 
 import type { Identity } from '../types/identity';
+import type { StampInfo } from '../types/info';
 import type { SwarmClient } from '../types/swarmClient';
-import {
-  type ContentRef,
-  type FeedResultWithIndex,
-  type FeedTarget,
-  type FeedWriteResult,
-  type StampInfo,
-} from '../types/utils';
+import { type ContentRef, type FeedResultWithIndex, type FeedTarget, type FeedWriteResult } from '../types/utils';
 
 import { FEED_INDEX_NONE, FEED_INDEX_ZERO } from './constants';
 import { generateRandomBytes, openWithKey, sealWithKey } from './crypto';

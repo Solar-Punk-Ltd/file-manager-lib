@@ -2,14 +2,14 @@ import { Bee, FeedIndex, type PrivateKey, Topic } from '@ethersphere/bee-js';
 
 import { BEE_URL, createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
 
-import { applyDefaultMocks, mockStampInfo, mockWrappedKeys, refPayload } from './mock';
+import { applyDefaultMocks, mockIdentityFeed, mockStampInfo, mockWrappedKeys, refPayload } from './mock';
 
 import { BeeClient } from '@/clients';
 import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
 import { NodeType, type UnresolvedDrive } from '@/types';
 import { FileManagerEvents, SignerError } from '@/utils';
-import { fetchStamp, getFeedData } from '@/utils/bee';
+import { fetchStamp } from '@/utils/bee';
 import {
   FEED_INDEX_ZERO,
   MANIFEST_METADATA_DRIVE_BATCH_ID,
@@ -136,7 +136,7 @@ describe('Initialization and construction', () => {
         payload: refPayload(),
       });
 
-      (getFeedData as jest.Mock).mockImplementation(async (_bee: Bee, topic: Topic) =>
+      await mockIdentityFeed(client, (topic) =>
         topic.toString() === driveTopic
           ? feedResult(FeedIndex.MINUS_ONE, FEED_INDEX_ZERO)
           : feedResult(FEED_INDEX_ZERO, FeedIndex.fromBigInt(1n)),
@@ -168,11 +168,11 @@ describe('Initialization and construction', () => {
         },
       ]);
 
-      (getFeedData as jest.Mock).mockResolvedValue({
+      await mockIdentityFeed(client, () => ({
         feedIndex: FEED_INDEX_ZERO,
         feedIndexNext: FeedIndex.fromBigInt(1n),
         payload: refPayload(),
-      });
+      }));
 
       await fm.initialize();
 
@@ -213,11 +213,11 @@ describe('Initialization and construction', () => {
         driveFork('b'.repeat(64), 'intact-drive', mockWrappedKeys()),
       ]);
 
-      (getFeedData as jest.Mock).mockResolvedValue({
+      await mockIdentityFeed(client, () => ({
         feedIndex: FEED_INDEX_ZERO,
         feedIndexNext: FeedIndex.fromBigInt(1n),
         payload: refPayload(),
-      });
+      }));
 
       await fm.initialize();
 
@@ -258,11 +258,11 @@ describe('Initialization and construction', () => {
       emitter.on(FileManagerEvents.INITIALIZED, (ok: boolean) => events.push(ok));
 
       // A resolvable state feed, so initialize() gets as far as loading the admin manifest.
-      (getFeedData as jest.Mock).mockResolvedValue({
+      await mockIdentityFeed(client, () => ({
         feedIndex: FEED_INDEX_ZERO,
         feedIndexNext: FeedIndex.fromBigInt(1n),
         payload: refPayload(Topic.fromString('state-feed').toString()),
-      });
+      }));
 
       const fm = new FileManagerBase(client, emitter);
       (getAllNodeEntries as jest.Mock).mockImplementationOnce(() => {

@@ -1,16 +1,16 @@
 import { Bytes } from '@ethersphere/core-sdk';
 
-import type { Hex, NodeKeys } from '../types/utils';
+import type { NodeKeys } from '../types/crypto';
+import type { Hex } from '../types/utils';
 
 const HKDF_ALG = 'HKDF';
 const AES_ALG = 'AES-GCM';
 const HASH_ALG = 'SHA-256';
 const AES_KEY_BITS = 256;
 
-/** AES-GCM nonce length in bytes. Every ciphertext this module produces is `iv || ciphertext`. */
+// AES-GCM nonce length in bytes. Every ciphertext this module produces is `iv || ciphertext`.
 export const GCM_IV_LENGTH = 12;
-
-/** Length of a derived secret, in bytes — matches a `Topic` and an AES-256 key. */
+// Length of a derived secret, in bytes — matches a `Topic` and an AES-256 key.
 export const DERIVED_SECRET_LENGTH = 32;
 
 export function generateRandomBytes(len: number): Bytes {
@@ -47,9 +47,8 @@ function infoBytes(info: string): Uint8Array<ArrayBuffer> {
  * buffer passed in is the only place the secret exists as bytes — {@link zeroBytes} it once this
  * resolves.
  */
-// eslint-disable-next-line require-await
 export async function importDerivationKey(secret: Uint8Array): Promise<CryptoKey> {
-  return globalThis.crypto.subtle.importKey('raw', asBufferSource(secret), HKDF_ALG, false, [
+  return await globalThis.crypto.subtle.importKey('raw', asBufferSource(secret), HKDF_ALG, false, [
     'deriveKey',
     'deriveBits',
   ]);
@@ -62,9 +61,8 @@ export async function importDerivationKey(secret: Uint8Array): Promise<CryptoKey
  * exfiltrate it. Keys that must leave the process — a share blob's payload — have to be produced
  * some other way, deliberately.
  */
-// eslint-disable-next-line require-await
 export async function deriveAesKey(base: CryptoKey, info: string, salt: Uint8Array): Promise<CryptoKey> {
-  return globalThis.crypto.subtle.deriveKey(
+  return await globalThis.crypto.subtle.deriveKey(
     { name: HKDF_ALG, hash: HASH_ALG, salt: asBufferSource(salt), info: infoBytes(info) },
     base,
     { name: AES_ALG, length: AES_KEY_BITS },
@@ -96,7 +94,7 @@ export async function deriveBits(
   return new Uint8Array(bits);
 }
 
-/** AES-256-GCM. Returns `iv || ciphertext`; the GCM tag is part of the ciphertext. */
+// AES-256-GCM. Returns `iv || ciphertext`; the GCM tag is part of the ciphertext.
 export async function encryptBytes(key: CryptoKey, plaintext: Uint8Array): Promise<Uint8Array> {
   const iv = asBufferSource(generateRandomBytes(GCM_IV_LENGTH).toUint8Array());
   const ciphertext = await globalThis.crypto.subtle.encrypt({ name: AES_ALG, iv }, key, asBufferSource(plaintext));
@@ -128,13 +126,12 @@ export async function decryptBytes(key: CryptoKey, sealed: Uint8Array): Promise<
 }
 
 /** Import raw AES-256 key bytes. Non-extractable, so the imported handle cannot leak the value back. */
-// eslint-disable-next-line require-await
 export async function importAesKey(raw: Uint8Array): Promise<CryptoKey> {
   if (raw.length !== DERIVED_SECRET_LENGTH) {
     throw new Error(`AES key must be ${DERIVED_SECRET_LENGTH} bytes, got ${raw.length}`);
   }
 
-  return globalThis.crypto.subtle.importKey('raw', asBufferSource(raw), AES_ALG, false, ['encrypt', 'decrypt']);
+  return await globalThis.crypto.subtle.importKey('raw', asBufferSource(raw), AES_ALG, false, ['encrypt', 'decrypt']);
 }
 
 /** {@link encryptBytes} under a raw key. Every index write in the library goes through here. */

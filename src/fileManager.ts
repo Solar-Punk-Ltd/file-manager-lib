@@ -24,11 +24,12 @@ import {
   NodeStatus,
   NodeType,
   type ResolvedFileFork,
+  type StampInfo,
   type UnresolvedDrive,
 } from './types/info';
 import type { SwarmClient } from './types/swarmClient';
 import { type UpdateItem, type UploadFilesResult, type UploadItem } from './types/upload';
-import { type ContentRef, type FailedResult, type StampInfo } from './types/utils';
+import { type ContentRef, type FailedResult } from './types/utils';
 import { assertDriveInfoFromMetadata, assertReady } from './utils/asserts';
 import { fetchStamp, getFeedData, getTopicAndVersion, verifyStampUsability } from './utils/bee';
 import { awaitAllPromisesBounded, errorMessage, getRecordStatus, joinPath, settlePromises } from './utils/common';
@@ -227,6 +228,10 @@ export class FileManagerBase implements FileManager {
 
     const batchIdStr = batchId.toString();
 
+    // Before provisioning, which writes the envelope with this batch
+    await this.fetchAndSetAdminStamp(batchIdStr, requestOptions);
+    verifyStampUsability(this.adminStamp, batchIdStr);
+
     if (!this._identity) {
       this.setIdentity(await provisionIdentity(this.swarmClient, this.credential, batchIdStr, requestOptions));
     }
@@ -250,8 +255,6 @@ export class FileManagerBase implements FileManager {
     const level = redundancyLevel ?? RedundancyLevel.OFF;
 
     this.logger.debug('Creating admin drive with name: ', ADMIN_DRIVE_NAME);
-    await this.fetchAndSetAdminStamp(batchIdStr, requestOptions);
-    verifyStampUsability(this.adminStamp, batchIdStr);
 
     if (reset) {
       this._recordList.length = 0;
@@ -660,6 +663,7 @@ export class FileManagerBase implements FileManager {
     }
 
     const owner = this.requireIdentity().owner;
+    await this.ensureRecordKeys(cachedDrive, record, requestOptions);
     // Always resolve the current head
     const { record: cached, fromCache } = await this.loadRecord(record.topic, record.owner, undefined, requestOptions);
 
@@ -797,6 +801,12 @@ export class FileManagerBase implements FileManager {
       }
     }
 
+    const knownDrive = fr.driveId ? this.driveList.find((d) => d.id === fr.driveId) : undefined;
+
+    if (knownDrive) {
+      await this.ensureRecordKeys(knownDrive, fr, requestOptions);
+    }
+
     const topic = new Topic(fr.topic);
     const index = version !== undefined ? new FeedIndex(version).toBigInt() : undefined;
     const feedData = await getFeedData(this.swarmClient, topic, fr.owner, index, requestOptions);
@@ -825,6 +835,7 @@ export class FileManagerBase implements FileManager {
       );
     }
     const { driveIx, cachedDrive } = this.findDriveOrThrow(versionToRestore.driveId);
+    await this.ensureRecordKeys(cachedDrive, versionToRestore, requestOptions);
 
     const { feedIndex, feedIndexNext } = await getFeedData(
       this.swarmClient,
@@ -1954,6 +1965,24 @@ export class FileManagerBase implements FileManager {
     }
 
     return fork;
+  }
+
+  // Hydrate `record`'s keys when the caller reached it without walking to it.
+  // A FileRecord kept across sessions carries its topic but no key material, and the keyring lives only in memory.
+  // A no-op once the keys are known.
+  private async ensureRecordKeys(
+    drive: DriveInfo,
+    record: FileRecord,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void> {
+    if (this.store.keyring.has(record.topic) || !record.path) return;
+
+    try {
+      const fork = await this.resolveFileFork(drive, record.path, record.topic, requestOptions);
+      await this.store.unwrapFork(fork.host.topic, record.topic, fork.metadata);
+    } catch (err: unknown) {
+      this.logger.debug(`Could not hydrate keys for ${record.topic.slice(0, 6)}: ${errorMessage(err)}`);
+    }
   }
 
   private async resolveTrashHost(

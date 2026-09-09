@@ -9,6 +9,7 @@ export type {
   NodeHeader,
   NodeResource,
   UnresolvedDrive,
+  StampInfo,
 } from './info';
 export { FailureScope, ListDepth, NodeType, NodeStatus } from './info';
 export type {
@@ -18,30 +19,27 @@ export type {
   UpdateItem,
   UploadSource,
   UploadFilesResult,
+  ClientProtectedUploadResult,
+  ClientUploadResult,
 } from './upload';
 export type { DownloadFilesResult, DownloadResource, DownloadResult } from './download';
 export type { FileManager, FileManagerConfig } from './fileManager';
 export type { SwarmClient } from './swarmClient';
-export { FEED_INDEX_NOT_FOUND, FEED_INDEX_START } from './utils';
 export type {
   ActReferences,
-  ClientProtectedUploadResult,
-  ClientUploadResult,
   ContentRef,
   FailedResult,
   FeedIndexString,
   FeedRead,
   FeedWrite,
   Hex,
-  NodeKeys,
   ProtectedRefs,
-  StampInfo,
   SwarmDownloadOptions,
   SwarmFeedWriteOptions,
   SwarmRedundancyLevel,
   SwarmRedundancyStrategy,
   SwarmRequestOptions,
   SwarmUploadOptions,
-  WrappedKeys,
 } from './utils';
 export type { Credential, Identity, IdentityInfo, IdentityEnvelope } from './identity';
+export type { WrappedKeys, NodeKeys } from './crypto';

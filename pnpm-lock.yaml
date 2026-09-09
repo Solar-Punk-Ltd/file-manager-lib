@@ -31,8 +31,8 @@ importers:
         specifier: ^9.39.2
         version: 9.39.2
       '@ethersphere/bee-factory':
-        specifier: ^1.1.1
-        version: 1.1.1
+        specifier: ^1.1.2
+        version: 1.1.2
       '@snaha/swarm-id':
         specifier: ^0.4.0
         version: 0.4.0
@@ -543,8 +543,8 @@ packages:
     resolution: {integrity: sha512-43/qtrDUokr7LJqoF2c3+RInu/t4zfrpYdoSDfYyhg52rwLV6TnOvdG4fXm7IkSB3wErkcmJS9iEhjVtOSEjjA==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
 
-  '@ethersphere/bee-factory@1.1.1':
-    resolution: {integrity: sha512-+MYUffnA+54T+WOY7PeA2r9AINdUR7QXatNWg+Mo7G+QxMHxMFwR4cb6FI1RhGk6yOKZ+JHfUTCSCQKfH4IKYQ==}
+  '@ethersphere/bee-factory@1.1.2':
+    resolution: {integrity: sha512-DkUF13VZOXAATOD96EnG0MtxZ5XUzp4UcDW0rYJK4gFY3E4cHL1NOm+iZkl1BLnzQ88wTWBEP8Tzau+UdAeWdA==}
     engines: {node: '>=18.0.0'}
     hasBin: true
 
@@ -4075,7 +4075,7 @@ snapshots:
       '@eslint/core': 0.17.0
       levn: 0.4.1
 
-  '@ethersphere/bee-factory@1.1.1':
+  '@ethersphere/bee-factory@1.1.2':
     dependencies:
       '@ethersphere/bee-js': 12.3.1
       chalk: 5.6.2
@@ -4106,7 +4106,7 @@ snapshots:
       cafe-utility: 34.0.0
       debug: 4.4.3
       isomorphic-ws: 4.0.1(ws@8.21.1)
-      semver: 7.7.3
+      semver: 7.8.5
       ws: 8.21.1
       zod: 4.4.3
     transitivePeerDependencies:

@@ -33,7 +33,7 @@ describe('Drive operations', () => {
       expect(di.name).toBe(ADMIN_DRIVE_NAME);
       expect(di.batchId).toBe(DUMMY_BATCH_ID.toString());
       expect(di.id).toHaveLength(64);
-      expect(di.owner).toBe(owner);
+      expect(di.owner).toBe(fm.identity?.owner);
       expect(di.topic).toBeDefined();
       expect(di.manifestRef).toBeDefined();
       expect(di.isAdmin).toBe(true);
@@ -54,7 +54,7 @@ describe('Drive operations', () => {
       expect(di.name).toBe('Test Drive');
       expect(di.batchId).toBe(otherMockBatchId.toString());
       expect(di.id).toHaveLength(64);
-      expect(di.owner).toBe(owner);
+      expect(di.owner).toBe(fm.identity?.owner);
       expect(di.topic).toBeDefined();
       expect(di.manifestRef).toBeDefined();
     });

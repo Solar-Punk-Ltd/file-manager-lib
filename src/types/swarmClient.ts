@@ -1,14 +1,13 @@
 import type { Readable } from 'stream';
 
+import type { StampInfo } from './info';
+import type { ClientProtectedUploadResult, ClientUploadResult } from './upload';
 import type {
-  ClientProtectedUploadResult,
-  ClientUploadResult,
   FeedIndexString,
   FeedRead,
   FeedWrite,
   Hex,
   ProtectedRefs,
-  StampInfo,
   SwarmDownloadOptions,
   SwarmFeedWriteOptions,
   SwarmRequestOptions,

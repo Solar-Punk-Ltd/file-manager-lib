@@ -51,6 +51,10 @@ jest.mock('@/keyring', () => {
       return this.mint(topic);
     }
 
+    has(topic: string): boolean {
+      return this.keys.has(topic) || topic === this.rootTopic;
+    }
+
     mint(topic: string): Keys {
       const keys = generateNodeKeys() as Keys;
       this.keys.set(topic, keys);

@@ -12,7 +12,6 @@ import { FileManagerEvents } from '@/utils';
 
 describe('Events and emitter', () => {
   const otherMockBatchId = new BatchId('4'.repeat(64));
-  const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
 
   beforeEach(async () => {
     applyDefaultMocks();
@@ -44,7 +43,7 @@ describe('Events and emitter', () => {
         batchId: otherMockBatchId.toString(),
         driveId: di.id,
         path: 'package.json',
-        owner,
+        owner: fm.identity?.owner,
         redundancyLevel: redundancy,
         status: NodeStatus.Active,
         timestamp: fixedNow,

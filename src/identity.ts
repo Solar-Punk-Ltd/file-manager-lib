@@ -1,16 +1,17 @@
 import type { BeeRequestOptions } from '@ethersphere/bee-js';
-import { Bytes } from '@ethersphere/core-sdk';
+import { Bytes, type Topic } from '@ethersphere/core-sdk';
 
 import type { Credential, Identity, IdentityEnvelope } from './types/identity';
 import type { SwarmClient } from './types/swarmClient';
-import type { Hex } from './types/utils';
+import type { FeedResultWithIndex, Hex } from './types/utils';
 import { assertIdentityEnvelope } from './utils/asserts';
 import { getFeedData } from './utils/bee';
+import { errorMessage } from './utils/common';
 import {
   FEED_INDEX_NONE,
   FMK_LENGTH,
   IDENTITY_ENVELOPE_FEED_INDEX,
-  IDENTITY_ENVELOPE_VERSION,
+  KDF_EPOCH,
   UNLOCK_KDF_LABEL,
   UNLOCK_SALT_LENGTH,
 } from './utils/constants';
@@ -51,6 +52,28 @@ async function withUnlockSecret<T>(credential: Credential, fn: (secret: Uint8Arr
 }
 
 /**
+ * Read the envelope feed's only slot.
+ *
+ * Slot 0 first: a provisioned envelope is then one chunk fetch, with no feed lookup for the node to
+ * run. Bee answers a *missing* chunk with a 500 rather than a 404, though, so a first login lands in
+ * the fallback and re-asks over the feed endpoint, which reports an empty feed properly.
+ *
+ */
+async function readEnvelopeFeed(
+  swarmClient: SwarmClient,
+  topic: Topic,
+  requestOptions?: BeeRequestOptions,
+): Promise<FeedResultWithIndex> {
+  try {
+    return await getFeedData(swarmClient, topic, swarmClient.owner, IDENTITY_ENVELOPE_FEED_INDEX, requestOptions);
+  } catch (err: unknown) {
+    logger.debug(`Envelope slot read failed, falling back to the feed head: ${errorMessage(err)}`);
+
+    return await getFeedData(swarmClient, topic, swarmClient.owner, undefined, requestOptions);
+  }
+}
+
+/**
  * Read the envelope for `credential` and unseal it.
  *
  * Returns `undefined` when no envelope exists — a first run, not a failure. An envelope that exists
@@ -64,13 +87,7 @@ export async function resolveIdentity(
 ): Promise<Identity | undefined> {
   return await withUnlockSecret(credential, async (secret) => {
     const topic = await envelopeTopic(secret);
-    const { payload, feedIndex } = await getFeedData(
-      swarmClient,
-      topic,
-      swarmClient.owner,
-      IDENTITY_ENVELOPE_FEED_INDEX,
-      requestOptions,
-    );
+    const { payload, feedIndex } = await readEnvelopeFeed(swarmClient, topic, requestOptions);
 
     if (feedIndex.equals(FEED_INDEX_NONE)) {
       logger.debug('No identity envelope found for this credential.');
@@ -86,7 +103,7 @@ export async function resolveIdentity(
 
     assertIdentityEnvelope(envelope);
 
-    if (envelope.v !== IDENTITY_ENVELOPE_VERSION) {
+    if (envelope.v !== KDF_EPOCH) {
       throw new IdentityError(`Unsupported identity envelope version ${envelope.v}`);
     }
 
@@ -119,13 +136,7 @@ export async function provisionIdentity(
 ): Promise<Identity> {
   return await withUnlockSecret(credential, async (secret) => {
     const topic = await envelopeTopic(secret);
-    const { feedIndex } = await getFeedData(
-      swarmClient,
-      topic,
-      swarmClient.owner,
-      IDENTITY_ENVELOPE_FEED_INDEX,
-      requestOptions,
-    );
+    const { feedIndex } = await readEnvelopeFeed(swarmClient, topic, requestOptions);
 
     if (!feedIndex.equals(FEED_INDEX_NONE)) {
       throw new IdentityError('Identity envelope already exists for this credential');
@@ -139,7 +150,7 @@ export async function provisionIdentity(
     const { identity, sealed } = await sealKey(secret, salt, fmkBytes).finally(() => zeroBytes(fmkBytes));
 
     const envelope: IdentityEnvelope = {
-      v: IDENTITY_ENVELOPE_VERSION,
+      v: KDF_EPOCH,
       salt: new Bytes(salt).toString(),
       sealed: new Bytes(sealed).toString(),
       keyId: identity.keyId,

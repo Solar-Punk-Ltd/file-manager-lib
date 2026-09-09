@@ -25,15 +25,20 @@ import { Optional } from 'cafe-utility';
 import { DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID, MOCK_NODE_SIGNER } from '../utils';
 
 import { type FileManagerBase } from '@/fileManager';
-import { type DriveInfo, type FileRecord, NodeType, type StampInfo } from '@/types';
+import { type DriveInfo, type FileRecord, type Identity, NodeType, type StampInfo, type SwarmClient } from '@/types';
 import { fetchStamp, getFeedData, openFeedRef, writeEncryptedFeed, writeSealedRefFeed } from '@/utils/bee';
 import {
   ADMIN_DRIVE_NAME,
   FEED_INDEX_ZERO,
+  FMK_LENGTH,
+  KDF_EPOCH,
   MANIFEST_METADATA_WRAPPED_CONTENT_KEY,
   MANIFEST_METADATA_WRAPPED_META_KEY,
   SWARM_ZERO_ADDRESS,
+  UNLOCK_KDF_LABEL,
+  UNLOCK_SALT_LENGTH,
 } from '@/utils/constants';
+import { envelopeTopic, sealKey } from '@/utils/identity';
 import { getAllNodeEntries, loadMantaray } from '@/utils/mantaray';
 
 export function createMockMantarayNode(all = true): MantarayNode {
@@ -259,6 +264,34 @@ export const seedKeys = (fm: FileManagerBase, ...topics: string[]): void => {
     keyring.mint(topic);
   }
 };
+
+const TEST_FMK = new Uint8Array(FMK_LENGTH).fill(0x2a);
+const TEST_UNLOCK_SALT = new Uint8Array(UNLOCK_SALT_LENGTH).fill(0x11);
+
+export async function mockIdentityFeed(client: SwarmClient, rest: (topic: Topic) => unknown): Promise<Identity> {
+  const secret = await client.deriveSecret(UNLOCK_KDF_LABEL);
+  const { identity, sealed } = await sealKey(secret, TEST_UNLOCK_SALT, TEST_FMK.slice());
+
+  const envelope = {
+    v: KDF_EPOCH,
+    salt: new Bytes(TEST_UNLOCK_SALT).toString(),
+    sealed: new Bytes(sealed).toString(),
+    keyId: identity.keyId,
+  };
+  const envelopeFeed = (await envelopeTopic(secret)).toString();
+
+  (getFeedData as jest.Mock).mockImplementation(async (_client: SwarmClient, topic: Topic) =>
+    topic.toString() === envelopeFeed
+      ? {
+          feedIndex: FEED_INDEX_ZERO,
+          feedIndexNext: FeedIndex.fromBigInt(1n),
+          payload: Bytes.fromUtf8(JSON.stringify(envelope)),
+        }
+      : rest(topic),
+  );
+
+  return identity;
+}
 
 export const refPayload = (
   reference: string = SWARM_ZERO_ADDRESS.toString(),

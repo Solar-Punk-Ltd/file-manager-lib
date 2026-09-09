@@ -1,7 +1,7 @@
 import { type RedundancyLevel } from '@ethersphere/bee-js';
 import { type MantarayNode } from '@ethersphere/core-sdk';
 
-import { type ContentRef } from './utils';
+import { type ContentRef, type Hex } from './utils';
 
 export enum NodeStatus {
   Active = 'active',
@@ -102,4 +102,10 @@ export interface ResolvedFileFork {
   filename: string;
   targetAddress: Uint8Array;
   metadata: Record<string, string>;
+}
+
+export interface StampInfo {
+  batchId: Hex;
+  usable: boolean;
+  depth: number;
 }

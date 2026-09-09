@@ -7,13 +7,12 @@ import type {
 } from '@ethersphere/bee-js';
 import type { BatchId, FeedIndex, Identifier } from '@ethersphere/core-sdk';
 
-import { type EventEmitter } from '../eventEmitter';
+import type { EventEmitter } from '../eventEmitter';
 
-import { type DownloadFilesResult, type DownloadResult } from './download';
+import type { DownloadFilesResult, DownloadResult } from './download';
 import type { Credential, IdentityInfo } from './identity';
-import { type DriveInfo, type FileRecord, type FolderInfo, type ListDepth, type ListFolderResult } from './info';
-import { type UpdateItem, type UploadFilesResult, type UploadItem } from './upload';
-import type { StampInfo } from './utils';
+import type { DriveInfo, FileRecord, FolderInfo, ListDepth, ListFolderResult, StampInfo } from './info';
+import type { UpdateItem, UploadFilesResult, UploadItem } from './upload';
 
 /**
  * Interface representing a file manager with various file, folder and drive operations.

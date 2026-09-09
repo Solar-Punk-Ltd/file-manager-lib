@@ -2,25 +2,22 @@ import type { Bee } from '@ethersphere/bee-js';
 import { Bytes, PrivateKey, Topic } from '@ethersphere/core-sdk';
 import type { Readable } from 'stream';
 
+import type { StampInfo } from '../../types/info';
 import type { SwarmClient } from '../../types/swarmClient';
+import type { ClientProtectedUploadResult, ClientUploadResult } from '../../types/upload';
 import {
-  type ClientProtectedUploadResult,
-  type ClientUploadResult,
-  FEED_INDEX_NOT_FOUND,
-  FEED_INDEX_START,
   type FeedIndexString,
   type FeedRead,
   type FeedWrite,
   type Hex,
   type ProtectedRefs,
-  type StampInfo,
   type SwarmDownloadOptions,
   type SwarmFeedWriteOptions,
   type SwarmRequestOptions,
   type SwarmUploadOptions,
 } from '../../types/utils';
 import { isNotFoundError } from '../../utils/common';
-import { SWARM_ZERO_ADDRESS } from '../../utils/constants';
+import { FEED_INDEX_NOT_FOUND, FEED_INDEX_START, SWARM_ZERO_ADDRESS } from '../../utils/constants';
 import { SignerError } from '../../utils/errors';
 
 import {

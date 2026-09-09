@@ -15,6 +15,7 @@ import {
   refPayload,
   type SeedableFm,
   seedDummyFile,
+  seedKeys,
   seedRecords,
 } from './mock';
 
@@ -631,6 +632,7 @@ describe('File operations', () => {
       const drive = fm.driveList[0];
 
       const fileTopic = Topic.fromString('bare-read').toString();
+      seedKeys(fm, fileTopic);
       const stored = {
         type: NodeType.File,
         batchId: DUMMY_BATCH_ID,

@@ -1,5 +1,5 @@
 import { type FileRecord } from './info';
-import { type FailedResult } from './utils';
+import { type ActReferences, type FailedResult, type Hex } from './utils';
 
 export interface BrowserUploadOptions {
   file: File;
@@ -31,4 +31,13 @@ export interface UpdateItem {
 export interface UploadFilesResult {
   succeeded: FileRecord[];
   failed: FailedResult[];
+}
+
+export interface ClientUploadResult {
+  reference: Hex;
+  tagUid?: number;
+}
+export interface ClientProtectedUploadResult {
+  contentRefs: ActReferences;
+  tagUid?: number;
 }

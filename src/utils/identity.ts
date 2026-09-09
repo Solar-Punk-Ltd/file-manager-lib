@@ -106,8 +106,7 @@ class IdentityBase implements Identity {
     return new IdentityBase(fmk, stateTopic, keyId, owner, signer);
   }
 
-  // eslint-disable-next-line require-await
   async deriveKeyBytes(info: string): Promise<Uint8Array> {
-    return deriveBits(this.fmk, info, NO_SALT);
+    return await deriveBits(this.fmk, info, NO_SALT);
   }
 }

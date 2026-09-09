@@ -39,11 +39,11 @@ flowchart TD
         A3["Swarm ID / snaha"]
     end
 
-    A1 --> B1["K_unlock = HKDF(privKey, 'fm-unlock-v2')"]
-    A2 --> B2["sig = personal_sign('fm-identity-v2')<br/>K_unlock = HKDF(sig, 'fm-unlock-v2')"]
-    A3 --> B3["identity-scoped secret<br/>K_unlock = HKDF(secret, 'fm-unlock-v2')"]
+    A1 --> B1["K_unlock = HKDF(privKey, 'fm-unlock-v1')"]
+    A2 --> B2["sig = personal_sign('fm-identity-v1')<br/>K_unlock = HKDF(sig, 'fm-unlock-v1')"]
+    A3 --> B3["identity-scoped secret<br/>K_unlock = HKDF(secret, 'fm-unlock-v1')"]
 
-    B1 --> C["Envelope feed<br/>topic = HKDF(secret, 'fm-identity-envelope-v3')<br/>owner = swarmClient.owner (the login)"]
+    B1 --> C["Envelope feed<br/>topic = HKDF(secret, 'fm-identity-envelope-v1')<br/>owner = swarmClient.owner (the login)"]
     B2 --> C
     B3 --> C
 
@@ -56,7 +56,7 @@ flowchart TD
         V -->|no| X["IdentityError -> IDENTITY_INVALID<br/>'this credential derives a different identity'"]
         V -->|yes| G["FMK established"]
 
-        G --> H["stateTopic = HKDF(FMK, 'fm-state-v2')<br/>K_state = HKDF(FMK, 'state')<br/>signer = HKDF(FMK, 'fm-signer-v2')"]
+        G --> H["stateTopic = HKDF(FMK, 'fm-state-v1')<br/>K_state = HKDF(FMK, 'state')<br/>signer = HKDF(FMK, 'fm-signer-v1')"]
         H --> I["identity.owner = address(signer)<br/>every data feed is owned and signed by it"]
         I --> S["load admin state"]
     end
@@ -72,7 +72,7 @@ Notes:
 
 - **Two addressing layers, and the split is the whole portability mechanism.** The envelope lives under the _login's_
   address — it has to, because it must be findable before the FMK exists, and because only the login can sign a write
-  there. Everything else — the state feed and every node feed — is owned and signed by `HKDF(FMK, 'fm-signer-v2')`.
+  there. Everything else — the state feed and every node feed — is owned and signed by `HKDF(FMK, 'fm-signer-v1')`.
   Without that second layer the FMK would make the state feed _topic_ portable while the owner stayed per-login, and a
   Swarm feed is addressed by the **pair**: two credentials sharing one FMK would derive an identical topic, look under
   two different owners, and find two disjoint feeds. Same identity, no shared data.
@@ -110,7 +110,7 @@ Notes:
   this FMK rather than a foreign one. Together they convert a non-deterministic signer into a loud failure instead of a
   silently empty drive list: the mitigation for wallets that do not implement RFC 6979 and for smart accounts that
   cannot `personal_sign` deterministically at all.
-- **`keyId` is salted with the envelope's own salt**: `HKDF(FMK, 'fm-key-id-v2', salt)` rather than an FMK-only
+- **`keyId` is salted with the envelope's own salt**: `HKDF(FMK, 'fm-key-id-v1', salt)` rather than an FMK-only
   fingerprint. It is the one FMK-derived value written to the wire in the clear, so an unsalted one would be
   byte-identical in every envelope sealing that FMK. The moment a second credential joins an identity (§8), anyone able
   to read both envelopes could tell they belong to the same person and link that user's login addresses — a correlator
@@ -120,7 +120,7 @@ Notes:
   the version reports that honestly.
 - The failure surfaces as `IdentityError`, which `initialize()` reports as `IDENTITY_INVALID` before `INITIALIZED false`
   — a distinct event, because "sign in with the right wallet" and "the node is unreachable" need different screens.
-- **The envelope's topic is derived, not fixed.** `HKDF(unlockSecret, 'fm-identity-envelope-v3')`, unsalted — the salt
+- **The envelope's topic is derived, not fixed.** `HKDF(unlockSecret, 'fm-identity-envelope-v1')`, unsalted — the salt
   lives inside the envelope, so it cannot address it, and domain separation from `K_unlock` is by `info` alone. It was a
   fixed public constant while the derived secret could not be trusted to be secret on both backends; that version let
   anyone who knew an address see whether an identity existed there, and would have let someone sweep addresses for
@@ -254,7 +254,7 @@ offers it; implementing it means breaking the `K_meta` chain at every subfolder 
 
 ## 3. Comparison with the current ACT implementation
 
-| #   | Concern                           | Current (v2, ACT everywhere)                                                                                     | Planned (v3)                                                                                 |
+| #   | Concern                           | Current (v2, ACT everywhere)                                                                                     | Planned (v1)                                                                                 |
 | --- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | 1   | Index confidentiality             | ACT-wrapped **pointer**; manifest bytes ride `/bytes` in **plaintext**, protected only by an unguessable address | AES-256-GCM on feed payloads _and_ on manifest bytes (§7.1: not native, mantaray forbids it) |
 | 2   | Content confidentiality           | none requested — `uploadProtected` passes no `encrypt`                                                           | `encrypt: true`, random per-object key inside the 64-byte reference                          |
@@ -366,11 +366,11 @@ MANIFEST_METADATA_NODE_SIZE = 'swarm-node-size';
 MANIFEST_METADATA_NODE_TIMESTAMP = 'swarm-node-timestamp';
 
 // NEW — identity (all present)
-STATE_TOPIC_LABEL = 'fm-state-v2';
-IDENTITY_ENVELOPE_TOPIC_LABEL = 'fm-identity-envelope-v3';
-UNLOCK_KDF_LABEL = 'fm-unlock-v2';
-KEY_ID_LABEL = 'fm-key-id-v2';
-SIGNER_LABEL = 'fm-signer-v2';
+STATE_TOPIC_LABEL = 'fm-state-v1';
+IDENTITY_ENVELOPE_TOPIC_LABEL = 'fm-identity-envelope-v1';
+UNLOCK_KDF_LABEL = 'fm-unlock-v1';
+KEY_ID_LABEL = 'fm-key-id-v1';
+SIGNER_LABEL = 'fm-signer-v1';
 ```
 
 **`size` and `timestamp` in fork metadata are deliberately deferred.** They are listing data, and their only reader is
@@ -671,12 +671,12 @@ taken index, so a naive retry loses writes without erroring. Requirements:
 
    **Whatever the mechanism, credential B's envelope must get a fresh salt.** It is tempting to reuse A's — the FMK is
    the same, and copying the whole envelope shape looks like the conservative move. It is the opposite: `keyId` is
-   `HKDF(FMK, 'fm-key-id-v2', salt)`, so a shared salt makes both envelopes carry a byte-identical `keyId` in the clear,
+   `HKDF(FMK, 'fm-key-id-v1', salt)`, so a shared salt makes both envelopes carry a byte-identical `keyId` in the clear,
    publicly linking A's and B's login addresses as one person. That is the exact correlation salting `keyId` exists to
    prevent, and this is the first code with any reason to get it wrong. A fresh salt also re-randomises `K_unlock`,
    which is correct on its own terms.
 
-6. **Feed signer validity.** `HKDF(FMK, 'fm-signer-v2')` is 32 uniform bytes, which is not guaranteed to be a valid
+6. **Feed signer validity.** `HKDF(FMK, 'fm-signer-v1')` is 32 uniform bytes, which is not guaranteed to be a valid
    secp256k1 scalar. The failure probability is ~2⁻¹²⁸, so no retry loop is warranted, but note that neither core-sdk's
    `PrivateKey` nor the derivation checks the range.
 7. **Cross-backend shares do not work.** ACT decryption is node-side on bee-js and iframe-side on snaha, so a phase-2
