@@ -17,9 +17,9 @@ models a full, versioned, access-controlled filesystem on top of Swarm's content
 - **Move** — relocate files and folders within a drive.
 - **Browser + Node.js** — one unified API; the byte source differs (`file` vs `sourcePath`).
 
-> Full method-level documentation: see [REFERENCE.md](REFERENCE.md). Encryption, key handling and the sharing roadmap:
-> see [ENCRYPTION_AND_ACT.md](ENCRYPTION_AND_ACT.md). Test coverage and usage patterns: see
-> [tests/TESTS.md](tests/TESTS.md).
+> Full method-level documentation: see [REFERENCE.md](docs/REFERENCE.md). Encryption, key handling and the sharing
+> roadmap: see [ENCRYPTION_AND_ACT.md](docs/ENCRYPTION_AND_ACT.md). Test coverage and usage patterns: see
+> [docs/TESTS.md](docs/TESTS.md).
 
 ---
 
@@ -113,7 +113,7 @@ Two things this implies for your application:
   would deny future reads only, and is not implemented.
 
 Full detail — the identity flow, the key hierarchy, what an observer can still see, and the sharing roadmap — is in
-[ENCRYPTION_AND_ACT.md](ENCRYPTION_AND_ACT.md).
+[ENCRYPTION_AND_ACT.md](docs/ENCRYPTION_AND_ACT.md).
 
 ---
 
@@ -331,7 +331,7 @@ fm.emitter.on(FileManagerEvents.FILE_UPLOADED, ({ record }) => console.log('uplo
 `DRIVE_FORGOTTEN`, `FILE_UPLOADED`, `FILES_UPLOADED`, `FILE_UPDATED`, `FILE_MOVED`, `FILE_TRASHED`, `FILE_RECOVERED`,
 `FILE_FORGOTTEN`, `FILE_VERSION_RESTORED`, `FOLDER_CREATED`, `FOLDER_MOVED`, `FOLDER_TRASHED`, `FOLDER_RECOVERED`,
 `FOLDER_FORGOTTEN`, `TRASH_EMPTIED`. Path-addressed operations (`move`, `trash`, `recover`, `forget`) emit the file or
-folder variant with the same payload shape. See [REFERENCE.md](REFERENCE.md#events) for each payload.
+folder variant with the same payload shape. See [REFERENCE.md](docs/REFERENCE.md#events) for each payload.
 
 `DRIVE_UNRESOLVED` fires **during `initialize`** for a drive that is registered in the admin manifest but cannot be
 loaded. Such a drive is absent from `driveList`, so every later call addressing it fails with "drive not found" — the
@@ -353,7 +353,7 @@ await fm.initialize();
 From `package.json`:
 
 - `pnpm run build` → bundle Node + browser (ESM + CJS) + type declarations via **tsup**.
-- `pnpm run test` → run Jest tests (see [tests/TESTS.md](tests/TESTS.md)).
+- `pnpm run test` → run Jest tests (see [docs/TESTS.md](docs/TESTS.md)).
 - `pnpm run lint` / `pnpm run lint:fix` → linting.
 - `pnpm init:husky` → husky init.
 - `pnpm run depcheck` → check dependencies.

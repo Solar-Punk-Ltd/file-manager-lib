@@ -1,9 +1,9 @@
 # File Manager Library — API Reference
 
-Technical API reference for **@solarpunkltd/file-manager-lib**. See [README.md](README.md) for installation, the
+Technical API reference for **@solarpunkltd/file-manager-lib**. See [README.md](../README.md) for installation, the
 architecture overview and a quick start. See [ENCRYPTION_AND_ACT.md](ENCRYPTION_AND_ACT.md) for how content and the
 index are encrypted, how node keys are derived and recovered, and what sharing will look like. See
-[tests/TESTS.md](tests/TESTS.md) for test coverage and usage patterns.
+[docs/TESTS.md](TESTS.md) for test coverage and usage patterns.
 
 All methods live on `FileManagerBase`, which implements the `FileManager` interface. Every method that accepts a drive
 takes either a `string` id or a core-sdk `Identifier`. `requestOptions?: BeeRequestOptions` is available on every
@@ -158,7 +158,7 @@ The state model has three levels. A per-login **envelope feed** holds the sealed
 credential into the identity that owns everything else. A per-identity **state feed** — its topic derived from the FMK,
 so it is unguessable from any address — has a head pointing at the **admin manifest** (the drive registry). One **drive
 feed** per drive has a head pointing at that drive's mantaray. See
-[README → How it works](README.md#how-it-works--a-filesystem-mirrored-onto-swarm) and
+[README → How it works](../README.md#how-it-works--a-filesystem-mirrored-onto-swarm) and
 [ENCRYPTION_AND_ACT.md](ENCRYPTION_AND_ACT.md).
 
 Bootstrapping splits along read/write: `initialize()` only reads, so it needs no stamp and a first-time user reaches

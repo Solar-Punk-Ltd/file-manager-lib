@@ -1,6 +1,6 @@
 # Encryption and access control
 
-How **@solarpunkltd/file-manager-lib** protects your data on Swarm. See [README.md](README.md) for the architecture
+How **@solarpunkltd/file-manager-lib** protects your data on Swarm. See [README.md](../README.md) for the architecture
 overview and [REFERENCE.md](REFERENCE.md) for the API surface.
 
 Swarm is a public network: every chunk anyone uploads is retrievable by anyone who learns its address. This document
