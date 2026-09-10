@@ -85,11 +85,12 @@ The envelope must live under the login's address: it has to be findable _before_
 sign a write there. Everything else must not, because otherwise two credentials sharing one FMK would derive the same
 topics, look under two different owners, and find two disjoint trees — same identity, no shared data.
 
-`identity.signer` is the one secret the library holds as raw bytes: secp256k1 is outside WebCrypto, so a client-side
-feed signer cannot be a non-extractable `CryptoKey`. It sits on the internal `Identity` and is deliberately absent from
-the public `IdentityInfo`. It is also the single exception to the port's "no key material crosses the boundary" rule —
-`writeFeed` takes it as `options.signer`. That key is fm-lib's own, never the backend's; on Swarm ID it reaches an
-iframe that already holds the master key it descends from, so no party is added to the trust boundary.
+`identity.signer` is the one secret the library holds in the clear, as a hex string: secp256k1 is outside WebCrypto, so
+a client-side feed signer cannot be a non-extractable `CryptoKey`. It sits on the internal `Identity` and is
+deliberately absent from the public `IdentityInfo`. It is also the single exception to the port's "no key material
+crosses the boundary" rule — `writeFeed` takes it as `options.signer`. That key is fm-lib's own, never the backend's; on
+Swarm ID it reaches an iframe that already holds the master key it descends from, so no party is added to the trust
+boundary.
 
 ### The envelope
 
@@ -246,8 +247,9 @@ parent's fork metadata:
 | `swarm-wrapped-content-key` | `MANIFEST_METADATA_WRAPPED_CONTENT_KEY` | `iv ‖ AES-GCM(K_content(parent), K_content(child))` |
 
 Root keys are raw bytes rather than a non-extractable `CryptoKey`, because every node key below the root is wrapped into
-a manifest and — once sharing lands — handed to a grantee, so none of them can be non-extractable. The FMK itself stays
-non-extractable; what sits in the heap is one generation below it.
+a manifest and — once sharing lands — handed to a grantee, so none of them can be non-extractable. The FMK itself is
+imported non-extractable, which keeps its bytes out of the heap but is not a mitigation against code running in the page
+— see [§6](#the-page-is-trusted).
 
 ---
 
@@ -261,7 +263,7 @@ non-extractable; what sits in the heap is one generation below it.
 | Manifest chunks       | fm-lib, AES-256-GCM            | `K_meta(host)`          | plain upload of sealed bytes, 32-byte refs |
 | Manifest feed payload | fm-lib, AES-256-GCM            | `K_meta(host)`          | ~60 bytes: `iv ‖ sealed(32-byte ref)`      |
 | Identity envelope     | fm-lib, AES-256-GCM            | `K_unlock`              | JSON in the feed slot                      |
-| Fork metadata         | not encrypted                  | —                       | names, types, versions, wrapped keys       |
+| Fork metadata         | not separately encrypted       | `K_meta(host)`          | marshaled into the manifest chunk above    |
 
 All fm-lib encryption is AES-256-GCM via `globalThis.crypto.subtle`, available in the browser and in Node ≥ 22 — which
 `engines.node` already requires, so this adds no dependency. Every ciphertext the library produces is `iv ‖ ciphertext`
@@ -380,6 +382,12 @@ Encryption is not anonymity. With no keys at all, someone who knows an address o
 - **That a feed exists and how often it updates**, if they can guess its topic. Topics are derived from secrets
   (`stateTopic` from the FMK, node topics minted at random), so guessing is the hard part — but an observer watching a
   known feed sees update cadence, and therefore activity.
+- **The identity's address, on every write.** Swarm uses recoverable signatures — that is how Bee derives a SOC's owner
+  — so this one needs no topic guess. `identity.owner` signs the state feed and every drive, folder and file feed, so
+  all of them carry the same stable pseudonymous identifier. Whoever sees many chunks (a multi-node operator, a gateway,
+  or under `BeeClient` the user's own node) links them into one write history: which topics they saw, how often each
+  updates, and roughly how many nodes the tree has. Names, paths, structure and content stay sealed — but feed payload
+  size does separate a manifest host from a file, ~60 bytes against ~92 (see [§4](#4-what-is-encrypted-and-how)).
 - **The shape of a manifest chunk**: it is uploaded plain, so its size is visible. Its _contents_ — names, types,
   wrapped keys — are sealed.
 - **The login's address**, from the envelope feed, if they know where to look. The envelope's topic is derived from a
@@ -389,6 +397,19 @@ Encryption is not anonymity. With no keys at all, someone who knows an address o
 Under `BeeClient` the Bee node performs Swarm's native encryption, so the node operator sees file content in transit.
 Client-side sealing of the index is unaffected by this — the node never holds `K_meta` or `K_content` — but content
 confidentiality against the node operator is not something this design provides.
+
+### The page is trusted
+
+Nothing in this design defends against code running in the library's own page. `Identity.deriveKeyBytes(info)` is an
+HKDF oracle over the FMK with a caller-supplied label, and the labels are listed in [§8](#8-constants-and-labels):
+`fm-signer-v1` reproduces the feed signer byte for byte, `fm-root-meta-v1` and `fm-root-content-v1` yield the whole read
+chain. `identity.signer` sits alongside it as a hex string, and the `MantarayStore` holding both is TypeScript-private
+only, so neither is out of reach at runtime. The FMK's non-extractability is what stops the key _bytes_ being read back
+— which is why a second credential cannot be linked to an existing identity ([§10](#10-not-implemented)) — and nothing
+more.
+
+The same holds for the keys already in memory: `Keyring.clear()` zeroes what it holds, but a JavaScript string cannot be
+zeroed at all, so `identity.signer` — the highest-value secret in the heap — stays there for the life of the session.
 
 ---
 

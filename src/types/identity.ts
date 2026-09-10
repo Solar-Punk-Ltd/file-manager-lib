@@ -45,15 +45,17 @@ export interface IdentityInfo {
 export interface Identity extends IdentityInfo {
   readonly stateTopic: Topic;
   /**
-   * Private key behind `owner`, passed to the port on every feed write. Held as bytes because
-   * secp256k1 is outside WebCrypto. Kept off `IdentityInfo` so it stays off the public surface.
+   * Private key behind `owner`, passed to the port on every feed write. A hex string because
+   * secp256k1 is outside WebCrypto — and therefore not zeroable. Kept off `IdentityInfo` so it
+   * stays off the public surface.
    */
   readonly signer: Hex;
   /**
    * 32 bytes from the FMK for `info` — the root of the tree's key chain.
    *
    * Raw rather than a `CryptoKey` because every node key below the root is wrapped into a manifest
-   * and, once sharing lands, handed to a grantee; a non-extractable root could not seal them.
+   * and, once sharing lands, handed to a grantee; a non-extractable root could not seal them. The
+   * label is unrestricted, so this reproduces anything derived from the FMK, `signer` included.
    */
   deriveKeyBytes(info: string): Promise<Uint8Array>;
 }

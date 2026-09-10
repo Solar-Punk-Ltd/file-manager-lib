@@ -3,6 +3,8 @@ import { Bytes } from '@ethersphere/core-sdk';
 import type { NodeKeys } from '../types/crypto';
 import type { Hex } from '../types/utils';
 
+import { KeyringError } from './errors';
+
 const HKDF_ALG = 'HKDF';
 const AES_ALG = 'AES-GCM';
 const HASH_ALG = 'SHA-256';
@@ -57,9 +59,10 @@ export async function importDerivationKey(secret: Uint8Array): Promise<CryptoKey
 /**
  * HKDF from a base key to a non-extractable AES-GCM key.
  *
- * Non-extractable means a compromised page can *use* the key while the session is live but cannot
- * exfiltrate it. Keys that must leave the process — a share blob's payload — have to be produced
- * some other way, deliberately.
+ * The handle encrypts and decrypts but never yields its bytes. That is not a defence against code
+ * running in the page — anything holding the base key re-derives it — only a guarantee that the
+ * value is not sitting in the heap. Keys that must leave the process, such as a share blob's
+ * payload, have to be produced some other way, deliberately.
  */
 export async function deriveAesKey(base: CryptoKey, info: string, salt: Uint8Array): Promise<CryptoKey> {
   return await globalThis.crypto.subtle.deriveKey(
@@ -115,7 +118,7 @@ export async function encryptBytes(key: CryptoKey, plaintext: Uint8Array): Promi
  */
 export async function decryptBytes(key: CryptoKey, sealed: Uint8Array): Promise<Uint8Array> {
   if (sealed.length <= GCM_IV_LENGTH) {
-    throw new Error(`Ciphertext too short: ${sealed.length} bytes`);
+    throw new KeyringError(`Ciphertext too short: ${sealed.length} bytes`);
   }
 
   const iv = asBufferSource(sealed.subarray(0, GCM_IV_LENGTH));
@@ -128,7 +131,12 @@ export async function decryptBytes(key: CryptoKey, sealed: Uint8Array): Promise<
 /** Import raw AES-256 key bytes. Non-extractable, so the imported handle cannot leak the value back. */
 export async function importAesKey(raw: Uint8Array): Promise<CryptoKey> {
   if (raw.length !== DERIVED_SECRET_LENGTH) {
-    throw new Error(`AES key must be ${DERIVED_SECRET_LENGTH} bytes, got ${raw.length}`);
+    throw new KeyringError(`AES key must be ${DERIVED_SECRET_LENGTH} bytes, got ${raw.length}`);
+  }
+  // No key here is ever all zeros; a buffer that was zeroed while in use would otherwise encrypt
+  // under a publicly known key without erroring.
+  if (raw.every((b) => b === 0)) {
+    throw new KeyringError('AES key is all zeros — the buffer was cleared while still in use');
   }
 
   return await globalThis.crypto.subtle.importKey('raw', asBufferSource(raw), AES_ALG, false, ['encrypt', 'decrypt']);

@@ -15,6 +15,7 @@ import {
   type SwarmRequestOptions,
   type SwarmUploadOptions,
 } from '../../types/utils';
+import { errorMessage } from '../../utils/common';
 import { FEED_INDEX_NOT_FOUND, FEED_INDEX_START, SWARM_ZERO_ADDRESS } from '../../utils/constants';
 import { SignerError } from '../../utils/errors';
 
@@ -273,7 +274,7 @@ export class SnahaClient implements SwarmClient {
     try {
       appKey = this.client.connectionInfo.appKey;
     } catch (err) {
-      throw new SignerError(`SwarmIdClient is not initialized: ${(err as Error).message}`);
+      throw new SignerError(`SwarmIdClient is not initialized: ${errorMessage(err)}`);
     }
 
     if (!appKey) {

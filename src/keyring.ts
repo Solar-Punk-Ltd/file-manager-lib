@@ -4,6 +4,10 @@ import { ROOT_CONTENT_KEY_LABEL, ROOT_META_KEY_LABEL } from './utils/constants';
 import { generateNodeKeys, unwrapKey, wrapKey } from './utils/crypto';
 import { KeyringError } from './utils/errors';
 
+function copyKeys(keys: NodeKeys): NodeKeys {
+  return { meta: new Uint8Array(keys.meta), content: new Uint8Array(keys.content) };
+}
+
 /**
  * In-memory key chain for one identity: every node's `meta`/`content` key pair, hydrated as the
  * tree is walked.
@@ -26,7 +30,7 @@ export class Keyring {
   /** Registered keys for `topic`, deriving the root's on first use. Throws if the node was never reached. */
   async requireKeys(topic: string): Promise<NodeKeys> {
     const known = this.keys.get(topic);
-    if (known) return known;
+    if (known) return copyKeys(known);
 
     if (topic !== this.rootTopic) {
       throw new KeyringError(`No keys for node ${topic.slice(0, 6)} — its parent was never resolved`);
@@ -38,7 +42,7 @@ export class Keyring {
     };
     this.keys.set(topic, root);
 
-    return root;
+    return copyKeys(root);
   }
 
   /** Whether {@link requireKeys} would resolve `topic` without a walk. */
@@ -51,7 +55,7 @@ export class Keyring {
     const keys = generateNodeKeys();
     this.keys.set(topic, keys);
 
-    return keys;
+    return copyKeys(keys);
   }
 
   register(topic: string, keys: NodeKeys): void {
@@ -72,7 +76,7 @@ export class Keyring {
   /** Recover and register a child's keys from its fork metadata. Cached children skip the unwrap. */
   async unwrapChild(parentTopic: string, childTopic: string, wrapped: WrappedKeys): Promise<NodeKeys> {
     const known = this.keys.get(childTopic);
-    if (known) return known;
+    if (known) return copyKeys(known);
 
     const parent = await this.requireKeys(parentTopic);
 
@@ -91,9 +95,10 @@ export class Keyring {
 
     this.keys.set(childTopic, keys);
 
-    return keys;
+    return copyKeys(keys);
   }
 
+  /** Zeroes and drops every key. Copies already handed out are left to the GC. */
   clear(): void {
     for (const keys of this.keys.values()) {
       keys.meta.fill(0);

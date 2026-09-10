@@ -1575,8 +1575,8 @@ export class FileManagerBase implements FileManager {
     this.adminRedundancyLevel = RedundancyLevel.OFF;
     this._driveList.length = 0;
     this._recordList.length = 0;
-    this.store.setIdentity(undefined);
     this.store.clear();
+    this.store.setIdentity(undefined);
   }
 
   private discardCachedUploads(records: FileRecord[], mutatedTopics: string[]): void {
