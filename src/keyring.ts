@@ -1,12 +1,8 @@
 import type { NodeKeys, WrappedKeys } from './types/crypto';
 import type { Identity } from './types/identity';
 import { ROOT_CONTENT_KEY_LABEL, ROOT_META_KEY_LABEL } from './utils/constants';
-import { generateNodeKeys, unwrapKey, wrapKey } from './utils/crypto';
+import { copyKeys, generateNodeKeys, unwrapKey, wrapKey } from './utils/crypto';
 import { KeyringError } from './utils/errors';
-
-function copyKeys(keys: NodeKeys): NodeKeys {
-  return { meta: new Uint8Array(keys.meta), content: new Uint8Array(keys.content) };
-}
 
 /**
  * In-memory key chain for one identity: every node's `meta`/`content` key pair, hydrated as the
