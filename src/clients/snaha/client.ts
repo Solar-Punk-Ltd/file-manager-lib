@@ -1,30 +1,27 @@
-import { Bytes } from '@ethersphere/core-sdk';
 import type { SwarmIdClient } from '@snaha/swarm-id';
 import type { Readable } from 'stream';
 
+import type { StampInfo } from '../../types/info';
 import type { SwarmClient } from '../../types/swarmClient';
+import type { ClientProtectedUploadResult, ClientUploadResult } from '../../types/upload';
 import {
-  type ClientProtectedUploadResult,
-  type ClientUploadResult,
-  FEED_INDEX_NOT_FOUND,
-  FEED_INDEX_START,
   type FeedIndexString,
   type FeedRead,
   type FeedWrite,
   type Hex,
   type ProtectedRefs,
-  type StampInfo,
   type SwarmDownloadOptions,
+  type SwarmFeedWriteOptions,
   type SwarmRequestOptions,
   type SwarmUploadOptions,
 } from '../../types/utils';
-import { SWARM_ZERO_ADDRESS } from '../../utils/constants';
+import { errorMessage } from '../../utils/common';
+import { FEED_INDEX_NOT_FOUND, FEED_INDEX_START, SWARM_ZERO_ADDRESS } from '../../utils/constants';
 import { SignerError } from '../../utils/errors';
 
 import {
   HAS_TIMESTAMP,
   isFeedNotFound,
-  toBytes,
   toBytesAsync,
   toDownloadOptions,
   toSnahaRequestOptions,
@@ -61,7 +58,8 @@ import {
  *   matters once sharing lands, not before.
  * - **`redundancyStrategy` is dropped on protected downloads** — `actDownloadData` has no options
  *   parameter.
- * - **`redundancyLevel` is dropped on upload.
+ * - **`redundancyLevel` is dropped on upload.** Data written through this backend has no erasure
+ *   coding; `encrypt` does survive, since swarm-id's `UploadOptions` carries it.
  */
 export class SnahaClient implements SwarmClient {
   constructor(private readonly client: SwarmIdClient) {}
@@ -85,14 +83,14 @@ export class SnahaClient implements SwarmClient {
     this.appKey();
   }
 
-  // eslint-disable-next-line require-await
-  async deriveSecret(seed: string): Promise<string> {
-    const { publicKey } = this.appKey();
-    const appKeyBytes = new Bytes(publicKey).toUint8Array();
-    const seedBytes = Bytes.fromUtf8(seed);
-    const secretAsUint8Arr = new Uint8Array([...appKeyBytes, ...seedBytes.toUint8Array()]);
-
-    return Bytes.keccak256(secretAsUint8Arr).toString();
+  /**
+   * `HMAC(appSecret, label)`, computed inside the iframe. Requires `@snaha/swarm-id` >= 0.4.0.
+   *
+   * Scoped to `(identity, app origin)`, so an identity provisioned on one origin does not unseal on
+   * another.
+   */
+  async deriveSecret(label: string): Promise<Uint8Array> {
+    return await this.client.deriveAppSecret(label);
   }
 
   /**
@@ -114,12 +112,17 @@ export class SnahaClient implements SwarmClient {
   async uploadData(
     /** swarm-id resolves the stamp itself; accepted for port symmetry and ignored. */
     _batchId: Hex,
-    data: Uint8Array | string,
-    /** `redundancyLevel` is the only member and swarm-id has no home for it */
-    _options?: SwarmUploadOptions,
+    data: Uint8Array | string | Blob | Readable,
+    /** Only `encrypt` survives — swarm-id has no home for `redundancyLevel`. */
+    options?: SwarmUploadOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<ClientUploadResult> {
-    const result = await this.client.uploadData(toBytes(data), undefined, toSnahaRequestOptions(requestOptions));
+    const dataBytes = await toBytesAsync(data);
+    const result = await this.client.uploadData(
+      dataBytes,
+      { encrypt: options?.encrypt },
+      toSnahaRequestOptions(requestOptions),
+    );
 
     return { reference: result.reference.toString(), tagUid: result.tagUid };
   }
@@ -248,12 +251,17 @@ export class SnahaClient implements SwarmClient {
     topic: Hex,
     payload: Uint8Array | string,
     index: FeedIndexString,
-    /** Feed updates are single chunks — no erasure coding to apply. */
-    _options?: SwarmUploadOptions,
+    /** Only `signer` is read: feed updates are single chunks, so there is no erasure coding to apply. */
+    options?: SwarmFeedWriteOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<FeedWrite> {
-    // No signer: the proxy signs with the app key, so the feed owner matches `owner`.
-    const writer = this.client.makeSequentialFeedWriter({ topic }, toSnahaRequestOptions(requestOptions));
+    // Without a signer the proxy signs with the app key, so the feed owner matches `owner`. With
+    // one, the key crosses the postMessage boundary into the swarm-id iframe — which already holds
+    // the master key this one ultimately descends from, so it adds no party to the trust boundary.
+    const writer = this.client.makeSequentialFeedWriter(
+      { topic, signer: options?.signer },
+      toSnahaRequestOptions(requestOptions),
+    );
 
     const result = await writer.uploadRawPayload(payload, { index: BigInt(index), hasTimestamp: HAS_TIMESTAMP });
 
@@ -266,7 +274,7 @@ export class SnahaClient implements SwarmClient {
     try {
       appKey = this.client.connectionInfo.appKey;
     } catch (err) {
-      throw new SignerError(`SwarmIdClient is not initialized: ${(err as Error).message}`);
+      throw new SignerError(`SwarmIdClient is not initialized: ${errorMessage(err)}`);
     }
 
     if (!appKey) {

@@ -20,12 +20,7 @@ export async function processDownload(
 
   await settlePromises(
     resources.map(async (r) => {
-      return await swarmClient.downloadProtectedStream(
-        { reference: r.reference, historyRef: r.actHistoryAddress, publisher: r.actPublisher.toString() },
-        undefined,
-        options,
-        requestOptions,
-      );
+      return await swarmClient.downloadStream(r.reference, options, requestOptions);
     }),
     (value, ix) => succeeded.push({ path: resources[ix].path, result: value }),
     (reason, ix) => {

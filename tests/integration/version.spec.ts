@@ -1,4 +1,4 @@
-import { type BatchId, type Bee, FeedIndex, type PrivateKey, Topic } from '@ethersphere/bee-js';
+import { type BatchId, type Bee, FeedIndex, Topic } from '@ethersphere/bee-js';
 
 import {
   buyStampSerialized,
@@ -22,9 +22,10 @@ describe('Version control', () => {
   let bee: Bee;
   let fileManager: FileManagerBase;
   let drive: DriveInfo;
-  let signer: PrivateKey;
   let ownerStamp: BatchId;
   const { writeTempFile, cleanup } = tempFileRegistry();
+
+  const feedOwner = (): string => fileManager.identity!.owner;
 
   // helper to ensure at least one base FileRecord exists.
   // Flat drive-manifest fork name (`name`) with the on-disk source (`src`) kept separate: the
@@ -38,7 +39,7 @@ describe('Version control', () => {
   };
 
   beforeAll(async () => {
-    ({ bee, client, fileManager, drive, signer, ownerStamp } = await setupUserDrive('versioncontrol', {
+    ({ bee, client, fileManager, drive, ownerStamp } = await setupUserDrive('versioncontrol', {
       stampLabel: 'versioningStamp',
     }));
   });
@@ -133,21 +134,14 @@ describe('Version control', () => {
 
     const v0Bytes = await retryOnPropagationDelay(async () => {
       return streamToUint8Array(
-        await bee.data.downloadReadable(v0.content.reference, {
-          actHistoryAddress: v0.content.historyRef,
-          actPublisher: v0.actPublisher,
-        }),
+        // A 64-byte reference carries its own key, so the bytes come back without any ACT context.
+        await bee.data.downloadReadable(v0.content.reference),
       );
     });
     expect(Buffer.from(v0Bytes).toString('utf-8')).toBe('Version bytes v0');
 
     const headBytes = await retryOnPropagationDelay(async () => {
-      return streamToUint8Array(
-        await bee.data.downloadReadable(head.content.reference, {
-          actHistoryAddress: head.content.historyRef,
-          actPublisher: head.actPublisher,
-        }),
-      );
+      return streamToUint8Array(await bee.data.downloadReadable(head.content.reference));
     });
     expect(Buffer.from(headBytes).toString('utf-8')).toBe('Version bytes v1');
   });
@@ -182,7 +176,7 @@ describe('Version control', () => {
     writeTempFile(NAME, 'Version 1 content');
     await fileManager.updateFile(drive.id, v0Fi, { item: { sourcePath: src } });
 
-    const countAfterV1 = await getFeedData(client, new Topic(v0Fi.topic), signer.publicKey().address().toString());
+    const countAfterV1 = await getFeedData(client, new Topic(v0Fi.topic), feedOwner());
     const latestFi = await fileManager.getFileVersion(v0Fi, countAfterV1.feedIndex);
     writeTempFile(NAME, 'Version 2 content');
     await fileManager.updateFile(drive.id, latestFi, { item: { sourcePath: src } });
@@ -190,7 +184,7 @@ describe('Version control', () => {
     // Raw feed reads are eventually consistent; under parallel node load the last write may not be
     // visible immediately. Retry until the feed reflects all three writes (v0 + two updates).
     const count = await retryOnPropagationDelay(async () => {
-      const c = await getFeedData(client, new Topic(v0Fi.topic), signer.publicKey().address().toString());
+      const c = await getFeedData(client, new Topic(v0Fi.topic), feedOwner());
       if (c.feedIndexNext.toBigInt() !== initialVersion + 3n) {
         throw new Error(`feed not yet propagated: feedIndexNext=${c.feedIndexNext.toBigInt()}`);
       }
@@ -217,7 +211,7 @@ describe('Version control', () => {
 
     // Eventually consistent: retry until the restore's new head slot is visible.
     const { feedIndex: current } = await retryOnPropagationDelay(async () => {
-      const fd = await getFeedData(client, new Topic(base.topic), signer.publicKey().address().toString());
+      const fd = await getFeedData(client, new Topic(base.topic), feedOwner());
       if (fd.feedIndex.toBigInt() !== initialVersion + 2n) {
         throw new Error(`restore not yet propagated: feedIndex=${fd.feedIndex.toBigInt()}`);
       }
@@ -278,11 +272,7 @@ describe('Version control', () => {
     const v0 = await fileManager.getFileVersion(base, FEED_INDEX_ZERO);
     expect(v0.version).toBe(FEED_INDEX_ZERO.toString());
 
-    const { feedIndex: headBeforeRestore } = await getFeedData(
-      client,
-      new Topic(topic),
-      signer.publicKey().address().toString(),
-    );
+    const { feedIndex: headBeforeRestore } = await getFeedData(client, new Topic(topic), feedOwner());
 
     await fileManager.restoreFileVersion(v0);
 
@@ -293,7 +283,7 @@ describe('Version control', () => {
     expect(cached.name).toBe('restore-move-file.txt');
 
     const { feedIndex: headAfterRestore } = await retryOnPropagationDelay(async () => {
-      const result = await getFeedData(client, new Topic(topic), signer.publicKey().address().toString());
+      const result = await getFeedData(client, new Topic(topic), feedOwner());
       if (!(result.feedIndex.toBigInt() > headBeforeRestore.toBigInt())) {
         throw new Error('feed head has not advanced yet');
       }

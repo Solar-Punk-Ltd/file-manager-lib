@@ -3,7 +3,7 @@ import { type MantarayNode } from '@ethersphere/core-sdk';
 
 import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } from '../utils';
 
-import { applyDefaultMocks, createMockDriveInfo, createMockNodeAddresses, seedRecords } from './mock';
+import { applyDefaultMocks, createMockDriveInfo, seedRecords } from './mock';
 
 import { type DriveInfo, NodeType } from '@/types';
 import { DriveError, FileManagerEvents } from '@/utils';
@@ -20,7 +20,6 @@ import { getDriveForkPath } from '@/utils/mantaray';
 describe('Drive operations', () => {
   const otherMockBatchId = new BatchId('4'.repeat(64));
   const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
-  const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
 
   beforeEach(async () => {
     applyDefaultMocks();
@@ -34,7 +33,7 @@ describe('Drive operations', () => {
       expect(di.name).toBe(ADMIN_DRIVE_NAME);
       expect(di.batchId).toBe(DUMMY_BATCH_ID.toString());
       expect(di.id).toHaveLength(64);
-      expect(di.owner).toBe(owner);
+      expect(di.owner).toBe(fm.identity?.owner);
       expect(di.topic).toBeDefined();
       expect(di.manifestRef).toBeDefined();
       expect(di.isAdmin).toBe(true);
@@ -55,7 +54,7 @@ describe('Drive operations', () => {
       expect(di.name).toBe('Test Drive');
       expect(di.batchId).toBe(otherMockBatchId.toString());
       expect(di.id).toHaveLength(64);
-      expect(di.owner).toBe(owner);
+      expect(di.owner).toBe(fm.identity?.owner);
       expect(di.topic).toBeDefined();
       expect(di.manifestRef).toBeDefined();
     });
@@ -93,24 +92,22 @@ describe('Drive operations', () => {
           type: NodeType.File,
           batchId: target.batchId,
           owner,
-          actPublisher,
           topic: Topic.fromString('forget-x').toString(),
           driveId: target.id,
           name: 'x.txt',
           path: 'x.txt',
-          content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+          content: { reference: SWARM_ZERO_ADDRESS.toString() },
           redundancyLevel: RedundancyLevel.OFF,
         },
         {
           type: NodeType.File,
           batchId: target.batchId,
           owner,
-          actPublisher,
           topic: Topic.fromString('forget-y').toString(),
           driveId: target.id,
           name: 'y.txt',
           path: 'y.txt',
-          content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+          content: { reference: SWARM_ZERO_ADDRESS.toString() },
           redundancyLevel: RedundancyLevel.OFF,
         },
       );
@@ -135,7 +132,7 @@ describe('Drive operations', () => {
 
     it('should throw when the drive does not exist', async () => {
       const fm = await createInitializedFileManager();
-      const ghost = createMockDriveInfo(actPublisher, { id: '9'.repeat(64), name: 'ghost', isAdmin: false });
+      const ghost = createMockDriveInfo({ id: '9'.repeat(64), name: 'ghost', isAdmin: false });
 
       await expect(fm.forgetDrive(new Identifier(ghost.id))).rejects.toThrow(
         new DriveError(`Drive with id ${ghost.id.slice(0, 6)} not found`),
@@ -170,7 +167,7 @@ describe('Drive operations', () => {
 
       await fm.move(ROOT_PATH, 'Renamed Drive', drive.id);
 
-      const stateTopic = (fm as any).stateFeedTopic.toString();
+      const stateTopic = (fm as any).store.requireIdentity().stateTopic.toString();
       const adminMantaray = (fm as any).store.getManifestCache(stateTopic) as MantarayNode;
       const fork = adminMantaray.find(getDriveForkPath(drive.id));
 

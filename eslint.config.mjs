@@ -88,6 +88,7 @@ export default [
         AbortSignal: 'readonly',
         Response: 'readonly',
         Blob: 'readonly',
+        CryptoKey: 'readonly',
       },
     },
   },

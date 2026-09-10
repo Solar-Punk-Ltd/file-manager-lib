@@ -1,0 +1,222 @@
+import type { BeeRequestOptions } from '@ethersphere/bee-js';
+import { Bytes, type Topic } from '@ethersphere/core-sdk';
+
+import type { Credential, Identity, IdentityEnvelope } from './types/identity';
+import type { SwarmClient } from './types/swarmClient';
+import type { FeedResultWithIndex, Hex } from './types/utils';
+import { assertIdentityEnvelope } from './utils/asserts';
+import { getFeedData } from './utils/bee';
+import { errorMessage, sleep } from './utils/common';
+import {
+  ENVELOPE_READBACK_ATTEMPTS,
+  ENVELOPE_READBACK_DELAY_MS,
+  FEED_INDEX_NONE,
+  FMK_LENGTH,
+  IDENTITY_ENVELOPE_FEED_INDEX,
+  KDF_EPOCH,
+  UNLOCK_KDF_LABEL,
+  UNLOCK_SALT_LENGTH,
+} from './utils/constants';
+import { generateRandomBytes, zeroBytes } from './utils/crypto';
+import { IdentityError } from './utils/errors';
+import { envelopeTopic, sealKey, unsealKey } from './utils/identity';
+import { Logger } from './utils/logger';
+
+const logger = Logger.getInstance();
+
+/**
+ * The default credential, derived from the backend's own key material. Both shipped backends use
+ * this — a custom `Credential` is only for adding a login method the library does not ship.
+ *
+ * On `SnahaClient` the secret is scoped to `(identity, app origin)`: stable across the user's
+ * devices, unavailable to any other origin.
+ */
+export function swarmClientCredential(swarmClient: SwarmClient): Credential {
+  return {
+    async unlockSecret(): Promise<Uint8Array> {
+      return await swarmClient.deriveSecret(UNLOCK_KDF_LABEL);
+    },
+  };
+}
+
+// One unlockSecret() per operation — it derives both the envelope's topic and the key that opens it,
+// and a wallet-backed credential would otherwise prompt for a second signature.
+async function withUnlockSecret<T>(credential: Credential, fn: (secret: Uint8Array) => Promise<T>): Promise<T> {
+  const secret = await credential.unlockSecret();
+  try {
+    return await fn(secret);
+  } finally {
+    zeroBytes(secret);
+  }
+}
+
+/**
+ * Read the envelope feed's only slot.
+ *
+ * Slot 0 first: a provisioned envelope is then one chunk fetch, with no feed lookup for the node to
+ * run. Bee answers a *missing* chunk with a 500 rather than a 404, though, so a first login lands in
+ * the fallback and re-asks over the feed endpoint, which reports an empty feed properly.
+ *
+ */
+async function readEnvelopeFeed(
+  swarmClient: SwarmClient,
+  topic: Topic,
+  requestOptions?: BeeRequestOptions,
+): Promise<FeedResultWithIndex> {
+  try {
+    return await getFeedData(swarmClient, topic, swarmClient.owner, IDENTITY_ENVELOPE_FEED_INDEX, requestOptions);
+  } catch (err: unknown) {
+    logger.warn(`Envelope slot read failed, falling back to the feed head: ${errorMessage(err)}`);
+
+    return await getFeedData(swarmClient, topic, swarmClient.owner, undefined, requestOptions);
+  }
+}
+
+async function confirmEnvelope(
+  swarmClient: SwarmClient,
+  topic: Topic,
+  written: string,
+  requestOptions?: BeeRequestOptions,
+): Promise<void> {
+  const expected = Bytes.fromUtf8(written);
+
+  for (let attempt = 1; attempt <= ENVELOPE_READBACK_ATTEMPTS; attempt++) {
+    requestOptions?.signal?.throwIfAborted();
+    if (attempt > 1) {
+      await sleep(ENVELOPE_READBACK_DELAY_MS);
+    }
+
+    let read: FeedResultWithIndex;
+    try {
+      read = await readEnvelopeFeed(swarmClient, topic, requestOptions);
+    } catch (err: unknown) {
+      logger.warn(`Envelope read-back ${attempt}/${ENVELOPE_READBACK_ATTEMPTS} failed: ${errorMessage(err)}`);
+      continue;
+    }
+
+    if (read.feedIndex.equals(FEED_INDEX_NONE)) continue;
+
+    if (!read.payload.equals(expected)) {
+      logger.error(
+        `The identity envelope slot already holds a different envelope, so this write was discarded. expected: ${expected.toString()} vs actual ${read.payload.toString()}`,
+      );
+      throw new IdentityError('Identity envelope is not the expected');
+    }
+
+    return;
+  }
+
+  logger.error(
+    'Could not read back the identity envelope after writing it — refusing to return an identity whose envelope may not have landed',
+  );
+  throw new IdentityError('Could not re-confirm the identity');
+}
+
+/**
+ * Read the envelope for `credential` and unseal it.
+ *
+ * Returns `undefined` when no envelope exists — a first run, not a failure. An envelope that exists
+ * but cannot be unsealed throws: the credential re-derived a different secret, and continuing would
+ * show an empty drive list instead of an error.
+ */
+export async function resolveIdentity(
+  swarmClient: SwarmClient,
+  credential: Credential,
+  requestOptions?: BeeRequestOptions,
+): Promise<Identity | undefined> {
+  return await withUnlockSecret(credential, async (secret) => {
+    const topic = await envelopeTopic(secret);
+    const { payload, feedIndex } = await readEnvelopeFeed(swarmClient, topic, requestOptions);
+
+    if (feedIndex.equals(FEED_INDEX_NONE)) {
+      logger.debug('No identity envelope found for this credential.');
+      return undefined;
+    }
+
+    let envelope: unknown;
+    try {
+      envelope = payload.toJSON();
+    } catch (err: unknown) {
+      throw new IdentityError('Identity envelope is not valid JSON', err);
+    }
+
+    let identity: Identity;
+    try {
+      assertIdentityEnvelope(envelope);
+
+      if (envelope.v !== KDF_EPOCH) {
+        throw new IdentityError(`Unsupported identity envelope version ${envelope.v}`);
+      }
+
+      identity = await unsealKey(secret, envelope);
+    } catch (err: unknown) {
+      // let the IdentityError instance surface during init
+      if (err instanceof IdentityError) throw err;
+      throw new IdentityError('Identity envelope is malformed', err);
+    }
+
+    if (identity.keyId !== envelope.keyId) {
+      throw new IdentityError('Identity envelope was written by a different key');
+    }
+
+    logger.debug('Identity unsealed.');
+
+    return identity;
+  });
+}
+
+/**
+ * Create an identity for `credential` and write its envelope.
+ *
+ * Only for a credential with no envelope yet. It never overwrites: Bee silently no-ops a write to a
+ * taken index, so the write is read back rather than trusted. Finding another envelope there — a
+ * provisioning race, or an existing identity that read as absent — raises `IdentityError`.
+ *
+ * Separate from `resolveIdentity` because it writes: a user with no stamp can still initialize and
+ * read, they just cannot provision.
+ */
+export async function provisionIdentity(
+  swarmClient: SwarmClient,
+  credential: Credential,
+  batchId: Hex,
+  requestOptions?: BeeRequestOptions,
+): Promise<Identity> {
+  return await withUnlockSecret(credential, async (secret) => {
+    const topic = await envelopeTopic(secret);
+    const { feedIndex } = await readEnvelopeFeed(swarmClient, topic, requestOptions);
+
+    if (!feedIndex.equals(FEED_INDEX_NONE)) {
+      throw new IdentityError('Identity envelope already exists for this credential');
+    }
+
+    // Must stay fresh per envelope: a second credential joining this identity and reusing this salt
+    // would produce an identical keyId in both, publicly linking the two logins.
+    const salt = generateRandomBytes(UNLOCK_SALT_LENGTH).toUint8Array();
+    const fmkBytes = generateRandomBytes(FMK_LENGTH).toUint8Array();
+
+    const { identity, sealed } = await sealKey(secret, salt, fmkBytes).finally(() => zeroBytes(fmkBytes));
+
+    const envelope: IdentityEnvelope = {
+      v: KDF_EPOCH,
+      salt: new Bytes(salt).toString(),
+      sealed: new Bytes(sealed).toString(),
+      keyId: identity.keyId,
+    };
+    const payload = JSON.stringify(envelope);
+
+    await swarmClient.writeFeed(
+      batchId,
+      topic.toString(),
+      payload,
+      IDENTITY_ENVELOPE_FEED_INDEX.toString(),
+      undefined,
+      requestOptions,
+    );
+
+    await confirmEnvelope(swarmClient, topic, payload, requestOptions);
+
+    logger.debug('Identity envelope provisioned.');
+
+    return identity;
+  });
+}

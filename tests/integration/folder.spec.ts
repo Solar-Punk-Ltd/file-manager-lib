@@ -10,7 +10,6 @@ import {
 
 import { ensureUniqueSignerWithStamp, setupUserDrive, tempFileRegistry } from './setup/utils';
 
-import type { BeeClient } from '@/clients';
 import { type FileManagerBase } from '@/fileManager';
 import { type DriveInfo, ListDepth, NodeType } from '@/types';
 import { MANIFEST_METADATA_NODE_TOPIC, MANIFEST_METADATA_NODE_TYPE, ROOT_PATH } from '@/utils/constants';
@@ -19,11 +18,10 @@ import { generateRandomBytes } from '@/utils/crypto';
 describe('Folder operations', () => {
   let fileManager: FileManagerBase;
   let drive: DriveInfo;
-  let client: BeeClient;
   const { writeTempFile, cleanup } = tempFileRegistry();
 
   beforeAll(async () => {
-    ({ client, fileManager, drive } = await setupUserDrive('folders', { stampLabel: 'folders' }));
+    ({ fileManager, drive } = await setupUserDrive('folders', { stampLabel: 'folders' }));
   });
 
   afterAll(cleanup);
@@ -147,7 +145,7 @@ describe('Folder operations', () => {
       // produce this — every one of them writes the record before the fork that references it.
       const orphanTopic = new Topic(generateRandomBytes(Topic.LENGTH)).toString();
       const store = (fileManager as any).store;
-      const { host, node } = await store.resolveHostMantaray(drive, folderName, client.actPublisher);
+      const { host, node } = await store.resolveHostMantaray(drive, folderName);
 
       node.addFork('missing.txt', new Reference(orphanTopic), {
         [MANIFEST_METADATA_NODE_TOPIC]: orphanTopic,

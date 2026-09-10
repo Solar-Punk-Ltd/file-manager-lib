@@ -1,5 +1,6 @@
 import { FileManagerBase } from './fileManager';
 
+export { swarmClientCredential } from './identity';
 export * from './types';
 export * from './utils';
 export * from './eventEmitter';

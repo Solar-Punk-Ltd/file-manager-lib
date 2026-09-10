@@ -1,27 +1,49 @@
 import { NULL_ADDRESS } from '@ethersphere/bee-js';
 import { FeedIndex, Reference } from '@ethersphere/core-sdk';
 
-import { FEED_INDEX_NOT_FOUND } from '../types/utils';
+import { type FeedIndexString } from '../types/utils';
 
-export const STATE_TOPIC_LABEL = 'filemanager-state/v2';
+/**
+ * Key-derivation epoch. Bumping it re-derives the whole tree and orphans every existing drive.
+ * Not the package version — a breaking change to the public API does not belong here.
+ */
+export const KDF_EPOCH = 1;
 export const ADMIN_DRIVE_NAME = 'admin';
+// HKDF `info` labels. Changing one orphans every existing identity, hence the version suffixes.
+const label = (name: string): string => `fm-${name}-v${KDF_EPOCH}`;
+
+export const STATE_TOPIC_LABEL = label('state');
+export const KEY_ID_LABEL = label('key-id');
+export const SIGNER_LABEL = label('signer');
+export const ROOT_META_KEY_LABEL = label('root-meta');
+export const ROOT_CONTENT_KEY_LABEL = label('root-content');
+
+// Deliberately epoch-free: these two locate the envelope, and an envelope that cannot be found
+// cannot be reported as outdated — resolveIdentity would read it as a first run and provision a
+// second identity over a live one. Version the contents instead.
+export const UNLOCK_KDF_LABEL = 'fm-unlock';
+export const IDENTITY_ENVELOPE_TOPIC_LABEL = 'fm-identity-envelope';
+// The envelope feed's only slot. Never append: nothing rotates in place, and Bee no-ops on a taken index.
+export const IDENTITY_ENVELOPE_FEED_INDEX = 0n;
+// Read-back of the envelope write. A fresh feed update is not immediately readable, hence the retry.
+export const ENVELOPE_READBACK_ATTEMPTS = 5;
+export const ENVELOPE_READBACK_DELAY_MS = 500;
+export const FMK_LENGTH = 32;
+export const UNLOCK_SALT_LENGTH = 16;
 export const SWARM_ZERO_ADDRESS = new Reference(NULL_ADDRESS);
-// --- Feed indexes ---
-//
+
+// uint64 max (`0xffffffffffffffff`), the value bee spells `FeedIndex.MINUS_ONE`.
+export const FEED_INDEX_NOT_FOUND: FeedIndexString = '18446744073709551615';
+export const FEED_INDEX_START: FeedIndexString = '0';
 // Two representations of the same two values, because the layers speak different languages:
-// the `SwarmClient` port uses decimal strings (`FEED_INDEX_START`, `FEED_INDEX_NOT_FOUND` in
-// `types/utils.ts`), while the domain layer compares `FeedIndex` objects. The pair below is the
+// the `SwarmClient` port uses decimal strings, while the domain layer compares `FeedIndex` objects. The pair below is the
 // domain-side form. Do not stringify them for the port — `FeedIndex.toString()` emits 16-char
 // **hex**, not decimal, and the mismatch is silent because `BigInt('0000000000000000')` is still 0.
-
-/** The first writable slot. `.toString()` gives the 16-hex form persisted as a node's `version`. */
+// The first writable slot. `.toString()` gives the 16-hex form persisted as a node's `version`.
 export const FEED_INDEX_ZERO = FeedIndex.fromBigInt(0n);
-/**
- * "This feed has no update yet" — the domain-side twin of the port's {@link FEED_INDEX_NOT_FOUND},
- * which is what `readFeed` reports for an empty feed. **Derived from that constant, never re-typed**,
- * so the two spellings cannot drift apart.
- */
+// "This feed has no update yet"
 export const FEED_INDEX_NONE = FeedIndex.fromBigInt(BigInt(FEED_INDEX_NOT_FOUND));
+
 export const ROOT_PATH = '/';
 export const TRASH_FOLDER_NAME = '.trash';
 export const MAX_CONCURRENT_FEED_FETCHES = 10;
@@ -31,12 +53,12 @@ export const MANIFEST_METADATA_NODE_TOPIC = 'swarm-node-topic';
 export const MANIFEST_METADATA_NODE_TYPE = 'swarm-node-type';
 export const MANIFEST_METADATA_REDUNDANCY_LEVEL = 'swarm-redundancy-level';
 export const MANIFEST_METADATA_NODE_OWNER = 'swarm-node-owner';
-export const MANIFEST_METADATA_NODE_ACT_PUBLISHER = 'swarm-node-act-publisher';
 export const MANIFEST_METADATA_NODE_VERSION = 'swarm-node-version';
+export const MANIFEST_METADATA_WRAPPED_META_KEY = 'swarm-wrapped-meta-key';
+export const MANIFEST_METADATA_WRAPPED_CONTENT_KEY = 'swarm-wrapped-content-key';
 export const MANIFEST_METADATA_TRASHED_FROM = 'swarm-trashed-from';
 export const MANIFEST_METADATA_DRIVE_ID = 'swarm-drive-id';
 export const MANIFEST_METADATA_DRIVE_NAME = 'swarm-drive-name';
 export const MANIFEST_METADATA_DRIVE_OWNER = 'swarm-drive-owner';
 export const MANIFEST_METADATA_DRIVE_IS_ADMIN = 'swarm-drive-is-admin';
 export const MANIFEST_METADATA_DRIVE_BATCH_ID = 'swarm-drive-batch-id';
-export const MANIFEST_METADATA_DRIVE_ACT_PUBLISHER = 'swarm-drive-act-publisher';

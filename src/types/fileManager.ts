@@ -1,18 +1,12 @@
-import type {
-  BeeRequestOptions,
-  DownloadOptions,
-  FileUploadOptions,
-  RedundancyLevel,
-  RedundantUploadOptions,
-} from '@ethersphere/bee-js';
+import type { BeeRequestOptions, DownloadOptions, RedundancyLevel } from '@ethersphere/bee-js';
 import type { BatchId, FeedIndex, Identifier } from '@ethersphere/core-sdk';
 
-import { type EventEmitter } from '../eventEmitter';
+import type { EventEmitter } from '../eventEmitter';
 
-import { type DownloadFilesResult, type DownloadResult } from './download';
-import { type DriveInfo, type FileRecord, type FolderInfo, type ListDepth, type ListFolderResult } from './info';
-import { type UpdateItem, type UploadFilesResult, type UploadItem } from './upload';
-import type { StampInfo } from './utils';
+import type { DownloadFilesResult, DownloadResult } from './download';
+import type { Credential, IdentityInfo } from './identity';
+import type { DriveInfo, FileRecord, FolderInfo, ListDepth, ListFolderResult, StampInfo } from './info';
+import type { UpdateItem, UploadFilesResult, UploadItem, UploadOptions } from './upload';
 
 /**
  * Interface representing a file manager with various file, folder and drive operations.
@@ -40,7 +34,6 @@ export interface FileManager {
    * @emits FileManagerEvents.DRIVE_CREATED
    * @returns The newly-created admin DriveInfo.
    * @throws {DriveError} If not initialized, or admin state already exists without `reset`.
-   * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {StampError} If the admin batch stamp is missing or not usable.
    */
   createAdminDrive(
@@ -61,7 +54,6 @@ export interface FileManager {
    * @returns The newly-created DriveInfo.
    * @throws {DriveError} If not initialized, admin state/manifest is not ready, or a drive with the
    *   same name already exists. Several drives may share one batch — a batch only pays for storage.
-   * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {StampError} If the batch stamp is missing or not usable.
    */
   createDrive(
@@ -76,17 +68,16 @@ export interface FileManager {
    * the drive manifest. To re-version or change metadata of an existing file, use {@link updateFile}.
    *
    * For multi-file/folder uploads use  {@link uploadFiles} — passing multiple files here produces a
-   * single opaque collection without per-file versioning, ACT, or listing.
+   * single opaque collection without per-file versioning, keys, or listing.
    * @param driveId - The ID of the drive to upload into
    * @param item - The options for the file info upload (new content: path/file; no topic).
-   * @param uploadOptions - File and collection related upload options.
+   * @param uploadOptions - Upload options. Only `redundancyLevel` is honoured; it defaults to the drive's.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FILE_UPLOADED
    * @returns The newly-created FileRecord.
    * @throws {DriveError} If not initialized, driveId is not found, the target folder path does not
    *   exist, or a node already occupies `item.path` (fork keys are names, so names are unique
    *   within a folder — re-version with {@link updateFile} or relocate with {@link move}).
-   * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileError} If the source is a directory, a node source path does not exist, or the content upload fails.
    * @throws {FileRecordError} If `item.path` is invalid or a folder along the path has no feed.
    * @throws {FolderError} If the path is under the reserved `.trash` folder.
@@ -94,13 +85,13 @@ export interface FileManager {
   uploadFile(
     driveId: string | Identifier,
     item: UploadItem,
-    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
+    uploadOptions?: UploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<FileRecord>;
 
   /**
    * Uploads multiple files, recreating their folder hierarchy as real folder-nodes under
-   * destinationPath. Each file becomes its own node with per-file versioning and ACT, unlike a
+   * destinationPath. Each file becomes its own node with per-file versioning and keys, unlike a
    * single opaque collection upload via  {@link uploadFile}. Missing folders are created as needed; each
    * touched parent manifest is saved once at the end. Tolerates partial failure: per-file errors
    * are collected rather than aborting the whole batch.
@@ -108,7 +99,7 @@ export interface FileManager {
    * @param items - The files to upload, each with a path relative to destinationPath.
    * Aborting rejects as soon as the signal is seen and no manifest is saved.
    * @param destinationPath - Absolute path of the destination folder; defaults to the drive root.
-   * @param uploadOptions - File-related upload options.
+   * @param uploadOptions - Upload options. Only `redundancyLevel` is honoured; it defaults to the drive's.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FOLDER_CREATED (per folder created)
    * @emits FileManagerEvents.FILE_UPLOADED (per file uploaded)
@@ -119,7 +110,6 @@ export interface FileManager {
    * @throws {DriveError} If not initialized, driveId is not found, or a path segment is a file (not
    *   a folder).
    * @throws {FolderError} If a destination is under the reserved `.trash` folder.
-   * @throws {SignerError} If the publisher/signer is unavailable.
    *   Note: per-file content-upload failures are collected in `failed`, not thrown — as is an item
    *   whose destination name is already taken in the drive. An aborted signal rejects instead.
    */
@@ -127,7 +117,7 @@ export interface FileManager {
     driveId: string | Identifier,
     items: UploadItem[],
     destinationPath?: string,
-    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
+    uploadOptions?: UploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<UploadFilesResult>;
 
@@ -135,12 +125,12 @@ export interface FileManager {
    * Re-versions or changes metadata of an EXISTING file. Reuses the file's feed topic, writes a
    * new feed slot, and never touches the drive manifest (no rename — use {@link move} to rename or
    * relocate; that path writes no new version).
-   * Everything derives from `record`, including the ACT-history continuation reference.
+   * Everything derives from `record`.
    * @param driveId - The ID of the drive the file belongs to.
    * @param record - The existing file's FileRecord (the single source of truth).
    * @param changes - `item` present = new bytes (browser File or node filesystem path); absent =
    *                  metadata-only. `customMetadata` is merged over the record's existing metadata.
-   * @param uploadOptions - File-related upload options (actHistoryAddress is derived from record).
+   * @param uploadOptions - Upload options. Only `redundancyLevel` is honoured; it defaults to the drive's.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.FILE_UPDATED
    * @returns The newly-written FileRecord for the updated version.
@@ -148,14 +138,14 @@ export interface FileManager {
    *   file is trashed, or the fork at the record's path belongs to a different node.
    * @throws {DriveError} If not initialized or driveId is not found.
    * @throws {FolderError} If no fork exists at the record's path.
-   * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileError} If the content upload fails.
+   * @throws {KeyringError} If the node has not been reached through a listing in this session.
    */
   updateFile(
     driveId: string | Identifier,
     record: FileRecord,
     changes: UpdateItem,
-    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
+    uploadOptions?: UploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<FileRecord>;
 
@@ -169,7 +159,6 @@ export interface FileManager {
    * @returns A promise that resolves to DownloadFilesResult, marking per file success and failure in the subtree.
    * @throws {DriveError} If not initialized, driveId is not found, or the folder path does not exist.
    * @throws {FolderError} If the path is the reserved `.trash` folder.
-   * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileRecordError} If a folder feed is missing.
    *   Note: per-file download failures are logged, not thrown.
    */
@@ -187,7 +176,6 @@ export interface FileManager {
    * @param requestOptions - Additional Bee request options.
    * @returns A promise that resolves to a single DownloadResult.
    * @throws {DriveError} If the FileManager is not initialized.
-   * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileError} If the content fetch fails.
    *   Note: content-fetch failures are logged, not thrown.
    */
@@ -205,7 +193,6 @@ export interface FileManager {
    * @param requestOptions - Additional Bee request options.
    * @returns A promise that resolves to a DownloadFilesResult.
    * @throws {DriveError} If the FileManager is not initialized.
-   * @throws {SignerError} If the publisher/signer is unavailable.
    *   Note: per-record fetch failures are logged, not thrown.
    */
   downloadFiles(
@@ -228,7 +215,6 @@ export interface FileManager {
    *   below the given path, and `failed` for every node that could not be.
    * @throws {DriveError} If not initialized, driveId is not found, or a path segment does not exist.
    * @throws {FolderError} If the path is the reserved `.trash` folder, or `maxDepth` is not positive.
-   * @throws {SignerError} If the publisher/signer is unavailable.
    */
   listFolder(
     driveId: string | Identifier,
@@ -248,7 +234,6 @@ export interface FileManager {
    *   not exist.
    * @throws {FolderError} If the path is the drive root, is already under `.trash`, or the node
    *   itself does not exist.
-   * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileRecordError} If the fork carries no node metadata.
    */
   trash(driveId: string | Identifier, path: string, requestOptions?: BeeRequestOptions): Promise<void>;
@@ -268,7 +253,6 @@ export interface FileManager {
    * @throws {DriveError} If not initialized, the drive is not found, the destination is already
    *   occupied, or the destination's parent folder no longer exists.
    * @throws {FolderError} If the destination is under `.trash`.
-   * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileRecordError} If `trashedPath` is not a `.trash/<topic>` path, the destination path
    *   is invalid, the node is not in the trash, or it has no recorded origin and no `toPath` was given.
    */
@@ -289,7 +273,6 @@ export interface FileManager {
    * @param maxDepth - Maximum BFS levels when depth is Deep; must be positive, unlimited if omitted.
    * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
    * @throws {FolderError} If `maxDepth` is not positive.
-   * @throws {SignerError} If the publisher/signer is unavailable.
    */
   listTrash(
     driveId: string | Identifier,
@@ -306,7 +289,6 @@ export interface FileManager {
    * @returns The number of trashed nodes that were de-referenced.
    * @emits FileManagerEvents.TRASH_EMPTIED
    * @throws {DriveError} If the FileManager is not initialized or the drive is not found.
-   * @throws {SignerError} If the publisher/signer is unavailable.
    */
   emptyTrash(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<number>;
 
@@ -321,7 +303,6 @@ export interface FileManager {
    *   not exist.
    * @throws {FolderError} If the path is the drive root, or the reserved `.trash` folder — emptying
    *   the trash goes through {@link emptyTrash}.
-   * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileRecordError} If the path does not exist or a folder feed is missing.
    */
   forget(driveId: string | Identifier, path: string, requestOptions?: BeeRequestOptions): Promise<void>;
@@ -333,7 +314,6 @@ export interface FileManager {
    * @emits FileManagerEvents.DRIVE_FORGOTTEN
    * @returns A promise that resolves when the drive is forgotten.
    * @throws {DriveError} If not initialized, driveId is not found, or the target is the admin drive.
-   * @throws {SignerError} If the publisher/signer is unavailable.
    */
   forgetDrive(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<void>;
 
@@ -344,8 +324,9 @@ export interface FileManager {
    * @param version - Optional desired version slot as a FeedIndex or its 16-hex-character string. If omitted, fetches latest.
    * @returns The FileRecord corresponding to the requested version, either cached or fetched.
    * @throws {DriveError} If the FileManager is not initialized.
-   * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileRecordError} If the file feed is not found.
+   * @throws {KeyringError} If the node has not been reached through a listing in this session — a
+   *   record's keys are recovered by walking down to it, not carried on the record itself.
    */
   getFileVersion(
     record: FileRecord,
@@ -361,7 +342,6 @@ export interface FileManager {
    * @emits FileManagerEvents.FILE_VERSION_RESTORED
    * @throws {DriveError} If the FileManager is not initialized.
    * @throws {FolderError} If the file's fork cannot be found at its current path.
-   * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileRecordError} If the feed is not found, the restore version is undefined, it is the
    *   current head, or the fork at the resolved path belongs to a different node.
    */
@@ -393,7 +373,6 @@ export interface FileManager {
    * @throws {FolderError} If the destination is invalid, source and
    *   destination are identical, the source does not exist, the destination is already occupied, or
    *   either path is under the reserved `.trash` folder — trashing goes through {@link trash}.
-   * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileRecordError} If a folder feed or the source file record is missing.
    */
   move(
@@ -415,7 +394,6 @@ export interface FileManager {
    * @throws {DriveError} If not initialized, driveId is not found, or the parent path does not exist.
    * @throws {FolderError} If the folder name is invalid or reserved (`.trash`), or a node already
    *   occupies that name.
-   * @throws {SignerError} If the publisher/signer is unavailable.
    * @throws {FileRecordError} If a folder feed is missing.
    */
   createFolder(
@@ -425,6 +403,12 @@ export interface FileManager {
     redundancyLevel?: RedundancyLevel,
     requestOptions?: BeeRequestOptions,
   ): Promise<FolderInfo>;
+
+  /**
+   * The identity of the feed owner.
+   * @returns an IdentityInfo object, or undefined if not set.
+   */
+  readonly identity: IdentityInfo | undefined;
 
   /**
    * Admin postage batch used for drive management operations.
@@ -456,6 +440,7 @@ export interface FileManager {
 }
 
 export interface FileManagerConfig {
-  uploadConcurrency?: number; // default MAX_CONCURRENT_UPLOADS (2)
-  feedFetchConcurrency?: number; // default MAX_CONCURRENT_FEED_FETCHES (10)
+  uploadConcurrency?: number; // default `MAX_CONCURRENT_UPLOADS` (2)
+  feedFetchConcurrency?: number; // default `MAX_CONCURRENT_FEED_FETCHES` (10)
+  credential?: Credential; // default `swarmClientCredential(swarmClient)`
 }

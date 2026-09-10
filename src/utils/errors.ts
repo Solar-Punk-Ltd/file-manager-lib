@@ -76,6 +76,22 @@ export class SignerError extends FileManagerError {
   }
 }
 
+// Identity envelope failures: a credential that unseals nothing, a malformed or foreign envelope,
+// or provisioning attempted through a client that cannot write the envelope feed.
+export class IdentityError extends FileManagerError {
+  public constructor(message: string, cause?: unknown) {
+    super(message, 'IdentityError', cause);
+  }
+}
+
+// Key-chain failures: a node whose keys were never hydrated, or fork metadata that carries no
+// wrapped keys or does not decrypt under its parent's.
+export class KeyringError extends FileManagerError {
+  public constructor(message: string, cause?: unknown) {
+    super(message, 'KeyringError', cause);
+  }
+}
+
 // Record/feed/metadata failures (record not found, wrong drive, version collision)
 export class FileRecordError extends FileManagerError {
   public constructor(message: string, cause?: unknown) {

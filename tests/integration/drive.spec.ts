@@ -1,4 +1,4 @@
-import { type Bee, Identifier, type PrivateKey, RedundancyLevel } from '@ethersphere/bee-js';
+import { type Bee, Identifier, RedundancyLevel } from '@ethersphere/bee-js';
 
 import {
   buyStampSerialized,
@@ -22,14 +22,12 @@ describe('Drive operations', () => {
   let bee: Bee;
   let fileManager: FileManagerBase;
   let ownerBatch: StampInfo;
-  let signer: PrivateKey;
   const { writeTempFile, cleanup } = tempFileRegistry();
 
   beforeAll(async () => {
-    const { client: bc, bee: beeDev, ownerStamp, signer: newSigner } = await ensureUniqueSignerWithStamp();
+    const { client: bc, bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
     client = bc;
     bee = beeDev;
-    signer = newSigner;
     const stamp = await client.getStamp(ownerStamp.toString());
 
     expect(stamp).toBeDefined();
@@ -52,7 +50,7 @@ describe('Drive operations', () => {
     expect(new Identifier(testDrive!.id)).toHaveLength(Identifier.LENGTH);
     expect(testDrive!.batchId).toBe(batchId.toString());
     expect(testDrive!.name).toBe('Test Drive');
-    expect(testDrive!.owner).toBe(signer.publicKey().address().toHex());
+    expect(testDrive!.owner).toBe(fileManager.identity?.owner);
     expect(testDrive!.redundancyLevel).toBe(RedundancyLevel.OFF);
     expect(fileManager.recordList.filter((fr) => fr.driveId === testDrive!.id)).toHaveLength(0);
   });

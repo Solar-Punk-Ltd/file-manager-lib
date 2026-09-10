@@ -71,7 +71,6 @@ Everything is configured in `jest.config.ts`, including the `@/*` → `src/*` pa
 
 ```
 tests/
-├─ TESTS.md
 ├─ utils.ts                     # shared: URLs, signers, batch params, createInitializedFileManager, retry/stream helpers
 ├─ platform-browser.ts          # unit-browser setupFilesAfterEnv — shims browser globals (File/Blob/…)
 ├─ unit/
@@ -234,7 +233,7 @@ Emitted events live in `FileManagerEvents` (`src/utils/events.ts`): `FILE_UPLOAD
 `TRASH_EMPTIED`, `STATE_INVALID`. Events emitted _during_ `initialize` (`INITIALIZED`, `STATE_INVALID`,
 `DRIVE_UNRESOLVED`) require the emitter to be injected via the constructor before initializing — tests that assert them
 do exactly that. The file/folder pairs of a path-addressed operation carry the same payload shape — see
-[REFERENCE.md](../REFERENCE.md#events).
+[REFERENCE.md](REFERENCE.md#events).
 
 ---
 

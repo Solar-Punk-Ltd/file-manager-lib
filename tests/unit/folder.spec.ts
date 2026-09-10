@@ -3,7 +3,14 @@ import { type MantarayNode } from '@ethersphere/core-sdk';
 
 import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID, makeUploadSource } from '../utils';
 
-import { applyDefaultMocks, createMockDriveInfo, createMockNodeAddresses, seedDummyFile, seedRecords } from './mock';
+import {
+  applyDefaultMocks,
+  createMockDriveInfo,
+  mockWrappedKeys,
+  refPayload,
+  seedDummyFile,
+  seedRecords,
+} from './mock';
 
 import { FailureScope, ListDepth, type NodeHeader, NodeType } from '@/types';
 import { FileManagerEvents } from '@/utils';
@@ -12,7 +19,6 @@ import { FEED_INDEX_ZERO, MANIFEST_METADATA_NODE_TOPIC, ROOT_PATH, SWARM_ZERO_AD
 
 describe('Folder operations', () => {
   const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
-  const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
 
   beforeEach(async () => {
     applyDefaultMocks();
@@ -24,8 +30,8 @@ describe('Folder operations', () => {
       const drive = fm.driveList[0];
       seedRecords(
         fm,
-        seedDummyFile(drive, 'a.txt', '1'.repeat(64), owner, actPublisher),
-        seedDummyFile(drive, 'b.txt', '2'.repeat(64), owner, actPublisher),
+        seedDummyFile(drive, 'a.txt', '1'.repeat(64), owner),
+        seedDummyFile(drive, 'b.txt', '2'.repeat(64), owner),
       );
 
       const downloadReadableDataSpy = jest.spyOn(
@@ -35,16 +41,8 @@ describe('Folder operations', () => {
 
       const results = await fm.downloadFolder(drive.id, '/');
 
-      expect(downloadReadableDataSpy).toHaveBeenCalledWith(
-        '1'.repeat(64),
-        { actHistoryAddress: SWARM_ZERO_ADDRESS.toString(), actPublisher },
-        undefined,
-      );
-      expect(downloadReadableDataSpy).toHaveBeenCalledWith(
-        '2'.repeat(64),
-        { actHistoryAddress: SWARM_ZERO_ADDRESS.toString(), actPublisher },
-        undefined,
-      );
+      expect(downloadReadableDataSpy).toHaveBeenCalledWith('1'.repeat(64), undefined, undefined);
+      expect(downloadReadableDataSpy).toHaveBeenCalledWith('2'.repeat(64), undefined, undefined);
 
       expect(downloadReadableDataSpy).toHaveBeenCalledTimes(2);
       expect(results.succeeded.map((r) => r.path).sort()).toEqual(['a.txt', 'b.txt']);
@@ -55,8 +53,8 @@ describe('Folder operations', () => {
       const drive = fm.driveList[0];
       seedRecords(
         fm,
-        seedDummyFile(drive, 'a.txt', '1'.repeat(64), owner, actPublisher),
-        seedDummyFile(drive, 'nested/b.txt', '2'.repeat(64), owner, actPublisher),
+        seedDummyFile(drive, 'a.txt', '1'.repeat(64), owner),
+        seedDummyFile(drive, 'nested/b.txt', '2'.repeat(64), owner),
       );
 
       const results = await fm.downloadFolder(drive.id);
@@ -68,9 +66,9 @@ describe('Folder operations', () => {
     it('downloadFolder does not download files belonging to a different drive', async () => {
       const fm = await createInitializedFileManager();
       const drive = fm.driveList[0];
-      const otherDrive = createMockDriveInfo(actPublisher, { id: Identifier.fromString('other-drive').toString() });
-      seedRecords(fm, seedDummyFile(drive, 'mine.txt', '1'.repeat(64), owner, actPublisher));
-      seedRecords(fm, seedDummyFile(otherDrive, 'not-mine.txt', '2'.repeat(64), owner, actPublisher));
+      const otherDrive = createMockDriveInfo({ id: Identifier.fromString('other-drive').toString() });
+      seedRecords(fm, seedDummyFile(drive, 'mine.txt', '1'.repeat(64), owner));
+      seedRecords(fm, seedDummyFile(otherDrive, 'not-mine.txt', '2'.repeat(64), owner));
 
       const downloadReadableDataSpy = jest.spyOn(
         Object.getPrototypeOf(new Bee('http://localhost:1633').data),
@@ -93,8 +91,8 @@ describe('Folder operations', () => {
 
       const topicA = Topic.fromString('list-a').toString();
       const topicB = Topic.fromString('list-b').toString();
-      const entryA: NodeHeader = { path: 'a.txt', type: NodeType.File, topic: topicA, rawMetadata: {} };
-      const entryB: NodeHeader = { path: 'b.txt', type: NodeType.File, topic: topicB, rawMetadata: {} };
+      const entryA: NodeHeader = { path: 'a.txt', type: NodeType.File, topic: topicA, rawMetadata: mockWrappedKeys() };
+      const entryB: NodeHeader = { path: 'b.txt', type: NodeType.File, topic: topicB, rawMetadata: mockWrappedKeys() };
 
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
       const { getAllNodeEntries } = require('@/utils/mantaray');
@@ -105,13 +103,12 @@ describe('Folder operations', () => {
         type: NodeType.File,
         batchId: DUMMY_BATCH_ID,
         owner,
-        actPublisher,
         redundancyLevel: RedundancyLevel.OFF,
         topic: topicB,
         driveId: drive.id,
         name: 'b.txt',
         path: 'b.txt',
-        content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        content: { reference: SWARM_ZERO_ADDRESS.toString() },
       });
 
       // Clear the calls made by createInitializedFileManager()'s own bootstrap so the count below
@@ -120,9 +117,7 @@ describe('Folder operations', () => {
       (getFeedData as jest.Mock).mockResolvedValue({
         feedIndex: FeedIndex.fromBigInt(0n),
         feedIndexNext: FeedIndex.fromBigInt(1n),
-        payload: {
-          toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
-        },
+        payload: refPayload(),
       });
       jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'download').mockResolvedValue(
         Bytes.fromUtf8(
@@ -130,13 +125,12 @@ describe('Folder operations', () => {
             type: NodeType.File,
             batchId: DUMMY_BATCH_ID,
             owner,
-            actPublisher,
             topic: topicA,
             driveId: drive.id,
             name: 'a.txt',
             path: 'a.txt',
             redundancyLevel: RedundancyLevel.OFF,
-            content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+            content: { reference: SWARM_ZERO_ADDRESS.toString() },
           }),
         ),
       );
@@ -168,21 +162,20 @@ describe('Folder operations', () => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
         const { getAllNodeEntries } = require('@/utils/mantaray');
         getAllNodeEntries.mockReturnValue([
-          { path: 'good.txt', type: NodeType.File, topic: goodTopic, rawMetadata: {} },
-          { path: 'bad.txt', type: NodeType.File, topic: badTopic, rawMetadata: {} },
+          { path: 'good.txt', type: NodeType.File, topic: goodTopic, rawMetadata: mockWrappedKeys() },
+          { path: 'bad.txt', type: NodeType.File, topic: badTopic, rawMetadata: mockWrappedKeys() },
         ]);
 
         seedRecords(fm, {
           type: NodeType.File,
           batchId: DUMMY_BATCH_ID,
           owner,
-          actPublisher,
           redundancyLevel: RedundancyLevel.OFF,
           topic: goodTopic,
           driveId: drive.id,
           name: 'good.txt',
           path: 'good.txt',
-          content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+          content: { reference: SWARM_ZERO_ADDRESS.toString() },
         });
 
         // Only bad.txt reaches the feed: good.txt is served from the cache.
@@ -210,16 +203,14 @@ describe('Folder operations', () => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
         const { getAllNodeEntries } = require('@/utils/mantaray');
         getAllNodeEntries.mockReturnValue([
-          { path: 'broken', type: NodeType.Folder, topic: folderTopic, rawMetadata: {} },
+          { path: 'broken', type: NodeType.Folder, topic: folderTopic, rawMetadata: mockWrappedKeys() },
         ]);
 
         // A folder whose feed has no update at all — previously a warn-and-skip.
         (getFeedData as jest.Mock).mockResolvedValue({
           feedIndex: FeedIndex.MINUS_ONE,
           feedIndexNext: FEED_INDEX_ZERO,
-          payload: {
-            toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
-          },
+          payload: refPayload(),
         });
 
         const { entries, failed } = await fm.listFolder(drive.id, '', ListDepth.Deep);
@@ -244,16 +235,14 @@ describe('Folder operations', () => {
         // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
         const { getAllNodeEntries, loadMantaray } = require('@/utils/mantaray');
         getAllNodeEntries.mockReturnValue([
-          { path: 'readable', type: NodeType.Folder, topic: folderTopic, rawMetadata: {} },
+          { path: 'readable', type: NodeType.Folder, topic: folderTopic, rawMetadata: mockWrappedKeys() },
         ]);
 
         // The folder's feed resolves, so the node itself is listed...
         (getFeedData as jest.Mock).mockResolvedValue({
           feedIndex: FEED_INDEX_ZERO,
           feedIndexNext: FeedIndex.fromBigInt(1n),
-          payload: {
-            toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
-          },
+          payload: refPayload(),
         });
         // ...but its manifest cannot be read, so descending into it fails. The drive root is served
         // from the cache seeded at init, so only the folder's own expansion breaks.
@@ -281,7 +270,9 @@ describe('Folder operations', () => {
 
         // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
         const { getAllNodeEntries } = require('@/utils/mantaray');
-        getAllNodeEntries.mockReturnValue([{ path: 'bad.txt', type: NodeType.File, topic: badTopic, rawMetadata: {} }]);
+        getAllNodeEntries.mockReturnValue([
+          { path: 'bad.txt', type: NodeType.File, topic: badTopic, rawMetadata: mockWrappedKeys() },
+        ]);
 
         (getFeedData as jest.Mock).mockRejectedValue(new Error('feed unreachable'));
 
@@ -307,7 +298,12 @@ describe('Folder operations', () => {
       const fm = await createInitializedFileManager();
       const drive = fm.driveList[0];
       const folderTopic = Topic.fromString('sub-folder').toString();
-      const folderEntry: NodeHeader = { path: 'sub', type: NodeType.Folder, topic: folderTopic, rawMetadata: {} };
+      const folderEntry: NodeHeader = {
+        path: 'sub',
+        type: NodeType.Folder,
+        topic: folderTopic,
+        rawMetadata: mockWrappedKeys(),
+      };
 
       // eslint-disable-next-line @typescript-eslint/no-require-imports, no-undef
       const { getAllNodeEntries } = require('@/utils/mantaray');
@@ -316,9 +312,7 @@ describe('Folder operations', () => {
       (getFeedData as jest.Mock).mockResolvedValue({
         feedIndex: FeedIndex.fromBigInt(0n),
         feedIndexNext: FeedIndex.fromBigInt(1n),
-        payload: {
-          toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
-        },
+        payload: refPayload(),
       });
 
       const results = (await fm.listFolder(drive.id, '', ListDepth.Deep, 1)).entries;
@@ -357,9 +351,7 @@ describe('Folder operations', () => {
       (getFeedData as jest.Mock).mockResolvedValue({
         feedIndex: FeedIndex.fromBigInt(0n),
         feedIndexNext: FeedIndex.fromBigInt(1n),
-        payload: {
-          toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
-        },
+        payload: refPayload(),
       });
 
       const nested = await fm.createFolder(drive.id, 'Documents', 'Reports');
@@ -431,9 +423,7 @@ describe('Folder operations', () => {
       (getFeedData as jest.Mock).mockResolvedValue({
         feedIndex: FeedIndex.fromBigInt(0n),
         feedIndexNext: FeedIndex.fromBigInt(1n),
-        payload: {
-          toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
-        },
+        payload: refPayload(),
       });
 
       await fm.createFolder(drive.id, 'outer', 'inner');
@@ -449,7 +439,7 @@ describe('Folder operations', () => {
       const fm = await createInitializedFileManager();
       const drive = fm.driveList[0];
       await fm.createFolder(drive.id, '', 'Docs');
-      seedRecords(fm, seedDummyFile(drive, 'Docs/a.txt', SWARM_ZERO_ADDRESS.toString(), owner, actPublisher));
+      seedRecords(fm, seedDummyFile(drive, 'Docs/a.txt', SWARM_ZERO_ADDRESS.toString(), owner));
 
       await fm.move('Docs', 'Archive', drive.id);
 

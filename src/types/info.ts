@@ -1,7 +1,7 @@
 import { type RedundancyLevel } from '@ethersphere/bee-js';
 import { type MantarayNode } from '@ethersphere/core-sdk';
 
-import { type ActReferences } from './utils';
+import { type ContentRef, type Hex } from './utils';
 
 export enum NodeStatus {
   Active = 'active',
@@ -24,7 +24,6 @@ export interface NodeResource {
   topic: string;
   owner: string;
   redundancyLevel: RedundancyLevel;
-  actPublisher: string;
   version?: string;
   status?: NodeStatus;
 }
@@ -35,14 +34,14 @@ export interface FileRecord extends NodeResource {
   name: string;
   // On a record loaded straight off its feed this falls back to `name` until a listing hydrates it.
   path: string;
-  content: ActReferences;
+  content: ContentRef;
   timestamp?: number;
   customMetadata?: Record<string, string>;
   trashedFrom?: string;
 }
 
 export interface ManifestHost extends NodeResource {
-  manifestRef?: ActReferences;
+  manifestRef?: ContentRef;
   version?: never;
 }
 
@@ -91,9 +90,8 @@ export interface NodeHeader {
   type: NodeType;
   topic: string;
   owner?: string;
-  actPublisher?: string;
   version?: string;
-  head?: ActReferences;
+  head?: ContentRef;
   rawMetadata: Record<string, string>;
 }
 
@@ -104,4 +102,10 @@ export interface ResolvedFileFork {
   filename: string;
   targetAddress: Uint8Array;
   metadata: Record<string, string>;
+}
+
+export interface StampInfo {
+  batchId: Hex;
+  usable: boolean;
+  depth: number;
 }

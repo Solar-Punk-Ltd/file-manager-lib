@@ -131,15 +131,16 @@ export async function createInitializedFileManager(
 ): Promise<FileManagerBase> {
   const fm = new FileManagerBase(client, emitter);
 
-  let isFirstInit = true;
-  fm.emitter.on(FileManagerEvents.INITIALIZED, (ok: boolean) => {
-    if (isFirstInit) {
-      expect(ok).toBe(true);
-      isFirstInit = false;
-    }
-  });
+  const outcomes: boolean[] = [];
+  const record = (ok: boolean): void => {
+    outcomes.push(ok);
+  };
+  fm.emitter.on(FileManagerEvents.INITIALIZED, record);
 
   await fm.initialize();
+  fm.emitter.off(FileManagerEvents.INITIALIZED, record);
+
+  expect(outcomes[0]).toBe(true);
 
   if (!fm.driveList.some((d) => d.isAdmin)) {
     await fm.createAdminDrive(batchId ?? DUMMY_BATCH_ID, RedundancyLevel.MEDIUM);

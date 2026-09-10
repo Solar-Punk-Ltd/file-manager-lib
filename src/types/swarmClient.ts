@@ -1,15 +1,15 @@
 import type { Readable } from 'stream';
 
+import type { StampInfo } from './info';
+import type { ClientProtectedUploadResult, ClientUploadResult } from './upload';
 import type {
-  ClientProtectedUploadResult,
-  ClientUploadResult,
   FeedIndexString,
   FeedRead,
   FeedWrite,
   Hex,
   ProtectedRefs,
-  StampInfo,
   SwarmDownloadOptions,
+  SwarmFeedWriteOptions,
   SwarmRequestOptions,
   SwarmUploadOptions,
 } from './utils';
@@ -23,11 +23,14 @@ import type {
  */
 export interface SwarmClient {
   /**
-   * Ethereum **address** (20 bytes / 40 hex chars) that owns the feeds this client writes.
+   * Ethereum **address** (20 bytes / 40 hex chars) of the backend's own key — whichever credential
+   * the user logged in with.
    *
-   * This is the value to pass wherever a feed owner is expected, and the value to persist as a
-   * node's `owner`. Do not substitute {@link publicKey}: it is 33 bytes, so bee-js rejects it with
-   * `Bytes#checkByteLength: bytes length is 33 but expected 20`.
+   * fm-lib uses it only to locate the identity envelope. Every other feed is owned by
+   * `identity.owner` and signed by `identity.signer`, so this is not the value to persist as a
+   * node's owner, and reading a node feed here finds nothing.
+   *
+   * Do not substitute `publicKey`: it is 33 bytes, and bee-js rejects it where 20 are expected.
    */
   readonly owner: Hex;
 
@@ -40,8 +43,7 @@ export interface SwarmClient {
   readonly publicKey: Hex;
 
   /**
-   * Compressed public key to quote as `actPublisher` when reading ACT-protected content, and to
-   * persist as a node's `actPublisher`.
+   * Compressed public key to quote as `actPublisher` when reading ACT-protected content.
    *
    * Distinct from {@link publicKey} and not interchangeable with it. Under bee-js the Bee **node**
    * performs the ACT encryption, so this is the node's key from `getNodeAddresses()`. Under
@@ -50,11 +52,12 @@ export interface SwarmClient {
   readonly actPublisher: Hex;
 
   /**
-   * Derives a secret from the master key
-   * @param seed Input string necessary for deriving the secret
-   * @returns a 32 byte hex string
+   * Derive 32 stable, secret bytes from the backend's own key material. Used for the identity
+   * envelope's unlock key, so this value alone locates the envelope, unseals the FMK, and yields
+   * read and write access to every drive.
+   *
    */
-  deriveSecret(seed: string): Promise<string>;
+  deriveSecret(label: string): Promise<Uint8Array>;
 
   /**
    * Prepare the backend: version/compatibility checks for Bee, connection handshake for swarm-id.
@@ -67,9 +70,10 @@ export interface SwarmClient {
 
   // --- plain bytes ---
 
+  /** With `options.encrypt` the returned reference is 64 bytes and carries the decryption key. */
   uploadData(
     batchId: Hex,
-    data: Uint8Array | string,
+    data: Uint8Array | string | Blob | Readable,
     options?: SwarmUploadOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<ClientUploadResult>;
@@ -138,12 +142,19 @@ export interface SwarmClient {
    */
   readFeed(topic: Hex, owner: Hex, index?: FeedIndexString, requestOptions?: SwarmRequestOptions): Promise<FeedRead>;
 
+  /**
+   * Writes one feed slot.
+   *
+   * Signed by `options.signer` when given, otherwise by the backend's own key — in which case the
+   * update lands under {@link owner}. Bee **silently no-ops on a taken index**, so `index` must come
+   * from a probe, never from a guess.
+   */
   writeFeed(
     batchId: Hex,
     topic: Hex,
     payload: Uint8Array | string,
     index: FeedIndexString,
-    options?: SwarmUploadOptions,
+    options?: SwarmFeedWriteOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<FeedWrite>;
 }

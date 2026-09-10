@@ -1,38 +1,21 @@
-import type { BeeRequestOptions, FileUploadOptions, UploadResult } from '@ethersphere/bee-js';
-import { type BatchId, Reference } from '@ethersphere/core-sdk';
-import { Optional } from 'cafe-utility';
+import type { BeeRequestOptions } from '@ethersphere/bee-js';
+import { type BatchId } from '@ethersphere/core-sdk';
 
 import { type DriveInfo } from '../types/info';
 import type { SwarmClient } from '../types/swarmClient';
 import { type NodeUploadOptions } from '../types/upload';
-import { type ActReferences } from '../types/utils';
+import { type ContentRef, type SwarmUploadOptions } from '../types/utils';
 import { ErrorHandler, FileError } from '../utils/errors';
 
 const errorHandler = ErrorHandler.getInstance();
-
-async function uploadNode(
-  swarmClient: SwarmClient,
-  batchId: string | BatchId,
-  nodeOptions: NodeUploadOptions,
-  uploadOptions?: FileUploadOptions,
-  requestOptions?: BeeRequestOptions,
-): Promise<UploadResult> {
-  const result = await uploadFile(swarmClient, batchId, nodeOptions.sourcePath, uploadOptions, requestOptions);
-
-  if (result.tagUid !== undefined) {
-    nodeOptions.onUploadProgress?.(result.tagUid);
-  }
-
-  return result;
-}
 
 async function uploadFile(
   swarmClient: SwarmClient,
   batchId: string | BatchId,
   resolvedPath: string,
-  uploadOptions?: FileUploadOptions,
+  options: SwarmUploadOptions,
   requestOptions?: BeeRequestOptions,
-): Promise<UploadResult> {
+): Promise<ContentRef & { tagUid?: number }> {
   const { isDir } = await import('../utils/fs/fs-node');
   const isPathDir = await isDir(resolvedPath);
 
@@ -44,19 +27,9 @@ async function uploadFile(
     const { readFile } = await import('../utils/fs/fs-node');
     const { data } = await readFile(resolvedPath);
 
-    const result = await swarmClient.uploadProtected(
-      batchId.toString(),
-      data,
-      uploadOptions?.actHistoryAddress?.toString(),
-      uploadOptions,
-      requestOptions,
-    );
+    const result = await swarmClient.uploadData(batchId.toString(), data, options, requestOptions);
 
-    return {
-      reference: new Reference(result.contentRefs.reference),
-      historyAddress: Optional.of(new Reference(result.contentRefs.historyRef)),
-      tagUid: result.tagUid,
-    };
+    return { reference: result.reference.toString(), tagUid: result.tagUid };
   } catch (err: unknown) {
     errorHandler.handleError(err, `Failed to upload file ${resolvedPath}`);
     throw new FileError(`Failed to upload file ${resolvedPath}`, err);
@@ -67,13 +40,20 @@ export async function processUploadNode(
   swarmClient: SwarmClient,
   driveInfo: DriveInfo,
   nodeOptions: NodeUploadOptions,
-  uploadOptions?: FileUploadOptions,
+  options: SwarmUploadOptions,
   requestOptions?: BeeRequestOptions,
-): Promise<ActReferences> {
-  const uploadResult = await uploadNode(swarmClient, driveInfo.batchId, nodeOptions, uploadOptions, requestOptions);
+): Promise<ContentRef> {
+  const { reference, tagUid } = await uploadFile(
+    swarmClient,
+    driveInfo.batchId,
+    nodeOptions.sourcePath,
+    options,
+    requestOptions,
+  );
 
-  return {
-    reference: uploadResult.reference.toString(),
-    historyRef: uploadResult.historyAddress.getOrThrow().toString(),
-  } as ActReferences;
+  if (tagUid !== undefined) {
+    nodeOptions.onUploadProgress?.(tagUid);
+  }
+
+  return { reference };
 }

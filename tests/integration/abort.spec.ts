@@ -236,7 +236,6 @@ describe('Abort signal handling', () => {
   describe('download', () => {
     const downloadTestFile = 'it-abort-large-download.bin';
     let uploadedFileInfo: FileRecord;
-    let actPublisher: string;
 
     beforeAll(async () => {
       // Upload a 1MB file to download later (large enough for reliable abort timing)
@@ -245,8 +244,6 @@ describe('Abort signal handling', () => {
       const fr = fileManager.recordList.find((fr) => fr.path === downloadTestFile);
       expect(fr).toBeDefined();
       uploadedFileInfo = fr!;
-
-      actPublisher = client.actPublisher;
     });
 
     it('should throw error when download is aborted with pre-aborted signal', async () => {
@@ -254,14 +251,7 @@ describe('Abort signal handling', () => {
       controller.abort(); // Pre-abort
 
       await expect(
-        fileManager.downloadFiles(
-          [uploadedFileInfo],
-          {
-            actHistoryAddress: uploadedFileInfo.content.historyRef,
-            actPublisher,
-          },
-          { signal: controller.signal },
-        ),
+        fileManager.downloadFiles([uploadedFileInfo], undefined, { signal: controller.signal }),
       ).rejects.toThrow();
     });
 
@@ -269,14 +259,7 @@ describe('Abort signal handling', () => {
       const controller = new AbortController();
 
       // Start download and abort after a short delay
-      const downloadPromise = fileManager.downloadFiles(
-        [uploadedFileInfo],
-        {
-          actHistoryAddress: uploadedFileInfo.content.historyRef,
-          actPublisher,
-        },
-        { signal: controller.signal },
-      );
+      const downloadPromise = fileManager.downloadFiles([uploadedFileInfo], undefined, { signal: controller.signal });
 
       setTimeout(() => {
         controller.abort();
@@ -288,14 +271,7 @@ describe('Abort signal handling', () => {
     it('should complete download successfully when signal is not aborted', async () => {
       const controller = new AbortController();
 
-      const result = await fileManager.downloadFiles(
-        [uploadedFileInfo],
-        {
-          actHistoryAddress: uploadedFileInfo.content.historyRef,
-          actPublisher,
-        },
-        { signal: controller.signal },
-      );
+      const result = await fileManager.downloadFiles([uploadedFileInfo], undefined, { signal: controller.signal });
 
       expect(result).toBeDefined();
       expect(Array.isArray(result.succeeded)).toBe(true);
@@ -309,25 +285,11 @@ describe('Abort signal handling', () => {
 
       // First download should fail (aborted)
       await expect(
-        fileManager.downloadFiles(
-          [uploadedFileInfo],
-          {
-            actHistoryAddress: uploadedFileInfo.content.historyRef,
-            actPublisher,
-          },
-          { signal: controller1.signal },
-        ),
+        fileManager.downloadFiles([uploadedFileInfo], undefined, { signal: controller1.signal }),
       ).rejects.toThrow();
 
       // Second download should succeed (not aborted)
-      const result = await fileManager.downloadFiles(
-        [uploadedFileInfo],
-        {
-          actHistoryAddress: uploadedFileInfo.content.historyRef,
-          actPublisher,
-        },
-        { signal: controller2.signal },
-      );
+      const result = await fileManager.downloadFiles([uploadedFileInfo], undefined, { signal: controller2.signal });
 
       expect(result).toBeDefined();
       expect(Array.isArray(result.succeeded)).toBe(true);
@@ -354,7 +316,7 @@ describe('Abort signal handling', () => {
       const orphanTopic = new Topic(generateRandomBytes(Topic.LENGTH)).toString();
       const orphanName = 'it-abort-orphan-folder';
       const store = (fileManager as any).store;
-      const { host, node } = await store.resolveHostMantaray(drive, ROOT_PATH, client.actPublisher);
+      const { host, node } = await store.resolveHostMantaray(drive, ROOT_PATH);
 
       node.addFork(orphanName, new Reference(orphanTopic), {
         [MANIFEST_METADATA_NODE_TOPIC]: orphanTopic,

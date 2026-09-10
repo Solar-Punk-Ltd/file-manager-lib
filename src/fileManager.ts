@@ -1,14 +1,9 @@
-import {
-  type BeeRequestOptions,
-  type DownloadOptions,
-  type FileUploadOptions,
-  RedundancyLevel,
-  type RedundantUploadOptions,
-} from '@ethersphere/bee-js';
+import { type BeeRequestOptions, type DownloadOptions, RedundancyLevel } from '@ethersphere/bee-js';
 import { type BatchId, FeedIndex, Identifier, MantarayNode, Reference, Topic } from '@ethersphere/core-sdk';
 
 import { type DownloadFilesResult, type DownloadResource, type DownloadResult } from './types/download';
 import { type FileManager, type FileManagerConfig } from './types/fileManager';
+import type { Credential, IdentityInfo } from './types/identity';
 import {
   type DriveInfo,
   FailureScope,
@@ -23,12 +18,13 @@ import {
   NodeStatus,
   NodeType,
   type ResolvedFileFork,
+  type StampInfo,
   type UnresolvedDrive,
 } from './types/info';
 import type { SwarmClient } from './types/swarmClient';
-import { type UpdateItem, type UploadFilesResult, type UploadItem } from './types/upload';
-import { type ActReferences, type FailedResult, type StampInfo } from './types/utils';
-import { assertActReferences, assertDriveInfoFromMetadata, assertReady } from './utils/asserts';
+import { type UpdateItem, type UploadFilesResult, type UploadItem, type UploadOptions } from './types/upload';
+import { type ContentRef, type FailedResult } from './types/utils';
+import { assertDriveInfoFromMetadata, assertReady } from './utils/asserts';
 import { fetchStamp, getFeedData, getTopicAndVersion, verifyStampUsability } from './utils/bee';
 import { awaitAllPromisesBounded, errorMessage, getRecordStatus, joinPath, settlePromises } from './utils/common';
 import {
@@ -44,11 +40,10 @@ import {
   MAX_CONCURRENT_FEED_FETCHES,
   MAX_CONCURRENT_UPLOADS,
   ROOT_PATH,
-  STATE_TOPIC_LABEL,
   TRASH_FOLDER_NAME,
 } from './utils/constants';
 import { generateRandomBytes } from './utils/crypto';
-import { DriveError, ErrorHandler, FileError, FileRecordError, FolderError } from './utils/errors';
+import { DriveError, ErrorHandler, FileError, FileRecordError, FolderError, IdentityError } from './utils/errors';
 import { FileManagerEvents } from './utils/events';
 import { Logger } from './utils/logger';
 import {
@@ -72,6 +67,7 @@ import {
 } from './utils/path';
 import { processDownload } from './download';
 import { type EventEmitter, EventEmitterBase } from './eventEmitter';
+import { provisionIdentity, resolveIdentity, swarmClientCredential } from './identity';
 import { MantarayStore } from './mantarayStore';
 import { assertUploadableSource, processUpload } from './upload';
 
@@ -102,7 +98,7 @@ import { assertUploadableSource, processUpload } from './upload';
  */
 export class FileManagerBase implements FileManager {
   private readonly swarmClient: SwarmClient;
-  private stateFeedTopic: Topic | undefined = undefined;
+  private readonly credential: Credential;
   private isInitializing: boolean = false;
   private adminRedundancyLevel: RedundancyLevel = RedundancyLevel.OFF;
   private uploadConcurrency: number;
@@ -118,6 +114,15 @@ export class FileManagerBase implements FileManager {
   // --- Public member getters ---
 
   readonly emitter: EventEmitter;
+
+  get identity(): IdentityInfo | undefined {
+    return this.store.identity
+      ? {
+          owner: this.store.identity.owner,
+          keyId: this.store.identity.keyId,
+        }
+      : undefined;
+  }
 
   get adminStamp(): StampInfo | undefined {
     return this._adminStamp;
@@ -142,16 +147,17 @@ export class FileManagerBase implements FileManager {
    *   doc for the two backends that ship with the library.
    * @param emitter - Sink for {@link FileManagerEvents}. Defaults to a fresh
    *   {@link EventEmitterBase}; pass one in to share a bus across instances.
-   * @param config - Concurrency tuning. Omitted fields fall back to the library defaults, and both
+   * @param config - Credentials and concurrency tuning. Omitted fields fall back to the library defaults, and both
    *   are clamped to a minimum of 1.
    */
   constructor(swarmClient: SwarmClient, emitter: EventEmitter = new EventEmitterBase(), config?: FileManagerConfig) {
     this.swarmClient = swarmClient;
+    this.credential = config?.credential ?? swarmClientCredential(swarmClient);
 
     this.emitter = emitter;
     this.uploadConcurrency = Math.max(1, config?.uploadConcurrency ?? MAX_CONCURRENT_UPLOADS);
     this.feedFetchConcurrency = Math.max(1, config?.feedFetchConcurrency ?? MAX_CONCURRENT_FEED_FETCHES);
-    this.store = new MantarayStore(swarmClient);
+    this.store = new MantarayStore(this.swarmClient);
   }
 
   // File records are loaded lazily via listFolder / download / move as the user navigates — no eager full-drive load at init.
@@ -173,8 +179,11 @@ export class FileManagerBase implements FileManager {
     try {
       await this.swarmClient.initialize(requestOptions);
 
-      this.logger.debug('Trying to load state from Swarm.');
+      this.logger.debug('Trying to load identity from Swarm.');
+      const resolved = await resolveIdentity(this.swarmClient, this.credential, requestOptions);
+      this.store.setIdentity(resolved);
 
+      this.logger.debug('Trying to load state from Swarm.');
       const success = await this.tryToFetchAdminState(requestOptions);
       if (success) {
         await this.initDriveList(requestOptions);
@@ -184,6 +193,10 @@ export class FileManagerBase implements FileManager {
     } catch (err: unknown) {
       this.resetState();
       this.errorHandler.handleError(err, 'Failed to initialize FileManager');
+
+      if (err instanceof IdentityError) {
+        this.emitter.emit(FileManagerEvents.IDENTITY_INVALID, false);
+      }
       this.emitter.emit(FileManagerEvents.INITIALIZED, false);
 
       return;
@@ -211,14 +224,23 @@ export class FileManagerBase implements FileManager {
       throw new DriveError('Admin drive already exists');
     }
 
-    if (!this.stateFeedTopic) {
-      throw new DriveError('State feed topic not set');
+    const batchIdStr = batchId.toString();
+
+    // Before provisioning, which writes the envelope with this batch
+    await this.fetchAndSetAdminStamp(batchIdStr, requestOptions);
+    verifyStampUsability(this.adminStamp, batchIdStr);
+
+    if (!this.store.identity) {
+      const provisioned = await provisionIdentity(this.swarmClient, this.credential, batchIdStr, requestOptions);
+      this.store.setIdentity(provisioned);
     }
+
+    const identity = this.store.requireIdentity();
 
     const { feedIndexNext } = await getFeedData(
       this.swarmClient,
-      this.stateFeedTopic,
-      this.swarmClient.owner,
+      identity.stateTopic,
+      identity.owner,
       undefined,
       requestOptions,
     );
@@ -228,13 +250,9 @@ export class FileManagerBase implements FileManager {
       throw new DriveError('Admin state already exists. Pass reset=true to overwrite.');
     }
 
-    const publisher = this.swarmClient.actPublisher;
-    const batchIdStr = batchId.toString();
     const level = redundancyLevel ?? RedundancyLevel.OFF;
 
     this.logger.debug('Creating admin drive with name: ', ADMIN_DRIVE_NAME);
-    await this.fetchAndSetAdminStamp(batchIdStr, requestOptions);
-    verifyStampUsability(this.adminStamp, batchIdStr);
 
     if (reset) {
       this._recordList.length = 0;
@@ -243,12 +261,12 @@ export class FileManagerBase implements FileManager {
     }
 
     this.adminRedundancyLevel = level;
-    this.store.setManifestCache(this.stateFeedTopic.toString(), new MantarayNode());
-
-    this.store.setNodeNextIndexCache(this.stateFeedTopic.toString(), feedIndexNext.toBigInt());
+    const stateTopicStr = identity.stateTopic.toString();
+    this.store.setManifestCache(stateTopicStr, new MantarayNode());
+    this.store.setNodeNextIndexCache(stateTopicStr, feedIndexNext.toBigInt());
 
     return await this.registerDrive(
-      { name: ADMIN_DRIVE_NAME, batchId: batchIdStr, isAdmin: true, redundancyLevel: level, publisher },
+      { owner: identity.owner, name: ADMIN_DRIVE_NAME, batchId: batchIdStr, isAdmin: true, redundancyLevel: level },
       requestOptions,
     );
   }
@@ -261,9 +279,9 @@ export class FileManagerBase implements FileManager {
   ): Promise<DriveInfo> {
     requestOptions?.signal?.throwIfAborted();
 
-    const { publisher, stateFeedTopic } = assertReady(this.swarmClient, this.isInitialized, this.stateFeedTopic);
+    const { stateTopic, owner } = assertReady(this.isInitialized, this.store.identity);
 
-    if (!this.store.getNodeRef(stateFeedTopic)) {
+    if (!this.store.getNodeRef(stateTopic)) {
       throw new DriveError('Admin manifest not set');
     }
 
@@ -272,20 +290,20 @@ export class FileManagerBase implements FileManager {
     verifyStampUsability(fetchedStamp, batchIdStr);
 
     return this.registerDrive(
-      { name, batchId: batchIdStr, isAdmin: false, redundancyLevel: redundancyLevel ?? RedundancyLevel.OFF, publisher },
+      { owner, name, batchId: batchIdStr, isAdmin: false, redundancyLevel: redundancyLevel ?? RedundancyLevel.OFF },
       requestOptions,
     );
   }
 
   async forgetDrive(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<void> {
-    const { publisher, stateFeedTopic } = assertReady(this.swarmClient, this.isInitialized, this.stateFeedTopic);
+    const { stateTopic } = assertReady(this.isInitialized, this.store.identity);
     const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     if (cachedDrive.isAdmin) {
       throw new DriveError('Cannot forget admin drive');
     }
 
-    await this.pruneDriveMetadata(cachedDrive, driveIx, stateFeedTopic, publisher, requestOptions);
+    await this.pruneDriveMetadata(cachedDrive, driveIx, stateTopic, requestOptions);
     this.logger.debug(`Drive forgotten (metadata only): ${cachedDrive.name}`);
     this.emitter.emit(FileManagerEvents.DRIVE_FORGOTTEN, { driveInfo: cachedDrive });
   }
@@ -295,13 +313,12 @@ export class FileManagerBase implements FileManager {
   async uploadFile(
     driveId: string | Identifier,
     item: UploadItem,
-    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
+    uploadOptions?: UploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<FileRecord> {
     requestOptions?.signal?.throwIfAborted();
-    const { publisher } = assertReady(this.swarmClient, this.isInitialized, this.stateFeedTopic);
+    const { owner } = assertReady(this.isInitialized, this.store.identity);
     const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
-
     assertUploadableSource(item);
     assertValidNodePath(item.path);
     assertNotTrashPath(item.path);
@@ -312,24 +329,18 @@ export class FileManagerBase implements FileManager {
     const { host: targetHost, folder: parentFolder } = await this.store.resolveHost(
       cachedDrive,
       parentPath,
-      publisher,
       requestOptions,
     );
 
-    const mantarayNode = await this.store.getMantarayNode(
-      targetHost.topic,
-      publisher,
-      targetHost.manifestRef,
-      requestOptions,
-    );
+    const mantarayNode = await this.store.getMantarayNode(targetHost.topic, targetHost.manifestRef, requestOptions);
     if (mantarayNode.find(filename)) {
       throw new DriveError(`Node already exists at "${item.path}" — use updateFile to re-version a file`);
     }
 
-    const owner = this.swarmClient.owner;
-    const { topic, version } = await getTopicAndVersion(this.swarmClient, undefined, undefined, requestOptions);
+    const { topic, version } = await getTopicAndVersion(this.swarmClient, owner, undefined, undefined, requestOptions);
+    this.store.keyring.mint(topic);
 
-    const { contentRefs, rLevel } = await processUpload(
+    const { content, rLevel } = await processUpload(
       this.swarmClient,
       cachedDrive,
       item,
@@ -344,8 +355,7 @@ export class FileManagerBase implements FileManager {
       topic,
       name: filename,
       path: filename,
-      actPublisher: publisher,
-      content: contentRefs,
+      content,
       driveId: cachedDrive.id,
       timestamp: new Date().getTime(),
       version,
@@ -358,7 +368,8 @@ export class FileManagerBase implements FileManager {
     // In-memory copy is the caller-known absolute path — no walk needed here.
     record.path = item.path;
 
-    mantarayNode.addFork(filename, new Reference(record.topic), fileForkMetadata(record));
+    const wrapped = await this.store.keyring.wrapFor(targetHost.topic, record.topic);
+    mantarayNode.addFork(filename, new Reference(record.topic), fileForkMetadata(record, wrapped));
 
     const newManifestRef = await this.store.saveMantarayNode(mantarayNode, targetHost, requestOptions);
 
@@ -376,12 +387,12 @@ export class FileManagerBase implements FileManager {
     driveId: string | Identifier,
     items: UploadItem[],
     destinationPath: string = ROOT_PATH,
-    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
+    uploadOptions?: UploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<UploadFilesResult> {
     requestOptions?.signal?.throwIfAborted();
 
-    const { publisher } = assertReady(this.swarmClient, this.isInitialized, this.stateFeedTopic);
+    const { owner } = assertReady(this.isInitialized, this.store.identity);
     const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     if (!items.length) {
@@ -394,10 +405,9 @@ export class FileManagerBase implements FileManager {
     }
 
     assertNotTrashPath(destinationPath);
-
     const destSegments = pathSegments(destinationPath);
     const destKey = destSegments.join('/');
-    const { host: destHost } = await this.store.resolveHost(cachedDrive, destinationPath, publisher, requestOptions);
+    const { host: destHost } = await this.store.resolveHost(cachedDrive, destinationPath, requestOptions);
 
     interface PlannedFile {
       item: UploadItem;
@@ -457,12 +467,7 @@ export class FileManagerBase implements FileManager {
         throw new DriveError(`Internal error: parent folder not resolved for path: ${path}`);
       }
 
-      const parentMantaray = await this.store.getMantarayNode(
-        parentHost.topic,
-        publisher,
-        parentHost.manifestRef,
-        requestOptions,
-      );
+      const parentMantaray = await this.store.getMantarayNode(parentHost.topic, parentHost.manifestRef, requestOptions);
       const fork = parentMantaray.find(folderName);
 
       if (!fork) {
@@ -481,28 +486,15 @@ export class FileManagerBase implements FileManager {
         throw new FileRecordError(`Folder fork missing topic: ${path}`);
       }
 
-      // Folder manifest reads always probe the feed head. A folder is a container and carries no stored version
-      const { payload, feedIndex } = await getFeedData(
-        this.swarmClient,
-        new Topic(folderTopic),
-        this.swarmClient.owner,
-        undefined,
-        requestOptions,
-      );
-
-      if (feedIndex.equals(FEED_INDEX_NONE)) {
-        throw new DriveError(`Folder feed not found for path: ${path}`);
-      }
-      const manifestRef: ActReferences = payload.toJSON() as ActReferences;
-      assertActReferences(manifestRef);
+      await this.store.unwrapFork(parentHost.topic, folderTopic, meta);
+      const manifestRef = await this.store.resolveFolderManifestRef(folderTopic, path, requestOptions);
 
       hostMap.set(path, {
-        owner: this.swarmClient.owner,
+        owner,
         topic: folderTopic,
         manifestRef,
         batchId: cachedDrive.batchId,
         redundancyLevel: getRlevel(meta, cachedDrive.redundancyLevel),
-        actPublisher: publisher,
       });
     }
 
@@ -520,7 +512,6 @@ export class FileManagerBase implements FileManager {
         parentHost,
         parentPath,
         folderName,
-        publisher,
         undefined,
         requestOptions,
       );
@@ -532,7 +523,6 @@ export class FileManagerBase implements FileManager {
 
     const succeeded: FileRecord[] = [];
     const failed: FailedResult[] = [];
-    const owner = this.swarmClient.owner;
 
     await awaitAllPromisesBounded(
       plannedFiles.map((planned) => async (): Promise<FileRecord> => {
@@ -546,7 +536,6 @@ export class FileManagerBase implements FileManager {
 
         const parentMantaray = await this.store.getMantarayNode(
           parentHost.topic,
-          publisher,
           parentHost.manifestRef,
           requestOptions,
         );
@@ -555,9 +544,16 @@ export class FileManagerBase implements FileManager {
           throw new DriveError(`Node already exists at "${planned.fullPath}" — use updateFile to re-version a file`);
         }
 
-        const { topic, version } = await getTopicAndVersion(this.swarmClient, undefined, undefined, requestOptions);
+        const { topic, version } = await getTopicAndVersion(
+          this.swarmClient,
+          owner,
+          undefined,
+          undefined,
+          requestOptions,
+        );
+        this.store.keyring.mint(topic);
 
-        const { contentRefs, rLevel } = await processUpload(
+        const { content, rLevel } = await processUpload(
           this.swarmClient,
           cachedDrive,
           planned.item,
@@ -573,8 +569,7 @@ export class FileManagerBase implements FileManager {
           topic,
           name: planned.filename,
           path: planned.filename,
-          actPublisher: publisher,
-          content: contentRefs,
+          content,
           driveId: cachedDrive.id,
           timestamp: new Date().getTime(),
           version,
@@ -587,7 +582,8 @@ export class FileManagerBase implements FileManager {
         // In-memory copy is stamped with the already-planned absolute path — no walk needed here.
         record.path = planned.fullPath;
 
-        parentMantaray.addFork(planned.filename, new Reference(record.topic), fileForkMetadata(record));
+        const wrapped = await this.store.keyring.wrapFor(parentHost.topic, record.topic);
+        parentMantaray.addFork(planned.filename, new Reference(record.topic), fileForkMetadata(record, wrapped));
         dirtyHosts.set(parentHost.topic, parentHost);
 
         return record;
@@ -611,7 +607,7 @@ export class FileManagerBase implements FileManager {
     // uncommitted — a partial finalize discards the whole batch rather than caching half a tree.
     try {
       for (const host of dirtyHosts.values()) {
-        const mantarayNode = await this.store.getMantarayNode(host.topic, publisher, host.manifestRef, requestOptions);
+        const mantarayNode = await this.store.getMantarayNode(host.topic, host.manifestRef, requestOptions);
         const updatedNodeRef = await this.store.saveMantarayNode(mantarayNode, host, requestOptions);
 
         if (host.topic === cachedDrive.topic) {
@@ -644,11 +640,11 @@ export class FileManagerBase implements FileManager {
     driveId: string | Identifier,
     record: FileRecord,
     changes: UpdateItem,
-    uploadOptions?: RedundantUploadOptions | FileUploadOptions,
+    uploadOptions?: UploadOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<FileRecord> {
     requestOptions?.signal?.throwIfAborted();
-    const { publisher } = assertReady(this.swarmClient, this.isInitialized, this.stateFeedTopic);
+    const { owner } = assertReady(this.isInitialized, this.store.identity);
     const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     const noMeta = !changes.customMetadata || Object.keys(changes.customMetadata).length === 0;
@@ -660,15 +656,9 @@ export class FileManagerBase implements FileManager {
       assertUploadableSource(changes.item);
     }
 
-    const owner = this.swarmClient.owner;
+    await this.ensureRecordKeys(cachedDrive, record, requestOptions);
     // Always resolve the current head
-    const { record: cached, fromCache } = await this.loadRecord(
-      record.topic,
-      record.owner,
-      record.actPublisher,
-      undefined,
-      requestOptions,
-    );
+    const { record: cached, fromCache } = await this.loadRecord(record.topic, record.owner, undefined, requestOptions);
 
     if (cached.driveId && cached.driveId !== cachedDrive.id) {
       throw new FileRecordError(`Record ${record.topic.slice(0, 6)} does not belong to drive "${cachedDrive.name}"`);
@@ -687,33 +677,33 @@ export class FileManagerBase implements FileManager {
     }
     cached.status = NodeStatus.Active;
 
-    const { topic, version } = await getTopicAndVersion(this.swarmClient, cached.version, record.topic, requestOptions);
+    const { topic, version } = await getTopicAndVersion(
+      this.swarmClient,
+      owner,
+      cached.version,
+      record.topic,
+      requestOptions,
+    );
 
-    const resolvedFork = await this.resolveFileFork(cachedDrive, cached.path, cached.topic, publisher, requestOptions);
+    const resolvedFork = await this.resolveFileFork(cachedDrive, cached.path, cached.topic, requestOptions);
     const filename = resolvedFork.filename;
 
     const mergedMetadata = changes.customMetadata
       ? { ...cached.customMetadata, ...changes.customMetadata }
       : cached.customMetadata;
 
-    let contentRefAndHistory: ActReferences;
+    let content: ContentRef;
     if (changes.item !== undefined) {
-      const contentUploadOptions = {
-        ...uploadOptions,
-        actHistoryAddress: cached.content.historyRef,
-      };
-
-      const { contentRefs } = await processUpload(
+      ({ content } = await processUpload(
         this.swarmClient,
         cachedDrive,
         changes.item,
         cached.redundancyLevel ?? cachedDrive.redundancyLevel,
-        contentUploadOptions,
+        uploadOptions,
         requestOptions,
-      );
-      contentRefAndHistory = contentRefs;
+      ));
     } else {
-      contentRefAndHistory = cached.content;
+      content = cached.content;
     }
 
     const fr: FileRecord = {
@@ -723,8 +713,7 @@ export class FileManagerBase implements FileManager {
       topic,
       name: filename,
       path: filename,
-      actPublisher: cached.actPublisher,
-      content: contentRefAndHistory,
+      content,
       driveId: cached.driveId,
       timestamp: new Date().getTime(),
       version,
@@ -774,15 +763,13 @@ export class FileManagerBase implements FileManager {
     requestOptions?: BeeRequestOptions,
   ): Promise<DownloadFilesResult> {
     requestOptions?.signal?.throwIfAborted();
-    assertReady(this.swarmClient, this.isInitialized, this.stateFeedTopic);
+    assertReady(this.isInitialized, this.store.identity);
 
     if (fileRecords.length === 0) return { succeeded: [], failed: [] };
 
     const resources: DownloadResource[] = fileRecords.map((fr) => ({
       path: fr.path,
       reference: fr.content.reference,
-      actHistoryAddress: fr.content.historyRef,
-      actPublisher: fr.actPublisher,
     }));
 
     return await processDownload(this.swarmClient, resources, options, requestOptions);
@@ -795,7 +782,7 @@ export class FileManagerBase implements FileManager {
     version?: string | FeedIndex,
     requestOptions?: BeeRequestOptions,
   ): Promise<FileRecord> {
-    assertReady(this.swarmClient, this.isInitialized, this.stateFeedTopic);
+    assertReady(this.isInitialized, this.store.identity);
 
     const localHead = this.recordList.find((f) => f.topic === fr.topic);
 
@@ -807,6 +794,12 @@ export class FileManagerBase implements FileManager {
       }
     }
 
+    const knownDrive = fr.driveId ? this.driveList.find((d) => d.id === fr.driveId) : undefined;
+
+    if (knownDrive) {
+      await this.ensureRecordKeys(knownDrive, fr, requestOptions);
+    }
+
     const topic = new Topic(fr.topic);
     const index = version !== undefined ? new FeedIndex(version).toBigInt() : undefined;
     const feedData = await getFeedData(this.swarmClient, topic, fr.owner, index, requestOptions);
@@ -816,7 +809,6 @@ export class FileManagerBase implements FileManager {
 
     const versionRecord = await this.store.getRecord(
       topic.toString(),
-      fr.actPublisher,
       feedData,
       { isHeadRead: version === undefined },
       requestOptions,
@@ -829,13 +821,14 @@ export class FileManagerBase implements FileManager {
   }
 
   async restoreFileVersion(versionToRestore: FileRecord, requestOptions?: BeeRequestOptions): Promise<void> {
-    const { publisher } = assertReady(this.swarmClient, this.isInitialized, this.stateFeedTopic);
+    assertReady(this.isInitialized, this.store.identity);
     if (!versionToRestore.driveId) {
       throw new FileRecordError(
         'Cannot restore: record has no driveId — obtain it via listFolder/getFileVersion first',
       );
     }
     const { driveIx, cachedDrive } = this.findDriveOrThrow(versionToRestore.driveId);
+    await this.ensureRecordKeys(cachedDrive, versionToRestore, requestOptions);
 
     const { feedIndex, feedIndexNext } = await getFeedData(
       this.swarmClient,
@@ -862,13 +855,7 @@ export class FileManagerBase implements FileManager {
     const cached = this.recordList.find((f) => f.topic === versionToRestore.topic);
 
     const restoredPath = cached?.path ?? versionToRestore.path;
-    const resolvedFork = await this.resolveFileFork(
-      cachedDrive,
-      restoredPath,
-      versionToRestore.topic,
-      publisher,
-      requestOptions,
-    );
+    const resolvedFork = await this.resolveFileFork(cachedDrive, restoredPath, versionToRestore.topic, requestOptions);
 
     const newVersion = feedIndexNext.toString();
     const restored: FileRecord = {
@@ -876,10 +863,7 @@ export class FileManagerBase implements FileManager {
       name: resolvedFork.filename,
       path: restoredPath,
       version: newVersion,
-      content: {
-        reference: versionToRestore.content.reference,
-        historyRef: versionToRestore.content.historyRef,
-      },
+      content: { reference: versionToRestore.content.reference },
       timestamp: Date.now(),
     };
 
@@ -902,7 +886,7 @@ export class FileManagerBase implements FileManager {
     requestOptions?: BeeRequestOptions,
   ): Promise<FolderInfo> {
     requestOptions?.signal?.throwIfAborted();
-    const { publisher } = assertReady(this.swarmClient, this.isInitialized, this.stateFeedTopic);
+    assertReady(this.isInitialized, this.store.identity);
     const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     if (!folderName || folderName.includes('/')) {
@@ -914,13 +898,11 @@ export class FileManagerBase implements FileManager {
     const { host: parentHost, folder: parentFolder } = await this.store.resolveHost(
       cachedDrive,
       parentPath,
-      publisher,
       requestOptions,
     );
 
     const existingParentNode = await this.store.getMantarayNode(
       parentHost.topic,
-      publisher,
       parentHost.manifestRef,
       requestOptions,
     );
@@ -933,7 +915,6 @@ export class FileManagerBase implements FileManager {
       parentHost,
       parentPath,
       folderName,
-      publisher,
       redundancyLevel,
       requestOptions,
     );
@@ -958,7 +939,7 @@ export class FileManagerBase implements FileManager {
   ): Promise<ListFolderResult> {
     requestOptions?.signal?.throwIfAborted();
 
-    const { publisher } = assertReady(this.swarmClient, this.isInitialized, this.stateFeedTopic);
+    assertReady(this.isInitialized, this.store.identity);
     const { cachedDrive } = this.findDriveOrThrow(driveId);
     assertNotTrashPath(path);
 
@@ -966,17 +947,9 @@ export class FileManagerBase implements FileManager {
       throw new FolderError(`Invalid maxDepth: ${maxDepth}`);
     }
 
-    const { host: startHost } = await this.store.resolveHost(cachedDrive, path, publisher, requestOptions);
+    const { host: startHost } = await this.store.resolveHost(cachedDrive, path, requestOptions);
 
-    return await this.walkFolder(
-      cachedDrive,
-      startHost,
-      normalizePath(path),
-      depth,
-      maxDepth,
-      publisher,
-      requestOptions,
-    );
+    return await this.walkFolder(cachedDrive, startHost, normalizePath(path), depth, maxDepth, requestOptions);
   }
 
   // Per BFS walk: (1) expand current manifest node, (2) load file feeds found, (3) resolve folder feeds into next node. Each phase is concurrency-bounded.
@@ -986,7 +959,6 @@ export class FileManagerBase implements FileManager {
     startBasePath: string,
     depth: ListDepth,
     maxDepth: number | undefined,
-    publisher: string,
     requestOptions?: BeeRequestOptions,
   ): Promise<ListFolderResult> {
     const results: NodeEntry[] = [];
@@ -994,23 +966,20 @@ export class FileManagerBase implements FileManager {
     let visitedNodes: { host: ManifestHost; basePath: string }[] = [{ host: startHost, basePath: startBasePath }];
     let currentDepth = 0;
     const depthLimit = depth === ListDepth.Deep ? (maxDepth ?? Number.MAX_SAFE_INTEGER) : 1;
+    const identityOwner = this.store.requireIdentity().owner;
+    type WalkHeader = NodeHeader & { hostTopic: string };
 
     while (visitedNodes.length > 0 && currentDepth < depthLimit) {
       requestOptions?.signal?.throwIfAborted();
 
-      const headers: NodeHeader[] = [];
+      const headers: WalkHeader[] = [];
       const expanding = visitedNodes;
       await awaitAllPromisesBounded(
-        expanding.map((item) => async (): Promise<NodeHeader[]> => {
-          const mantarayNode = await this.store.getMantarayNode(
-            item.host.topic,
-            item.host.actPublisher ?? publisher,
-            item.host.manifestRef,
-            requestOptions,
-          );
+        expanding.map((item) => async (): Promise<WalkHeader[]> => {
+          const mantarayNode = await this.store.getMantarayNode(item.host.topic, item.host.manifestRef, requestOptions);
 
           return getAllNodeEntries(mantarayNode)
-            .map((e) => ({ ...e, path: joinPath(item.basePath, e.path) }))
+            .map((e) => ({ ...e, hostTopic: item.host.topic, path: joinPath(item.basePath, e.path) }))
             .filter((e) => e.path !== TRASH_FOLDER_NAME);
         }),
         this.feedFetchConcurrency,
@@ -1032,11 +1001,11 @@ export class FileManagerBase implements FileManager {
       const fileHeaders = headers.filter((e) => e.type === NodeType.File);
       await awaitAllPromisesBounded(
         fileHeaders.map((e) => async (): Promise<FileRecord> => {
-          const owner = e.owner ?? this.swarmClient.owner;
-          const actPublisher = e.actPublisher ?? publisher;
+          const owner = e.owner ?? identityOwner;
           const version = e.version ? new FeedIndex(e.version).toBigInt() : undefined;
 
-          const { record } = await this.loadRecord(e.topic, owner, actPublisher, version, requestOptions);
+          await this.store.unwrapFork(e.hostTopic, e.topic, e.rawMetadata);
+          const { record } = await this.loadRecord(e.topic, owner, version, requestOptions);
           record.path = e.path;
           record.name = splitPath(e.path).name;
           record.driveId = cachedDrive.id;
@@ -1067,7 +1036,10 @@ export class FileManagerBase implements FileManager {
       const nextFrontier: { host: ManifestHost; basePath: string }[] = [];
       await awaitAllPromisesBounded(
         folderHeaders.map((e) => async (): Promise<FolderInfo> => {
-          const owner = e.owner ?? this.swarmClient.owner;
+          const owner = e.owner ?? identityOwner;
+
+          await this.store.unwrapFork(e.hostTopic, e.topic, e.rawMetadata);
+
           // Probe the feed head. A folder is a container and carries no stored version
           const { payload, feedIndex, feedIndexNext } = await getFeedData(
             this.swarmClient,
@@ -1081,8 +1053,7 @@ export class FileManagerBase implements FileManager {
             throw new FolderError(`Folder feed not found for path: ${e.path}`);
           }
 
-          const manifestRef: ActReferences = payload.toJSON() as ActReferences;
-          assertActReferences(manifestRef);
+          const manifestRef = await this.store.openManifestRef(e.topic, payload);
           this.store.setNodeNextIndexCache(e.topic, feedIndexNext.toBigInt());
 
           return {
@@ -1092,7 +1063,6 @@ export class FileManagerBase implements FileManager {
             manifestRef,
             batchId: cachedDrive.batchId,
             redundancyLevel: getRlevel(e.rawMetadata, cachedDrive.redundancyLevel),
-            actPublisher: e.actPublisher ?? publisher,
             path: e.path,
             driveId: cachedDrive.id,
             status: getRecordStatus(e.path),
@@ -1137,7 +1107,7 @@ export class FileManagerBase implements FileManager {
     requestOptions?: BeeRequestOptions,
   ): Promise<DownloadFilesResult> {
     requestOptions?.signal?.throwIfAborted();
-    assertReady(this.swarmClient, this.isInitialized, this.stateFeedTopic);
+    assertReady(this.isInitialized, this.store.identity);
     const { failed: listFailures } = await this.listFolder(driveId, path, ListDepth.Deep, undefined, requestOptions);
 
     const normalized = normalizePath(path);
@@ -1171,7 +1141,7 @@ export class FileManagerBase implements FileManager {
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
     requestOptions?.signal?.throwIfAborted();
-    const { publisher } = assertReady(this.swarmClient, this.isInitialized, this.stateFeedTopic);
+    const { owner } = assertReady(this.isInitialized, this.store.identity);
     const { driveIx: sourceDriveIx, cachedDrive: cachedSource } = this.findDriveOrThrow(sourceDriveId);
 
     if (fromPath === ROOT_PATH) {
@@ -1179,7 +1149,7 @@ export class FileManagerBase implements FileManager {
         throw new FolderError('Cannot move root folder');
       }
 
-      return await this.renameDrive(sourceDriveIx, cachedSource, toPath, publisher, requestOptions);
+      return await this.renameDrive(sourceDriveIx, cachedSource, toPath, requestOptions);
     }
 
     if (!fromPath) {
@@ -1202,7 +1172,7 @@ export class FileManagerBase implements FileManager {
       host: srcParentHost,
       folder: srcParentFolder,
       node: sourceNode,
-    } = await this.store.resolveHostMantaray(cachedSource, srcParentPath, publisher, requestOptions);
+    } = await this.store.resolveHostMantaray(cachedSource, srcParentPath, requestOptions);
 
     const sourceFork = sourceNode.find(srcName);
     if (!sourceFork) {
@@ -1211,33 +1181,28 @@ export class FileManagerBase implements FileManager {
 
     const forkMetadata = sourceFork.metadata ?? {};
     const isFile = forkMetadata[MANIFEST_METADATA_NODE_TYPE] === NodeType.File;
+    const nodeTopic = forkMetadata[MANIFEST_METADATA_NODE_TOPIC];
+    if (!nodeTopic) {
+      throw new FileRecordError(`Fork at ${fromPath} has no node topic — cannot move`);
+    }
 
     const { host: tgtParentHost, folder: tgtParentFolder } = await this.store.resolveHost(
       cachedSource,
       tgtParentPath,
-      publisher,
       requestOptions,
     );
 
     const sameParent = srcParentHost.topic === tgtParentHost.topic;
     const targetMantaray = sameParent
       ? sourceNode
-      : await this.store.getMantarayNode(tgtParentHost.topic, publisher, tgtParentHost.manifestRef, requestOptions);
+      : await this.store.getMantarayNode(tgtParentHost.topic, tgtParentHost.manifestRef, requestOptions);
 
     const existing = targetMantaray.find(tgtName);
     if (existing) {
       throw new FolderError(`Destination already exists: ${toPath}`);
     }
 
-    let moved: FileRecord | undefined;
-    if (isFile) {
-      const fileTopic = forkMetadata[MANIFEST_METADATA_NODE_TOPIC];
-      if (!fileTopic) {
-        throw new FileRecordError(`Fork at ${fromPath} has no file topic — cannot move`);
-      }
-
-      moved = this.recordList.find((f) => f.topic === fileTopic);
-    }
+    const moved = isFile ? this.recordList.find((f) => f.topic === nodeTopic) : undefined;
 
     if (sameParent) {
       sourceNode.removeFork(srcName);
@@ -1249,7 +1214,13 @@ export class FileManagerBase implements FileManager {
         this.driveList[sourceDriveIx].manifestRef = newSrcManifestRef;
       }
     } else {
-      targetMantaray.addFork(tgtName, sourceFork.targetAddress, forkMetadata);
+      const movedMetadata = await this.store.rewrapFork(
+        srcParentHost.topic,
+        tgtParentHost.topic,
+        nodeTopic,
+        forkMetadata,
+      );
+      targetMantaray.addFork(tgtName, sourceFork.targetAddress, movedMetadata);
       const newTgtManifestRef = await this.store.saveMantarayNode(targetMantaray, tgtParentHost, requestOptions);
 
       if (!tgtParentFolder) {
@@ -1270,10 +1241,7 @@ export class FileManagerBase implements FileManager {
         driveId: cachedSource.id,
         fromPath,
         toPath,
-        folderInfo: folderInfoFromMetadata(forkMetadata, cachedSource, toPath, {
-          owner: this.swarmClient.owner,
-          actPublisher: publisher,
-        }),
+        folderInfo: folderInfoFromMetadata(forkMetadata, cachedSource, toPath, owner),
       });
 
       return;
@@ -1295,7 +1263,7 @@ export class FileManagerBase implements FileManager {
 
   async forget(driveId: string | Identifier, path: string, requestOptions?: BeeRequestOptions): Promise<void> {
     requestOptions?.signal?.throwIfAborted();
-    const { publisher } = assertReady(this.swarmClient, this.isInitialized, this.stateFeedTopic);
+    const { owner } = assertReady(this.isInitialized, this.store.identity);
     const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     if (!path || path === ROOT_PATH) {
@@ -1311,7 +1279,7 @@ export class FileManagerBase implements FileManager {
       host: parentHost,
       folder: parentFolder,
       node: parentNode,
-    } = await this.store.resolveHostMantaray(cachedDrive, parentPath, publisher, requestOptions);
+    } = await this.store.resolveHostMantaray(cachedDrive, parentPath, requestOptions);
 
     const fork = parentNode.find(name);
     if (!fork) {
@@ -1349,10 +1317,7 @@ export class FileManagerBase implements FileManager {
       this.emitter.emit(FileManagerEvents.FOLDER_FORGOTTEN, {
         driveId: cachedDrive.id,
         path,
-        folderInfo: folderInfoFromMetadata(meta, cachedDrive, path, {
-          owner: this.swarmClient.owner,
-          actPublisher: publisher,
-        }),
+        folderInfo: folderInfoFromMetadata(meta, cachedDrive, path, owner),
       });
 
       return;
@@ -1371,7 +1336,7 @@ export class FileManagerBase implements FileManager {
 
   async trash(driveId: string | Identifier, path: string, requestOptions?: BeeRequestOptions): Promise<void> {
     requestOptions?.signal?.throwIfAborted();
-    const { publisher } = assertReady(this.swarmClient, this.isInitialized, this.stateFeedTopic);
+    const { owner } = assertReady(this.isInitialized, this.store.identity);
     const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     if (!path || path === ROOT_PATH) {
@@ -1380,17 +1345,18 @@ export class FileManagerBase implements FileManager {
     assertNotTrashPath(path);
 
     const sourcePath = normalizePath(path);
-    const source = await this.resolveNodeFork(cachedDrive, sourcePath, publisher, requestOptions);
+    const source = await this.resolveNodeFork(cachedDrive, sourcePath, requestOptions);
     const topic = source.metadata[MANIFEST_METADATA_NODE_TOPIC];
     const type = source.metadata[MANIFEST_METADATA_NODE_TYPE] as NodeType | undefined;
     if (!topic || !type) {
       throw new FileRecordError(`Fork at ${sourcePath} is missing node metadata — cannot trash`);
     }
 
-    const trash = await this.ensureTrashHost(driveIx, cachedDrive, publisher, requestOptions);
+    const trash = await this.ensureTrashHost(driveIx, cachedDrive, requestOptions);
     const trashedPath = trashPathOf(topic);
 
-    const trashedMetadata = { ...source.metadata, [MANIFEST_METADATA_TRASHED_FROM]: sourcePath };
+    const rewrapped = await this.store.rewrapFork(source.host.topic, trash.host.topic, topic, source.metadata);
+    const trashedMetadata = { ...rewrapped, [MANIFEST_METADATA_TRASHED_FROM]: sourcePath };
 
     source.node.removeFork(source.filename);
     trash.node.addFork(topic, source.targetAddress, trashedMetadata);
@@ -1407,10 +1373,7 @@ export class FileManagerBase implements FileManager {
         driveId: cachedDrive.id,
         path: sourcePath,
         trashedPath,
-        folderInfo: folderInfoFromMetadata(trashedMetadata, cachedDrive, trashedPath, {
-          owner: this.swarmClient.owner,
-          actPublisher: publisher,
-        }),
+        folderInfo: folderInfoFromMetadata(trashedMetadata, cachedDrive, trashedPath, owner),
       });
 
       return;
@@ -1438,7 +1401,7 @@ export class FileManagerBase implements FileManager {
     requestOptions?: BeeRequestOptions,
   ): Promise<string> {
     requestOptions?.signal?.throwIfAborted();
-    const { publisher } = assertReady(this.swarmClient, this.isInitialized, this.stateFeedTopic);
+    const { owner } = assertReady(this.isInitialized, this.store.identity);
     const { driveIx, cachedDrive } = this.findDriveOrThrow(driveId);
 
     const segments = pathSegments(trashedPath);
@@ -1448,7 +1411,7 @@ export class FileManagerBase implements FileManager {
     const topic = segments[1];
     const normalizedTrashedPath = trashPathOf(topic);
 
-    const trash = await this.resolveTrashHost(cachedDrive, publisher, requestOptions);
+    const trash = await this.resolveTrashHost(cachedDrive, requestOptions);
     const trashedFork = trash?.node.find(topic);
     if (!trash || !trashedFork) {
       throw new FileRecordError(`Not trashed, cannot recover: ${trashedPath}`);
@@ -1469,13 +1432,14 @@ export class FileManagerBase implements FileManager {
       host: destHost,
       folder: destFolder,
       node: destNode,
-    } = await this.store.resolveHostMantaray(cachedDrive, parentPath, publisher, requestOptions);
+    } = await this.store.resolveHostMantaray(cachedDrive, parentPath, requestOptions);
 
     if (destNode.find(name)) {
       throw new DriveError(`Destination already exists: ${destination}`);
     }
 
-    destNode.addFork(name, trashedFork.targetAddress, metadata);
+    const restoredMetadata = await this.store.rewrapFork(trash.host.topic, destHost.topic, topic, metadata);
+    destNode.addFork(name, trashedFork.targetAddress, restoredMetadata);
     const newDestRef = await this.store.saveMantarayNode(destNode, destHost, requestOptions);
 
     if (!destFolder) {
@@ -1492,10 +1456,7 @@ export class FileManagerBase implements FileManager {
         driveId: cachedDrive.id,
         trashedPath: normalizedTrashedPath,
         restoredPath,
-        folderInfo: folderInfoFromMetadata(metadata, cachedDrive, restoredPath, {
-          owner: this.swarmClient.owner,
-          actPublisher: publisher,
-        }),
+        folderInfo: folderInfoFromMetadata(metadata, cachedDrive, restoredPath, owner),
       });
 
       return restoredPath;
@@ -1527,14 +1488,14 @@ export class FileManagerBase implements FileManager {
   ): Promise<ListFolderResult> {
     requestOptions?.signal?.throwIfAborted();
 
-    const { publisher } = assertReady(this.swarmClient, this.isInitialized, this.stateFeedTopic);
+    assertReady(this.isInitialized, this.store.identity);
     const { cachedDrive } = this.findDriveOrThrow(driveId);
 
     if (maxDepth !== undefined && maxDepth <= 0) {
       throw new FolderError(`Invalid maxDepth: ${maxDepth}`);
     }
 
-    const trash = await this.resolveTrashHost(cachedDrive, publisher, requestOptions);
+    const trash = await this.resolveTrashHost(cachedDrive, requestOptions);
     if (!trash) {
       return { entries: [], failed: [] };
     }
@@ -1545,7 +1506,6 @@ export class FileManagerBase implements FileManager {
       TRASH_FOLDER_NAME,
       depth,
       maxDepth,
-      publisher,
       requestOptions,
     );
 
@@ -1570,10 +1530,10 @@ export class FileManagerBase implements FileManager {
 
   async emptyTrash(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<number> {
     requestOptions?.signal?.throwIfAborted();
-    const { publisher } = assertReady(this.swarmClient, this.isInitialized, this.stateFeedTopic);
+    assertReady(this.isInitialized, this.store.identity);
     const { cachedDrive } = this.findDriveOrThrow(driveId);
 
-    const trash = await this.resolveTrashHost(cachedDrive, publisher, requestOptions);
+    const trash = await this.resolveTrashHost(cachedDrive, requestOptions);
     if (!trash) {
       return 0;
     }
@@ -1611,12 +1571,12 @@ export class FileManagerBase implements FileManager {
 
   private resetState(): void {
     this._isInitialized = false;
-    this.stateFeedTopic = undefined;
     this._adminStamp = undefined;
     this.adminRedundancyLevel = RedundancyLevel.OFF;
     this._driveList.length = 0;
     this._recordList.length = 0;
     this.store.clear();
+    this.store.setIdentity(undefined);
   }
 
   private discardCachedUploads(records: FileRecord[], mutatedTopics: string[]): void {
@@ -1630,13 +1590,16 @@ export class FileManagerBase implements FileManager {
   }
 
   private async tryToFetchAdminState(requestOptions?: BeeRequestOptions): Promise<boolean> {
-    const stateSecret = await this.swarmClient.deriveSecret(STATE_TOPIC_LABEL);
-    this.stateFeedTopic = new Topic(stateSecret);
+    const identity = this.store.identity;
+    if (!identity) {
+      this.logger.debug('Identity not provisioned — no state to load.');
+      return false;
+    }
 
     const { payload, feedIndex } = await getFeedData(
       this.swarmClient,
-      this.stateFeedTopic,
-      this.swarmClient.owner,
+      identity.stateTopic,
+      identity.owner,
       undefined,
       requestOptions,
     );
@@ -1646,10 +1609,8 @@ export class FileManagerBase implements FileManager {
       return false;
     }
 
-    let adminManifestRef: ActReferences;
     try {
-      adminManifestRef = payload.toJSON() as ActReferences;
-      assertActReferences(adminManifestRef);
+      await this.store.openManifestRef(identity.stateTopic.toString(), payload);
     } catch (err: unknown) {
       this.errorHandler.handleError(err, 'Failed to fetch admin state');
       this.emitter.emit(FileManagerEvents.STATE_INVALID, true);
@@ -1663,10 +1624,10 @@ export class FileManagerBase implements FileManager {
   }
 
   private async registerDrive(
-    params: { name: string; batchId: string; isAdmin: boolean; redundancyLevel: RedundancyLevel; publisher: string },
+    params: { owner: string; name: string; batchId: string; isAdmin: boolean; redundancyLevel: RedundancyLevel },
     requestOptions?: BeeRequestOptions,
   ): Promise<DriveInfo> {
-    const { name, batchId, isAdmin, redundancyLevel, publisher } = params;
+    const { owner, name, batchId, isAdmin, redundancyLevel } = params;
 
     this.driveList.forEach((d) => {
       if (d.name === name) {
@@ -1679,24 +1640,29 @@ export class FileManagerBase implements FileManager {
       id: new Identifier(generateRandomBytes(Identifier.LENGTH)).toString(),
       name,
       batchId,
-      owner: this.swarmClient.owner,
+      owner,
       redundancyLevel,
       topic: new Topic(generateRandomBytes(Topic.LENGTH)).toString(),
       isAdmin,
-      actPublisher: publisher,
     };
 
     const driveNode = new MantarayNode();
+    this.store.keyring.mint(newDrive.topic);
     this.store.setNodeNextIndexCache(newDrive.topic, 0n);
     newDrive.manifestRef = await this.store.saveMantarayNode(driveNode, newDrive, requestOptions);
     this.store.setManifestCache(newDrive.topic, driveNode);
 
-    const adminHost = this.adminHost(publisher);
+    const adminHost = this.adminHost();
     const adminMantaray = this.store.getManifestCache(adminHost.topic);
     if (!adminMantaray) {
       throw new DriveError('Admin manifest not loaded — initialize first.');
     }
-    adminMantaray.addFork(getDriveForkPath(newDrive.id), new Reference(newDrive.topic), driveForkMetadata(newDrive));
+    const wrapped = await this.store.keyring.wrapFor(adminHost.topic, newDrive.topic);
+    adminMantaray.addFork(
+      getDriveForkPath(newDrive.id),
+      new Reference(newDrive.topic),
+      driveForkMetadata(newDrive, wrapped),
+    );
     await this.store.saveMantarayNode(adminMantaray, adminHost, requestOptions);
 
     this._driveList.push(newDrive);
@@ -1709,7 +1675,6 @@ export class FileManagerBase implements FileManager {
     driveIx: number,
     drive: DriveInfo,
     newName: string,
-    publisher: string,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
     if (drive.isAdmin) {
@@ -1722,7 +1687,7 @@ export class FileManagerBase implements FileManager {
       throw new DriveError(`Drive with name "${newName}" already exists`);
     }
 
-    const adminHost = this.adminHost(publisher);
+    const adminHost = this.adminHost();
     const adminMantaray = this.store.getManifestCache(adminHost.topic);
     if (!adminMantaray) {
       throw new DriveError('Admin manifest not loaded — initialize first.');
@@ -1731,8 +1696,11 @@ export class FileManagerBase implements FileManager {
     const renamed: DriveInfo = { ...drive, name: newName };
     const forkPath = getDriveForkPath(drive.id);
 
+    // The fork metadata is rebuilt from scratch, so the wrapped keys have to be re-sealed with it.
+    const wrapped = await this.store.keyring.wrapFor(adminHost.topic, drive.topic);
+
     adminMantaray.removeFork(forkPath);
-    adminMantaray.addFork(forkPath, new Reference(drive.topic), driveForkMetadata(renamed));
+    adminMantaray.addFork(forkPath, new Reference(drive.topic), driveForkMetadata(renamed, wrapped));
     await this.store.saveMantarayNode(adminMantaray, adminHost, requestOptions);
 
     this.driveList[driveIx].name = newName;
@@ -1740,17 +1708,17 @@ export class FileManagerBase implements FileManager {
   }
 
   private async initDriveList(requestOptions?: BeeRequestOptions): Promise<void> {
-    if (!this.stateFeedTopic) {
-      throw new DriveError('State feed topic not set');
-    }
-    if (this.store.getNodeRef(this.stateFeedTopic.toString())) {
+    const identity = this.store.requireIdentity();
+
+    const stateTopicStr = identity.stateTopic.toString();
+    if (this.store.getNodeRef(stateTopicStr)) {
       throw new DriveError('Admin manifest already set');
     }
 
     const { payload, feedIndex, feedIndexNext } = await getFeedData(
       this.swarmClient,
-      this.stateFeedTopic,
-      this.swarmClient.owner,
+      identity.stateTopic,
+      identity.owner,
       undefined,
       requestOptions,
     );
@@ -1760,19 +1728,12 @@ export class FileManagerBase implements FileManager {
       return;
     }
 
-    const adminManifestRef: ActReferences = payload.toJSON() as ActReferences;
-    assertActReferences(adminManifestRef);
-
-    const adminMantaray = await this.store.getMantarayNode(
-      this.stateFeedTopic.toString(),
-      this.swarmClient.actPublisher,
-      adminManifestRef,
-      requestOptions,
-    );
+    const adminManifestRef = await this.store.openManifestRef(stateTopicStr, payload);
+    const adminMantaray = await this.store.getMantarayNode(stateTopicStr, adminManifestRef, requestOptions);
 
     const entries = getAllNodeEntries(adminMantaray).filter((e) => e.type === NodeType.Drive);
 
-    this.store.setNodeNextIndexCache(this.stateFeedTopic.toString(), feedIndexNext.toBigInt());
+    this.store.setNodeNextIndexCache(stateTopicStr, feedIndexNext.toBigInt());
 
     const forks = entries.map((entry) => ({
       entry,
@@ -1784,25 +1745,20 @@ export class FileManagerBase implements FileManager {
       forks.map(async ({ entry }) => {
         const driveInfo = assertDriveInfoFromMetadata(entry.rawMetadata);
 
+        await this.store.unwrapFork(stateTopicStr, driveInfo.topic, entry.rawMetadata);
+
         // Probe the drive feed head. A drive is a container and carries no stored version
         const {
           payload: drivePayload,
           feedIndex: driveFeedIndex,
           feedIndexNext: driveFeedIndexNext,
-        } = await getFeedData(
-          this.swarmClient,
-          new Topic(driveInfo.topic),
-          this.swarmClient.owner,
-          undefined,
-          requestOptions,
-        );
+        } = await getFeedData(this.swarmClient, new Topic(driveInfo.topic), identity.owner, undefined, requestOptions);
 
         if (driveFeedIndex.equals(FEED_INDEX_NONE)) {
           throw new DriveError('Drive has no manifest feed — corrupt or incomplete');
         }
 
-        driveInfo.manifestRef = drivePayload.toJSON() as ActReferences;
-        assertActReferences(driveInfo.manifestRef);
+        driveInfo.manifestRef = await this.store.openManifestRef(driveInfo.topic, drivePayload);
 
         if (driveInfo.isAdmin) {
           await this.fetchAndSetAdminStamp(driveInfo.batchId, requestOptions);
@@ -1876,7 +1832,6 @@ export class FileManagerBase implements FileManager {
     driveInfo: DriveInfo,
     driveIndex: number,
     stateTopic: string,
-    publisher: string,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
     if (!this.adminStamp) {
@@ -1888,7 +1843,7 @@ export class FileManagerBase implements FileManager {
       throw new DriveError('Admin manifest not loaded — initialize first.');
     }
 
-    const adminHost = this.adminHost(publisher);
+    const adminHost = this.adminHost();
 
     adminMantaray.removeFork(getDriveForkPath(driveInfo.id));
     await this.store.saveMantarayNode(adminMantaray, adminHost, requestOptions);
@@ -1908,7 +1863,6 @@ export class FileManagerBase implements FileManager {
     parentHost: ManifestHost,
     parentPath: string,
     folderName: string,
-    publisher: string,
     redundancyLevel?: RedundancyLevel,
     requestOptions?: BeeRequestOptions,
   ): Promise<{ folder: FolderInfo; node: MantarayNode }> {
@@ -1917,28 +1871,24 @@ export class FileManagerBase implements FileManager {
     const newFolderTopic = new Topic(generateRandomBytes(Topic.LENGTH)).toString();
     const fi: FolderInfo = {
       type: NodeType.Folder,
-      owner: this.swarmClient.owner,
+      owner: this.store.requireIdentity().owner,
       topic: newFolderTopic,
       batchId: driveInfo.batchId,
       redundancyLevel: effectiveRedundancy,
       path: parentPath === ROOT_PATH || !parentPath ? folderName : `${parentPath}/${folderName}`,
       driveId: driveInfo.id,
-      actPublisher: publisher,
       status: NodeStatus.Active,
     };
 
     const folderNode = new MantarayNode();
+    this.store.keyring.mint(newFolderTopic);
     this.store.setNodeNextIndexCache(newFolderTopic, 0n);
     fi.manifestRef = await this.store.saveMantarayNode(folderNode, fi, requestOptions);
     this.store.setManifestCache(newFolderTopic, folderNode);
 
-    const parentNode = await this.store.getMantarayNode(
-      parentHost.topic,
-      publisher,
-      parentHost.manifestRef,
-      requestOptions,
-    );
-    parentNode.addFork(folderName, new Reference(fi.topic), folderForkMetadata(fi));
+    const parentNode = await this.store.getMantarayNode(parentHost.topic, parentHost.manifestRef, requestOptions);
+    const wrapped = await this.store.keyring.wrapFor(parentHost.topic, fi.topic);
+    parentNode.addFork(folderName, new Reference(fi.topic), folderForkMetadata(fi, wrapped));
 
     return { folder: fi, node: parentNode };
   }
@@ -1946,7 +1896,6 @@ export class FileManagerBase implements FileManager {
   private async resolveNodeFork(
     drive: DriveInfo,
     absolutePath: string,
-    publisher: string,
     requestOptions?: BeeRequestOptions,
   ): Promise<ResolvedFileFork> {
     const { parentPath, name: filename } = splitPath(absolutePath);
@@ -1955,7 +1904,7 @@ export class FileManagerBase implements FileManager {
       host: parentHost,
       folder: parentFolder,
       node: parentNode,
-    } = await this.store.resolveHostMantaray(drive, parentPath, publisher, requestOptions);
+    } = await this.store.resolveHostMantaray(drive, parentPath, requestOptions);
     const fork = parentNode.find(filename);
     if (!fork) {
       throw new FolderError(`Path not found: ${absolutePath}`);
@@ -1975,10 +1924,9 @@ export class FileManagerBase implements FileManager {
     drive: DriveInfo,
     absolutePath: string,
     expectedTopic: string,
-    publisher: string,
     requestOptions?: BeeRequestOptions,
   ): Promise<ResolvedFileFork> {
-    const fork = await this.resolveNodeFork(drive, absolutePath, publisher, requestOptions);
+    const fork = await this.resolveNodeFork(drive, absolutePath, requestOptions);
 
     if (fork.metadata[MANIFEST_METADATA_NODE_TOPIC] !== expectedTopic) {
       throw new FileRecordError(
@@ -1989,17 +1937,34 @@ export class FileManagerBase implements FileManager {
     return fork;
   }
 
+  // Hydrate `record`'s keys when the caller reached it without walking to it.
+  // A FileRecord kept across sessions carries its topic but no key material, and the keyring lives only in memory.
+  // A no-op once the keys are known.
+  private async ensureRecordKeys(
+    drive: DriveInfo,
+    record: FileRecord,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void> {
+    if (this.store.keyring.has(record.topic) || !record.path) return;
+
+    try {
+      const fork = await this.resolveFileFork(drive, record.path, record.topic, requestOptions);
+      await this.store.unwrapFork(fork.host.topic, record.topic, fork.metadata);
+    } catch (err: unknown) {
+      this.logger.debug(`Could not hydrate keys for ${record.topic.slice(0, 6)}: ${errorMessage(err)}`);
+    }
+  }
+
   private async resolveTrashHost(
     drive: DriveInfo,
-    publisher: string,
     requestOptions?: BeeRequestOptions,
   ): Promise<{ host: ManifestHost; node: MantarayNode } | null> {
-    const rootNode = await this.store.getMantarayNode(drive.topic, publisher, drive.manifestRef, requestOptions);
+    const rootNode = await this.store.getMantarayNode(drive.topic, drive.manifestRef, requestOptions);
     if (!rootNode.find(TRASH_FOLDER_NAME)) {
       return null;
     }
 
-    const { host, node } = await this.store.resolveHostMantaray(drive, TRASH_FOLDER_NAME, publisher, requestOptions);
+    const { host, node } = await this.store.resolveHostMantaray(drive, TRASH_FOLDER_NAME, requestOptions);
 
     return { host, node };
   }
@@ -2007,27 +1972,25 @@ export class FileManagerBase implements FileManager {
   private async ensureTrashHost(
     driveIx: number,
     drive: DriveInfo,
-    publisher: string,
     requestOptions?: BeeRequestOptions,
   ): Promise<{ host: ManifestHost; node: MantarayNode }> {
-    const existing = await this.resolveTrashHost(drive, publisher, requestOptions);
+    const existing = await this.resolveTrashHost(drive, requestOptions);
     if (existing) {
       return existing;
     }
 
-    const { host: rootHost } = await this.store.resolveHost(drive, ROOT_PATH, publisher, requestOptions);
+    const { host: rootHost } = await this.store.resolveHost(drive, ROOT_PATH, requestOptions);
     const { folder, node: rootNode } = await this.createFolderNode(
       drive,
       rootHost,
       ROOT_PATH,
       TRASH_FOLDER_NAME,
-      publisher,
       undefined,
       requestOptions,
     );
 
     this.driveList[driveIx].manifestRef = await this.store.saveMantarayNode(rootNode, rootHost, requestOptions);
-    const node = await this.store.getMantarayNode(folder.topic, publisher, folder.manifestRef, requestOptions);
+    const node = await this.store.getMantarayNode(folder.topic, folder.manifestRef, requestOptions);
 
     return { host: folder, node };
   }
@@ -2064,7 +2027,6 @@ export class FileManagerBase implements FileManager {
   private async loadRecord(
     topic: string,
     owner: string,
-    actPublisher: string,
     version?: bigint,
     requestOptions?: BeeRequestOptions,
   ): Promise<{ record: FileRecord; fromCache: boolean }> {
@@ -2080,7 +2042,7 @@ export class FileManagerBase implements FileManager {
       throw new FileRecordError(`File record not found for topic: ${topic.slice(0, 6)}`);
     }
 
-    const loaded = await this.store.getRecord(topic, actPublisher, feedData, { isHeadRead: true }, requestOptions);
+    const loaded = await this.store.getRecord(topic, feedData, { isHeadRead: true }, requestOptions);
     if (cachedIx === -1) {
       this._recordList.push(loaded);
     } else {
@@ -2113,18 +2075,17 @@ export class FileManagerBase implements FileManager {
     }
   }
 
-  private adminHost(publisher: string): ManifestHost {
-    const { stateFeedTopic } = assertReady(this.swarmClient, this.isInitialized, this.stateFeedTopic);
+  private adminHost(): ManifestHost {
+    const { stateTopic, owner } = assertReady(this.isInitialized, this.store.identity);
     if (!this.adminStamp) {
       throw new DriveError('Admin stamp not found');
     }
 
     return {
-      owner: this.swarmClient.owner,
-      topic: stateFeedTopic,
+      owner,
+      topic: stateTopic,
       batchId: this.adminStamp.batchId.toString(),
       redundancyLevel: this.adminRedundancyLevel,
-      actPublisher: publisher,
     };
   }
 }

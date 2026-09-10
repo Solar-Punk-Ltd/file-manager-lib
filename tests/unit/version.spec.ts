@@ -1,4 +1,4 @@
-import { BatchId, Bee, Bytes, FeedIndex, Identifier, PublicKey, RedundancyLevel, Topic } from '@ethersphere/bee-js';
+import { BatchId, Bee, Bytes, FeedIndex, Identifier, RedundancyLevel, Topic } from '@ethersphere/bee-js';
 import { type MantarayNode } from '@ethersphere/core-sdk';
 
 import {
@@ -9,7 +9,7 @@ import {
   makeUploadSource,
 } from '../utils';
 
-import { applyDefaultMocks, createMockNodeAddresses, seedRecords } from './mock';
+import { applyDefaultMocks, refPayload, seedKeys, seedRecords } from './mock';
 
 import { type FileManagerBase } from '@/fileManager';
 import { type MantarayStore } from '@/mantarayStore';
@@ -21,20 +21,18 @@ import { FEED_INDEX_ZERO, MANIFEST_METADATA_NODE_VERSION, SWARM_ZERO_ADDRESS } f
 
 describe('Version control', () => {
   const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
-  const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
   let fm: FileManagerBase;
 
   const dummyTopic = Topic.fromString('deadbeef').toString();
   const dummyFi: FileRecord = {
     type: NodeType.File,
     topic: dummyTopic,
-    content: { historyRef: SWARM_ZERO_ADDRESS.toString(), reference: SWARM_ZERO_ADDRESS.toString() },
+    content: { reference: SWARM_ZERO_ADDRESS.toString() },
     owner,
     batchId: DUMMY_BATCH_ID,
     driveId: Identifier.fromString('version-drive').toString(),
     name: 'x.txt',
     path: 'x.txt',
-    actPublisher,
     version: FeedIndex.fromBigInt(0n).toString(),
     redundancyLevel: RedundancyLevel.OFF,
   };
@@ -46,7 +44,7 @@ describe('Version control', () => {
   });
 
   describe('getFileVersion', () => {
-    it('calls store.getRecord with the topic and compressed actPublisher', async () => {
+    it('calls store.getRecord with the topic and the resolved feed slot', async () => {
       const fakeFi = { ...dummyFi, version: '1' };
 
       const rawMock: FeedResultWithIndex = {
@@ -60,13 +58,7 @@ describe('Version control', () => {
 
       const got = await fm.getFileVersion(dummyFi, FeedIndex.fromBigInt(1n));
 
-      expect(spyFetch).toHaveBeenCalledWith(
-        dummyFi.topic,
-        new PublicKey(actPublisher).toCompressedHex(),
-        rawMock,
-        { isHeadRead: false },
-        undefined,
-      );
+      expect(spyFetch).toHaveBeenCalledWith(dummyFi.topic, rawMock, { isHeadRead: false }, undefined);
       expect(got).toBe(fakeFi);
 
       spyFetch.mockRestore();
@@ -136,17 +128,18 @@ describe('Version control', () => {
     });
 
     it('leaves the cached head refs alone when an older version is read', async () => {
-      const headRefs = { reference: 'a'.repeat(64), historyRef: 'b'.repeat(64) };
-      const oldRefs = { reference: 'c'.repeat(64), historyRef: 'd'.repeat(64) };
+      const headRefs = { reference: 'a'.repeat(64) };
+      const oldRefs = { reference: 'c'.repeat(64) };
 
       seedRecords(fm, { ...dummyFi, version: FeedIndex.fromBigInt(5n).toString() });
+      seedKeys(fm, dummyTopic);
       const store = (fm as any).store as MantarayStore;
       store.setNodeRef(dummyTopic, headRefs);
 
       (getFeedData as jest.Mock).mockResolvedValue({
         feedIndex: FEED_INDEX_ZERO,
         feedIndexNext: FeedIndex.fromBigInt(1n),
-        payload: { toJSON: () => oldRefs },
+        payload: refPayload(oldRefs.reference),
       });
       jest
         .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'download')
@@ -159,16 +152,17 @@ describe('Version control', () => {
     });
 
     it('refreshes the cached refs when the head itself is read', async () => {
-      const staleRefs = { reference: 'a'.repeat(64), historyRef: 'b'.repeat(64) };
-      const headRefs = { reference: 'c'.repeat(64), historyRef: 'd'.repeat(64) };
+      const staleRefs = { reference: 'a'.repeat(64) };
+      const headRefs = { reference: 'c'.repeat(64) };
 
+      seedKeys(fm, dummyTopic);
       const store = (fm as any).store as MantarayStore;
       store.setNodeRef(dummyTopic, staleRefs);
 
       (getFeedData as jest.Mock).mockResolvedValue({
         feedIndex: FeedIndex.fromBigInt(7n),
         feedIndexNext: FeedIndex.fromBigInt(8n),
-        payload: { toJSON: () => headRefs },
+        payload: refPayload(headRefs.reference),
       });
       jest
         .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'download')
@@ -243,9 +237,7 @@ describe('Version control', () => {
       (getFeedData as jest.Mock).mockResolvedValue({
         feedIndex: FeedIndex.fromBigInt(3n),
         feedIndexNext: FeedIndex.fromBigInt(4n),
-        payload: {
-          toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
-        },
+        payload: refPayload(),
       });
 
       const saveRecordSpy = jest.spyOn((fm as any).store, 'saveRecord');
@@ -265,9 +257,7 @@ describe('Version control', () => {
       (getFeedData as jest.Mock).mockResolvedValue({
         feedIndex: FeedIndex.fromBigInt(3n),
         feedIndexNext: FeedIndex.fromBigInt(4n),
-        payload: {
-          toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
-        },
+        payload: refPayload(),
       });
 
       const saveRecordSpy = jest.spyOn((fm as any).store, 'saveRecord');

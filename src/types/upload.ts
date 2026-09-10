@@ -1,5 +1,11 @@
+import type { RedundancyLevel } from '@ethersphere/bee-js';
+
 import { type FileRecord } from './info';
-import { type FailedResult } from './utils';
+import { type ActReferences, type FailedResult, type Hex } from './utils';
+
+export interface UploadOptions {
+  redundancyLevel?: RedundancyLevel;
+}
 
 export interface BrowserUploadOptions {
   file: File;
@@ -18,16 +24,7 @@ export type UploadSource = BrowserUploadOptions | NodeUploadOptions;
 
 type UploadMetadata = Omit<
   FileRecord,
-  | 'type'
-  | 'owner'
-  | 'actPublisher'
-  | 'content'
-  | 'topic'
-  | 'driveId'
-  | 'batchId'
-  | 'redundancyLevel'
-  | 'status'
-  | 'name'
+  'type' | 'owner' | 'content' | 'topic' | 'driveId' | 'batchId' | 'redundancyLevel' | 'status' | 'name'
 >;
 
 export type UploadItem = UploadMetadata & UploadSource;
@@ -40,4 +37,13 @@ export interface UpdateItem {
 export interface UploadFilesResult {
   succeeded: FileRecord[];
   failed: FailedResult[];
+}
+
+export interface ClientUploadResult {
+  reference: Hex;
+  tagUid?: number;
+}
+export interface ClientProtectedUploadResult {
+  contentRefs: ActReferences;
+  tagUid?: number;
 }

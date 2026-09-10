@@ -8,8 +8,8 @@ models a full, versioned, access-controlled filesystem on top of Swarm's content
   [mantaray](https://docs.ethswarm.org/docs/develop/tools-and-features/manifest) manifest, not an opaque blob.
 - **Folders** — real nested directories (sub-manifests), created, listed, moved and removed like on a UNIX filesystem.
 - **Files** — each file is its own node with an independent feed carrying its full version history.
-- **Access Control (ACT)** — every manifest root and file is ACT-wrapped; reads resolve via `actPublisher` + history
-  address.
+- **Encryption** — file content rides Swarm's native encryption; the index (feeds and manifests) is sealed client-side
+  with AES-256-GCM under a per-node key chain rooted in your identity. Nothing readable leaves the process.
 - **Versioning** — every structural change publishes a new feed slot, so drives, folders and files all gain automatic
   history. Restore any file version to head.
 - **Trash / recover / forget** — soft-delete by relocating a node into the drive's reserved `.trash` folder, or
@@ -17,8 +17,9 @@ models a full, versioned, access-controlled filesystem on top of Swarm's content
 - **Move** — relocate files and folders within a drive.
 - **Browser + Node.js** — one unified API; the byte source differs (`file` vs `sourcePath`).
 
-> Full method-level documentation: see [REFERENCE.md](REFERENCE.md). Test coverage and usage patterns: see
-> [tests/TESTS.md](tests/TESTS.md).
+> Full method-level documentation: see [REFERENCE.md](docs/REFERENCE.md). Encryption, key handling and the sharing
+> roadmap: see [ENCRYPTION_AND_ACT.md](docs/ENCRYPTION_AND_ACT.md). Test coverage and usage patterns: see
+> [docs/TESTS.md](docs/TESTS.md).
 
 ---
 
@@ -30,8 +31,8 @@ tree lives only in memory: every drive, folder and file is walkable on Swarm fro
 ### The structure
 
 ```
-SwarmClient identity (owner address)
-└── state feed  (topic derived from the backend key)  ← points to the drive registry
+FileManager identity (FMK-derived owner address)
+└── state feed  (topic derived from the FMK)          ← points to the drive registry
     └── admin manifest  (registry of all drives)
         ├── My Drive   ──▶ drive feed ──▶ drive manifest      ← a mounted volume
         │   ├── report.pdf         ──▶ file feed (v0, v1, …)  ← file (inode) + versions
@@ -44,7 +45,8 @@ SwarmClient identity (owner address)
 
 ```mermaid
 flowchart TD
-  S["SwarmClient<br/>(owner identity)"] -->|per-owner feed| SF["State feed<br/>(derived topic)"]
+  L["Login<br/>(swarmClient.owner)"] -->|"sealed envelope feed"| S["FileManager identity<br/>(FMK → owner + signer)"]
+  S -->|per-identity feed| SF["State feed<br/>(topic derived from the FMK)"]
   SF -->|head slot| AM["Admin manifest<br/>(drive registry)"]
   AM -->|fork: My Drive| DF1["Drive feed<br/>(per drive)"]
   AM -->|fork: Photos| DF2["Drive feed"]
@@ -52,23 +54,24 @@ flowchart TD
   DM -->|"fork /report.pdf"| FF1["File feed<br/>swarm-node-topic"]
   DM -->|"fork /documents/"| SUB["Sub-manifest<br/>(folder)"]
   SUB -->|"fork /contract.pdf"| FF2["File feed"]
-  FF1 -->|"slot n (ACT)"| C1["content reference"]
-  FF2 -->|"slot n (ACT)"| C2["content reference"]
+  FF1 -->|"slot n (sealed)"| C1["content reference"]
+  FF2 -->|"slot n (sealed)"| C2["content reference"]
 ```
 
 ### The UNIX mapping
 
-| Swarm / mantaray primitive                  | UNIX filesystem analogue    | Role                                             |
-| ------------------------------------------- | --------------------------- | ------------------------------------------------ |
-| `SwarmClient` identity (`owner`)            | volume owner                | Owns and signs the whole tree                    |
-| State feed head (topic from `deriveSecret`) | root pointer                | Resolves the current drive registry              |
-| Admin manifest                              | volume table (`/etc/fstab`) | Registry of all drives                           |
-| Drive = mantaray under a per-drive feed     | mounted volume              | A named, stamp-backed collection                 |
-| Folder = sub-manifest fork                  | directory (inode)           | Nested namespace                                 |
-| File fork → per-file feed                   | file (inode) with history   | Stable identity + full version chain             |
-| Fork metadata map (`swarm-node-*`)          | inode metadata              | Owner, type, version, ACT publisher, path        |
-| New feed slot on every structural change    | filesystem snapshot         | Automatic drive/folder/file version history      |
-| Reserved `.trash` folder per drive          | recycle bin / `.Trash`      | Soft-delete without mutating data or the subtree |
+| Swarm / mantaray primitive                   | UNIX filesystem analogue    | Role                                             |
+| -------------------------------------------- | --------------------------- | ------------------------------------------------ |
+| Identity (`fm.identity.owner`)               | volume owner                | Owns and signs the whole tree                    |
+| Sealed identity envelope (feed)              | LUKS header / keyring       | Turns a login into the volume owner              |
+| State feed head (topic derived from the FMK) | root pointer                | Resolves the current drive registry              |
+| Admin manifest                               | volume table (`/etc/fstab`) | Registry of all drives                           |
+| Drive = mantaray under a per-drive feed      | mounted volume              | A named, stamp-backed collection                 |
+| Folder = sub-manifest fork                   | directory (inode)           | Nested namespace                                 |
+| File fork → per-file feed                    | file (inode) with history   | Stable identity + full version chain             |
+| Fork metadata map (`swarm-node-*`)           | inode metadata              | Owner, type, version, the child's wrapped keys   |
+| New feed slot on every structural change     | filesystem snapshot         | Automatic drive/folder/file version history      |
+| Reserved `.trash` folder per drive           | recycle bin / `.Trash`      | Soft-delete without mutating data or the subtree |
 
 ### Key design points
 
@@ -79,8 +82,38 @@ flowchart TD
   one. The same walk/list/move logic works at every level.
 - **Versioning is a side effect of content-addressing.** Because each structural change publishes a new feed slot, the
   whole tree gains history for free.
-- **ACT everywhere.** Manifest roots and file content are ACT-wrapped on every save; per-file publishers stay
-  independent via metadata.
+- **Encrypted by construction.** Every feed payload is one sealed Swarm reference, and every manifest chunk is sealed
+  before upload. A node's keys live only wrapped inside its parent's fork metadata, so reaching a node means having
+  walked down to it.
+
+---
+
+## Encryption and access control
+
+Swarm is a public network: any chunk is retrievable by anyone who learns its address. The library therefore encrypts on
+two levels.
+
+- **Content** rides **Swarm's native encryption**. Bee mints a random key per object and returns it embedded in a
+  64-byte reference — so the reference _is_ the capability, and the library never chooses or stores a content key.
+- **The index** — feed payloads and mantaray manifests — is sealed **client-side** with AES-256-GCM, using
+  `crypto.subtle`, under keys the library controls. Each node carries two: `K_meta` unlocks its listing, `K_content`
+  unlocks its content pointer. Each is wrapped under its parent's, so the tree is two parallel key chains rooted in your
+  **FileManager Key (FMK)** — the same 32 bytes the identity envelope seals.
+
+That split is what will make sharing cheap: handing over a key blob of a few hundred bytes covers a subtree of any size.
+**ACT is retained for exactly that** and is not used by the tree — `uploadProtected` / `downloadProtected` /
+`actPublisher` remain on the `SwarmClient` port as the share layer's API. **Sharing itself is not implemented yet.**
+
+Two things this implies for your application:
+
+- **List before you open.** Keys are hydrated by walking, so a `FileRecord` held across a process restart carries no key
+  material. `updateFile`, `getFileVersion` and `restoreFileVersion` re-walk the record's path to recover them; if the
+  path is stale, the call fails with `KeyringError` rather than returning nothing.
+- **There is no revocation.** Anything already dereferenced stays readable forever — Swarm cannot unsee. Key rotation
+  would deny future reads only, and is not implemented.
+
+Full detail — the identity flow, the key hierarchy, what an observer can still see, and the sharing roadmap — is in
+[ENCRYPTION_AND_ACT.md](docs/ENCRYPTION_AND_ACT.md).
 
 ---
 
@@ -129,14 +162,15 @@ import { BeeClient, FileManagerBase, ListDepth } from '@solarpunkltd/file-manage
 // BeeClient owns the signer — no key material ever reaches the FileManager.
 const swarmClient = new BeeClient(new Bee('http://localhost:1633'), signer);
 
-// optional third arg: { uploadConcurrency?, feedFetchConcurrency? }
+// optional third arg: { credential?, uploadConcurrency?, feedFetchConcurrency? }
 const fm = new FileManagerBase(swarmClient);
 
 // 1. rehydrate any existing state from Swarm
 await fm.initialize();
 
-// 2. FIRST-TIME SETUP ONLY: bootstrap the admin state + admin drive.
+// 2. FIRST-TIME SETUP ONLY: bootstrap the identity, admin state and admin drive.
 //    On later runs, initialize() alone restores everything — skip this.
+//    `fm.identity === undefined` is the check; see "Identity" below.
 const adminBatchId = 'your-admin-batch-id';
 await fm.createAdminDrive(adminBatchId);
 
@@ -210,8 +244,120 @@ await fm.initialize();
 ```
 
 Known gaps on the Swarm ID backend: `AbortSignal` is dropped at the postMessage boundary, downloads are buffered (the
-stream variants wrap one chunk), ACT history is re-minted on every protected write, and the account exposes a single
-usable postage batch. See the class doc on `SnahaClient` for details.
+stream variants wrap one chunk), `redundancyLevel` is discarded by the SDK's option schema — so data written through
+Swarm ID is encrypted but not erasure-coded — and the account exposes a single usable postage batch. See the class doc
+on `SnahaClient` for details, and [the origin rule](#swarm-id-and-the-origin-rule) before you choose a domain.
+
+### Identity — three roles, three homes
+
+The login you sign in with is **not** the owner of your drives. The split keeps the tree's owner independent of
+whichever credential opened it, and it is worth understanding before you persist any address.
+
+| Value               | What it is                                      | What it is for                                        |
+| ------------------- | ----------------------------------------------- | ----------------------------------------------------- |
+| `swarmClient.owner` | address of the login (`PrivateKey` or `appKey`) | locates the sealed identity envelope — nothing else   |
+| `identity.owner`    | address derived from the FileManager Key (FMK)  | owns and signs the state feed and every node feed     |
+| `identity.keyId`    | non-secret fingerprint of the FMK               | detects an envelope belonging to a different identity |
+
+**Owner and signer are not two things.** A Swarm feed is addressed by the pair _(topic, owner-address)_, and the signer
+is simply the private key whose address that is — one keypair, seen from outside and from inside. What is genuinely
+doubled here is the _number of keypairs_: the login's, which signs only the envelope, and the identity's, which signs
+everything else. `identity.signer` is not part of `IdentityInfo` and never leaves the library.
+
+The FMK is 32 random bytes minted once, sealed under a key derived from the login's secret, and stored in a feed under
+the login's own address. Resolving it is a read, so `initialize()` needs no stamp:
+
+```ts
+const fm = new FileManagerBase(swarmClient);
+await fm.initialize();
+
+if (!fm.identity) {
+  // First run for this login: no identity yet. Minting one is a write, so it needs a stamp.
+  await fm.createAdminDrive(adminBatchId);
+}
+
+console.log(fm.identity.owner); // who owns the drives
+console.log(swarmClient.owner); //  who is signed in — usually a different address
+```
+
+Three consequences worth planning around:
+
+- **`fm.identity === undefined` is a normal state, not an error.** It means "no identity provisioned for this login
+  yet", which is exactly what a newcomer with no stamp looks like. Render a first-run screen, not a failure.
+- **Persist `owner`, not `keyId`, as "which identity is this".** `owner` is FMK-derived and stable across login methods;
+  `keyId` is salted per envelope and identifies only the credential envelope.
+- **A wrong login fails loudly.** An envelope that exists but will not open raises `IdentityError` and emits
+  `IDENTITY_INVALID` ahead of `INITIALIZED false` — a distinct event, because "sign in with the other wallet" and "the
+  node is unreachable" need different screens. The check is AES-GCM's authentication tag, so a wallet that signs
+  non-deterministically surfaces here instead of presenting a silently empty drive list.
+
+### Swarm ID and the origin rule
+
+With `SnahaClient` you pass **no** credential — `swarmClientCredential` delegates to `deriveAppSecret`. Since
+`appSecret = HMAC(masterKey, appOrigin)` and `masterKey` is the user's Swarm ID account, the unlock secret is identical
+on every device they log in from and unavailable to any other origin. Nothing to configure, and no other site can obtain
+it.
+
+On recovery see [Recovery](docs/ENCRYPTION_AND_ACT.md#recovery).
+
+> **Deploy on one stable origin and never change it.** The origin is an input to the key derivation, so it is part of
+> the identity. Move it and every user lands on a first-run screen with their drives unreachable — no error, nothing to
+> migrate. That rules out per-deploy hash subdomains and path-based gateway URLs (which also give every dApp on that
+> gateway the same `appSecret`); use a stable custom or ENS-backed domain. `www.` and bare, and `localhost` and
+> production, are different origins and therefore different identities.
+
+The limitation: identities do not cross origins, so the same user on two sites has two separate file managers. That
+limits cross-app sharing, not login.
+
+### Custom credentials and the wallet tradeoff
+
+`Credential` is the seam if you want a login method the library doesn't ship. It carries only `unlockSecret()` — where
+the envelope lives is always the client's address, since nothing else can sign a write there:
+
+```ts
+import { Bytes } from '@ethersphere/core-sdk';
+
+// A library-wide domain, not your app's: binding it to your origin would strand the identity on
+// one host, and leaving it portable is what makes the signature phishable. See below.
+const domain = { name: 'Swarm FileManager Identity', version: '1' };
+const types = { Unlock: [{ name: 'purpose', type: 'string' }] };
+
+const fm = new FileManagerBase(swarmClient, undefined, {
+  credential: {
+    unlockSecret: async () => {
+      const signature = await wallet.signTypedData(domain, types, {
+        purpose: 'Unlock my Swarm FileManager identity',
+      });
+
+      return Bytes.keccak256(signature).toUint8Array();
+    },
+  },
+});
+```
+
+That secret derives both the envelope's topic and the key that opens it, so anyone who can produce it has read and write
+access to every drive. Three requirements, none of which the compiler can check:
+
+- **Stable** — byte-identical for a given user across sessions and devices. A different secret derives a different
+  unlock key, which is an `IdentityError` rather than a recoverable state.
+- **Private** — derived from key material only your credential holds. Hashing a public value (an address, a public key)
+  leaves the envelope openable by anyone who can read it. For the same reason it must be key material and not a user
+  passphrase: the envelope is public and the unlock KDF does no stretching.
+- **Only obtainable by the user** — which the example above does not achieve.
+
+A signature over a constant is portable across origins precisely because any site can reproduce it, so a hostile page
+that gets one `signTypedData` prompt accepted obtains the whole identity, from a cold start and with no XSS. EIP-712
+only makes the prompt legible.
+
+Putting your origin into the signed message does not fix that. An EIP-712 `domain` is data the requesting page supplies,
+and no wallet binds the signature to who is asking — `evil.com` can send byte-identical typed data and get the identical
+signature. It buys a mismatch an attentive user might spot, at the cost of cross-origin portability. SIWE is a partial
+exception: some wallets compare its `domain` against the requesting origin and warn, but that is wallet-dependent and
+click-through-able.
+
+Swarm ID's origin is `event.origin` at the postMessage boundary, so the browser enforces it and no page can claim to be
+yours. Pick the wallet path only if Swarm ID is not an option, and tell your users what they are approving. Full
+comparison in [Portability versus phishability](docs/ENCRYPTION_AND_ACT.md#portability-versus-phishability).
 
 ### Tuning concurrency
 
@@ -236,11 +382,11 @@ The FileManager emits `FileManagerEvents` on its `emitter`:
 fm.emitter.on(FileManagerEvents.FILE_UPLOADED, ({ record }) => console.log('uploaded', record.path));
 ```
 
-`INITIALIZED`, `STATE_INVALID`, `DRIVE_CREATED`, `DRIVE_RENAMED`, `DRIVE_UNRESOLVED`, `DRIVE_FORGOTTEN`,
-`FILE_UPLOADED`, `FILES_UPLOADED`, `FILE_UPDATED`, `FILE_MOVED`, `FILE_TRASHED`, `FILE_RECOVERED`, `FILE_FORGOTTEN`,
-`FILE_VERSION_RESTORED`, `FOLDER_CREATED`, `FOLDER_MOVED`, `FOLDER_TRASHED`, `FOLDER_RECOVERED`, `FOLDER_FORGOTTEN`,
-`TRASH_EMPTIED`. Path-addressed operations (`move`, `trash`, `recover`, `forget`) emit the file or folder variant with
-the same payload shape. See [REFERENCE.md](REFERENCE.md#events) for each payload.
+`INITIALIZED`, `IDENTITY_INVALID`, `STATE_INVALID`, `DRIVE_CREATED`, `DRIVE_RENAMED`, `DRIVE_UNRESOLVED`,
+`DRIVE_FORGOTTEN`, `FILE_UPLOADED`, `FILES_UPLOADED`, `FILE_UPDATED`, `FILE_MOVED`, `FILE_TRASHED`, `FILE_RECOVERED`,
+`FILE_FORGOTTEN`, `FILE_VERSION_RESTORED`, `FOLDER_CREATED`, `FOLDER_MOVED`, `FOLDER_TRASHED`, `FOLDER_RECOVERED`,
+`FOLDER_FORGOTTEN`, `TRASH_EMPTIED`. Path-addressed operations (`move`, `trash`, `recover`, `forget`) emit the file or
+folder variant with the same payload shape. See [REFERENCE.md](docs/REFERENCE.md#events) for each payload.
 
 `DRIVE_UNRESOLVED` fires **during `initialize`** for a drive that is registered in the admin manifest but cannot be
 loaded. Such a drive is absent from `driveList`, so every later call addressing it fails with "drive not found" — the
@@ -251,7 +397,7 @@ first by passing your own emitter to the constructor, exactly as with `INITIALIZ
 const emitter = new EventEmitterBase();
 emitter.on(FileManagerEvents.DRIVE_UNRESOLVED, ({ id, name, error }) => reportBrokenDrive(id, name, error));
 
-const fm = new FileManagerBase(bee, emitter);
+const fm = new FileManagerBase(swarmClient, emitter);
 await fm.initialize();
 ```
 
@@ -262,7 +408,7 @@ await fm.initialize();
 From `package.json`:
 
 - `pnpm run build` → bundle Node + browser (ESM + CJS) + type declarations via **tsup**.
-- `pnpm run test` → run Jest tests (see [tests/TESTS.md](tests/TESTS.md)).
+- `pnpm run test` → run Jest tests (see [docs/TESTS.md](docs/TESTS.md)).
 - `pnpm run lint` / `pnpm run lint:fix` → linting.
 - `pnpm init:husky` → husky init.
 - `pnpm run depcheck` → check dependencies.
@@ -276,7 +422,13 @@ From `package.json`:
   `reset: true` to `createAdminDrive` to overwrite.
 - **Source path does not exist / is a directory** → `uploadFile` takes a single file; use `uploadFiles` for trees.
 - **Postage expired** → buy a new stamp and re-initialize.
-- **ACT unwrap errors** → ensure the `FileRecord` carries a valid `actPublisher` and content history reference.
+- **`KeyringError: No keys for node …`** → the node was never walked to in this session. A `FileRecord` carries no key
+  material; `listFolder` the containing folder first, or make sure the record's `path` is current.
+- **`KeyringError: Fork … does not unwrap under its parent`** → the manifest and the key chain disagree, which normally
+  means the fork was relocated without re-wrapping or written by an incompatible version.
+- **`IdentityError` / `IDENTITY_INVALID` on initialize** → this credential derives a different unlock secret than the
+  one that sealed the stored identity. Sign in with the credential that created it; a wallet that signs
+  non-deterministically will fail here every time.
 - **A file or folder is missing from a listing** → check `failed` on the `listFolder` result. A node that cannot be
   resolved is reported there, never dropped silently; `scope: 'subtree'` means its descendants were never enumerated, so
   their number and names are unknown.

@@ -12,16 +12,17 @@ import {
 import {
   applyDefaultMocks,
   createMockDriveInfo,
-  createMockNodeAddresses,
+  refPayload,
   type SeedableFm,
   seedDummyFile,
+  seedKeys,
   seedRecords,
 } from './mock';
 
 import { type FileManagerBase } from '@/fileManager';
 import { type DriveInfo, type FileRecord, NodeStatus, NodeType } from '@/types';
 import { FileError, FileManagerEvents, FileRecordError } from '@/utils';
-import { getFeedData, writeActFeed } from '@/utils/bee';
+import { getFeedData, writeEncryptedFeed } from '@/utils/bee';
 import {
   FEED_INDEX_ZERO,
   MANIFEST_METADATA_NODE_TOPIC,
@@ -35,7 +36,6 @@ import {
 describe('File operations', () => {
   const otherMockBatchId = new BatchId('4'.repeat(64));
   const owner = DEFAULT_MOCK_SIGNER.publicKey().address().toString();
-  const actPublisher = createMockNodeAddresses().publicKey.toCompressedHex();
 
   const nodeOnly = IS_BROWSER ? it.skip : it;
 
@@ -47,8 +47,8 @@ describe('File operations', () => {
     it('fetches a single held record and returns one result', async () => {
       const fm = await createInitializedFileManager();
       const drive = fm.driveList[0];
-      const a = seedDummyFile(drive, 'a.txt', '1'.repeat(64), owner, actPublisher);
-      seedRecords(fm, a, seedDummyFile(drive, 'b.txt', '2'.repeat(64), owner, actPublisher));
+      const a = seedDummyFile(drive, 'a.txt', '1'.repeat(64), owner);
+      seedRecords(fm, a, seedDummyFile(drive, 'b.txt', '2'.repeat(64), owner));
 
       const downloadReadableDataSpy = jest.spyOn(
         Object.getPrototypeOf(new Bee('http://localhost:1633').data),
@@ -70,24 +70,22 @@ describe('File operations', () => {
           type: NodeType.File,
           batchId: DUMMY_BATCH_ID,
           owner,
-          actPublisher,
           topic: Topic.fromString('dlf-a.txt').toString(),
           driveId: drive.id,
           name: 'a.txt',
           path: 'a.txt',
-          content: { reference: '1'.repeat(64), historyRef: SWARM_ZERO_ADDRESS.toString() },
+          content: { reference: '1'.repeat(64) },
           redundancyLevel: RedundancyLevel.OFF,
         },
         {
           type: NodeType.File,
           batchId: DUMMY_BATCH_ID,
           owner,
-          actPublisher,
           topic: Topic.fromString('dlf-b.txt').toString(),
           driveId: drive.id,
           name: 'b.txt',
           path: 'b.txt',
-          content: { reference: '2'.repeat(64), historyRef: SWARM_ZERO_ADDRESS.toString() },
+          content: { reference: '2'.repeat(64) },
           redundancyLevel: RedundancyLevel.OFF,
         },
       ];
@@ -100,11 +98,9 @@ describe('File operations', () => {
 
       const results = await fm.downloadFiles(records);
 
-      expect(downloadReadableDataSpy).toHaveBeenCalledWith(
-        '2'.repeat(64),
-        { actHistoryAddress: SWARM_ZERO_ADDRESS.toString(), actPublisher },
-        undefined,
-      );
+      // Content is natively encrypted, so the reference is the whole capability — no publisher,
+      // no history, nothing else to quote.
+      expect(downloadReadableDataSpy).toHaveBeenCalledWith('2'.repeat(64), undefined, undefined);
       expect(downloadReadableDataSpy).toHaveBeenCalledTimes(2);
       expect(results.succeeded.map((r) => r.path).sort()).toEqual(['a.txt', 'b.txt']);
 
@@ -124,8 +120,8 @@ describe('File operations', () => {
     it('splits partial results: fetched records land in succeeded, the failing one in failed', async () => {
       const fm = await createInitializedFileManager();
       const drive = fm.driveList[0];
-      const good = seedDummyFile(drive, 'good.txt', '1'.repeat(64), owner, actPublisher);
-      const bad = seedDummyFile(drive, 'bad.txt', '2'.repeat(64), owner, actPublisher);
+      const good = seedDummyFile(drive, 'good.txt', '1'.repeat(64), owner);
+      const bad = seedDummyFile(drive, 'bad.txt', '2'.repeat(64), owner);
 
       jest
         .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'downloadReadable')
@@ -194,9 +190,7 @@ describe('File operations', () => {
       (getFeedData as jest.Mock).mockResolvedValue({
         feedIndex: FeedIndex.fromBigInt(0n),
         feedIndexNext: FeedIndex.fromBigInt(1n),
-        payload: {
-          toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
-        },
+        payload: refPayload(),
       });
 
       await fm.uploadFile(di.id, { path: 'tests/utils.ts', ...makeUploadSource('tests/utils.ts') });
@@ -252,7 +246,7 @@ describe('File operations', () => {
 
     it('throws when a drive is not found', async () => {
       const fm = await createInitializedFileManager();
-      const ghost = createMockDriveInfo(actPublisher, { id: '7'.repeat(64), name: 'ghost' });
+      const ghost = createMockDriveInfo({ id: '7'.repeat(64), name: 'ghost' });
 
       await expect(
         fm.uploadFile(ghost.id, { path: 'package.json', ...makeUploadSource('package.json') }),
@@ -479,18 +473,17 @@ describe('File operations', () => {
 
     it('throws when the drive is not found', async () => {
       const fm = await createInitializedFileManager();
-      const ghost = createMockDriveInfo(actPublisher, { id: '7'.repeat(64), name: 'ghost' });
+      const ghost = createMockDriveInfo({ id: '7'.repeat(64), name: 'ghost' });
       const record: FileRecord = {
         type: NodeType.File,
         batchId: DUMMY_BATCH_ID,
         owner,
         redundancyLevel: RedundancyLevel.OFF,
-        actPublisher,
         topic: Topic.fromString('orphan').toString(),
         driveId: ghost.id,
         name: 'package.json',
         path: 'package.json',
-        content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        content: { reference: SWARM_ZERO_ADDRESS.toString() },
         version: FEED_INDEX_ZERO.toString(),
       };
 
@@ -508,9 +501,7 @@ describe('File operations', () => {
       (getFeedData as jest.Mock).mockResolvedValue({
         feedIndex: FEED_INDEX_ZERO,
         feedIndexNext: FeedIndex.fromBigInt(1n),
-        payload: {
-          toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
-        },
+        payload: refPayload(),
       });
       const getRecordSpy = jest
         .spyOn((fm as any).store, 'getRecord')
@@ -518,13 +509,7 @@ describe('File operations', () => {
 
       await fm.updateFile(di.id, record, { customMetadata: { note: 'hi' } });
 
-      expect(getRecordSpy).toHaveBeenCalledWith(
-        record.topic,
-        record.actPublisher,
-        expect.anything(),
-        { isHeadRead: true },
-        undefined,
-      );
+      expect(getRecordSpy).toHaveBeenCalledWith(record.topic, expect.anything(), { isHeadRead: true }, undefined);
       const rehydrated = fm.recordList.filter((f) => f.topic === record.topic);
       expect(rehydrated).toHaveLength(1);
       expect(rehydrated[0].version).toBe(FeedIndex.fromBigInt(1n).toString());
@@ -543,21 +528,18 @@ describe('File operations', () => {
         batchId: DUMMY_BATCH_ID,
         owner,
         redundancyLevel: RedundancyLevel.OFF,
-        actPublisher,
         topic: Topic.fromString('foreign-topic').toString(),
         driveId: di.id,
         name: 'package.json',
         path: 'package.json',
-        content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        content: { reference: SWARM_ZERO_ADDRESS.toString() },
         version: FEED_INDEX_ZERO.toString(),
       };
 
       (getFeedData as jest.Mock).mockResolvedValue({
         feedIndex: FEED_INDEX_ZERO,
         feedIndexNext: FeedIndex.fromBigInt(1n),
-        payload: {
-          toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
-        },
+        payload: refPayload(),
       });
       jest.spyOn((fm as any).store, 'getRecord').mockResolvedValue({ ...foreign, driveId: '9'.repeat(64) });
 
@@ -576,12 +558,11 @@ describe('File operations', () => {
         batchId: DUMMY_BATCH_ID,
         owner,
         redundancyLevel: RedundancyLevel.OFF,
-        actPublisher,
         topic: Topic.fromString('cold-topic').toString(),
         driveId: di.id,
         name: 'package.json',
         path: 'package.json',
-        content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        content: { reference: SWARM_ZERO_ADDRESS.toString() },
         version: FEED_INDEX_ZERO.toString(),
       };
 
@@ -600,9 +581,10 @@ describe('File operations', () => {
       await fm.createFolder(drive.id, ROOT_PATH, 'docs');
       await fm.uploadFile(drive.id, { path: 'docs/report.pdf', ...makeUploadSource('package.json') });
 
-      expect(writeActFeed as jest.Mock).toHaveBeenCalled();
-      const payloads = (writeActFeed as jest.Mock).mock.calls
-        .map(([, payload]) => {
+      // writeEncryptedFeed(swarmClient, identity, payload, key, target, requestOptions)
+      expect(writeEncryptedFeed as jest.Mock).toHaveBeenCalled();
+      const payloads = (writeEncryptedFeed as jest.Mock).mock.calls
+        .map(([, , payload]) => {
           try {
             return JSON.parse(String(payload));
           } catch {
@@ -650,15 +632,15 @@ describe('File operations', () => {
       const drive = fm.driveList[0];
 
       const fileTopic = Topic.fromString('bare-read').toString();
+      seedKeys(fm, fileTopic);
       const stored = {
         type: NodeType.File,
         batchId: DUMMY_BATCH_ID,
         owner,
-        actPublisher,
         topic: fileTopic,
         name: 'bare.txt',
         redundancyLevel: RedundancyLevel.OFF,
-        content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        content: { reference: SWARM_ZERO_ADDRESS.toString() },
       };
 
       jest
@@ -667,13 +649,10 @@ describe('File operations', () => {
 
       const record = await (fm as any).store.getRecord(
         fileTopic,
-        actPublisher,
         {
           feedIndex: FeedIndex.fromBigInt(0n),
           feedIndexNext: FeedIndex.fromBigInt(1n),
-          payload: {
-            toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
-          },
+          payload: refPayload(),
         },
         { isHeadRead: true },
       );
@@ -768,17 +747,14 @@ describe('File operations', () => {
         type: NodeType.File,
         batchId: DUMMY_BATCH_ID,
         owner,
-        actPublisher,
         redundancyLevel: RedundancyLevel.OFF,
-        content: { reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() },
+        content: { reference: SWARM_ZERO_ADDRESS.toString() },
       };
 
       (getFeedData as jest.Mock).mockResolvedValue({
         feedIndex: FeedIndex.fromBigInt(0n),
         feedIndexNext: FeedIndex.fromBigInt(1n),
-        payload: {
-          toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString(), historyRef: SWARM_ZERO_ADDRESS.toString() }),
-        },
+        payload: refPayload(),
       });
       jest
         .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'download')

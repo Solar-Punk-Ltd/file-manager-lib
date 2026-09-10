@@ -1,4 +1,4 @@
-import { BatchId, Bee, BeeResponseError, FeedIndex, RedundancyLevel, Reference, Topic } from '@ethersphere/bee-js';
+import { BatchId, Bee, FeedIndex, RedundancyLevel, Reference, Topic } from '@ethersphere/bee-js';
 
 import {
   buyStampSerialized,
@@ -14,19 +14,23 @@ import { ensureUniqueSignerWithStamp } from './setup/utils';
 
 import { BeeClient } from '@/clients';
 import { FileManagerBase } from '@/fileManager';
-import { type ActReferences } from '@/types';
+import { type Identity } from '@/types/identity';
 import { FileManagerEvents, StampError } from '@/utils';
-import { assertActReferences } from '@/utils/asserts';
-import { getFeedData } from '@/utils/bee';
-import { FEED_INDEX_ZERO, STATE_TOPIC_LABEL, SWARM_ZERO_ADDRESS } from '@/utils/constants';
-import { generateRandomBytes } from '@/utils/crypto';
+import { getFeedData, openFeedRef } from '@/utils/bee';
+import { FEED_INDEX_ZERO, ROOT_META_KEY_LABEL, STATE_TOPIC_LABEL, SWARM_ZERO_ADDRESS } from '@/utils/constants';
+import { DERIVED_SECRET_LENGTH, generateRandomBytes } from '@/utils/crypto';
 
 describe('Initialization and construction', () => {
   let client: BeeClient;
   let bee: Bee;
   let fileManager: FileManagerBase;
-  let actPublisher: string;
   let adminBatchId: BatchId;
+
+  // The state topic and the root keys are internal by design — a consumer never needs them, but a
+  // test that asserts on what actually landed on Swarm does.
+  const adminIdentity = (): Identity =>
+    (fileManager as unknown as { store: { requireIdentity(): Identity } }).store.requireIdentity();
+  const stateMetaKey = (): Promise<Uint8Array> => adminIdentity().deriveKeyBytes(ROOT_META_KEY_LABEL);
 
   beforeAll(async () => {
     const { client: bc, bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
@@ -34,7 +38,6 @@ describe('Initialization and construction', () => {
     bee = beeDev;
     adminBatchId = ownerStamp;
     fileManager = await createInitializedFileManager(client, adminBatchId);
-    actPublisher = client.actPublisher;
   });
 
   beforeEach(async () => {
@@ -66,59 +69,36 @@ describe('Initialization and construction', () => {
   it('should initialize the admin feed and topic', async () => {
     expect(fileManager.recordList).toEqual([]);
 
-    const stateFeedTopic = new Topic(await client.deriveSecret(STATE_TOPIC_LABEL));
+    const identity = adminIdentity();
+    const { payload } = await retryOnPropagationDelay(() =>
+      getFeedData(client, identity.stateTopic, identity.owner, 0n),
+    );
 
-    const { payload } = await retryOnPropagationDelay(() => getFeedData(client, stateFeedTopic, client.owner, 0n));
-
-    const adminManifestRef = payload.toJSON() as ActReferences;
-    assertActReferences(adminManifestRef);
-
-    const manifestRoot = await client.downloadProtected({
-      reference: adminManifestRef.reference,
-      historyRef: adminManifestRef.historyRef,
-      publisher: actPublisher,
-    });
-    expect(manifestRoot).not.toEqual(SWARM_ZERO_ADDRESS.toUint8Array());
+    // Sealed under K_meta(state), so the slot carries ciphertext rather than a readable reference.
+    expect(payload.toUint8Array()).not.toEqual(SWARM_ZERO_ADDRESS.toUint8Array());
+    const manifestRoot = await openFeedRef(payload, await stateMetaKey());
+    expect(new Reference(manifestRoot.reference).toUint8Array()).not.toEqual(SWARM_ZERO_ADDRESS.toUint8Array());
 
     await fileManager.initialize();
-    const reinitManifestRoot = await client.downloadProtected({
-      reference: adminManifestRef.reference,
-      historyRef: adminManifestRef.historyRef,
-      publisher: actPublisher,
-    });
-    expect(manifestRoot).toEqual(reinitManifestRoot);
+    const { payload: reread } = await getFeedData(client, identity.stateTopic, identity.owner, 0n);
+    expect(await openFeedRef(reread, await stateMetaKey())).toEqual(manifestRoot);
   });
 
-  it('should throw an error if someone else than the admin tries to read the admin feed', async () => {
-    const otherBee = new Bee(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER });
+  it('keeps the admin state unreadable to anyone without the identity key', async () => {
+    const identity = adminIdentity();
+    const { payload } = await retryOnPropagationDelay(() =>
+      getFeedData(client, identity.stateTopic, identity.owner, 0n),
+    );
 
-    const stateFeedTopic = new Topic(await client.deriveSecret(STATE_TOPIC_LABEL));
+    // The feed itself is public — anyone who learns the topic can fetch the slot. What they cannot
+    // do is open it: GCM authenticates, so a foreign key fails outright rather than yielding noise.
+    const foreignKey = generateRandomBytes(DERIVED_SECRET_LENGTH).toUint8Array();
+    await expect(openFeedRef(payload, foreignKey)).rejects.toThrow();
 
-    const { payload } = await retryOnPropagationDelay(() => getFeedData(client, stateFeedTopic, client.owner, 0n));
-    const feedTopicState = payload.toJSON() as ActReferences;
-
-    try {
-      await client.downloadProtected({
-        reference: feedTopicState.reference,
-        historyRef: feedTopicState.historyRef,
-        publisher: OTHER_MOCK_SIGNER.publicKey().toCompressedHex(),
-      });
-    } catch (error) {
-      expect(error).toBeInstanceOf(BeeResponseError);
-      expect((error as BeeResponseError).status).toBe(404);
-    }
-
-    try {
-      await retryOnPropagationDelay(() =>
-        otherBee.data.download(new Reference(feedTopicState.reference), {
-          actHistoryAddress: new Reference(feedTopicState.historyRef),
-          actPublisher,
-        }),
-      );
-    } catch (error) {
-      expect(error).toBeInstanceOf(BeeResponseError);
-      expect((error as BeeResponseError).status).toBe(404);
-    }
+    // And the topic is not reachable either: it is HKDF(FMK, …), not a function of the login.
+    const otherClient = new BeeClient(new Bee(OTHER_BEE_URL, { signer: OTHER_MOCK_SIGNER }), OTHER_MOCK_SIGNER);
+    const guessed = new Topic(await otherClient.deriveSecret(STATE_TOPIC_LABEL));
+    expect(guessed.toString()).not.toEqual(identity.stateTopic.toString());
   });
 
   it('reports an empty feed for an unwritten topic, and Bee reports it as a 404', async () => {
