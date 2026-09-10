@@ -32,8 +32,9 @@ Consequences worth stating up front:
 ## 2. Identity — from a login to the FileManager Key
 
 Three login paths converge on one **FMK**: 32 random bytes minted once, sealed under a key derived from the login's own
-secret, and stored in a feed under the **login's** address. It is the root of all index encryption, and separating it
-from the login is what makes a user's drives reachable from more than one credential.
+secret, and stored in a feed under the **login's** address. It is the root of all index encryption. Separating it from
+the login keeps the tree's owner independent of whichever credential opened it, and leaves room to seal one FMK under a
+second credential later — [not implemented](#10-not-implemented), and not required for device portability.
 
 ```mermaid
 flowchart TD
@@ -108,6 +109,12 @@ iframe that already holds the master key it descends from, so no party is added 
   than a 404, so a first login falls back to a feed-head read, which reports an empty feed properly. **Never append to
   this feed:** Bee silently no-ops on a taken index, so a slot-1 envelope would be written successfully and then be
   invisible to every reader.
+- **The write is read back before the identity is returned.** The same no-op means `writeFeed` resolving is not evidence
+  the envelope landed, and an unretrievable chunk reads like an absent one, so the pre-write probe can be wrong in
+  either direction. Provisioning re-reads slot 0 — retrying, since a fresh update is not immediately readable — and
+  requires it byte-identical to what it wrote. A foreign envelope and an unconfirmable write both raise `IdentityError`.
+  `resolveIdentity` returning `undefined` therefore remains a best-effort answer; the only operation that acts on it
+  verifies itself.
 - **AES-GCM's authentication tag is the verifier.** A wrong unlock key fails decryption outright, so no separate
   verifier is stored. `keyId` is the narrower check that the envelope belongs to this FMK rather than a foreign one.
   Together they turn a non-deterministic signer into a loud `IdentityError` instead of a silently empty drive list — the
@@ -127,23 +134,73 @@ iframe that already holds the master key it descends from, so no party is added 
 ### The `Credential` seam
 
 `Credential` carries exactly one method — `unlockSecret(): Promise<Uint8Array>`. It does not carry an owner, because the
-envelope's location is the client's address and nothing else can be.
+envelope's location is the client's address and nothing else can be. Both shipped backends supply it by default through
+`swarmClientCredential`, which delegates to `SwarmClient.deriveSecret`; pass `config.credential` only to add a login
+method the library does not ship.
 
-```ts
-const fm = new FileManagerBase(swarmClient, undefined, {
-  credential: { unlockSecret: () => deriveFromWalletSignature() },
-});
-```
+Three requirements, all of which compile and pass tests when violated:
 
-Two requirements a backend or a custom credential **must** meet, both of which compile and pass tests when violated:
+1. **Stable** — byte-identical for a given user across sessions and devices, or the identity stops unsealing.
+2. **Private** — derived from key material the credential keeps to itself. Hashing a public value (an address, a public
+   key) leaves the envelope openable by anyone who can read it: a total compromise, since the FMK yields
+   `identity.signer` and write access to everything. For the same reason it must be key material and not a user
+   passphrase — the envelope is public and the unlock KDF is a single HKDF pass with no stretching.
+3. **Elicitable only by the user.** A signature over a fixed, well-known string satisfies (1) and (2) and still loses
+   the account: any site can prompt the user for it, and one signature on a hostile page yields the envelope topic, the
+   envelope from a public gateway, and the FMK.
 
-1. **The secret must be byte-stable** for a given user across sessions and devices. A different value derives a
-   different unlock key, and the identity stops unsealing.
-2. **The secret must be private to the backend.** Hashing a public value — an address, a public key — leaves the
-   envelope openable by anyone who can read it, which is a total compromise rather than a metadata leak: recovering the
-   FMK yields `identity.signer` and write access to every drive. `SwarmClient.deriveSecret` documents this as an
-   explicit contract; `SnahaClient` delegates to `@snaha/swarm-id`'s `deriveAppSecret`, which computes
-   `HMAC(appSecret, label)` inside the trusted iframe.
+### Portability versus phishability
+
+(1) and (3) pull against each other. Two kinds of portability are involved, and only one of them is a login concern:
+
+- **Device portability** — the same identity from any device or browser. A login has to deliver this.
+- **Origin portability** — the same identity from a different site. This is cross-app data sharing, not login.
+
+| Credential                                      |         Device-portable         | Origin-portable |   Unphishable   |
+| ----------------------------------------------- | :-----------------------------: | :-------------: | :-------------: |
+| `SnahaClient` — `deriveAppSecret`               |               ✅                |       ❌        |       ✅        |
+| `BeeClient` — `keccak256(privateKey ‖ label)`   | ✅ _(the user carries the key)_ |       ✅        |       ✅        |
+| Wallet signature over a constant                |               ✅                |       ✅        |       ❌        |
+| Wallet signature with the origin in the message |      ⚠️ _(needs RFC 6979)_      |       ❌        | ⚠️ _(advisory)_ |
+
+`appSecret = HMAC(masterKey, appOrigin)` and `masterKey` is the user's Swarm ID account, so the Swarm ID secret is
+identical on every device and unavailable to any other origin. No configuration, no custom `Credential`.
+
+A wallet cannot reproduce that, and putting the origin into the signed message does not substitute for it:
+
+- Swarm ID's `appOrigin` is `event.origin` at the postMessage boundary — supplied by the browser. A page cannot claim
+  another origin.
+- An EIP-712 `domain`, or an origin field inside the signed payload, is data the requesting page provides. Nothing
+  checks it against who is asking, so `evil.com` can send byte-identical typed data, get the same deterministic
+  signature, and derive the same secret. Only the user noticing the mismatch stands in the way.
+- **SIWE (EIP-4361)** is a partial exception: some wallets parse it and warn when its `domain` does not match the
+  requesting origin. That check is wallet-dependent and click-through-able — advisory, not cryptographic.
+
+Origin-in-the-message therefore gives up origin portability without buying enforcement, and its device portability
+additionally requires every wallet the user owns to sign deterministically (RFC 6979); a random nonce produces a
+different secret and an `IdentityError`. Swarm ID has no such dependency — `masterKey` is a stored account secret, not a
+re-derived signature.
+
+**The origin is part of the identity.** Change it and every user lands on a first-run screen with their drives
+unreachable, with no error. See the deployment rule in [README.md](../README.md#swarm-id-and-the-origin-rule).
+
+### Recovery
+
+fm-lib holds nothing that needs separate recovery: the FMK is reachable from the login's own secret, so recovery is the
+backend's concern.
+
+Under Swarm ID the recovery phrase is sufficient — `phrase → masterKey → appSecret → unlockSecret → envelope → FMK`,
+where `appSecret = HMAC(masterKey, origin)`, the origin is public, and the envelope is a public chunk. Restore the
+account, revisit the same origin, and every drive is back.
+
+The limitation: `deriveAppSecret` runs inside snaha's iframe and `masterKey` never leaves that origin, so the phrase is
+sufficient only while the service exists. Surviving without it needs the whole chain — phrase → `masterKey`, plus the
+exact HMAC construction and origin encoding for `masterKey` → `appSecret` → `unlockSecret` — specified precisely enough
+to reimplement offline; the `masterKey` alone is not enough. Given that, the escape hatch is a small `Credential` that
+computes `unlockSecret` from the phrase directly, with no change to this library.
+
+Under `BeeClient` there is no recovery: the private key is the identity, the user carries it, and losing it loses the
+drives.
 
 ### Resolve and provision are separate phases
 
@@ -435,10 +492,10 @@ Other fixed values:
 
 ## 9. Errors you will see
 
-| Error           | Raised when                                                                                                                                                                                                                                                                                                                                                                                   |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `IdentityError` | the envelope will not unseal, its `keyId` belongs to another FMK, its version does not match the current epoch, or provisioning found one already there. `initialize()` reports it as `IDENTITY_INVALID` ahead of `INITIALIZED false`, so "sign in with the other credential" and "the node is unreachable" stay distinguishable. A **missing** envelope is not an error — it is a first run. |
-| `KeyringError`  | a node's keys are not in the chain and cannot be recovered — the node was never walked to, or a fork carries no wrapped keys, or its wrapped keys do not unwrap under its parent (the manifest and the key chain disagree).                                                                                                                                                                   |
+| Error           | Raised when                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `IdentityError` | the envelope will not unseal, its `keyId` belongs to another FMK, its version does not match the current epoch, provisioning found one already there, or provisioning could not read back the envelope it just wrote. `initialize()` reports it as `IDENTITY_INVALID` ahead of `INITIALIZED false`, so "sign in with the other credential" and "the node is unreachable" stay distinguishable. A **missing** envelope is not an error — it is a first run. |
+| `KeyringError`  | a node's keys are not in the chain and cannot be recovered — the node was never walked to, or a fork carries no wrapped keys, or its wrapped keys do not unwrap under its parent (the manifest and the key chain disagree).                                                                                                                                                                                                                                |
 
 Both name the node they are about, truncated to its topic prefix.
 
@@ -455,13 +512,18 @@ Listed here so the gaps are explicit rather than inferred:
 - **Sharing (phase 2)** — the ACT delivery of key blobs, and every share grade in §7.
 - **Phase 1 folder sharing** — snapshotting a subtree into a new plaintext manifest. The single-file case needs no API.
 - **Key rotation** — including the resumable-job machinery it requires.
-- **Linking a second credential to one identity.** The FMK-derived owner makes multi-login portability _possible_; it is
-  not yet _reachable_. A second login finds no envelope under its own address and mints a fresh FMK — a second, disjoint
-  identity. Joining means writing an envelope that seals the _same_ FMK under credential B's unlock key at B's address,
-  which requires being signed in as B while holding the FMK; since the FMK is imported non-extractable and its source
-  bytes are zeroed immediately, there is currently no export path. Whatever mechanism lands, **credential B's envelope
-  must get a fresh salt** — reusing A's would make both envelopes carry a byte-identical `keyId` in the clear, publicly
-  linking the two login addresses, which is the exact correlation salting `keyId` prevents.
+- **Linking a second credential to one identity.** A second login finds no envelope under its own address and mints a
+  fresh FMK — a second, disjoint identity. Joining means sealing the _same_ FMK under credential B's unlock key at B's
+  address, which needs B's whole client (the envelope is signed by the backend's own key, not `identity.signer`) and an
+  FMK the library deliberately does not expose: it is imported non-extractable and its source bytes are zeroed at once.
+
+  What it would buy is "sign in with either Swarm ID or a wallet at one origin". Device portability and recovery are
+  already covered by Swarm ID, and it does not reach across origins, since the ceremony would itself have to carry the
+  FMK there. If it is ever built, **credential B's envelope must get a fresh salt**: reusing A's would put a
+  byte-identical `keyId` in both, publicly linking the two login addresses.
+
 - **Origin-independent identity on Swarm ID.** `deriveAppSecret` is scoped to `(identity, app origin)`, so the same user
-  on two origins provisions two disjoint identities. This is the one remaining external dependency, and it is a
-  portability limit rather than a security one.
+  on two origins gets two disjoint identities. This limits cross-app sharing, not login. Origin scoping is also what
+  currently stands in for an embedder allowlist — a hostile site can already embed the iframe, and only gets a different
+  `appSecret` — so lifting it without per-embedder registration and consent would turn a portability limit into a
+  phishing hole.

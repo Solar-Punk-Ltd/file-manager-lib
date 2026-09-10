@@ -95,9 +95,14 @@ Three members deserve care, because substituting one for another fails in ways t
 - **`owner`, `publicKey` and `actPublisher` are not interchangeable.** `owner` is a 20-byte address, the other two are
   33-byte compressed keys, and under `BeeClient` the ACT publisher is the **Bee node's** key rather than the signer's.
   Passing an address where a key is expected fails client-side, before any request, so it looks nothing like a 404.
-- **`deriveSecret` must return bytes the backend keeps private**, and must return the same bytes on every later session.
-  Deriving it from a public value compiles and passes tests, and leaves the identity envelope openable by anyone who can
-  read it. See [ENCRYPTION_AND_ACT.md §2](ENCRYPTION_AND_ACT.md#2-identity--from-a-login-to-the-filemanager-key).
+- **`deriveSecret` must return bytes that are stable, private, and elicitable only by the user.** Stable, or the
+  identity stops unsealing on the next session. Private, because deriving it from a public value compiles and passes
+  tests and leaves the envelope openable by anyone who can read it. Elicitable only by the user, because a wallet
+  signature over a fixed message is stable and private and still hands the identity to any site that prompts for the
+  same signature. Putting the origin into the signed message does not fix that — a wallet does not bind a signature to
+  who is asking, so another site reproduces it byte-for-byte, and cross-origin portability is lost for nothing. A
+  backend-enforced origin (Swarm ID reads `event.origin`) is a different thing. See
+  [Portability versus phishability](ENCRYPTION_AND_ACT.md#portability-versus-phishability).
 - **`writeFeed`'s `options.signer`** is the one place key material crosses the port, and it is always the library's own
   FMK-derived signer — never the backend's credential. Omit it and the update is signed by the backend key, which is
   what puts the identity envelope under the login's address.
@@ -126,11 +131,16 @@ interface Credential {
 ```
 
 It carries no owner: the envelope always lives under `swarmClient.owner`, because nothing else can sign a write there.
-The secret must be **byte-stable** across sessions and devices for a given user, and must be private to whoever produces
-it — see [ENCRYPTION_AND_ACT.md §2](ENCRYPTION_AND_ACT.md#2-identity--from-a-login-to-the-filemanager-key).
+The secret must be **byte-stable** across sessions and devices for a given user, **private** to whoever produces it, and
+**elicitable only by the user** — see
+[ENCRYPTION_AND_ACT.md §2](ENCRYPTION_AND_ACT.md#2-identity--from-a-login-to-the-filemanager-key) for what each rules
+out, and [Portability versus phishability](ENCRYPTION_AND_ACT.md#portability-versus-phishability) for why the first and
+last cannot both be had today.
 
 ```ts
 const fm = new FileManagerBase(swarmClient, undefined, {
+  // A wallet signature over a fixed message is portable across origins and phishable for the same
+  // reason: any site can request it. See the doc above before choosing this path.
   credential: { unlockSecret: () => deriveFromWalletSignature() },
 });
 ```
@@ -196,7 +206,8 @@ later runs, `initialize()` alone restores everything.
 - **Emits**: `DRIVE_CREATED`.
 - **Throws**: `DriveError` (not initialized, an admin drive already exists without `reset`, or admin state already
   exists without `reset`); `StampError` (the batch is unknown or not usable); `IdentityError` (an envelope already
-  exists for this credential — a concurrent provisioning race).
+  exists for this credential, or the freshly written envelope could not be read back). Retry `initialize()` — it unseals
+  the envelope that is actually there.
 
 ### `createDrive(batchId, name, redundancyLevel?, requestOptions?): Promise<DriveInfo>`
 

@@ -53,12 +53,9 @@ export interface SwarmClient {
 
   /**
    * Derive 32 stable, secret bytes from the backend's own key material. Used for the identity
-   * envelope's unlock key.
+   * envelope's unlock key, so this value alone locates the envelope, unseals the FMK, and yields
+   * read and write access to every drive.
    *
-   * Must be **stable** — a different value on a later session means the identity stops unsealing —
-   * and must derive from key material the backend keeps **private**. Hashing a public value such as
-   * an address or public key compiles and passes tests, and leaves the envelope openable by anyone
-   * who can read it.
    */
   deriveSecret(label: string): Promise<Uint8Array>;
 

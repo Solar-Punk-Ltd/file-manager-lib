@@ -6,8 +6,10 @@ import type { SwarmClient } from './types/swarmClient';
 import type { FeedResultWithIndex, Hex } from './types/utils';
 import { assertIdentityEnvelope } from './utils/asserts';
 import { getFeedData } from './utils/bee';
-import { errorMessage } from './utils/common';
+import { errorMessage, sleep } from './utils/common';
 import {
+  ENVELOPE_READBACK_ATTEMPTS,
+  ENVELOPE_READBACK_DELAY_MS,
   FEED_INDEX_NONE,
   FMK_LENGTH,
   IDENTITY_ENVELOPE_FEED_INDEX,
@@ -23,10 +25,11 @@ import { Logger } from './utils/logger';
 const logger = Logger.getInstance();
 
 /**
- * The default credential, derived from the backend's own key material.
+ * The default credential, derived from the backend's own key material. Both shipped backends use
+ * this — a custom `Credential` is only for adding a login method the library does not ship.
  *
- * On `SnahaClient` the secret is scoped to `(identity, app origin)`, so an identity provisioned on
- * one origin does not unseal on another. Pass a different `Credential` to work around that.
+ * On `SnahaClient` the secret is scoped to `(identity, app origin)`: stable across the user's
+ * devices, unavailable to any other origin.
  */
 export function swarmClientCredential(swarmClient: SwarmClient): Credential {
   return {
@@ -63,10 +66,50 @@ async function readEnvelopeFeed(
   try {
     return await getFeedData(swarmClient, topic, swarmClient.owner, IDENTITY_ENVELOPE_FEED_INDEX, requestOptions);
   } catch (err: unknown) {
-    logger.debug(`Envelope slot read failed, falling back to the feed head: ${errorMessage(err)}`);
+    logger.warn(`Envelope slot read failed, falling back to the feed head: ${errorMessage(err)}`);
 
     return await getFeedData(swarmClient, topic, swarmClient.owner, undefined, requestOptions);
   }
+}
+
+async function confirmEnvelope(
+  swarmClient: SwarmClient,
+  topic: Topic,
+  written: string,
+  requestOptions?: BeeRequestOptions,
+): Promise<void> {
+  const expected = Bytes.fromUtf8(written);
+
+  for (let attempt = 1; attempt <= ENVELOPE_READBACK_ATTEMPTS; attempt++) {
+    requestOptions?.signal?.throwIfAborted();
+    if (attempt > 1) {
+      await sleep(ENVELOPE_READBACK_DELAY_MS);
+    }
+
+    let read: FeedResultWithIndex;
+    try {
+      read = await readEnvelopeFeed(swarmClient, topic, requestOptions);
+    } catch (err: unknown) {
+      logger.warn(`Envelope read-back ${attempt}/${ENVELOPE_READBACK_ATTEMPTS} failed: ${errorMessage(err)}`);
+      continue;
+    }
+
+    if (read.feedIndex.equals(FEED_INDEX_NONE)) continue;
+
+    if (!read.payload.equals(expected)) {
+      logger.error(
+        `The identity envelope slot already holds a different envelope, so this write was discarded. expected: ${expected.toString()} vs actual ${read.payload.toString()}`,
+      );
+      throw new IdentityError('Identity envelope is not the expected');
+    }
+
+    return;
+  }
+
+  logger.error(
+    'Could not read back the identity envelope after writing it — refusing to return an identity whose envelope may not have landed',
+  );
+  throw new IdentityError('Could not re-confirm the identity');
 }
 
 /**
@@ -125,8 +168,9 @@ export async function resolveIdentity(
 /**
  * Create an identity for `credential` and write its envelope.
  *
- * Only for a credential with no envelope yet. It does not overwrite — Bee silently no-ops on a taken
- * index, so a concurrent provisioning race loses data rather than erroring. Call this from one place.
+ * Only for a credential with no envelope yet. It never overwrites: Bee silently no-ops a write to a
+ * taken index, so the write is read back rather than trusted. Finding another envelope there — a
+ * provisioning race, or an existing identity that read as absent — raises `IdentityError`.
  *
  * Separate from `resolveIdentity` because it writes: a user with no stamp can still initialize and
  * read, they just cannot provision.
@@ -158,17 +202,18 @@ export async function provisionIdentity(
       sealed: new Bytes(sealed).toString(),
       keyId: identity.keyId,
     };
+    const payload = JSON.stringify(envelope);
 
     await swarmClient.writeFeed(
       batchId,
       topic.toString(),
-      JSON.stringify(envelope),
-      // Decimal, per the port contract. FeedIndex.toString() emits 16-char hex and would silently
-      // address the wrong slot.
+      payload,
       IDENTITY_ENVELOPE_FEED_INDEX.toString(),
       undefined,
       requestOptions,
     );
+
+    await confirmEnvelope(swarmClient, topic, payload, requestOptions);
 
     logger.debug('Identity envelope provisioned.');
 

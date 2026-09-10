@@ -245,14 +245,13 @@ await fm.initialize();
 
 Known gaps on the Swarm ID backend: `AbortSignal` is dropped at the postMessage boundary, downloads are buffered (the
 stream variants wrap one chunk), `redundancyLevel` is discarded by the SDK's option schema — so data written through
-Swarm ID is encrypted but not erasure-coded — and the account exposes a single usable postage batch. The unlock secret
-is also scoped to `(identity, app origin)`, so the same user on two origins provisions two disjoint identities. See the
-class doc on `SnahaClient` for details.
+Swarm ID is encrypted but not erasure-coded — and the account exposes a single usable postage batch. See the class doc
+on `SnahaClient` for details, and [the origin rule](#swarm-id-and-the-origin-rule) before you choose a domain.
 
 ### Identity — three roles, three homes
 
-The login you sign in with is **not** the owner of your drives. Keeping those separate is what lets one user reach one
-set of drives from several login methods, and it is worth understanding before you persist any address.
+The login you sign in with is **not** the owner of your drives. The split keeps the tree's owner independent of
+whichever credential opened it, and it is worth understanding before you persist any address.
 
 | Value               | What it is                                      | What it is for                                        |
 | ------------------- | ----------------------------------------------- | ----------------------------------------------------- |
@@ -292,17 +291,73 @@ Three consequences worth planning around:
   node is unreachable" need different screens. The check is AES-GCM's authentication tag, so a wallet that signs
   non-deterministically surfaces here instead of presenting a silently empty drive list.
 
+### Swarm ID and the origin rule
+
+With `SnahaClient` you pass **no** credential — `swarmClientCredential` delegates to `deriveAppSecret`. Since
+`appSecret = HMAC(masterKey, appOrigin)` and `masterKey` is the user's Swarm ID account, the unlock secret is identical
+on every device they log in from and unavailable to any other origin. Nothing to configure, and no other site can obtain
+it.
+
+On recovery see [Recovery](docs/ENCRYPTION_AND_ACT.md#recovery).
+
+> **Deploy on one stable origin and never change it.** The origin is an input to the key derivation, so it is part of
+> the identity. Move it and every user lands on a first-run screen with their drives unreachable — no error, nothing to
+> migrate. That rules out per-deploy hash subdomains and path-based gateway URLs (which also give every dApp on that
+> gateway the same `appSecret`); use a stable custom or ENS-backed domain. `www.` and bare, and `localhost` and
+> production, are different origins and therefore different identities.
+
+The limitation: identities do not cross origins, so the same user on two sites has two separate file managers. That
+limits cross-app sharing, not login.
+
+### Custom credentials and the wallet tradeoff
+
 `Credential` is the seam if you want a login method the library doesn't ship. It carries only `unlockSecret()` — where
 the envelope lives is always the client's address, since nothing else can sign a write there:
 
 ```ts
+import { Bytes } from '@ethersphere/core-sdk';
+
+// A library-wide domain, not your app's: binding it to your origin would strand the identity on
+// one host, and leaving it portable is what makes the signature phishable. See below.
+const domain = { name: 'Swarm FileManager Identity', version: '1' };
+const types = { Unlock: [{ name: 'purpose', type: 'string' }] };
+
 const fm = new FileManagerBase(swarmClient, undefined, {
-  credential: { unlockSecret: () => walletSignature('fm-identity-v1') },
+  credential: {
+    unlockSecret: async () => {
+      const signature = await wallet.signTypedData(domain, types, {
+        purpose: 'Unlock my Swarm FileManager identity',
+      });
+
+      return Bytes.keccak256(signature).toUint8Array();
+    },
+  },
 });
 ```
 
-The secret must be **byte-stable** for a given user across sessions and devices; a different secret derives a different
-unlock key, which is an `IdentityError` rather than a recoverable state.
+That secret derives both the envelope's topic and the key that opens it, so anyone who can produce it has read and write
+access to every drive. Three requirements, none of which the compiler can check:
+
+- **Stable** — byte-identical for a given user across sessions and devices. A different secret derives a different
+  unlock key, which is an `IdentityError` rather than a recoverable state.
+- **Private** — derived from key material only your credential holds. Hashing a public value (an address, a public key)
+  leaves the envelope openable by anyone who can read it. For the same reason it must be key material and not a user
+  passphrase: the envelope is public and the unlock KDF does no stretching.
+- **Only obtainable by the user** — which the example above does not achieve.
+
+A signature over a constant is portable across origins precisely because any site can reproduce it, so a hostile page
+that gets one `signTypedData` prompt accepted obtains the whole identity, from a cold start and with no XSS. EIP-712
+only makes the prompt legible.
+
+Putting your origin into the signed message does not fix that. An EIP-712 `domain` is data the requesting page supplies,
+and no wallet binds the signature to who is asking — `evil.com` can send byte-identical typed data and get the identical
+signature. It buys a mismatch an attentive user might spot, at the cost of cross-origin portability. SIWE is a partial
+exception: some wallets compare its `domain` against the requesting origin and warn, but that is wallet-dependent and
+click-through-able.
+
+Swarm ID's origin is `event.origin` at the postMessage boundary, so the browser enforces it and no page can claim to be
+yours. Pick the wallet path only if Swarm ID is not an option, and tell your users what they are approving. Full
+comparison in [Portability versus phishability](docs/ENCRYPTION_AND_ACT.md#portability-versus-phishability).
 
 ### Tuning concurrency
 

@@ -2,12 +2,12 @@ import type { Topic } from '@ethersphere/core-sdk';
 
 import type { Hex } from './utils';
 
-/** Wire format of the sealed FMK, stored as JSON directly in the envelope feed payload. */
+// Wire format of the sealed FMK, stored as JSON directly in the envelope feed payload.
 export interface IdentityEnvelope {
   v: number;
-  /** Public HKDF salt, for both the unlock-key and key-id derivations. */
+  // Public HKDF salt, for both the unlock-key and key-id derivations.
   salt: Hex;
-  /** `iv || ciphertext` of the FMK under the unlock key. */
+  // `iv || ciphertext` of the FMK under the unlock key.
   sealed: Hex;
   keyId: Hex;
 }
@@ -17,11 +17,12 @@ export interface IdentityEnvelope {
  * secret all fit behind this, so adding a login method means adding a `Credential`, not touching the
  * library.
  *
- * The secret must be **stable** for a given user — re-deriving a different value produces a
- * different unlock key, which throws rather than losing data silently.
+ * The secret it returns derives both the envelope's topic and the key that opens it, so whoever can
+ * produce it holds every drive. It must be **stable** across sessions and devices, **private** to
+ * whoever produces it, and **elicitable only by the user**.
  */
 export interface Credential {
-  /** Raw secret bytes to derive the unlock key from. Zeroed by the caller after use. */
+  // Raw secret bytes to derive the unlock key from. Zeroed by the caller after use.
   unlockSecret(): Promise<Uint8Array>;
 }
 

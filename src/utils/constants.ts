@@ -25,6 +25,9 @@ export const UNLOCK_KDF_LABEL = 'fm-unlock';
 export const IDENTITY_ENVELOPE_TOPIC_LABEL = 'fm-identity-envelope';
 // The envelope feed's only slot. Never append: nothing rotates in place, and Bee no-ops on a taken index.
 export const IDENTITY_ENVELOPE_FEED_INDEX = 0n;
+// Read-back of the envelope write. A fresh feed update is not immediately readable, hence the retry.
+export const ENVELOPE_READBACK_ATTEMPTS = 5;
+export const ENVELOPE_READBACK_DELAY_MS = 500;
 export const FMK_LENGTH = 32;
 export const UNLOCK_SALT_LENGTH = 16;
 export const SWARM_ZERO_ADDRESS = new Reference(NULL_ADDRESS);

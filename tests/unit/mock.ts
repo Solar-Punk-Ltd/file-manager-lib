@@ -106,6 +106,8 @@ export function mockWrappedKeys(seed: string = 'ab'): Record<string, string> {
   };
 }
 
+const envelopeSlots = new Map<string, Bytes>();
+
 export function createMockFeedReader(char: string = '1'): FeedReader {
   return {
     owner: new EthAddress(char.repeat(40)),
@@ -116,20 +118,23 @@ export function createMockFeedReader(char: string = '1'): FeedReader {
   };
 }
 
-export function createMockFeedWriter(char: string = '1'): FeedWriter {
+/** `topic` is what makes a write recoverable by {@link envelopeSlots}; omit it for a bare writer. */
+export function createMockFeedWriter(char: string = '1', topic?: string): FeedWriter {
+  const result = {
+    reference: new Reference(char.repeat(64)),
+    historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
+  } as UploadResult;
+
   return {
-    upload: jest.fn().mockResolvedValue({
-      reference: new Reference(char.repeat(64)),
-      historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
-    } as UploadResult),
-    uploadReference: jest.fn().mockResolvedValue({
-      reference: new Reference(char.repeat(64)),
-      historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
-    } as UploadResult),
-    uploadPayload: jest.fn().mockResolvedValue({
-      reference: new Reference(char.repeat(64)),
-      historyAddress: Optional.of(SWARM_ZERO_ADDRESS),
-    } as UploadResult),
+    upload: jest.fn().mockResolvedValue(result),
+    uploadReference: jest.fn().mockResolvedValue(result),
+    uploadPayload: jest.fn().mockImplementation(async (_batchId: unknown, payload: unknown) => {
+      if (topic !== undefined && typeof payload === 'string' && !envelopeSlots.has(topic)) {
+        envelopeSlots.set(topic, Bytes.fromUtf8(payload));
+      }
+
+      return result;
+    }),
     ...createMockFeedReader(char),
   };
 }
@@ -165,7 +170,10 @@ export function createInitMocks(data?: Reference): any {
   } as unknown as UploadResult);
   jest
     .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').feed), 'makeWriter')
-    .mockReturnValue(createMockFeedWriter());
+    .mockImplementation((...args: unknown[]) => {
+      const topic = args[0] as Topic | Uint8Array | string;
+      return createMockFeedWriter('1', new Topic(topic).toString());
+    });
   jest
     .spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').feed), 'makeReader')
     .mockReturnValue(createMockFeedReader());
@@ -302,15 +310,23 @@ export const refPayload = (
 
 export function applyDefaultMocks(): void {
   jest.resetAllMocks();
+  envelopeSlots.clear();
   createInitMocks();
 
-  (getFeedData as jest.Mock).mockResolvedValue({
-    feedIndex: FeedIndex.MINUS_ONE,
-    feedIndexNext: FEED_INDEX_ZERO,
-    payload: {
-      toUint8Array: () => SWARM_ZERO_ADDRESS.toUint8Array(),
-      toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString() }),
-    },
+  (getFeedData as jest.Mock).mockImplementation(async (_client: SwarmClient, topic: Topic) => {
+    const envelope = envelopeSlots.get(topic.toString());
+    if (envelope) {
+      return { feedIndex: FEED_INDEX_ZERO, feedIndexNext: FeedIndex.fromBigInt(1n), payload: envelope };
+    }
+
+    return {
+      feedIndex: FeedIndex.MINUS_ONE,
+      feedIndexNext: FEED_INDEX_ZERO,
+      payload: {
+        toUint8Array: () => SWARM_ZERO_ADDRESS.toUint8Array(),
+        toJSON: () => ({ reference: SWARM_ZERO_ADDRESS.toString() }),
+      },
+    };
   });
 
   (fetchStamp as jest.Mock).mockResolvedValue({ ...mockStampInfo });
