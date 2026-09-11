@@ -5,7 +5,15 @@ import type { EventEmitter } from '../eventEmitter';
 
 import type { DownloadFilesResult, DownloadResult } from './download';
 import type { Credential, IdentityInfo } from './identity';
-import type { DriveInfo, FileRecord, FolderInfo, ListDepth, ListFolderResult, StampInfo } from './info';
+import type {
+  CreateDriveParams,
+  DriveInfo,
+  FileRecord,
+  FolderInfo,
+  ListDepth,
+  ListFolderResult,
+  StampInfo,
+} from './info';
 import type { UpdateItem, UploadFilesResult, UploadItem, UploadOptions } from './upload';
 
 /**
@@ -24,7 +32,7 @@ export interface FileManager {
   /**
    * Bootstraps the admin state (drive registry) and creates the admin drive.
    *  It establishes the state feed and its empty admin manifest before registering the admin drive into it.
-   * Regular drives are created with {@link createDrive} once this has succeeded.
+   * Regular drives are created with {@link createDrives} once this has succeeded.
    * @param batchId - The batch ID for the admin drive / state.
    * @param redundancyLevel - Optional redundancy level for the admin drive.
    * @param reset - Discard existing admin state and start over (wipes local state and appends a
@@ -44,24 +52,21 @@ export interface FileManager {
   ): Promise<DriveInfo>;
 
   /**
-   * Creates a new (non-admin) drive and registers it in the admin manifest. Requires the admin state
-   * to already exist — call {@link createAdminDrive} first for initial setup.
-   * @param batchId - The batch ID for the drive.
-   * @param name - The name of the drive.
-   * @param redundancyLevel - Optional redundancy level for the drive.
+   * Creates several (non-admin) drives and registers them all in a single admin-manifest write.
+   * Requires the admin state to already exist — call {@link createAdminDrive} first for initial setup.
+   *
+   * The registry is all-or-nothing: nothing is registered until the final write lands, so a failure
+   * part-way leaves paid-for but unreferenced drive manifests rather than a half-written registry.
+   * The individual drive manifests are separate feed writes and cannot be rolled back.
+   * @param params - One entry per drive. Names must be unique within the batch and against existing drives.
    * @param requestOptions - Additional Bee request options.
-   * @emits FileManagerEvents.DRIVE_CREATED
-   * @returns The newly-created DriveInfo.
-   * @throws {DriveError} If not initialized, admin state/manifest is not ready, or a drive with the
-   *   same name already exists. Several drives may share one batch — a batch only pays for storage.
-   * @throws {StampError} If the batch stamp is missing or not usable.
+   * @emits FileManagerEvents.DRIVE_CREATED once per drive, after the registry write has landed.
+   * @returns The newly-created DriveInfos, in the order requested.
+   * @throws {DriveError} If not initialized, admin state/manifest is not ready, `params` is empty, or
+   *   a drive name is already taken. Several drives may share one batch — a batch only pays for storage.
+   * @throws {StampError} If any batch stamp is missing or not usable.
    */
-  createDrive(
-    batchId: string | BatchId,
-    name: string,
-    redundancyLevel?: RedundancyLevel,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<DriveInfo>;
+  createDrives(params: CreateDriveParams[], requestOptions?: BeeRequestOptions): Promise<DriveInfo[]>;
 
   /**
    * Uploads a NEW file with the given options — mints a fresh feed topic and adds a new fork to

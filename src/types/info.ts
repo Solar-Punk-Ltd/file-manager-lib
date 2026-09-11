@@ -1,5 +1,5 @@
 import { type RedundancyLevel } from '@ethersphere/bee-js';
-import { type MantarayNode } from '@ethersphere/core-sdk';
+import { type BatchId, type MantarayNode } from '@ethersphere/core-sdk';
 
 import { type ContentRef, type Hex } from './utils';
 
@@ -108,4 +108,10 @@ export interface StampInfo {
   batchId: Hex;
   usable: boolean;
   depth: number;
+}
+
+export interface CreateDriveParams {
+  name: string;
+  batchId: string | BatchId;
+  redundancyLevel?: RedundancyLevel;
 }

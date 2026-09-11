@@ -42,7 +42,7 @@ describe('Drive operations', () => {
   it('should create a drive and retrieve it', async () => {
     const batchId = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'createDriveStamp');
 
-    await fileManager.createDrive(batchId, 'Test Drive');
+    await fileManager.createDrives([{ batchId, name: 'Test Drive' }]);
     const drives = fileManager.driveList;
     expect(drives.length).toBeGreaterThanOrEqual(1);
     const testDrive = drives.find((d) => d.name === 'Test Drive');
@@ -57,7 +57,7 @@ describe('Drive operations', () => {
 
   it('should forget a user drive: removes the drive, prunes its files, and persists the change', async () => {
     const forgetBatchId = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'forgetDriveStamp');
-    await fileManager.createDrive(forgetBatchId, 'Drive to forget');
+    await fileManager.createDrives([{ batchId: forgetBatchId, name: 'Drive to forget' }]);
 
     const created = fileManager.driveList.find((d) => d.name === 'Drive to forget');
     expect(created).toBeDefined();
@@ -120,7 +120,7 @@ describe('Drive operations', () => {
 
   it('renames a drive via move, keeping its files, and the new name survives a cold instance', async () => {
     const batchId = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'renameDriveStamp');
-    await fileManager.createDrive(batchId, 'Drive to rename');
+    await fileManager.createDrives([{ batchId, name: 'Drive to rename' }]);
     const drive = fileManager.driveList.find((d) => d.name === 'Drive to rename')!;
     expect(drive).toBeDefined();
 
@@ -178,7 +178,7 @@ describe('Drive operations', () => {
 
     const taken = fileManager.driveList.find((d) => !d.isAdmin)!;
     const batchId = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'renameClashStamp');
-    await fileManager.createDrive(batchId, 'Rename clash source');
+    await fileManager.createDrives([{ batchId, name: 'Rename clash source' }]);
     const source = fileManager.driveList.find((d) => d.name === 'Rename clash source')!;
 
     await expect(fileManager.move(ROOT_PATH, taken.name, source.id)).rejects.toThrow(

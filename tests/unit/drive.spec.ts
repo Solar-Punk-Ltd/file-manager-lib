@@ -7,6 +7,7 @@ import { applyDefaultMocks, createMockDriveInfo, seedRecords } from './mock';
 
 import { type DriveInfo, NodeType } from '@/types';
 import { DriveError, FileManagerEvents } from '@/utils';
+import { writeSealedRefFeed } from '@/utils/bee';
 import {
   ADMIN_DRIVE_NAME,
   MANIFEST_METADATA_DRIVE_ID,
@@ -45,10 +46,10 @@ describe('Drive operations', () => {
     });
   });
 
-  describe('createDrive', () => {
+  describe('createDrives', () => {
     it('should create a new drive', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const di = fm.driveList[1];
       expect(di).toBeDefined();
       expect(di.name).toBe('Test Drive');
@@ -61,28 +62,67 @@ describe('Drive operations', () => {
 
     it('should throw error if drive with same name exists', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
 
       const otherBatchId = 'aa0fec26fdd55a1b8a777cc8c84277a1b16a7da318413fbd4cc4634dd93a2c51';
-      await expect(fm.createDrive(otherBatchId, 'Test Drive')).rejects.toThrow(
+      await expect(fm.createDrives([{ batchId: otherBatchId, name: 'Test Drive' }])).rejects.toThrow(
         new DriveError('Drive with name "Test Drive" already exists'),
       );
     });
 
     it('should allow several drives to share one batch', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
 
-      const second = await fm.createDrive(otherMockBatchId, 'New Drive');
+      const [second] = await fm.createDrives([{ batchId: otherMockBatchId, name: 'New Drive' }]);
       expect(second.name).toBe('New Drive');
       expect(second.batchId).toBe(otherMockBatchId.toString());
+    });
+
+    it('should register a whole batch with a single admin-manifest write', async () => {
+      const fm = await createInitializedFileManager();
+      const stateTopic = (fm as any).store.requireIdentity().stateTopic.toString();
+      (writeSealedRefFeed as jest.Mock).mockClear();
+
+      const drives = await fm.createDrives([
+        { batchId: otherMockBatchId, name: 'My files' },
+        { batchId: otherMockBatchId, name: 'Websites' },
+        { batchId: otherMockBatchId, name: 'Trash' },
+      ]);
+
+      expect(drives.map((d) => d.name)).toEqual(['My files', 'Websites', 'Trash']);
+      expect(fm.driveList.map((d) => d.name)).toEqual([ADMIN_DRIVE_NAME, 'My files', 'Websites', 'Trash']);
+
+      // The point of the batch: three drive manifests, but the registry feed advances once.
+      const adminWrites = (writeSealedRefFeed as jest.Mock).mock.calls.filter((c) => c[4].topic === stateTopic);
+      expect(adminWrites).toHaveLength(1);
+    });
+
+    it('should reject a name repeated within one batch, before anything is written', async () => {
+      const fm = await createInitializedFileManager();
+      (writeSealedRefFeed as jest.Mock).mockClear();
+
+      await expect(
+        fm.createDrives([
+          { batchId: otherMockBatchId, name: 'Websites' },
+          { batchId: otherMockBatchId, name: 'Websites' },
+        ]),
+      ).rejects.toThrow(new DriveError('Drive with name "Websites" already exists'));
+
+      expect(writeSealedRefFeed).not.toHaveBeenCalled();
+      expect(fm.driveList).toHaveLength(1);
+    });
+
+    it('should reject an empty batch', async () => {
+      const fm = await createInitializedFileManager();
+      await expect(fm.createDrives([])).rejects.toThrow(new DriveError('No drives to create'));
     });
   });
 
   describe('forgetDrive', () => {
     it('should remove a user drive, prune its files, and emit DRIVE_FORGOTTEN', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Drive to forget (unit)');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Drive to forget (unit)' }]);
       const target = fm.driveList.find((d) => d.name === 'Drive to forget (unit)')!;
       expect(target).toBeDefined();
 
@@ -143,7 +183,7 @@ describe('Drive operations', () => {
   describe('rename via move', () => {
     it('renames a drive and emits DRIVE_RENAMED', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const drive = fm.driveList[1];
       const topicBefore = drive.topic;
       const manifestRefBefore = drive.manifestRef;
@@ -162,7 +202,7 @@ describe('Drive operations', () => {
 
     it('rewrites the drive fork metadata in place, keeping the id-keyed fork path', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const drive = fm.driveList[1];
 
       await fm.move(ROOT_PATH, 'Renamed Drive', drive.id);
@@ -189,8 +229,8 @@ describe('Drive operations', () => {
 
     it('refuses a name another drive already carries, and a no-op rename', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
-      await fm.createDrive(new BatchId('5'.repeat(64)), 'Second Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
+      await fm.createDrives([{ batchId: new BatchId('5'.repeat(64)), name: 'Second Drive' }]);
       const drive = fm.driveList[1];
 
       await expect(fm.move(ROOT_PATH, 'Second Drive', drive.id)).rejects.toThrow(

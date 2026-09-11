@@ -147,7 +147,7 @@ describe('File operations', () => {
   describe('uploadFile', () => {
     it('uploads a new file: adds it to recordList at version 0 and forks it into the drive manifest', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const di = fm.driveList[1];
 
       await fm.uploadFile(di.id, { path: 'package.json', ...makeUploadSource('package.json') });
@@ -167,7 +167,7 @@ describe('File operations', () => {
 
     it('places the file at `path`, independent of the source (rename on upload)', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const di = fm.driveList[1];
 
       await fm.uploadFile(di.id, { path: 'renamed.json', ...makeUploadSource('package.json') });
@@ -182,7 +182,7 @@ describe('File operations', () => {
 
     it('uploads into a subfolder: forks the file into the folder manifest, not the drive root', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const di = fm.driveList[1];
 
       await fm.createFolder(di.id, '', 'tests');
@@ -206,7 +206,7 @@ describe('File operations', () => {
 
     nodeOnly('throws when uploading a directory — directories must go through uploadFiles', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const di = fm.driveList[1];
 
       await expect(fm.uploadFile(di.id, { path: 'tests', sourcePath: 'tests' })).rejects.toThrow(
@@ -216,7 +216,7 @@ describe('File operations', () => {
 
     nodeOnly('throws a FileError instance for a directory upload', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const di = fm.driveList[1];
 
       await expect(fm.uploadFile(di.id, { path: 'tests', sourcePath: 'tests' })).rejects.toBeInstanceOf(FileError);
@@ -224,7 +224,7 @@ describe('File operations', () => {
 
     nodeOnly('throws for a nested directory path (not just a top-level one)', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const di = fm.driveList[1];
 
       await expect(fm.uploadFile(di.id, { path: 'tests/unit', sourcePath: 'tests/unit' })).rejects.toThrow(
@@ -234,7 +234,7 @@ describe('File operations', () => {
 
     nodeOnly('does not add a fork or recordList entry when a directory upload is rejected', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const di = fm.driveList[1];
 
       await expect(fm.uploadFile(di.id, { path: 'tests', sourcePath: 'tests' })).rejects.toThrow();
@@ -255,7 +255,7 @@ describe('File operations', () => {
 
     it('rejects a second upload onto an occupied name and leaves the original fork intact', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const di = fm.driveList[1];
 
       await fm.uploadFile(di.id, { path: 'package.json', ...makeUploadSource('package.json') });
@@ -272,7 +272,7 @@ describe('File operations', () => {
 
     it('rejects an occupied name before spending a stamp on content or a feed slot', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const di = fm.driveList[1];
 
       await fm.uploadFile(di.id, { path: 'package.json', ...makeUploadSource('package.json') });
@@ -292,7 +292,7 @@ describe('File operations', () => {
       'rejects the invalid path %p before uploading anything',
       async (badPath) => {
         const fm = await createInitializedFileManager();
-        await fm.createDrive(otherMockBatchId, 'Test Drive');
+        await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
         const di = fm.driveList[1];
 
         const uploadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'upload');
@@ -311,7 +311,7 @@ describe('File operations', () => {
   describe('uploadFiles', () => {
     it('defaults destinationPath to the drive root when omitted', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const di = fm.driveList[1];
 
       const result = await fm.uploadFiles(di.id, [{ path: 'root-default.txt', ...makeUploadSource('package.json') }]);
@@ -325,7 +325,7 @@ describe('File operations', () => {
 
     it('treats an omitted destinationPath the same as an explicit root', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const di = fm.driveList[1];
 
       const omitted = await fm.uploadFiles(di.id, [{ path: 'omitted.txt', ...makeUploadSource('package.json') }]);
@@ -341,7 +341,7 @@ describe('File operations', () => {
 
     it('rejects a batch whose entries resolve to the same destination path', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const di = fm.driveList[1];
 
       const uploadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'upload');
@@ -363,7 +363,7 @@ describe('File operations', () => {
 
     it('collects an occupied destination name in `failed` and still uploads the rest', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const di = fm.driveList[1];
 
       await fm.uploadFile(di.id, { path: 'taken.txt', ...makeUploadSource('package.json') });
@@ -393,7 +393,7 @@ describe('File operations', () => {
     // Seed a real, version-0 record via a fresh upload so update() re-versions an actual file.
     async function seedUploadedFile(): Promise<{ fm: FileManagerBase; di: DriveInfo; record: FileRecord }> {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const di = fm.driveList[1];
       await fm.uploadFile(di.id, { path: 'package.json', ...makeUploadSource('package.json') });
       const record = fm.recordList.find((fr) => fr.path === 'package.json')!;
@@ -520,7 +520,7 @@ describe('File operations', () => {
 
     it('throws when the resolved record does not belong to the target drive', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const di = fm.driveList[1];
 
       const foreign: FileRecord = {
@@ -550,7 +550,7 @@ describe('File operations', () => {
 
     it('throws a not-found error when the record is absent on a cold cache', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const di = fm.driveList[1];
 
       const record: FileRecord = {
@@ -575,7 +575,7 @@ describe('File operations', () => {
   describe('record persistence contract', () => {
     it('persists name but strips the derived path, driveId and status', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const drive = fm.driveList[1];
 
       await fm.createFolder(drive.id, ROOT_PATH, 'docs');
@@ -608,7 +608,7 @@ describe('File operations', () => {
 
     it('derives name from the leaf of the upload path, at any depth', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const drive = fm.driveList[1];
 
       await fm.uploadFiles(drive.id, [
@@ -666,7 +666,7 @@ describe('File operations', () => {
   describe('move', () => {
     it('renames a file fork in place without writing a new version', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const drive = fm.driveList[1];
 
       await fm.uploadFile(drive.id, { path: 'package.json', ...makeUploadSource('package.json') });
@@ -693,7 +693,7 @@ describe('File operations', () => {
 
     it('moves a file across folders without writing a new version', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const drive = fm.driveList[1];
 
       await fm.createFolder(drive.id, ROOT_PATH, 'archive');
@@ -714,7 +714,7 @@ describe('File operations', () => {
 
     it('cannot reach a trashed node, and refuses the trash folder as an endpoint', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const drive = fm.driveList[1];
 
       await fm.uploadFile(drive.id, { path: 'package.json', ...makeUploadSource('package.json') });
@@ -788,7 +788,7 @@ describe('File operations', () => {
 
     it('rejects a move onto an existing destination and leaves both forks in place', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const drive = fm.driveList[1];
 
       await fm.uploadFile(drive.id, { path: 'a.json', ...makeUploadSource('package.json') });
@@ -810,7 +810,7 @@ describe('File operations', () => {
 
     it('updateFile rejects a missing upload source via assertUploadableSource', async () => {
       const fm = await createInitializedFileManager();
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const di = fm.driveList[1];
       await fm.uploadFile(di.id, { path: 'package.json', ...makeUploadSource('package.json') });
       const record = fm.recordList.find((fr) => fr.path === 'package.json')!;

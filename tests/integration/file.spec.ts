@@ -351,7 +351,7 @@ describe('uploadFiles', () => {
       DEFAULT_BATCH_DEPTH,
       'initNestedFolderStamp',
     );
-    await fileManager.createDrive(driveBatchId, 'init-nested-drive');
+    await fileManager.createDrives([{ batchId: driveBatchId, name: 'init-nested-drive' }]);
     const drive = fileManager.driveList.find((d) => d.name === 'init-nested-drive')!;
     expect(drive).toBeDefined();
 
@@ -536,7 +536,7 @@ describe('downloadFile and downloadFiles', () => {
       DEFAULT_BATCH_DEPTH,
       'downloadEmptyIntegration',
     );
-    await fileManager.createDrive(emptyBatchId, 'download-empty-drive');
+    await fileManager.createDrives([{ batchId: emptyBatchId, name: 'download-empty-drive' }]);
     const emptyDrive = fileManager.driveList.find((d) => d.name === 'download-empty-drive')!;
     expect(emptyDrive).toBeDefined();
 
@@ -562,7 +562,7 @@ describe('move', () => {
     const batchIdA = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'moveIntegrationA');
     fileManager = await createInitializedFileManager(client, ownerStamp);
 
-    await fileManager.createDrive(batchIdA, 'move-a');
+    await fileManager.createDrives([{ batchId: batchIdA, name: 'move-a' }]);
     const tmpDriveA = fileManager.driveList.find((d) => d.name === 'move-a');
     expect(tmpDriveA).toBeDefined();
     driveA = tmpDriveA!;
@@ -606,7 +606,7 @@ describe('move', () => {
     const src = writeTempFile(original, 'Cold Rename Content');
 
     const batchId = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'moveColdRename');
-    await fileManager.createDrive(batchId, 'move-cold-rename');
+    await fileManager.createDrives([{ batchId, name: 'move-cold-rename' }]);
     const drive = fileManager.driveList.find((d) => d.name === 'move-cold-rename')!;
     expect(drive).toBeDefined();
 

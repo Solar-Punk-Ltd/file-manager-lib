@@ -253,7 +253,7 @@ describe('reinitialization', () => {
     const fileManager = await createInitializedFileManager(client, ownerStamp);
 
     const userBatchId = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'userDrive');
-    await fileManager.createDrive(userBatchId, 'User Drive');
+    await fileManager.createDrives([{ batchId: userBatchId, name: 'User Drive' }]);
 
     const drivesBeforeReinit = fileManager.driveList;
     const userDrive = drivesBeforeReinit.find((d) => d.name === 'User Drive');
@@ -300,7 +300,7 @@ describe('reinitialization', () => {
     await fileManager.initialize();
 
     const newBatchId = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'afterReinit');
-    await fileManager.createDrive(newBatchId, 'Post Reinit Drive');
+    await fileManager.createDrives([{ batchId: newBatchId, name: 'Post Reinit Drive' }]);
 
     const drives = fileManager.driveList;
     const newDrive = drives.find((d) => d.name === 'Post Reinit Drive');
@@ -359,8 +359,8 @@ describe('reinitialization', () => {
     const batch1 = await buyStampSerialized(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'drive1');
     const batch2 = await buyStampSerialized(beeDev, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'drive2');
 
-    await fileManager.createDrive(batch1, 'Drive 1');
-    await fileManager.createDrive(batch2, 'Drive 2');
+    await fileManager.createDrives([{ batchId: batch1, name: 'Drive 1' }]);
+    await fileManager.createDrives([{ batchId: batch2, name: 'Drive 2' }]);
 
     const drivesBeforeReinit = fileManager.driveList;
     const drive1 = drivesBeforeReinit.find((d) => d.name === 'Drive 1');

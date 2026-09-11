@@ -109,7 +109,7 @@ describe('Version control', () => {
       DEFAULT_BATCH_DEPTH,
       `mismatchStamp-${Date.now()}`,
     );
-    await fileManager.createDrive(otherBatch, `other-drive-${Date.now()}`);
+    await fileManager.createDrives([{ batchId: otherBatch, name: `other-drive-${Date.now()}` }]);
     const otherDrive = fileManager.driveList.at(-1)!;
 
     // base was uploaded into `drive`, not `otherDrive`.

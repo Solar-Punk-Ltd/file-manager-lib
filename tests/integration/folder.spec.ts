@@ -231,7 +231,7 @@ describe('Folder operations', () => {
     });
 
     it('moves a folder as a unit, composing correct descendant paths at read time', async () => {
-      await fileManager.createDrive(moveBatchId, 'move-folder-a');
+      await fileManager.createDrives([{ batchId: moveBatchId, name: 'move-folder-a' }]);
       const tmpDriveA = fileManager.driveList.find((d) => d.name === 'move-folder-a');
       expect(tmpDriveA).toBeDefined();
       const driveA = tmpDriveA!;

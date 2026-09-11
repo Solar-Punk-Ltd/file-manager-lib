@@ -32,7 +32,7 @@ describe('Abort signal handling', () => {
 
   nodeOnly('should throw for a directory upload regardless of an abort signal', async () => {
     const fm = await createInitializedFileManager();
-    await fm.createDrive(otherMockBatchId, 'Test Drive');
+    await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
     const di = fm.driveList[1];
 
     const controller = new AbortController();
@@ -46,7 +46,7 @@ describe('Abort signal handling', () => {
 
   it('should pass requestOptions with signal to uploadData', async () => {
     const fm = await createInitializedFileManager();
-    await fm.createDrive(otherMockBatchId, 'Test Drive');
+    await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
     const di = fm.driveList[1];
 
     const uploadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'upload');
@@ -65,7 +65,7 @@ describe('Abort signal handling', () => {
 
   it('should not pass signal if requestOptions is undefined', async () => {
     const fm = await createInitializedFileManager();
-    await fm.createDrive(otherMockBatchId, 'Test Drive');
+    await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
     const di = fm.driveList[1];
 
     const uploadDataSpy = jest.spyOn(Object.getPrototypeOf(new Bee('http://localhost:1633').data), 'upload');
@@ -80,7 +80,7 @@ describe('Abort signal handling', () => {
 
   it('should allow upload to proceed when signal is not aborted', async () => {
     const fm = await createInitializedFileManager();
-    await fm.createDrive(otherMockBatchId, 'Test Drive');
+    await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
     const di = fm.driveList[1];
 
     const controller = new AbortController();
@@ -99,7 +99,7 @@ describe('Abort signal handling', () => {
       });
       await fm.initialize();
       await fm.createAdminDrive(DUMMY_BATCH_ID, RedundancyLevel.MEDIUM);
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       return fm;
     }
 

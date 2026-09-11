@@ -72,7 +72,7 @@ export async function setupUserDrive(
     ? ownerStamp
     : await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, stampLabel);
 
-  await fileManager.createDrive(batchId, driveName);
+  await fileManager.createDrives([{ batchId, name: driveName }]);
   const drive = fileManager.driveList.find((d) => d.name === driveName);
   expect(drive).toBeDefined();
 

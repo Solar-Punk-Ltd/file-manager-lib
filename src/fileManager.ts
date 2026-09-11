@@ -1,10 +1,12 @@
 import { type BeeRequestOptions, type DownloadOptions, RedundancyLevel } from '@ethersphere/bee-js';
 import { type BatchId, FeedIndex, Identifier, MantarayNode, Reference, Topic } from '@ethersphere/core-sdk';
 
+import type { WrappedKeys } from './types/crypto';
 import { type DownloadFilesResult, type DownloadResource, type DownloadResult } from './types/download';
 import { type FileManager, type FileManagerConfig } from './types/fileManager';
 import type { Credential, IdentityInfo } from './types/identity';
 import {
+  type CreateDriveParams,
   type DriveInfo,
   FailureScope,
   type FileRecord,
@@ -265,34 +267,43 @@ export class FileManagerBase implements FileManager {
     this.store.setManifestCache(stateTopicStr, new MantarayNode());
     this.store.setNodeNextIndexCache(stateTopicStr, feedIndexNext.toBigInt());
 
-    return await this.registerDrive(
-      { owner: identity.owner, name: ADMIN_DRIVE_NAME, batchId: batchIdStr, isAdmin: true, redundancyLevel: level },
+    const [adminDrive] = await this.registerDrive(
+      [{ name: ADMIN_DRIVE_NAME, batchId: batchIdStr, isAdmin: true, redundancyLevel: level }],
       requestOptions,
     );
+
+    return adminDrive;
   }
 
-  async createDrive(
-    batchId: string | BatchId,
-    name: string,
-    redundancyLevel?: RedundancyLevel,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<DriveInfo> {
+  async createDrives(params: CreateDriveParams[], requestOptions?: BeeRequestOptions): Promise<DriveInfo[]> {
     requestOptions?.signal?.throwIfAborted();
 
-    const { stateTopic, owner } = assertReady(this.isInitialized, this.store.identity);
+    const { stateTopic } = assertReady(this.isInitialized, this.store.identity);
 
     if (!this.store.getNodeRef(stateTopic)) {
       throw new DriveError('Admin manifest not set');
     }
+    if (params.length === 0) {
+      throw new DriveError('No drives to create');
+    }
 
-    const batchIdStr = batchId.toString();
-    const fetchedStamp = await fetchStamp(this.swarmClient, batchId, requestOptions);
-    verifyStampUsability(fetchedStamp, batchIdStr);
+    const specs = params.map((p) => ({
+      name: p.name,
+      batchId: p.batchId.toString(),
+      redundancyLevel: p.redundancyLevel ?? RedundancyLevel.OFF,
+      isAdmin: false,
+    }));
 
-    return this.registerDrive(
-      { owner, name, batchId: batchIdStr, isAdmin: false, redundancyLevel: redundancyLevel ?? RedundancyLevel.OFF },
-      requestOptions,
-    );
+    const verified = new Set<string>();
+    for (const spec of specs) {
+      if (verified.has(spec.batchId)) continue;
+      verified.add(spec.batchId);
+
+      const fetchedStamp = await fetchStamp(this.swarmClient, spec.batchId, requestOptions);
+      verifyStampUsability(fetchedStamp, spec.batchId);
+    }
+
+    return await this.registerDrive(specs, requestOptions);
   }
 
   async forgetDrive(driveId: string | Identifier, requestOptions?: BeeRequestOptions): Promise<void> {
@@ -1624,51 +1635,59 @@ export class FileManagerBase implements FileManager {
   }
 
   private async registerDrive(
-    params: { owner: string; name: string; batchId: string; isAdmin: boolean; redundancyLevel: RedundancyLevel },
+    specs: { name: string; batchId: string; redundancyLevel: RedundancyLevel; isAdmin: boolean }[],
     requestOptions?: BeeRequestOptions,
-  ): Promise<DriveInfo> {
-    const { owner, name, batchId, isAdmin, redundancyLevel } = params;
-
-    this.driveList.forEach((d) => {
-      if (d.name === name) {
-        throw new DriveError(`Drive with name "${name}" already exists`);
-      }
-    });
-
-    const newDrive: DriveInfo = {
-      type: NodeType.Drive,
-      id: new Identifier(generateRandomBytes(Identifier.LENGTH)).toString(),
-      name,
-      batchId,
-      owner,
-      redundancyLevel,
-      topic: new Topic(generateRandomBytes(Topic.LENGTH)).toString(),
-      isAdmin,
-    };
-
-    const driveNode = new MantarayNode();
-    this.store.keyring.mint(newDrive.topic);
-    this.store.setNodeNextIndexCache(newDrive.topic, 0n);
-    newDrive.manifestRef = await this.store.saveMantarayNode(driveNode, newDrive, requestOptions);
-    this.store.setManifestCache(newDrive.topic, driveNode);
-
+  ): Promise<DriveInfo[]> {
+    const owner = this.store.requireIdentity().owner;
     const adminHost = this.adminHost();
     const adminMantaray = this.store.getManifestCache(adminHost.topic);
     if (!adminMantaray) {
       throw new DriveError('Admin manifest not loaded — initialize first.');
     }
-    const wrapped = await this.store.keyring.wrapFor(adminHost.topic, newDrive.topic);
-    adminMantaray.addFork(
-      getDriveForkPath(newDrive.id),
-      new Reference(newDrive.topic),
-      driveForkMetadata(newDrive, wrapped),
-    );
+
+    const takenNames = new Set(this.driveList.map((d) => d.name));
+    for (const spec of specs) {
+      if (takenNames.has(spec.name)) {
+        throw new DriveError(`Drive with name "${spec.name}" already exists`);
+      }
+      takenNames.add(spec.name);
+    }
+
+    const minted: { drive: DriveInfo; wrapped: WrappedKeys }[] = [];
+    for (const spec of specs) {
+      const newDrive: DriveInfo = {
+        type: NodeType.Drive,
+        id: new Identifier(generateRandomBytes(Identifier.LENGTH)).toString(),
+        name: spec.name,
+        batchId: spec.batchId,
+        owner,
+        redundancyLevel: spec.redundancyLevel,
+        topic: new Topic(generateRandomBytes(Topic.LENGTH)).toString(),
+        isAdmin: spec.isAdmin,
+      };
+
+      const driveNode = new MantarayNode();
+      this.store.keyring.mint(newDrive.topic);
+      this.store.setNodeNextIndexCache(newDrive.topic, 0n);
+      newDrive.manifestRef = await this.store.saveMantarayNode(driveNode, newDrive, requestOptions);
+      this.store.setManifestCache(newDrive.topic, driveNode);
+
+      minted.push({ drive: newDrive, wrapped: await this.store.keyring.wrapFor(adminHost.topic, newDrive.topic) });
+    }
+
+    for (const { drive, wrapped } of minted) {
+      adminMantaray.addFork(getDriveForkPath(drive.id), new Reference(drive.topic), driveForkMetadata(drive, wrapped));
+    }
+
     await this.store.saveMantarayNode(adminMantaray, adminHost, requestOptions);
 
-    this._driveList.push(newDrive);
-    this.emitter.emit(FileManagerEvents.DRIVE_CREATED, { driveInfo: newDrive });
+    const newDrives = minted.map((m) => m.drive);
+    for (const drive of newDrives) {
+      this._driveList.push(drive);
+      this.emitter.emit(FileManagerEvents.DRIVE_CREATED, { driveInfo: drive });
+    }
 
-    return newDrive;
+    return newDrives;
   }
 
   private async renameDrive(

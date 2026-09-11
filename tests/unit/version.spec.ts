@@ -220,7 +220,7 @@ describe('Version control', () => {
     });
 
     it('refuses to stamp a version onto a same-named fork belonging to a different node', async () => {
-      await fm.createDrive(new BatchId('4'.repeat(64)), 'Version Drive');
+      await fm.createDrives([{ batchId: new BatchId('4'.repeat(64)), name: 'Version Drive' }]);
       const di = fm.driveList[1];
       await fm.uploadFile(di.id, { path: 'report.pdf', ...makeUploadSource('package.json') });
       const victim = fm.recordList.find((fr) => fr.path === 'report.pdf')!;
@@ -251,7 +251,7 @@ describe('Version control', () => {
     });
 
     it('throws when the file has no fork at its resolved path, without advancing the feed', async () => {
-      await fm.createDrive(new BatchId('5'.repeat(64)), 'Ghost Drive');
+      await fm.createDrives([{ batchId: new BatchId('5'.repeat(64)), name: 'Ghost Drive' }]);
       const di = fm.driveList[1];
 
       (getFeedData as jest.Mock).mockResolvedValue({

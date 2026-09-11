@@ -28,7 +28,7 @@ describe('Events and emitter', () => {
     );
     fm.emitter.on(FileManagerEvents.FILE_UPLOADED, uploadHandler);
     const redundancy = RedundancyLevel.MEDIUM;
-    await fm.createDrive(otherMockBatchId, 'Test Drive', redundancy);
+    await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive', redundancyLevel: redundancy }]);
     const di = fm.driveList[1];
 
     jest.useFakeTimers();
@@ -101,7 +101,7 @@ describe('Events and emitter', () => {
         DUMMY_BATCH_ID,
         emitter,
       );
-      await fm.createDrive(otherMockBatchId, 'Test Drive');
+      await fm.createDrives([{ batchId: otherMockBatchId, name: 'Test Drive' }]);
       const di = fm.driveList[1];
 
       fm.emitter.on(FileManagerEvents.FILE_UPLOADED, () => {

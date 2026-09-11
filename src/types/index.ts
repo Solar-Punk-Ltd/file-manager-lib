@@ -1,4 +1,5 @@
 export type {
+  CreateDriveParams,
   DriveInfo,
   FileRecord,
   FolderInfo,
