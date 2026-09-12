@@ -1,6 +1,7 @@
 import { type RedundancyLevel } from '@ethersphere/bee-js';
 import { type BatchId, type MantarayNode } from '@ethersphere/core-sdk';
 
+import { type ShareEntry, type ShareState } from './share';
 import { type ContentRef, type Hex } from './utils';
 
 export enum NodeStatus {
@@ -12,6 +13,16 @@ export enum NodeType {
   File = 'file',
   Folder = 'folder',
   Drive = 'drive',
+  /** A control-plane document in the admin manifest: the share index, the address book. */
+  Control = 'control',
+}
+
+export enum DriveKind {
+  /** The admin drive — the drive registry and the control-plane nodes. */
+  Admin = 'admin',
+  User = 'user',
+  /** An accepted share: foreign owner, read-only. */
+  Mount = 'mount',
 }
 
 export enum ListDepth {
@@ -26,6 +37,7 @@ export interface NodeResource {
   redundancyLevel: RedundancyLevel;
   version?: string;
   status?: NodeStatus;
+  sharing?: ShareState;
 }
 
 export interface FileRecord extends NodeResource {
@@ -49,8 +61,16 @@ export interface DriveInfo extends ManifestHost {
   type: NodeType.Drive;
   id: string;
   name: string;
-  isAdmin: boolean;
+  kind: DriveKind;
 }
+
+/** A document node in the admin manifest: no manifest of its own, one JSON payload on its own feed. */
+export interface ControlNode extends NodeResource {
+  type: NodeType.Control;
+  name: string;
+}
+
+export type ControlDocument = ShareEntry[];
 
 export interface FolderInfo extends ManifestHost {
   type: NodeType.Folder;

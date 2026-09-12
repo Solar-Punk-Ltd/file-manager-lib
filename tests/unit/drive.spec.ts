@@ -5,7 +5,7 @@ import { createInitializedFileManager, DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID } fro
 
 import { applyDefaultMocks, createMockDriveInfo, seedRecords } from './mock';
 
-import { type DriveInfo, NodeType } from '@/types';
+import { type DriveInfo, DriveKind, NodeType } from '@/types';
 import { DriveError, FileManagerEvents } from '@/utils';
 import { writeSealedRefFeed } from '@/utils/bee';
 import {
@@ -37,7 +37,7 @@ describe('Drive operations', () => {
       expect(di.owner).toBe(fm.identity?.owner);
       expect(di.topic).toBeDefined();
       expect(di.manifestRef).toBeDefined();
-      expect(di.isAdmin).toBe(true);
+      expect(di.kind === DriveKind.Admin).toBe(true);
     });
 
     it('should throw error if an admin drive already exists', async () => {
@@ -172,7 +172,7 @@ describe('Drive operations', () => {
 
     it('should throw when the drive does not exist', async () => {
       const fm = await createInitializedFileManager();
-      const ghost = createMockDriveInfo({ id: '9'.repeat(64), name: 'ghost', isAdmin: false });
+      const ghost = createMockDriveInfo({ id: '9'.repeat(64), name: 'ghost', kind: DriveKind.User });
 
       await expect(fm.forgetDrive(new Identifier(ghost.id))).rejects.toThrow(
         new DriveError(`Drive with id ${ghost.id.slice(0, 6)} not found`),

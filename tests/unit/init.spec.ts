@@ -7,14 +7,14 @@ import { applyDefaultMocks, mockIdentityFeed, mockStampInfo, mockWrappedKeys, re
 import { BeeClient } from '@/clients';
 import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
-import { NodeType, type UnresolvedDrive } from '@/types';
+import { DriveKind, NodeType, type UnresolvedDrive } from '@/types';
 import { FileManagerEvents, SignerError } from '@/utils';
 import { fetchStamp } from '@/utils/bee';
 import {
   FEED_INDEX_ZERO,
   MANIFEST_METADATA_DRIVE_BATCH_ID,
   MANIFEST_METADATA_DRIVE_ID,
-  MANIFEST_METADATA_DRIVE_IS_ADMIN,
+  MANIFEST_METADATA_DRIVE_KIND,
   MANIFEST_METADATA_DRIVE_NAME,
   MANIFEST_METADATA_DRIVE_OWNER,
   MANIFEST_METADATA_NODE_TOPIC,
@@ -123,7 +123,7 @@ describe('Initialization and construction', () => {
             [MANIFEST_METADATA_DRIVE_NAME]: 'broken-drive',
             [MANIFEST_METADATA_DRIVE_OWNER]: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
             [MANIFEST_METADATA_DRIVE_BATCH_ID]: DUMMY_BATCH_ID.toString(),
-            [MANIFEST_METADATA_DRIVE_IS_ADMIN]: 'false',
+            [MANIFEST_METADATA_DRIVE_KIND]: DriveKind.User,
             [MANIFEST_METADATA_REDUNDANCY_LEVEL]: '0',
             ...mockWrappedKeys(),
           },
@@ -201,7 +201,7 @@ describe('Initialization and construction', () => {
           [MANIFEST_METADATA_DRIVE_NAME]: name,
           [MANIFEST_METADATA_DRIVE_OWNER]: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
           [MANIFEST_METADATA_DRIVE_BATCH_ID]: DUMMY_BATCH_ID.toString(),
-          [MANIFEST_METADATA_DRIVE_IS_ADMIN]: 'false',
+          [MANIFEST_METADATA_DRIVE_KIND]: DriveKind.User,
           [MANIFEST_METADATA_REDUNDANCY_LEVEL]: '0',
           ...wrapped,
         },

@@ -60,6 +60,12 @@ export interface ProtectedRefs extends ActReferences {
   publisher: Hex;
 }
 
+export interface GranteeListUpdate {
+  granteeListRef: Hex;
+  historyRef: Hex;
+  contentRef?: Hex;
+}
+
 export interface FeedRead {
   payload: Uint8Array;
   index: FeedIndexString;

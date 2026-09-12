@@ -830,7 +830,7 @@ interface DriveInfo extends ManifestHost {
   type: NodeType.Drive;
   id: string;
   name: string;
-  isAdmin: boolean;
+  isAdmin: boolean; // TODO: drivekind
 }
 ```
 

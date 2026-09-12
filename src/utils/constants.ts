@@ -46,6 +46,7 @@ export const FEED_INDEX_NONE = FeedIndex.fromBigInt(BigInt(FEED_INDEX_NOT_FOUND)
 
 export const ROOT_PATH = '/';
 export const TRASH_FOLDER_NAME = '.trash';
+export const SHARE_INDEX_NODE_NAME = '.shares';
 export const MAX_CONCURRENT_FEED_FETCHES = 10;
 export const MAX_CONCURRENT_UPLOADS = 2;
 export const DRIVE_FORK_PREFIX = '/drive';
@@ -60,5 +61,5 @@ export const MANIFEST_METADATA_TRASHED_FROM = 'swarm-trashed-from';
 export const MANIFEST_METADATA_DRIVE_ID = 'swarm-drive-id';
 export const MANIFEST_METADATA_DRIVE_NAME = 'swarm-drive-name';
 export const MANIFEST_METADATA_DRIVE_OWNER = 'swarm-drive-owner';
-export const MANIFEST_METADATA_DRIVE_IS_ADMIN = 'swarm-drive-is-admin';
+export const MANIFEST_METADATA_DRIVE_KIND = 'swarm-drive-kind';
 export const MANIFEST_METADATA_DRIVE_BATCH_ID = 'swarm-drive-batch-id';

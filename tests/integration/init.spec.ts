@@ -14,6 +14,7 @@ import { ensureUniqueSignerWithStamp } from './setup/utils';
 
 import { BeeClient } from '@/clients';
 import { FileManagerBase } from '@/fileManager';
+import { DriveKind } from '@/types';
 import { type Identity } from '@/types/identity';
 import { FileManagerEvents, StampError } from '@/utils';
 import { getFeedData, openFeedRef } from '@/utils/bee';
@@ -161,7 +162,7 @@ describe('Initialization and construction', () => {
     await fm.initialize();
 
     expect(fm.isInitialized).toBe(true);
-    expect(fm.driveList.some((d) => d.isAdmin)).toBe(true);
+    expect(fm.driveList.some((d) => d.kind === DriveKind.Admin)).toBe(true);
   });
 
   it('rolls state back after a failed initialize, so a retry against the real node succeeds', async () => {
@@ -184,7 +185,7 @@ describe('Initialization and construction', () => {
     await fm.initialize();
     expect(events).toEqual([false, true]);
     expect(fm.isInitialized).toBe(true);
-    expect(fm.driveList.some((d) => d.isAdmin)).toBe(true);
+    expect(fm.driveList.some((d) => d.kind === DriveKind.Admin)).toBe(true);
   });
 });
 

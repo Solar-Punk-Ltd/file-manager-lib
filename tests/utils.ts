@@ -6,6 +6,7 @@ import { isNode } from 'std-env';
 import { BeeClient } from '@/clients';
 import { type EventEmitter } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
+import { DriveKind } from '@/types';
 import { FileManagerEvents } from '@/utils';
 
 // bee-factory queen node
@@ -142,7 +143,7 @@ export async function createInitializedFileManager(
 
   expect(outcomes[0]).toBe(true);
 
-  if (!fm.driveList.some((d) => d.isAdmin)) {
+  if (!fm.driveList.some((d) => d.kind === DriveKind.Admin)) {
     await fm.createAdminDrive(batchId ?? DUMMY_BATCH_ID, RedundancyLevel.MEDIUM);
   }
 

@@ -3,9 +3,18 @@ import { Bytes, FeedIndex, type MantarayNode, Topic } from '@ethersphere/core-sd
 
 import type { NodeKeys } from './types/crypto';
 import type { Identity } from './types/identity';
-import { type DriveInfo, type FileRecord, type FolderInfo, type ManifestHost, NodeType } from './types/info';
+import {
+  type ControlDocument,
+  type ControlNode,
+  type DriveInfo,
+  type FileRecord,
+  type FolderInfo,
+  type ManifestHost,
+  NodeType,
+} from './types/info';
+import type { ShareFeedHead } from './types/share';
 import { type SwarmClient } from './types/swarmClient';
-import { type ContentRef, type FeedResultWithIndex, type FeedWriteResult } from './types/utils';
+import { type ContentRef, type FeedResultWithIndex, type FeedTarget, type FeedWriteResult } from './types/utils';
 import { assertFileRecord } from './utils/asserts';
 import { getFeedData, openFeedRef, writeEncryptedFeed } from './utils/bee';
 import {
@@ -183,6 +192,92 @@ export class MantarayStore {
     this.setNodeRef(record.topic, contentRef);
 
     return { contentRef, index, nextIndex };
+  }
+
+  /**
+   * Write a control node's document as its new feed head.
+   *
+   * Content-keyed like a file: a control node has no manifest, so nothing above it needs `K_meta`.
+   */
+  async saveControlDocument(
+    node: ControlNode,
+    document: ControlDocument,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<FeedWriteResult> {
+    const { content } = await this.keyring.requireKeys(node.topic);
+
+    const result = await writeEncryptedFeed(
+      this.swarmClient,
+      this.requireIdentity(),
+      JSON.stringify(document),
+      content,
+      {
+        batchId: node.batchId,
+        topic: node.topic,
+        redundancyLevel: node.redundancyLevel,
+        index: this.getNodeNextIndexCache(node.topic),
+      },
+      requestOptions,
+    );
+    this.setNodeNextIndexCache(node.topic, result.nextIndex);
+    this.setNodeRef(node.topic, result.contentRef);
+
+    return result;
+  }
+
+  // TODO: this seems to be doing the same feed and node cache operations as the others
+  /**
+   * Write a share feed head — the stable handle behind every grant.
+   *
+   * In the clear, unlike every other feed this library writes: the head is an ACT address, and an
+   * ACT address resolves to nothing outside its grantee list.
+   */
+  async saveShareHead(target: FeedTarget, head: ShareFeedHead, requestOptions?: BeeRequestOptions): Promise<void> {
+    const identity = this.requireIdentity();
+
+    let index = target.index ?? this.getNodeNextIndexCache(target.topic);
+    if (index === undefined) {
+      const { feedIndexNext } = await getFeedData(
+        this.swarmClient,
+        new Topic(target.topic),
+        identity.owner,
+        undefined,
+        requestOptions,
+      );
+      index = feedIndexNext.toBigInt();
+    }
+
+    await this.swarmClient.writeFeed(
+      target.batchId,
+      target.topic,
+      JSON.stringify(head),
+      index.toString(),
+      { signer: identity.signer, redundancyLevel: target.redundancyLevel },
+      requestOptions,
+    );
+
+    this.setNodeNextIndexCache(target.topic, index + 1n);
+  }
+
+  /** Undefined when the node's feed has no update yet — a control node provisioned but never written. */
+  async loadControlDocument(topic: string, requestOptions?: BeeRequestOptions): Promise<ControlDocument | undefined> {
+    const { payload, feedIndex, feedIndexNext } = await getFeedData(
+      this.swarmClient,
+      new Topic(topic),
+      this.requireIdentity().owner,
+      undefined,
+      requestOptions,
+    );
+    if (feedIndex.equals(FEED_INDEX_NONE)) return undefined;
+
+    const { content } = await this.keyring.requireKeys(topic);
+    const contentRef = await openFeedRef(payload, content);
+    const bytes = await this.swarmClient.downloadData(contentRef.reference, undefined, requestOptions);
+
+    this.setNodeRef(topic, contentRef);
+    this.setNodeNextIndexCache(topic, feedIndexNext.toBigInt());
+
+    return new Bytes(bytes).toJSON() as ControlDocument;
   }
 
   async getRecord(

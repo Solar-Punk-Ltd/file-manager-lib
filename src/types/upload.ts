@@ -45,5 +45,6 @@ export interface ClientUploadResult {
 }
 export interface ClientProtectedUploadResult {
   contentRefs: ActReferences;
+  granteeListRef?: Hex;
   tagUid?: number;
 }

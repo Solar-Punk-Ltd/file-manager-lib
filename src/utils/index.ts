@@ -10,6 +10,7 @@ export {
   FolderError,
   IdentityError,
   KeyringError,
+  ShareError,
   SignerError,
   StampError,
 } from './errors';

@@ -4,6 +4,7 @@ import { MantarayNode, Reference } from '@ethersphere/core-sdk';
 import type { WrappedKeys } from '../types/crypto';
 import type { Identity } from '../types/identity';
 import {
+  type ControlNode,
   type DriveInfo,
   type FileRecord,
   type FolderInfo,
@@ -20,7 +21,7 @@ import {
   DRIVE_FORK_PREFIX,
   MANIFEST_METADATA_DRIVE_BATCH_ID,
   MANIFEST_METADATA_DRIVE_ID,
-  MANIFEST_METADATA_DRIVE_IS_ADMIN,
+  MANIFEST_METADATA_DRIVE_KIND,
   MANIFEST_METADATA_DRIVE_NAME,
   MANIFEST_METADATA_DRIVE_OWNER,
   MANIFEST_METADATA_NODE_OWNER,
@@ -239,9 +240,19 @@ export function driveForkMetadata(drive: DriveInfo, wrapped: WrappedKeys): Recor
     [MANIFEST_METADATA_DRIVE_ID]: drive.id,
     [MANIFEST_METADATA_DRIVE_NAME]: drive.name,
     [MANIFEST_METADATA_DRIVE_OWNER]: drive.owner,
-    [MANIFEST_METADATA_DRIVE_IS_ADMIN]: String(drive.isAdmin),
+    [MANIFEST_METADATA_DRIVE_KIND]: drive.kind,
     [MANIFEST_METADATA_DRIVE_BATCH_ID]: drive.batchId,
     [MANIFEST_METADATA_REDUNDANCY_LEVEL]: drive.redundancyLevel.toString(),
+    ...wrappedKeysMetadata(wrapped),
+  };
+}
+
+export function controlForkMetadata(node: ControlNode, wrapped: WrappedKeys): Record<string, string> {
+  return {
+    [MANIFEST_METADATA_NODE_TOPIC]: node.topic,
+    [MANIFEST_METADATA_NODE_TYPE]: NodeType.Control,
+    [MANIFEST_METADATA_NODE_OWNER]: node.owner,
+    [MANIFEST_METADATA_REDUNDANCY_LEVEL]: node.redundancyLevel.toString(),
     ...wrappedKeysMetadata(wrapped),
   };
 }

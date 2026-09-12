@@ -6,6 +6,7 @@ import type {
   FeedIndexString,
   FeedRead,
   FeedWrite,
+  GranteeListUpdate,
   Hex,
   ProtectedRefs,
   SwarmDownloadOptions,
@@ -92,9 +93,18 @@ export interface SwarmClient {
 
   // --- ACT-protected bytes ---
 
+  /**
+   * Upload bytes gated by an ACT grantee list.
+   *
+   * `grantees` are compressed public keys, each the key its holder's own ACT engine decrypts with —
+   * a Bee node's key for a `BeeClient` recipient, an origin-scoped `appKey` for a swarm-id one. The
+   * publisher is always granted and needs no entry. Passing `historyRef` continues an existing ACT
+   * history instead of minting one.
+   */
   uploadProtected(
     batchId: Hex,
     data: Uint8Array | string | Blob | Readable,
+    grantees?: Hex[],
     historyRef?: Hex,
     options?: SwarmUploadOptions,
     requestOptions?: SwarmRequestOptions,
@@ -113,6 +123,41 @@ export interface SwarmClient {
     options?: SwarmDownloadOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<ReadableStream<Uint8Array>>;
+
+  // --- grantee lists ---
+
+  /**
+   * Add public keys to the grantee list at `granteeListRef`, on the ACT history `historyRef`.
+   *
+   * The protected object's encrypted reference is unchanged, so only the returned history and list
+   * reference need republishing.
+   */
+  addGrantees(
+    batchId: Hex,
+    granteeListRef: Hex,
+    historyRef: Hex,
+    grantees: Hex[],
+    requestOptions?: SwarmRequestOptions,
+  ): Promise<GranteeListUpdate>;
+
+  /**
+   * Remove public keys from the grantee list, re-keying the ACT.
+   *
+   * `contentRef` is the protected object's current encrypted reference: a revocation may return a
+   * rotated one. Access already exercised is not withdrawn — a grantee keeps whatever they have
+   * already dereferenced.
+   */
+  revokeGrantees(
+    batchId: Hex,
+    granteeListRef: Hex,
+    historyRef: Hex,
+    contentRef: Hex,
+    grantees: Hex[],
+    requestOptions?: SwarmRequestOptions,
+  ): Promise<GranteeListUpdate>;
+
+  /** The grantee list's current members, as compressed public keys. */
+  listGrantees(granteeListRef: Hex, historyRef: Hex, requestOptions?: SwarmRequestOptions): Promise<Hex[]>;
 
   // --- chunks: the mantaray substrate ---
 

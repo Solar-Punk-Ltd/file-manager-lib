@@ -14,7 +14,9 @@ import type {
   ListFolderResult,
   StampInfo,
 } from './info';
+import type { ShareAmendment, ShareEntry, ShareFilter, ShareGrade, ShareOptions } from './share';
 import type { UpdateItem, UploadFilesResult, UploadItem, UploadOptions } from './upload';
+import type { Hex } from './utils';
 
 /**
  * Interface representing a file manager with various file, folder and drive operations.
@@ -410,6 +412,98 @@ export interface FileManager {
   ): Promise<FolderInfo>;
 
   /**
+   * Grants a drive, folder or file to a list of grantee public keys.
+   *
+   * Additive: nothing on the shared node is written, no version is bumped, and no manifest is
+   * re-saved. The share is three new objects — an ACT-protected grant blob carrying the node's keys,
+   * a share feed whose head points at it, and an entry in the owner-private share index.
+   *
+   * What is handed to a recipient is `{ shareTopic, owner }`. That handle is stable for the life of
+   * the grant and is safe on a public channel: outside the grantee list the addresses it resolves
+   * dereference to nothing. Delivering it is the application's job.
+   *
+   * Sharing one node with two audiences is two calls — each gets its own handle and either can be
+   * revoked without touching the other.
+   * @param driveId - The drive containing the node.
+   * @param path - Absolute path of the file or folder, or `/` to share the whole drive.
+   * @param grade - What the recipients get: `List`, `Read` (folders and drives) or `Open` (files).
+   * @param recipients - Compressed secp256k1 public keys, each the key its holder's ACT engine
+   *   decrypts with — a Bee node key for a `BeeClient` recipient, an `appKey` for a swarm-id one.
+   * @param options - Optional note, carried inside the ACT-gated blob rather than beside the handle.
+   * @param requestOptions - Additional Bee request options.
+   * @emits FileManagerEvents.SHARE_CREATED
+   * @returns The new ShareEntry, whose `shareTopic` is half the handle.
+   * @throws {DriveError} If not initialized or the drive is not found.
+   * @throws {ShareError} If `recipients` is empty, the grade does not fit the node type, or the
+   *   backend returned no grantee list to amend against.
+   * @throws {FolderError} If the path does not exist or is under the reserved `.trash` folder.
+   * @throws {FileRecordError} If the fork at the path carries no node metadata.
+   * @throws {KeyringError} If the node has not been reached through a listing in this session.
+   */
+  share(
+    driveId: string | Identifier,
+    path: string,
+    grade: ShareGrade,
+    recipients: Hex[],
+    options?: ShareOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<ShareEntry>;
+
+  /**
+   * Grants this identity has issued, filtered. Reads the loaded share index — no I/O.
+   * @param filter - Restrict by drive or node topic; revoked grants are excluded unless asked for.
+   * @returns Copies of the matching entries.
+   */
+  listShares(filter?: ShareFilter): ShareEntry[];
+
+  /**
+   * Who a grant currently reaches, read from its ACT grantee list.
+   *
+   * The list on Swarm is the only membership record — an entry holds its address, never a copy — so
+   * this is a fetch, and it is what {@link revokeShare} withdraws.
+   * @param shareId - `ShareEntry.id` of the grant.
+   * @param requestOptions - Additional Bee request options.
+   * @returns The grantees' compressed public keys.
+   * @throws {DriveError} If the FileManager is not initialized.
+   * @throws {ShareError} If the share is unknown.
+   */
+  getShareGrantees(shareId: string, requestOptions?: BeeRequestOptions): Promise<Hex[]>;
+
+  /**
+   * Changes a grant's membership without changing its handle.
+   *
+   * The grant blob is never re-uploaded — the grantee list is amended against the ACT history it
+   * already has — and the new address is published as the share feed's next head, which recipients
+   * are already following. Removals are applied before additions, so a key in both lists ends up
+   * granted against the re-keyed ACT.
+   * @param shareId - `ShareEntry.id` of the grant to amend.
+   * @param changes - Grantee public keys to add and/or remove.
+   * @param requestOptions - Additional Bee request options.
+   * @emits FileManagerEvents.SHARE_AMENDED
+   * @returns The updated ShareEntry.
+   * @throws {DriveError} If not initialized or the entry's drive is no longer known.
+   * @throws {ShareError} If the share is unknown or already revoked, or neither list has an entry.
+   */
+  amendShare(shareId: string, changes: ShareAmendment, requestOptions?: BeeRequestOptions): Promise<ShareEntry>;
+
+  /**
+   * Withdraws a grant: empties its grantee list, re-keying the ACT, and publishes the result as the
+   * share feed's final head.
+   *
+   * **This denies future reads only.** Every key a recipient already unwrapped and every chunk they
+   * already dereferenced stays readable — Swarm has no delete, and a reference is a capability for
+   * as long as the chunks live. Withdrawing past access means rotating the subtree's keys.
+   * @param shareId - `ShareEntry.id` of the grant to withdraw.
+   * @param requestOptions - Additional Bee request options.
+   * @emits FileManagerEvents.SHARE_REVOKED
+   * @returns The entry, stamped `revokedAt`. It stays in the index as a record of the grant.
+   * @throws {DriveError} If not initialized or the entry's drive is no longer known.
+   * @throws {ShareError} If the share is unknown or already revoked.
+   * @see {@link getShareGrantees} — the current membership this withdraws.
+   */
+  revokeShare(shareId: string, requestOptions?: BeeRequestOptions): Promise<ShareEntry>;
+
+  /**
    * The identity of the feed owner.
    * @returns an IdentityInfo object, or undefined if not set.
    */
@@ -432,6 +526,12 @@ export interface FileManager {
    * @returns An array of FileRecord objects.
    */
   readonly recordList: readonly FileRecord[];
+
+  /**
+   * Grants this identity has issued, as loaded from the owner-private share index.
+   * @returns An array of ShareEntry objects.
+   */
+  readonly shareList: readonly ShareEntry[];
 
   /**
    * Event emitter for handling file manager events.

@@ -9,6 +9,7 @@ import {
   type FeedIndexString,
   type FeedRead,
   type FeedWrite,
+  type GranteeListUpdate,
   type Hex,
   type ProtectedRefs,
   type SwarmDownloadOptions,
@@ -138,15 +139,26 @@ export class BeeClient implements SwarmClient {
   async uploadProtected(
     batchId: Hex,
     data: Uint8Array | string | Blob | Readable,
+    grantees?: Hex[],
     historyRef?: Hex,
     options?: SwarmUploadOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<ClientProtectedUploadResult> {
+    const ro = toBeeRequestOptions(requestOptions);
+
+    let granteeListRef: Hex | undefined;
+    let history = historyRef;
+    if (grantees?.length) {
+      const list = await this.bee.grantee.create(batchId, grantees, ro);
+      granteeListRef = list.ref.toString();
+      history = list.historyref.toString();
+    }
+
     const result = await this.bee.data.upload(
       batchId,
       data,
-      { act: true, actHistoryAddress: historyRef, redundancyLevel: toRedundancyLevel(options?.redundancyLevel) },
-      toBeeRequestOptions(requestOptions),
+      { act: true, actHistoryAddress: history, redundancyLevel: toRedundancyLevel(options?.redundancyLevel) },
+      ro,
     );
 
     return {
@@ -154,6 +166,7 @@ export class BeeClient implements SwarmClient {
         reference: result.reference.toString(),
         historyRef: result.historyAddress.getOrThrow().toString(),
       },
+      granteeListRef,
       tagUid: result.tagUid,
     };
   }
@@ -196,6 +209,57 @@ export class BeeClient implements SwarmClient {
     );
 
     return bytes;
+  }
+
+  // --- grantee lists ---
+
+  async addGrantees(
+    batchId: Hex,
+    granteeListRef: Hex,
+    historyRef: Hex,
+    grantees: Hex[],
+    requestOptions?: SwarmRequestOptions,
+  ): Promise<GranteeListUpdate> {
+    const result = await this.bee.grantee.patch(
+      batchId,
+      granteeListRef,
+      historyRef,
+      { add: grantees },
+      toBeeRequestOptions(requestOptions),
+    );
+
+    return { granteeListRef: result.ref.toString(), historyRef: result.historyref.toString() };
+  }
+
+  async revokeGrantees(
+    batchId: Hex,
+    granteeListRef: Hex,
+    historyRef: Hex,
+    /** Bee re-keys in place and reports no new encrypted reference, so the caller keeps its own. */
+    _contentRef: Hex,
+    grantees: Hex[],
+    requestOptions?: SwarmRequestOptions,
+  ): Promise<GranteeListUpdate> {
+    const result = await this.bee.grantee.patch(
+      batchId,
+      granteeListRef,
+      historyRef,
+      { revoke: grantees },
+      toBeeRequestOptions(requestOptions),
+    );
+
+    return { granteeListRef: result.ref.toString(), historyRef: result.historyref.toString() };
+  }
+
+  async listGrantees(
+    granteeListRef: Hex,
+    /** Bee addresses a grantee list by reference alone. */
+    _historyRef: Hex,
+    requestOptions?: SwarmRequestOptions,
+  ): Promise<Hex[]> {
+    const result = await this.bee.grantee.get(granteeListRef, toBeeRequestOptions(requestOptions));
+
+    return result.grantees.map((g) => g.toCompressedHex());
   }
 
   // --- chunks ---

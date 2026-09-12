@@ -20,4 +20,7 @@ export enum FileManagerEvents {
   DRIVE_UNRESOLVED = 'drive-unresolved',
   DRIVE_FORGOTTEN = 'drive-forgotten',
   TRASH_EMPTIED = 'trash-emptied',
+  SHARE_CREATED = 'share-created',
+  SHARE_AMENDED = 'share-amended',
+  SHARE_REVOKED = 'share-revoked',
 }

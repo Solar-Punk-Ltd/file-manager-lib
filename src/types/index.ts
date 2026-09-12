@@ -1,4 +1,6 @@
 export type {
+  ControlDocument,
+  ControlNode,
   CreateDriveParams,
   DriveInfo,
   FileRecord,
@@ -12,7 +14,7 @@ export type {
   UnresolvedDrive,
   StampInfo,
 } from './info';
-export { FailureScope, ListDepth, NodeType, NodeStatus } from './info';
+export { DriveKind, FailureScope, ListDepth, NodeType, NodeStatus } from './info';
 export type {
   BrowserUploadOptions,
   NodeUploadOptions,
@@ -28,12 +30,23 @@ export type { DownloadFilesResult, DownloadResource, DownloadResult } from './do
 export type { FileManager, FileManagerConfig } from './fileManager';
 export type { SwarmClient } from './swarmClient';
 export type {
+  GrantBlob,
+  ShareAmendment,
+  ShareEntry,
+  ShareFeedHead,
+  ShareFilter,
+  ShareHandle,
+  ShareOptions,
+} from './share';
+export { SHARE_FORMAT_VERSION, ShareGrade, ShareState } from './share';
+export type {
   ActReferences,
   ContentRef,
   FailedResult,
   FeedIndexString,
   FeedRead,
   FeedWrite,
+  GranteeListUpdate,
   Hex,
   ProtectedRefs,
   SwarmDownloadOptions,
