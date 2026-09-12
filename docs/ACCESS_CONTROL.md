@@ -110,7 +110,8 @@ what it grants.
 
 ### The `.shares` index
 
-Owner-private, one entry per grant. It is what `listShares()` reads and what derives a node's share state (§8):
+Owner-private, one entry per grant. It is what `listShares()` reads and what derives a node's share state (§8). It is
+loaded as a unit — `shareList` is `undefined` until that has happened, which is not the same answer as `[]`:
 
 ```ts
 interface ShareEntry {

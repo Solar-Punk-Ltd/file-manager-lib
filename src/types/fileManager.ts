@@ -452,9 +452,10 @@ export interface FileManager {
   /**
    * Grants this identity has issued, filtered. Reads the loaded share index — no I/O.
    * @param filter - Restrict by drive or node topic; revoked grants are excluded unless asked for.
-   * @returns Copies of the matching entries.
+   * @returns Copies of the matching entries, or undefined if the index has not been loaded — see
+   *   {@link shareList} for why those are different answers.
    */
-  listShares(filter?: ShareFilter): ShareEntry[];
+  listShares(filter?: ShareFilter): ShareEntry[] | undefined;
 
   /**
    * Who a grant currently reaches, read from its ACT grantee list.
@@ -529,9 +530,11 @@ export interface FileManager {
 
   /**
    * Grants this identity has issued, as loaded from the owner-private share index.
-   * @returns An array of ShareEntry objects.
+   *
+   * The index is fetched  during {@link initialize} and by the first share operation of a session;
+   * @returns An array of ShareEntry objects, or undefined if the index has not been loaded.
    */
-  readonly shareList: readonly ShareEntry[];
+  readonly shareList: readonly ShareEntry[] | undefined;
 
   /**
    * Event emitter for handling file manager events.

@@ -131,7 +131,7 @@ export class FileManagerBase implements FileManager {
   private _isInitialized: boolean = false;
   private readonly _driveList: DriveInfo[] = [];
   private readonly _recordList: FileRecord[] = [];
-  private readonly _shareList: ShareEntry[] = [];
+  private _shareList: ShareEntry[] | undefined = undefined;
   // The node `_shareList` is written to, the way `_driveList` holds the nodes drives are written to.
   // Its feed index and ref live in the store's caches, keyed by topic like every other node's.
   private shareNode: ControlNode | undefined = undefined;
@@ -164,7 +164,7 @@ export class FileManagerBase implements FileManager {
     return this._recordList;
   }
 
-  get shareList(): readonly ShareEntry[] {
+  get shareList(): readonly ShareEntry[] | undefined {
     return this._shareList;
   }
 
@@ -219,8 +219,12 @@ export class FileManagerBase implements FileManager {
       const success = await this.tryToFetchAdminState(requestOptions);
       if (success) {
         await this.initDriveList(requestOptions);
-        // TODO: shareindex can load later, maybe load on demand or do not wait for it
-        await this.initShareList(requestOptions);
+
+        try {
+          await this.initShareList(requestOptions);
+        } catch (err: unknown) {
+          this.errorHandler.handleError(err, 'Failed to load the share index');
+        }
       }
 
       this._isInitialized = true;
@@ -533,7 +537,7 @@ export class FileManagerBase implements FileManager {
       }
 
       await this.store.unwrapFork(parentHost.topic, folderTopic, meta);
-      const manifestRef = await this.store.resolveFolderManifestRef(folderTopic, path, requestOptions);
+      const manifestRef = await this.store.resolveManifestRef(folderTopic, `folder ${path}`, requestOptions);
 
       hostMap.set(path, {
         owner,
@@ -1633,6 +1637,7 @@ export class FileManagerBase implements FileManager {
       throw new ShareError('A share needs at least one recipient');
     }
 
+    const shares = await this.ensureShareList(requestOptions);
     const subject = await this.resolveShareSubject(cachedDrive, path, requestOptions);
     assertShareGrade(grade, subject.type);
 
@@ -1678,16 +1683,16 @@ export class FileManagerBase implements FileManager {
 
     this.store.setNodeNextIndexCache(entry.shareTopic, 0n);
     await this.publishShareHead(entry, cachedDrive, requestOptions);
-    await this.commitShareEntry(entry, requestOptions);
+    await this.commitShareEntry(shares, entry, requestOptions);
 
     this.emitter.emit(FileManagerEvents.SHARE_CREATED, { entry });
 
     return { ...entry };
   }
 
-  listShares(filter?: ShareFilter): ShareEntry[] {
+  listShares(filter?: ShareFilter): ShareEntry[] | undefined {
     return this._shareList
-      .filter(
+      ?.filter(
         (e) =>
           (filter?.includeRevoked || e.revokedAt === undefined) &&
           (!filter?.driveId || e.driveId === filter.driveId) &&
@@ -1700,7 +1705,7 @@ export class FileManagerBase implements FileManager {
     requestOptions?.signal?.throwIfAborted();
     assertReady(this.isInitialized, this.store.identity);
 
-    const entry = this.findShareOrThrow(shareId);
+    const entry = this.findShareOrThrow(await this.ensureShareList(requestOptions), shareId);
 
     return await this.swarmClient.listGrantees(
       entry.granteeList.reference,
@@ -1713,7 +1718,8 @@ export class FileManagerBase implements FileManager {
     requestOptions?.signal?.throwIfAborted();
     assertReady(this.isInitialized, this.store.identity);
 
-    const current = this.findShareOrThrow(shareId);
+    const shares = await this.ensureShareList(requestOptions);
+    const current = this.findShareOrThrow(shares, shareId);
     if (current.revokedAt !== undefined) {
       throw new ShareError(`Share ${shareId.slice(0, 6)} is revoked — issue a new one`);
     }
@@ -1755,7 +1761,7 @@ export class FileManagerBase implements FileManager {
     }
 
     await this.publishShareHead(entry, cachedDrive, requestOptions);
-    await this.commitShareEntry(entry, requestOptions);
+    await this.commitShareEntry(shares, entry, requestOptions);
 
     this.emitter.emit(FileManagerEvents.SHARE_AMENDED, { entry });
 
@@ -1766,7 +1772,8 @@ export class FileManagerBase implements FileManager {
     requestOptions?.signal?.throwIfAborted();
     assertReady(this.isInitialized, this.store.identity);
 
-    const current = this.findShareOrThrow(shareId);
+    const shares = await this.ensureShareList(requestOptions);
+    const current = this.findShareOrThrow(shares, shareId);
     if (current.revokedAt !== undefined) {
       throw new ShareError(`Share ${shareId.slice(0, 6)} is already revoked`);
     }
@@ -1794,7 +1801,7 @@ export class FileManagerBase implements FileManager {
     // Published rather than abandoned: recipients follow this feed, and its final head is what tells
     // them the grant is gone instead of leaving them on an address that quietly stops resolving.
     await this.publishShareHead(entry, cachedDrive, requestOptions);
-    await this.commitShareEntry(entry, requestOptions);
+    await this.commitShareEntry(shares, entry, requestOptions);
 
     this.emitter.emit(FileManagerEvents.SHARE_REVOKED, { entry });
 
@@ -1809,7 +1816,7 @@ export class FileManagerBase implements FileManager {
     this.adminRedundancyLevel = RedundancyLevel.OFF;
     this._driveList.length = 0;
     this._recordList.length = 0;
-    this._shareList.length = 0;
+    this._shareList = undefined;
     this.shareNode = undefined;
     this.store.clear();
     this.store.setIdentity(undefined);
@@ -1887,7 +1894,20 @@ export class FileManagerBase implements FileManager {
     adminMantaray.addFork(node.name, new Reference(node.topic), controlForkMetadata(node, wrapped));
 
     this.shareNode = node;
-    this._shareList.length = 0;
+    this._shareList = [];
+  }
+
+  private async ensureShareList(requestOptions?: BeeRequestOptions): Promise<ShareEntry[]> {
+    if (this._shareList) {
+      return this._shareList;
+    }
+
+    await this.initShareList(requestOptions);
+    if (!this._shareList) {
+      throw new ShareError('Share index not provisioned — create an admin drive first');
+    }
+
+    return this._shareList;
   }
 
   private async initShareList(requestOptions?: BeeRequestOptions): Promise<void> {
@@ -1918,24 +1938,23 @@ export class FileManagerBase implements FileManager {
     };
 
     const entries = await this.store.loadControlDocument(topic, requestOptions);
-
-    this._shareList.length = 0;
     if (entries) {
       assertShareEntryList(entries);
-      this._shareList.push(...entries);
     }
+
+    this._shareList = entries ?? [];
   }
 
-  private async saveShareList(requestOptions?: BeeRequestOptions): Promise<void> {
+  private async saveShareList(shares: ShareEntry[], requestOptions?: BeeRequestOptions): Promise<void> {
     if (!this.shareNode) {
-      throw new DriveError('Share index not provisioned — create an admin drive first');
+      throw new ShareError('Share index not provisioned — create an admin drive first');
     }
 
-    await this.store.saveControlDocument(this.shareNode, this._shareList, requestOptions);
+    await this.store.saveControlDocument(this.shareNode, shares, requestOptions);
   }
 
-  private findShareOrThrow(shareId: string): ShareEntry {
-    const entry = this._shareList.find((e) => e.id === shareId);
+  private findShareOrThrow(shares: ShareEntry[], shareId: string): ShareEntry {
+    const entry = shares.find((e) => e.id === shareId);
     if (!entry) {
       throw new ShareError(`Share ${shareId.slice(0, 6)} not found`);
     }
@@ -2012,25 +2031,30 @@ export class FileManagerBase implements FileManager {
 
   // Swarm is already ahead by the time this runs, so a failed index write must not leave memory
   // ahead of it too — the entry is rolled back and the caller retries against the real state.
-  private async commitShareEntry(entry: ShareEntry, requestOptions?: BeeRequestOptions): Promise<void> {
-    const ix = this._shareList.findIndex((e) => e.id === entry.id);
-    const previous = ix === -1 ? undefined : this._shareList[ix];
+  private async commitShareEntry(
+    shares: ShareEntry[],
+    entry: ShareEntry,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void> {
+    const ix = shares.findIndex((e) => e.id === entry.id);
+    const previous = ix === -1 ? undefined : shares[ix];
 
     if (previous) {
-      this._shareList[ix] = entry;
+      shares[ix] = entry;
     } else {
-      this._shareList.push(entry);
+      shares.push(entry);
     }
 
-    // TODO: error handling
     try {
-      await this.saveShareList(requestOptions);
+      await this.saveShareList(shares, requestOptions);
     } catch (err: unknown) {
       if (previous) {
-        this._shareList[ix] = previous;
+        shares[ix] = previous;
       } else {
-        this._shareList.pop();
+        shares.pop();
       }
+
+      this.errorHandler.handleError(err, 'Failed to commit share entry');
       throw err;
     }
   }
@@ -2167,19 +2191,7 @@ export class FileManagerBase implements FileManager {
 
         await this.store.unwrapFork(stateTopicStr, driveInfo.topic, entry.rawMetadata);
 
-        // Probe the drive feed head. A drive is a container and carries no stored version
-        const {
-          payload: drivePayload,
-          feedIndex: driveFeedIndex,
-          feedIndexNext: driveFeedIndexNext,
-        } = await getFeedData(this.swarmClient, new Topic(driveInfo.topic), identity.owner, undefined, requestOptions);
-
-        if (driveFeedIndex.equals(FEED_INDEX_NONE)) {
-          throw new DriveError('Drive has no manifest feed — corrupt or incomplete');
-        }
-
-        driveInfo.manifestRef = await this.store.openManifestRef(driveInfo.topic, drivePayload);
-
+        // `manifestRef` is deliberately left unset and `MantarayStore.driveRootHost` probes for it when the drive is first touched.
         if (driveInfo.kind === DriveKind.Admin) {
           await this.fetchAndSetAdminStamp(driveInfo.batchId, requestOptions);
           try {
@@ -2192,8 +2204,6 @@ export class FileManagerBase implements FileManager {
 
           this.adminRedundancyLevel = driveInfo.redundancyLevel;
         }
-
-        this.store.setNodeNextIndexCache(driveInfo.topic, driveFeedIndexNext.toBigInt());
 
         return driveInfo;
       }),
@@ -2380,7 +2390,7 @@ export class FileManagerBase implements FileManager {
     drive: DriveInfo,
     requestOptions?: BeeRequestOptions,
   ): Promise<{ host: ManifestHost; node: MantarayNode } | null> {
-    const rootNode = await this.store.getMantarayNode(drive.topic, drive.manifestRef, requestOptions);
+    const { node: rootNode } = await this.store.resolveHostMantaray(drive, ROOT_PATH, requestOptions);
     if (!rootNode.find(TRASH_FOLDER_NAME)) {
       return null;
     }

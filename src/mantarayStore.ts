@@ -85,7 +85,7 @@ export class MantarayStore {
     requestOptions?: BeeRequestOptions,
   ): Promise<{ host: ManifestHost; folder: FolderInfo | null }> {
     const folder = await this.resolveFolder(drive, path, requestOptions);
-    return { host: folder ?? this.driveRootHost(drive), folder };
+    return { host: folder ?? (await this.driveRootHost(drive, requestOptions)), folder };
   }
 
   /** {@link resolveHost} plus the loaded mantaray node for that host — the common resolve→load→mutate entry point. */
@@ -316,14 +316,13 @@ export class MantarayStore {
   }
 
   /**
-   * A folder carries no stored version, so its manifest root comes from its feed head. Caches the
-   * probed next index, which is what lets a later write to the same folder skip its own probe.
+   * A manifest host carries no stored version, so its mantaray root comes from its feed head. Caches
+   * the probed next index, which is what lets a later write to the same host skip its own probe.
+   *
+   * Drives and folders both land here, on first touch rather than at init: a host's identity lives
+   * in its parent's fork metadata, and only its current root needs the network.
    */
-  async resolveFolderManifestRef(
-    nodeTopic: string,
-    currentPath: string,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<ContentRef> {
+  async resolveManifestRef(nodeTopic: string, label: string, requestOptions?: BeeRequestOptions): Promise<ContentRef> {
     const cachedRef = this.getNodeRef(nodeTopic);
     if (cachedRef && this.getManifestCache(nodeTopic) && this.getNodeNextIndexCache(nodeTopic) !== undefined) {
       return cachedRef;
@@ -337,7 +336,7 @@ export class MantarayStore {
       requestOptions,
     );
     if (feedIndex.equals(FEED_INDEX_NONE)) {
-      throw new DriveError(`Folder feed not found for path: ${currentPath}`);
+      throw new DriveError(`Manifest feed not found for ${label}`);
     }
 
     const manifestRef = await this.openManifestRef(nodeTopic, payload);
@@ -450,7 +449,11 @@ export class MantarayStore {
 
   // --- Private helpers  ---
 
-  private driveRootHost(drive: DriveInfo): ManifestHost {
+  private async driveRootHost(drive: DriveInfo, requestOptions?: BeeRequestOptions): Promise<ManifestHost> {
+    if (!drive.manifestRef) {
+      drive.manifestRef = await this.resolveManifestRef(drive.topic, `drive "${drive.name}"`, requestOptions);
+    }
+
     return {
       owner: this.requireIdentity().owner,
       topic: drive.topic,
@@ -468,7 +471,7 @@ export class MantarayStore {
     if (!path || path === ROOT_PATH) return null;
 
     const segments = pathSegments(path);
-    const driveRootHost = this.driveRootHost(driveInfo);
+    const driveRootHost = await this.driveRootHost(driveInfo, requestOptions);
     let currentMantaray = await this.getMantarayNode(driveRootHost.topic, driveRootHost.manifestRef, requestOptions);
     let currentTopic = driveRootHost.topic;
     let currentPath = '';
@@ -492,7 +495,7 @@ export class MantarayStore {
       }
 
       await this.unwrapFork(currentTopic, nodeTopic, meta);
-      const folderManifestRef = await this.resolveFolderManifestRef(nodeTopic, currentPath, requestOptions);
+      const folderManifestRef = await this.resolveManifestRef(nodeTopic, `folder ${currentPath}`, requestOptions);
 
       currentFolderInfo = {
         type: NodeType.Folder,
