@@ -2,8 +2,8 @@ import { type BeeRequestOptions, type DownloadOptions, RedundancyLevel } from '@
 import { type BatchId, Bytes, FeedIndex, Identifier, MantarayNode, Reference, Topic } from '@ethersphere/core-sdk';
 
 import type { WrappedKeys } from './types/crypto';
-import { type DownloadFilesResult, type DownloadResource, type DownloadResult } from './types/download';
-import { type FileManager, type FileManagerConfig } from './types/fileManager';
+import type { DownloadFilesResult, DownloadResource, DownloadResult } from './types/download';
+import type { FileManager, FileManagerConfig } from './types/fileManager';
 import type { Credential, IdentityInfo } from './types/identity';
 import {
   type ControlNode,
@@ -27,26 +27,33 @@ import {
 } from './types/info';
 import {
   type GrantBlob,
-  type ShareAmendment,
   type ShareEntry,
   type ShareFeedHead,
   ShareGrade,
   type ShareHandle,
   type ShareOptions,
+  type ShareSubject,
 } from './types/share';
 import type { SwarmClient } from './types/swarmClient';
-import { type UpdateItem, type UploadFilesResult, type UploadItem, type UploadOptions } from './types/upload';
-import { type ContentRef, type FailedResult, type GranteeListUpdate, type Hex } from './types/utils';
+import type { UpdateItem, UploadFilesResult, UploadItem, UploadOptions } from './types/upload';
+import type { ContentRef, FailedResult, Hex } from './types/utils';
+import { assertDriveInfoFromMetadata, assertReady, assertShareEntryList, assertShareGrade } from './utils/asserts';
 import {
-  assertDriveInfoFromMetadata,
-  assertGrantBlob,
-  assertReady,
-  assertShareEntryList,
-  assertShareFeedHead,
-  assertShareGrade,
-} from './utils/asserts';
-import { fetchStamp, getFeedData, getTopicAndVersion, verifyStampUsability } from './utils/bee';
-import { awaitAllPromisesBounded, errorMessage, getRecordStatus, joinPath, settlePromises } from './utils/common';
+  fetchStamp,
+  getFeedData,
+  getTopicAndVersion,
+  openGrantBlob,
+  readShareHead,
+  verifyStampUsability,
+} from './utils/bee';
+import {
+  applyGranteeUpdate,
+  awaitAllPromisesBounded,
+  errorMessage,
+  getRecordStatus,
+  joinPath,
+  settlePromises,
+} from './utils/common';
 import {
   ADMIN_DRIVE_NAME,
   FEED_INDEX_NONE,
@@ -144,8 +151,6 @@ export class FileManagerBase implements FileManager {
   private _sharedWithMe: DriveInfo | undefined = undefined;
   private readonly _recordList: FileRecord[] = [];
   private _shareList: ShareEntry[] | undefined = undefined;
-  // The node `_shareList` is written to, the way `_driveList` holds the nodes drives are written to.
-  // Its feed index and ref live in the store's caches, keyed by topic like every other node's.
   private shareNode: ControlNode | undefined = undefined;
   private readonly store: MantarayStore;
   private readonly errorHandler = ErrorHandler.getInstance();
@@ -1669,51 +1674,16 @@ export class FileManagerBase implements FileManager {
     const subject = await this.resolveShareSubject(cachedDrive, path, requestOptions);
     assertShareGrade(grade, subject.type);
 
-    const keys = await this.store.keyring.requireKeys(subject.topic);
-    const metaKey = grade !== ShareGrade.Open ? new Bytes(keys.meta).toString() : undefined;
-    const contentKey = grade !== ShareGrade.List ? new Bytes(keys.content).toString() : undefined;
-    const blob: GrantBlob = {
-      v: SHARE_FORMAT_VERSION,
-      owner: subject.owner,
-      topic: subject.topic,
-      type: subject.type,
-      name: subject.name,
-      meta: metaKey,
-      content: contentKey,
-      message: options?.message,
-    };
+    const current = shares.find((e) => e.nodeTopic === subject.topic && e.grade === grade && e.revokedAt === undefined);
 
-    const upload = await this.swarmClient.uploadProtected(
-      cachedDrive.batchId,
-      JSON.stringify(blob),
-      grantees,
-      undefined,
-      { redundancyLevel: subject.redundancyLevel },
-      requestOptions,
-    );
-    if (!upload.granteeListRef) {
-      throw new ShareError('Protected upload returned no grantee list — the grant could never be amended or revoked');
-    }
+    const entry = current
+      ? await this.addShareGrantees(current, subject, cachedDrive, grantees, requestOptions)
+      : await this.mintShareEntry(subject, cachedDrive, grade, grantees, options, requestOptions);
 
-    const entry: ShareEntry = {
-      id: new Identifier(generateRandomBytes(Identifier.LENGTH)).toString(),
-      shareTopic: new Topic(generateRandomBytes(Topic.LENGTH)).toString(),
-      nodeTopic: subject.topic,
-      driveId: cachedDrive.id,
-      type: subject.type,
-      path: subject.path,
-      grade,
-      granteeList: { reference: upload.granteeListRef, historyRef: upload.contentRefs.historyRef },
-      act: { ...upload.contentRefs },
-      publisher: this.swarmClient.actPublisher,
-      createdAt: Date.now(),
-    };
-
-    this.store.setNodeNextIndexCache(entry.shareTopic, 0n);
-    await this.publishShareHead(entry, cachedDrive, requestOptions);
+    await this.publishShareHead(cachedDrive.batchId, entry, requestOptions);
     await this.commitShareEntry(shares, entry, requestOptions);
 
-    this.emitter.emit(FileManagerEvents.SHARE_CREATED, { entry });
+    this.emitter.emit(current ? FileManagerEvents.SHARE_AMENDED : FileManagerEvents.SHARE_CREATED, { entry });
 
     return { ...entry };
   }
@@ -1722,7 +1692,8 @@ export class FileManagerBase implements FileManager {
     requestOptions?.signal?.throwIfAborted();
     assertReady(this.isInitialized, this.store.identity);
 
-    const entry = this.findShareOrThrow(await this.ensureShareList(requestOptions), shareId);
+    const shareList = await this.ensureShareList(requestOptions);
+    const entry = this.findShareOrThrow(shareList, shareId);
 
     return await this.swarmClient.listGrantees(
       entry.granteeList.reference,
@@ -1731,61 +1702,7 @@ export class FileManagerBase implements FileManager {
     );
   }
 
-  async amendShare(shareId: string, changes: ShareAmendment, requestOptions?: BeeRequestOptions): Promise<ShareEntry> {
-    requestOptions?.signal?.throwIfAborted();
-    assertReady(this.isInitialized, this.store.identity);
-
-    const shares = await this.ensureShareList(requestOptions);
-    const current = this.findShareOrThrow(shares, shareId);
-    if (current.revokedAt !== undefined) {
-      throw new ShareError(`Share ${shareId.slice(0, 6)} is revoked — issue a new one`);
-    }
-
-    const add = changes.add ?? [];
-    const remove = changes.remove ?? [];
-    if (add.length === 0 && remove.length === 0) {
-      throw new ShareError('amendShare needs at least one grantee to add or remove');
-    }
-
-    const { cachedDrive } = this.findDriveOrThrow(current.driveId);
-    const entry: ShareEntry = { ...current };
-    // TODO: this probably is bad: revoke creates a new ACT trie completely and beeclient can do it in one step via patch: amend only and revoke is separate
-    if (remove.length > 0) {
-      this.applyGranteeUpdate(
-        entry,
-        await this.swarmClient.revokeGrantees(
-          cachedDrive.batchId,
-          entry.granteeList.reference,
-          entry.granteeList.historyRef,
-          entry.act.reference,
-          remove,
-          requestOptions,
-        ),
-      );
-    }
-
-    if (add.length > 0) {
-      this.applyGranteeUpdate(
-        entry,
-        await this.swarmClient.addGrantees(
-          cachedDrive.batchId,
-          entry.granteeList.reference,
-          entry.granteeList.historyRef,
-          add,
-          requestOptions,
-        ),
-      );
-    }
-
-    await this.publishShareHead(entry, cachedDrive, requestOptions);
-    await this.commitShareEntry(shares, entry, requestOptions);
-
-    this.emitter.emit(FileManagerEvents.SHARE_AMENDED, { entry });
-
-    return { ...entry };
-  }
-
-  async revokeShare(shareId: string, requestOptions?: BeeRequestOptions): Promise<ShareEntry> {
+  async revokeShare(shareId: string, recipients?: Hex[], requestOptions?: BeeRequestOptions): Promise<ShareEntry> {
     requestOptions?.signal?.throwIfAborted();
     assertReady(this.isInitialized, this.store.identity);
 
@@ -1795,29 +1712,36 @@ export class FileManagerBase implements FileManager {
       throw new ShareError(`Share ${shareId.slice(0, 6)} is already revoked`);
     }
 
-    const { cachedDrive } = this.findDriveOrThrow(current.driveId);
+    const cachedDrive = this.findReadableDriveOrThrow(current.driveId);
     const entry: ShareEntry = { ...current };
 
-    const grantees = await this.getShareGrantees(shareId, requestOptions);
-    if (grantees.length > 0) {
-      this.applyGranteeUpdate(
-        entry,
-        await this.swarmClient.revokeGrantees(
-          cachedDrive.batchId,
-          entry.granteeList.reference,
-          entry.granteeList.historyRef,
-          entry.act.reference,
-          grantees,
-          requestOptions,
-        ),
-      );
+    const members = await this.getShareGrantees(shareId, requestOptions);
+    const remove = recipients ? members.filter((m) => recipients.includes(m)) : members;
+    if (recipients && remove.length === 0) {
+      throw new ShareError(`Share ${shareId.slice(0, 6)} grants none of the given recipients`);
     }
 
-    entry.revokedAt = Date.now();
+    if (remove.length > 0) {
+      const revokeResult = await this.swarmClient.revokeGrantees(
+        cachedDrive.batchId,
+        entry.granteeList.reference,
+        entry.granteeList.historyRef,
+        entry.act.reference,
+        remove,
+        requestOptions,
+      );
+      applyGranteeUpdate(entry, revokeResult);
+    }
+
+    // An emptied list grants nobody, so a partial removal that takes the last member closes the
+    // entry too — leaving it open would let a later share() amend a grant that reaches no one.
+    if (!recipients || remove.length === members.length) {
+      entry.revokedAt = Date.now();
+    }
 
     // Published rather than abandoned: recipients follow this feed, and its final head is what tells
     // them the grant is gone instead of leaving them on an address that quietly stops resolving.
-    await this.publishShareHead(entry, cachedDrive, requestOptions);
+    await this.publishShareHead(cachedDrive.batchId, entry, requestOptions);
     await this.commitShareEntry(shares, entry, requestOptions);
 
     this.emitter.emit(FileManagerEvents.SHARE_REVOKED, { entry });
@@ -1829,8 +1753,8 @@ export class FileManagerBase implements FileManager {
     requestOptions?.signal?.throwIfAborted();
     assertReady(this.isInitialized, this.store.identity);
 
-    const head = await this.readShareHead(handle, requestOptions);
-    const blob = await this.openGrantBlob(head, requestOptions);
+    const head = await readShareHead(this.swarmClient, handle, requestOptions);
+    const blob = await openGrantBlob(this.swarmClient, head, requestOptions);
     assertShareGrade(head.grade, blob.type);
 
     const keys = {
@@ -1882,6 +1806,7 @@ export class FileManagerBase implements FileManager {
   }
 
   // --- Private helpers ---
+
   private resetState(): void {
     this._adminStamp = undefined;
     this.adminRedundancyLevel = RedundancyLevel.OFF;
@@ -2061,38 +1986,6 @@ export class FileManagerBase implements FileManager {
     };
   }
 
-  private async readShareHead(handle: ShareHandle, requestOptions?: BeeRequestOptions): Promise<ShareFeedHead> {
-    const { payload, feedIndex } = await getFeedData(
-      this.swarmClient,
-      new Topic(handle.shareTopic),
-      handle.owner,
-      undefined,
-      requestOptions,
-    );
-    if (feedIndex.equals(FEED_INDEX_NONE)) {
-      throw new ShareError('Share feed has no head — the handle is wrong or the grant was never published');
-    }
-
-    const head = payload.toJSON();
-    assertShareFeedHead(head);
-
-    return head;
-  }
-
-  private async openGrantBlob(head: ShareFeedHead, requestOptions?: BeeRequestOptions): Promise<GrantBlob> {
-    const bytes = await this.swarmClient.downloadProtected(
-      { reference: head.reference, historyRef: head.historyRef, publisher: head.publisher },
-      undefined,
-      undefined,
-      requestOptions,
-    );
-
-    const blob = new Bytes(bytes).toJSON();
-    assertGrantBlob(blob);
-
-    return blob;
-  }
-
   private findShareOrThrow(shares: ShareEntry[], shareId: string): ShareEntry {
     const entry = shares.find((e) => e.id === shareId);
     if (!entry) {
@@ -2102,23 +1995,81 @@ export class FileManagerBase implements FileManager {
     return entry;
   }
 
-  /**
-   * Resolve what a share is issued against, leaving its keys hydrated in the keyring.
-   *
-   * `/` is the drive itself — a drive is a mount point, so sharing one is sharing its root manifest.
-   */
+  private async mintShareEntry(
+    subject: ShareSubject,
+    drive: DriveInfo,
+    grade: ShareGrade,
+    grantees: Hex[],
+    options?: ShareOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<ShareEntry> {
+    const keys = await this.store.keyring.requireKeys(subject.topic);
+    const blob: GrantBlob = {
+      v: SHARE_FORMAT_VERSION,
+      owner: subject.owner,
+      topic: subject.topic,
+      type: subject.type,
+      name: subject.name,
+      meta: grade !== ShareGrade.Open ? new Bytes(keys.meta).toString() : undefined,
+      content: grade !== ShareGrade.List ? new Bytes(keys.content).toString() : undefined,
+      message: options?.message,
+    };
+
+    const upload = await this.swarmClient.uploadProtected(
+      drive.batchId,
+      JSON.stringify(blob),
+      grantees,
+      undefined,
+      { redundancyLevel: this.adminRedundancyLevel },
+      requestOptions,
+    );
+    if (!upload.granteeListRef) {
+      throw new ShareError('Protected upload returned no grantee list — the grant could never be amended or revoked');
+    }
+
+    const entry: ShareEntry = {
+      id: new Identifier(generateRandomBytes(Identifier.LENGTH)).toString(),
+      shareTopic: new Topic(generateRandomBytes(Topic.LENGTH)).toString(),
+      nodeTopic: subject.topic,
+      driveId: drive.id,
+      type: subject.type,
+      path: subject.path,
+      grade,
+      granteeList: { reference: upload.granteeListRef, historyRef: upload.contentRefs.historyRef },
+      act: { ...upload.contentRefs },
+      publisher: this.swarmClient.actPublisher,
+      createdAt: Date.now(),
+    };
+    this.store.setNodeNextIndexCache(entry.shareTopic, 0n);
+
+    return entry;
+  }
+
+  private async addShareGrantees(
+    current: ShareEntry,
+    subject: ShareSubject,
+    drive: DriveInfo,
+    grantees: Hex[],
+    requestOptions?: BeeRequestOptions,
+  ): Promise<ShareEntry> {
+    const entry: ShareEntry = { ...current, path: subject.path };
+    const grantResult = await this.swarmClient.addGrantees(
+      drive.batchId,
+      entry.granteeList.reference,
+      entry.granteeList.historyRef,
+      grantees,
+      requestOptions,
+    );
+    applyGranteeUpdate(entry, grantResult);
+
+    return entry;
+  }
+
   private async resolveShareSubject(
     drive: DriveInfo,
     path: string,
     requestOptions?: BeeRequestOptions,
-  ): Promise<{
-    topic: string;
-    type: NodeType;
-    name: string;
-    owner: string;
-    path: string;
-    redundancyLevel: RedundancyLevel;
-  }> {
+  ): Promise<ShareSubject> {
     if (!path || path === ROOT_PATH) {
       return {
         topic: drive.topic,
@@ -2126,7 +2077,6 @@ export class FileManagerBase implements FileManager {
         name: drive.name,
         owner: drive.owner,
         path: ROOT_PATH,
-        redundancyLevel: drive.redundancyLevel,
       };
     }
 
@@ -2148,19 +2098,12 @@ export class FileManagerBase implements FileManager {
       name: fork.filename,
       owner: fork.metadata[MANIFEST_METADATA_NODE_OWNER] ?? drive.owner,
       path: nodePath,
-      redundancyLevel: getRlevel(fork.metadata, drive.redundancyLevel),
     };
   }
 
-  // Both references move together: the grantee list and the grant blob ride one ACT history.
-  private applyGranteeUpdate(entry: ShareEntry, update: GranteeListUpdate): void {
-    entry.granteeList = { reference: update.granteeListRef, historyRef: update.historyRef };
-    entry.act = { reference: update.contentRef ?? entry.act.reference, historyRef: update.historyRef };
-  }
-
   private async publishShareHead(
+    batchId: string,
     entry: ShareEntry,
-    drive: DriveInfo,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
     const head: ShareFeedHead = {
@@ -2171,11 +2114,7 @@ export class FileManagerBase implements FileManager {
       grade: entry.grade,
     };
 
-    await this.store.saveShareHead(
-      { batchId: drive.batchId, topic: entry.shareTopic, redundancyLevel: drive.redundancyLevel },
-      head,
-      requestOptions,
-    );
+    await this.store.saveShareHead({ batchId, topic: entry.shareTopic }, head, requestOptions);
   }
 
   // Swarm is already ahead by the time this runs, so a failed index write must not leave memory
@@ -2207,6 +2146,7 @@ export class FileManagerBase implements FileManager {
       throw err;
     }
   }
+
   private async registerDrive(
     specs: { name: string; batchId: string; redundancyLevel: RedundancyLevel; kind: DriveKind }[],
     requestOptions?: BeeRequestOptions,
@@ -2418,13 +2358,6 @@ export class FileManagerBase implements FileManager {
     return { driveIx, cachedDrive };
   }
 
-  /**
-   * {@link findDriveOrThrow} widened to the inbound-share drive, for the read paths.
-   *
-   * Writes go through the narrow lookup and so cannot name it at all: we hold read keys for what is
-   * mounted there, never the signer, so a write could only land under our own address where nothing
-   * looks for it. Refusing structurally beats refusing at the feed.
-   */
   private findReadableDriveOrThrow(driveId: string | Identifier): DriveInfo {
     const driveIdStr = new Identifier(driveId).toString();
     if (this._sharedWithMe?.id === driveIdStr) {
@@ -2499,9 +2432,6 @@ export class FileManagerBase implements FileManager {
     return { folder: fi, node: parentNode };
   }
 
-  // Hydrate `record`'s keys when the caller reached it without walking to it.
-  // A FileRecord kept across sessions carries its topic but no key material, and the keyring lives only in memory.
-  // A no-op once the keys are known.
   private async ensureRecordKeys(
     drive: DriveInfo,
     record: FileRecord,

@@ -45,9 +45,12 @@ export interface ShareOptions {
   message?: string;
 }
 
-export interface ShareAmendment {
-  add?: Hex[];
-  remove?: Hex[];
+export interface ShareSubject {
+  topic: string;
+  type: NodeType;
+  name: string;
+  owner: Hex;
+  path: string;
 }
 
 export interface ShareEntry {

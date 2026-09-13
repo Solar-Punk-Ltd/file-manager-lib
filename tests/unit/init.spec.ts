@@ -11,6 +11,7 @@ import { DriveKind, NodeType, type UnresolvedDrive } from '@/types';
 import { FileManagerEvents, SignerError } from '@/utils';
 import { fetchStamp } from '@/utils/bee';
 import {
+  DRIVE_FORK_PREFIX,
   FEED_INDEX_ZERO,
   MANIFEST_METADATA_DRIVE_BATCH_ID,
   MANIFEST_METADATA_DRIVE_ID,
@@ -113,7 +114,7 @@ describe('Initialization and construction', () => {
 
       (getAllNodeEntries as jest.Mock).mockReturnValue([
         {
-          path: `/drive-${driveId}`,
+          path: `${DRIVE_FORK_PREFIX}-${driveId}`,
           type: NodeType.Drive,
           topic: driveTopic,
           rawMetadata: {
@@ -161,7 +162,7 @@ describe('Initialization and construction', () => {
 
       (getAllNodeEntries as jest.Mock).mockReturnValue([
         {
-          path: '/drive-malformed',
+          path: `${DRIVE_FORK_PREFIX}-malformed`,
           type: NodeType.Drive,
           topic: Topic.fromString('malformed-drive').toString(),
           rawMetadata: {},
@@ -191,7 +192,7 @@ describe('Initialization and construction', () => {
       const fm = new FileManagerBase(client, emitter);
 
       const driveFork = (id: string, name: string, wrapped: Record<string, string>): object => ({
-        path: `/drive-${id}`,
+        path: `${DRIVE_FORK_PREFIX}-${id}`,
         type: NodeType.Drive,
         topic: Topic.fromString(name).toString(),
         rawMetadata: {

@@ -110,7 +110,7 @@ what it grants.
 
 ### The `.shares` index
 
-Owner-private, one entry per grant. It is what `listShares()` reads and what derives a node's share state (§8). It is
+Owner-private, one entry per grant. It is what `shareList` exposes and what derives a node's share state (§8). It is
 loaded as a unit — `shareList` is `undefined` until that has happened, which is not the same answer as `[]`:
 
 ```ts
@@ -132,12 +132,18 @@ interface ShareEntry {
 
 **One entry is one grant: one node, one grade, one grantee list, one blob, one ACT history, one share feed, one
 handle.** The chain is 1:1 at every link, because a blob's bytes are fixed by `(node, grade)` and an ACT reference
-resolves against exactly one grantee list. Sharing one node with two audiences is therefore two entries — which is also
-what you want operationally: each audience gets a distinct handle, and either can be revoked without touching the other.
+resolves against exactly one grantee list. That is also the invariant `share()` maintains: **at most one live entry per
+`(node, grade)`**. A second call for the same pair joins the standing grant rather than minting a rival to it, so a
+node's audience has one address and not a set of them that could drift apart.
 
 The grantee list is the plural part: one entry, many grantees. The entry holds its **address**, not a copy of its
 members — `getShareGrantees()` fetches them on demand. Membership then has one home, so an amendment cannot leave the
-index disagreeing with the ACT, and an entry stays a fixed size no matter how wide the audience.
+index disagreeing with the ACT, and an entry stays a fixed size no matter how wide the audience. Dropping one person is
+`revokeShare(id, [key])` against that list, never a second entry.
+
+Two **grades** on one node are two entries, each with its own handle and each revocable alone — which is how a folder is
+browsable by one audience and readable by another. A grade never changes on a standing grant: the blob is immutable and
+already carries the keys it was minted with, so a downgrade would be a claim the bytes on Swarm do not honour.
 
 ### What a share does not touch
 
@@ -183,7 +189,7 @@ nodes in the admin drive, beside the drive registry:
 flowchart TD
     SF["state feed — (stateTopic, identity.owner)"] --> AM["admin manifest"]
     AM --> D1["/drive-&lt;id&gt; · DriveKind.User<br/>My files, Websites"]
-    AM --> M1["/mount-&lt;id&gt; · DriveKind.Mount<br/>accepted shares, read-only, foreign owner"]
+    AM --> M1["/drive-&lt;id&gt; · DriveKind.Shared<br/>SharedWithMe — one fork per accepted grant"]
     AM --> S1[".shares · control-plane node<br/>outbound grants"]
     AM --> C1[".contacts · control-plane node<br/>contacts and groups"]
 ```
@@ -204,11 +210,20 @@ owner**. Everything else is bookkeeping.
 
 ```ts
 enum DriveKind {
-  Admin, // admin drive: the registry and the control-plane nodes
+  Admin, // the registry and the control-plane nodes
   User, // My files, Websites — own batch, own content
-  Mount, // an accepted share: foreign owner, read-only
+  Shared, // "Shared with me": ours, written by us, but every node in it is someone else's
 }
 ```
+
+**Inbound shares are one drive, not one drive each.** `Shared` is a single container, provisioned with the admin state
+and addressed through `sharedWithMe` rather than `driveList` — a drive the user can rename, trash or share back would be
+a lie, since nothing in it is theirs. Inside, each accepted grant is one fork, and forks in a mantaray carry their own
+`swarm-node-owner`, so a file and a folder from two different sharers sit side by side under one roof. That is also what
+makes an `Open` grant of a single file mountable with no special case: it is a fork like any other.
+
+The precedent is Google Drive's own "Shared with me" — one flat surface for everything others have given you, distinct
+from the drives you own.
 
 ---
 
@@ -225,17 +240,27 @@ flowchart TD
     R2 -->|"outside the grantee list"| X["fails here — the blob is the gate"]
     R2 --> R3["grant blob → owner · topic · type · name · keys"]
     R3 --> R4["keyring.register(topic, keys)"]
-    R4 --> R5["keyring.wrapFor(stateTopic, topic)<br/>re-seal under MY root key"]
-    R5 --> R6["/mount-&lt;id&gt; fork in MY admin manifest<br/>+ shareTopic, so the grant can be refreshed"]
-    R6 --> R7["a read-only drive in driveList —<br/>listFolder and downloadFile unchanged"]
+    R4 --> R5["keyring.wrapFor(sharedDrive.topic, topic)<br/>re-seal under MY root key"]
+    R5 --> R6["a fork in MY &quot;Shared with me&quot; manifest<br/>+ the sharer's owner and shareTopic"]
+    R6 --> R7["an ordinary entry —<br/>listFolder and downloadFile unchanged"]
 ```
 
-Two properties make this cheap:
+Three properties make this cheap:
 
 - **Re-wrapping under the recipient's own root** means the mount survives a session restart through the ordinary walk.
   No second key store, no persisted raw keys.
-- **Storing `shareTopic` on the mount** means the recipient re-reads the share feed to pick up an amended or rotated
+- **Writing the sharer's address into the fork** (`swarm-node-owner`) means the walk reads the mounted subtree under the
+  right feed owner without the drive having to be foreign-owned.
+- **Storing `shareTopic` on the fork** means the recipient re-reads the share feed to pick up an amended or rotated
   grant, without a new handle.
+
+The grant blob names the node but not where it sits: a recipient gets a topic, and the fork prefix that would name it
+lives in the sharer's parent manifest, which the share does not include. So the mount is named from the blob's `name`,
+suffixed when that name is already taken — two people may share a `Q3 report` and both land intact. The node's topic is
+what identifies it, so accepting the same grant twice is refused rather than mounted twice.
+
+A grade the recipient cannot walk is refused at accept time rather than mounted broken: `assertShareGrade` re-runs on
+the untrusted blob, because a blob written by someone else is data, not a promise.
 
 ---
 
@@ -245,19 +270,36 @@ A **group** is a named, reusable audience stored in `.contacts`: an id, a label,
 convenience in front of `share()`, which is resolved to keys at call time — so a group can change without the library
 having to trust `.contacts` to know who holds a grant.
 
-`amendShare` is the one path that changes membership, whether it is called for one key or for every share a group
-reaches:
+Membership moves in one direction per call. `share()` adds and `revokeShare` removes, and there is at most one live
+grant per node and grade — so `share()` on a node already shared at that grade patches the standing grant rather than
+issuing a second one, while a different grade mints its own, independently revocable.
 
 ```mermaid
 flowchart TD
-    A["amendShare(shareId, {add, remove})"] --> C["addGrantees / revokeGrantees on the ACT history<br/>→ new grantee list and historyRef"]
-    C --> D["write the new share-feed head"]
+    A["share(driveId, path, grade, recipients)"] --> B{"a live grant<br/>for this node and grade?"}
+    B -- no --> M["upload the grant blob under a new ACT<br/>→ new entry, new shareTopic"]
+    B -- yes --> C["addGrantees on the ACT history<br/>→ new grantee list and historyRef"]
+    R["revokeShare(shareId, recipients?)"] --> C2["revokeGrantees, re-keying the ACT<br/>→ new grantee list and historyRef"]
+    M --> D["write the new share-feed head"]
+    C --> D
+    C2 --> D
     D --> E["update the .shares entry"]
     E --> F["recipients follow the feed —<br/>the handle is unchanged"]
 ```
 
-The grant blob is never re-uploaded: both backends amend a grantee list against the ACT history it already has, so the
-protected bytes and — on `BeeClient` — the encrypted reference stay put.
+Amending never re-uploads the grant blob: both backends patch a grantee list against the ACT history it already has, so
+the protected bytes and — on `BeeClient` — the encrypted reference stay put. That is also why a grade is fixed for the
+life of a grant: the blob is immutable and already carries the keys it was minted with.
+
+`revokeShare(shareId, recipients?)` covers both shapes of withdrawal against that one list. Named recipients are
+intersected with the current membership and dropped; omitting them drops everyone. Either way the ACT is re-keyed and
+the new head published, so those still on the list follow the feed and keep reading while those removed are left on an
+address that no longer resolves for them. **An emptied list closes the entry** — `revokedAt` is stamped whether the last
+member left by name or by omission, because a grant reaching nobody is one `share()` would otherwise keep amending.
+
+A revoked entry stays in `.shares` as the record that the grant existed, and is never matched again: re-sharing the same
+node at the same grade mints a fresh grant with a fresh handle, which is the honest outcome — the old handle was
+published to people who no longer hold it.
 
 **Revocation denies future reads.** Every key a recipient already unwrapped and every chunk they already dereferenced
 stays readable: Swarm has no delete, and a 64-byte reference is a capability for as long as the chunks live.

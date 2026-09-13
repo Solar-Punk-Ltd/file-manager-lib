@@ -1,4 +1,6 @@
 import { NodeStatus } from '../types/info';
+import type { ShareEntry } from '../types/share';
+import { type GranteeListUpdate } from '../types/utils';
 
 import { Logger } from './logger';
 import { isTrashPath } from './path';
@@ -82,4 +84,9 @@ export async function settlePromises<T>(
 
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export function applyGranteeUpdate(entry: ShareEntry, update: GranteeListUpdate): void {
+  entry.granteeList = { reference: update.granteeListRef, historyRef: update.historyRef };
+  entry.act = { reference: update.contentRef ?? entry.act.reference, historyRef: update.historyRef };
 }

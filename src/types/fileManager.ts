@@ -15,7 +15,7 @@ import type {
   NodeEntry,
   StampInfo,
 } from './info';
-import type { ShareAmendment, ShareEntry, ShareGrade, ShareHandle, ShareOptions } from './share';
+import type { ShareEntry, ShareGrade, ShareHandle, ShareOptions } from './share';
 import type { UpdateItem, UploadFilesResult, UploadItem, UploadOptions } from './upload';
 import type { Hex } from './utils';
 
@@ -413,27 +413,25 @@ export interface FileManager {
   ): Promise<FolderInfo>;
 
   /**
-   * Grants a drive, folder or file to a list of grantee public keys.
+   * Grants a drive, folder or file to a list of grantee public keys. What a recipient needs is the
+   * returned entry's `{ shareTopic, owner }`; delivering that handle is the application's job.
    *
-   * Additive: nothing on the shared node is written, no version is bumped, and no manifest is
-   * re-saved. The share is three new objects — an ACT-protected grant blob carrying the node's keys,
-   * a share feed whose head points at it, and an entry in the owner-private share index.
-   *
-   * What is handed to a recipient is `{ shareTopic, owner }`. That handle is stable for the life of
-   * the grant and is safe on a public channel: outside the grantee list the addresses it resolves
-   * dereference to nothing. Delivering it is the application's job.
-   *
-   * Sharing one node with two audiences is two calls — each gets its own handle and either can be
-   * revoked without touching the other.
+   * Additive in both senses. Nothing on the shared node is written, and a second call for the same
+   * node and grade adds its recipients to the standing grant rather than issuing another one, so
+   * the handle the first recipients hold keeps working. A different grade mints its own grant,
+   * revocable on its own; the grade of a standing grant never changes. Removal is
+   * {@link revokeShare} alone.
    * @param driveId - The drive containing the node.
    * @param path - Absolute path of the file or folder, or `/` to share the whole drive.
    * @param grade - What the recipients get: `List`, `Read` (folders and drives) or `Open` (files).
-   * @param recipients - Compressed secp256k1 public keys, each the key its holder's ACT engine
-   *   decrypts with — a Bee node key for a `BeeClient` recipient, an `appKey` for a swarm-id one.
-   * @param options - Optional note, carried inside the ACT-gated blob rather than beside the handle.
+   * @param recipients - Compressed secp256k1 public keys — a Bee node key for a `BeeClient`
+   *   recipient, an `appKey` for a swarm-id one.
+   * @param options - Optional note, carried inside the ACT-gated blob. Written when the grant is
+   *   minted, so it does not apply when adding to a standing one.
    * @param requestOptions - Additional Bee request options.
-   * @emits FileManagerEvents.SHARE_CREATED
-   * @returns The new ShareEntry, whose `shareTopic` is half the handle.
+   * @emits FileManagerEvents.SHARE_CREATED when minted, FileManagerEvents.SHARE_AMENDED when
+   *   recipients are added to a standing grant.
+   * @returns The ShareEntry, whose `shareTopic` is half the handle.
    * @throws {DriveError} If not initialized or the drive is not found.
    * @throws {ShareError} If `recipients` is empty, the grade does not fit the node type, or the
    *   backend returned no grantee list to amend against.
@@ -451,10 +449,8 @@ export interface FileManager {
   ): Promise<ShareEntry>;
 
   /**
-   * Who a grant currently reaches, read from its ACT grantee list.
-   *
-   * The list on Swarm is the only membership record — an entry holds its address, never a copy — so
-   * this is a fetch, and it is what {@link revokeShare} withdraws.
+   * Who a grant currently reaches. The ACT grantee list on Swarm is the only membership record — an
+   * entry holds its address, never a copy — so this is a fetch.
    * @param shareId - `ShareEntry.id` of the grant.
    * @param requestOptions - Additional Bee request options.
    * @returns The grantees' compressed public keys.
@@ -464,56 +460,37 @@ export interface FileManager {
   getShareGrantees(shareId: string, requestOptions?: BeeRequestOptions): Promise<Hex[]>;
 
   /**
-   * Changes a grant's membership without changing its handle.
+   * Withdraws access, from named recipients or — with `recipients` omitted — from the whole grant.
+   * The grantee list is re-keyed and republished as the share feed's next head, so those still on
+   * it keep reading. Emptying the list closes the grant.
    *
-   * The grant blob is never re-uploaded — the grantee list is amended against the ACT history it
-   * already has — and the new address is published as the share feed's next head, which recipients
-   * are already following. Removals are applied before additions, so a key in both lists ends up
-   * granted against the re-keyed ACT.
-   * @param shareId - `ShareEntry.id` of the grant to amend.
-   * @param changes - Grantee public keys to add and/or remove.
-   * @param requestOptions - Additional Bee request options.
-   * @emits FileManagerEvents.SHARE_AMENDED
-   * @returns The updated ShareEntry.
-   * @throws {DriveError} If not initialized or the entry's drive is no longer known.
-   * @throws {ShareError} If the share is unknown or already revoked, or neither list has an entry.
-   */
-  amendShare(shareId: string, changes: ShareAmendment, requestOptions?: BeeRequestOptions): Promise<ShareEntry>;
-
-  /**
-   * Withdraws a grant: empties its grantee list, re-keying the ACT, and publishes the result as the
-   * share feed's final head.
-   *
-   * **This denies future reads only.** Every key a recipient already unwrapped and every chunk they
-   * already dereferenced stays readable — Swarm has no delete, and a reference is a capability for
-   * as long as the chunks live. Withdrawing past access means rotating the subtree's keys.
-   * @param shareId - `ShareEntry.id` of the grant to withdraw.
+   * **Denies future reads only.** Keys a recipient already unwrapped and chunks they already
+   * dereferenced stay readable, since Swarm has no delete. Withdrawing past access means rotating
+   * the subtree's keys.
+   * @param shareId - `ShareEntry.id` of the grant to withdraw from.
+   * @param recipients - Grantee public keys to drop. Omit to withdraw the grant entirely.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.SHARE_REVOKED
-   * @returns The entry, stamped `revokedAt`. It stays in the index as a record of the grant.
+   * @returns The entry, stamped `revokedAt` once nobody is left on it. It stays in the index as a
+   *   record of the grant.
    * @throws {DriveError} If not initialized or the entry's drive is no longer known.
-   * @throws {ShareError} If the share is unknown or already revoked.
-   * @see {@link getShareGrantees} — the current membership this withdraws.
+   * @throws {ShareError} If the share is unknown, already revoked, or grants none of `recipients`.
+   * @see {@link getShareGrantees} — the current membership this withdraws from.
    */
-  revokeShare(shareId: string, requestOptions?: BeeRequestOptions): Promise<ShareEntry>;
+  revokeShare(shareId: string, recipients?: Hex[], requestOptions?: BeeRequestOptions): Promise<ShareEntry>;
 
   /**
-   * Accepts a grant handed to this identity, mounting it in {@link sharedWithMe}.
-   *
-   * The handle is read, the grant blob is fetched through ACT — which is where anyone outside the
-   * grantee list fails — and the keys it carries are re-sealed under this identity's own root. The
-   * mount is then an ordinary fork, so it survives a restart through the normal walk and needs no
-   * second key store. A file and a folder mount the same way and sit side by side;
+   * Accepts a grant handed to this identity, mounting it in {@link sharedWithMe}. The grant blob is
+   * fetched through ACT — where anyone outside the grantee list fails — and the keys it carries are
+   * re-sealed under this identity's own root, so the mount is an ordinary fork that survives a
+   * restart and needs no second key store. Files and folders mount alike;
    * {@link listFolder} and {@link downloadFile} work on both unchanged.
-   *
-   * The shared drive is created on the first accepted grant.
-   * @param handle - `{ shareTopic, owner }`, as published by the sharer. However it arrived —
-   *   messenger, link, inbox feed — is the application's business.
+   * @param handle - `{ shareTopic, owner }`, as published by the sharer. However it arrived is the
+   *   application's business.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.SHARE_ACCEPTED
-   * @returns The mounted node as an ordinary entry — a FileRecord or FolderInfo whose `owner` is the
-   *   sharer and whose `driveId` is {@link sharedWithMe}'s. A name already taken in the shared drive
-   *   is suffixed, so two people may share a folder of the same name.
+   * @returns The mounted node as an ordinary entry, whose `owner` is the sharer and whose `driveId`
+   *   is {@link sharedWithMe}'s. A name already taken in the shared drive is suffixed.
    * @throws {DriveError} If not initialized, or the admin manifest is not loaded.
    * @throws {StampError} If the admin batch stamp is missing or not usable.
    * @throws {ShareError} If the feed has no head, the payload is not a share head this version
@@ -523,8 +500,8 @@ export interface FileManager {
   acceptShare(handle: ShareHandle, requestOptions?: BeeRequestOptions): Promise<NodeEntry>;
 
   /**
-   * The drive holding everything shared with this identity, or undefined until the first grant is
-   * accepted.
+   * The drive holding everything shared with this identity. Provisioned with the admin state and
+   * kept out of {@link driveList}, since every node in it is a mount onto someone else's subtree.
    */
   readonly sharedWithMe: DriveInfo | undefined;
 

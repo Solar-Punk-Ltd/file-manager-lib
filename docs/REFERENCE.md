@@ -1,9 +1,9 @@
 # File Manager Library — API Reference
 
 Technical API reference for **@solarpunkltd/file-manager-lib**. See [README.md](../README.md) for installation, the
-architecture overview and a quick start. See [ENCRYPTION_AND_ACT.md](ENCRYPTION_AND_ACT.md) for how content and the
-index are encrypted, how node keys are derived and recovered, and what sharing will look like. See
-[docs/TESTS.md](TESTS.md) for test coverage and usage patterns.
+architecture overview and a quick start. See [ENCRYPTION.md](ENCRYPTION.md) for how content and the index are encrypted
+and how node keys are derived and recovered, and [ACCESS_CONTROL.md](ACCESS_CONTROL.md) for what a grant is made of and
+how it is accepted. See [docs/TESTS.md](TESTS.md) for test coverage and usage patterns.
 
 All methods live on `FileManagerBase`, which implements the `FileManager` interface. Every method that accepts a drive
 takes either a `string` id or a core-sdk `Identifier`. `requestOptions?: BeeRequestOptions` is available on every
@@ -16,7 +16,7 @@ Two things every method does before anything else, so they are not repeated in e
   when this credential has no provisioned identity yet.
 - **Keys.** Any method that reads or writes a node needs that node's keys, which are recovered by walking down to it. A
   node the current session has never reached raises [`KeyringError`](#errors); so does a fork whose wrapped keys do not
-  unwrap under its parent. See [ENCRYPTION_AND_ACT.md §5](ENCRYPTION_AND_ACT.md#5-read-and-write-paths).
+  unwrap under its parent. See [ENCRYPTION.md §5](ENCRYPTION.md#5-read-and-write-paths).
 
 ---
 
@@ -30,7 +30,9 @@ Two things every method does before anything else, so they are not repeated in e
 - [Folders](#folders) — `createFolder`, `listFolder`, `move` (also rename, and drive rename), `forget`
 - [Versioning](#versioning) — `getFileVersion`, `restoreFileVersion`
 - [Trash](#trash) — `trash`, `recover`, `listTrash`, `emptyTrash`
-- [Getters](#getters) — `identity`, `adminStamp`, `driveList`, `recordList`, `emitter`, `isInitialized`
+- [Sharing](#sharing) — `share`, `getShareGrantees`, `revokeShare`, `acceptShare`
+- [Getters](#getters) — `identity`, `adminStamp`, `driveList`, `sharedWithMe`, `recordList`, `shareList`, `emitter`,
+  `isInitialized`
 - [Events](#events)
 - [Types](#types) — including the [port vocabulary](#port-vocabulary) a custom `SwarmClient` implements against
 - [Manifest metadata keys](#manifest-metadata-keys)
@@ -77,9 +79,13 @@ uploadData(batchId, data, options?, requestOptions?): Promise<ClientUploadResult
 downloadData(reference, options?, requestOptions?): Promise<Uint8Array>;
 downloadStream(reference, options?, requestOptions?): Promise<ReadableStream<Uint8Array>>;
 
-uploadProtected(batchId, data, historyRef?, options?, requestOptions?): Promise<ClientProtectedUploadResult>;
+uploadProtected(batchId, data, grantees?, historyRef?, options?, requestOptions?): Promise<ClientProtectedUploadResult>;
 downloadProtected(refs, at?, options?, requestOptions?): Promise<Uint8Array>;
 downloadProtectedStream(refs, at?, options?, requestOptions?): Promise<ReadableStream<Uint8Array>>;
+
+addGrantees(batchId, granteeListRef, historyRef, grantees, requestOptions?): Promise<GranteeListUpdate>;
+revokeGrantees(batchId, granteeListRef, historyRef, contentRef, grantees, requestOptions?): Promise<GranteeListUpdate>;
+listGrantees(granteeListRef, historyRef, requestOptions?): Promise<Hex[]>;
 
 uploadChunk(batchId, data, options?, requestOptions?): Promise<ClientUploadResult>;
 downloadChunk(reference, options?, requestOptions?): Promise<Uint8Array>;
@@ -102,13 +108,19 @@ Three members deserve care, because substituting one for another fails in ways t
   same signature. Putting the origin into the signed message does not fix that — a wallet does not bind a signature to
   who is asking, so another site reproduces it byte-for-byte, and cross-origin portability is lost for nothing. A
   backend-enforced origin (Swarm ID reads `event.origin`) is a different thing. See
-  [Portability versus phishability](ENCRYPTION_AND_ACT.md#portability-versus-phishability).
+  [Portability versus phishability](ENCRYPTION.md#portability-versus-phishability).
 - **`writeFeed`'s `options.signer`** is the one place key material crosses the port, and it is always the library's own
   FMK-derived signer — never the backend's credential. Omit it and the update is signed by the backend key, which is
   what puts the identity envelope under the login's address.
 
-The ACT members (`uploadProtected`, `downloadProtected`, `downloadProtectedStream`, `actPublisher`) are **not used by
-the tree**. They are reserved for the sharing layer; a backend that will never share may throw from them.
+The ACT members (`uploadProtected`, `downloadProtected`, `downloadProtectedStream`, `actPublisher` and the three grantee
+methods) are **not used by the tree** — it is protected by the key chain. They serve the sharing layer alone, so a
+backend that will never share may throw from them.
+
+The two backends address a grantee list differently — Bee by the list's own reference, swarm-id by the ACT history — so
+both are on the signature and each adapter ignores the one it does not need. `revokeGrantees` also takes the current
+`contentRef` for a backend that rotates it; it comes back on `GranteeListUpdate.contentRef` when one is produced, and
+the caller keeps its own when it is not.
 
 `readFeed` reports "no update yet" as a **successful** return carrying the sentinel index
 [`FEED_INDEX_NOT_FOUND`](#feed-index-constants) and a zero-address payload, rather than throwing. Callers branch on the
@@ -132,10 +144,9 @@ interface Credential {
 
 It carries no owner: the envelope always lives under `swarmClient.owner`, because nothing else can sign a write there.
 The secret must be **byte-stable** across sessions and devices for a given user, **private** to whoever produces it, and
-**elicitable only by the user** — see
-[ENCRYPTION_AND_ACT.md §2](ENCRYPTION_AND_ACT.md#2-identity--from-a-login-to-the-filemanager-key) for what each rules
-out, and [Portability versus phishability](ENCRYPTION_AND_ACT.md#portability-versus-phishability) for why the first and
-last cannot both be had today.
+**elicitable only by the user** — see [ENCRYPTION.md §2](ENCRYPTION.md#2-identity--from-a-login-to-the-filemanager-key)
+for what each rules out, and [Portability versus phishability](ENCRYPTION.md#portability-versus-phishability) for why
+the first and last cannot both be had today.
 
 ```ts
 const fm = new FileManagerBase(swarmClient, undefined, {
@@ -168,8 +179,7 @@ The state model has three levels. A per-login **envelope feed** holds the sealed
 credential into the identity that owns everything else. A per-identity **state feed** — its topic derived from the FMK,
 so it is unguessable from any address — has a head pointing at the **admin manifest** (the drive registry). One **drive
 feed** per drive has a head pointing at that drive's mantaray. See
-[README → How it works](../README.md#how-it-works--a-filesystem-mirrored-onto-swarm) and
-[ENCRYPTION_AND_ACT.md](ENCRYPTION_AND_ACT.md).
+[README → How it works](../README.md#how-it-works--a-filesystem-mirrored-onto-swarm) and [ENCRYPTION.md](ENCRYPTION.md).
 
 Bootstrapping splits along read/write: `initialize()` only reads, so it needs no stamp and a first-time user reaches
 `identity === undefined` successfully. `createAdminDrive` performs the first write — minting the FMK and sealing its
@@ -531,18 +541,127 @@ expires — this drops references, it does not delete data.
 
 ---
 
+## Sharing
+
+A share hands another identity the keys to one node, gated by Swarm's Access Control Trie. Three objects are written and
+**the shared node is not touched**: an ACT-protected grant blob holding the node's keys, a share feed whose head points
+at the blob, and an entry in the owner-private `.shares` index. One ACT write covers a subtree of any size.
+
+What a recipient needs is the returned entry's **handle** — `{ shareTopic, owner }`, where `owner` is the entry's
+`publisher`. Outside the grantee list those addresses dereference to nothing, so the handle is safe on a public channel;
+delivering it is the application's job. It never changes: membership churn moves the feed's head, not the handle.
+
+Grantee keys are **compressed secp256k1 public keys** (66 hex), and which key an identity publishes is backend-specific
+— a Bee node key on `BeeClient`, the origin-scoped `appKey` on `SnahaClient`. Both engines implement the same ACT
+construction, so a grant crosses backends.
+
+See [ACCESS_CONTROL.md](ACCESS_CONTROL.md) for the grant format, the publisher/grantee key split and the accept path.
+
+### `share(driveId, path, grade, recipients, options?, requestOptions?): Promise<ShareEntry>`
+
+Grants the node at `path` — or the whole drive, with `'/'` — to `recipients`.
+
+**Additive, and additive only.** A second call for the same node and the same grade adds its recipients to the standing
+grant instead of issuing another one, so the handle the first recipients hold keeps working. There is **at most one live
+grant per `(node, grade)`**. A different grade mints its own grant with its own handle, revocable on its own; the grade
+of a standing grant never changes, because the blob is immutable and already carries the keys it was minted with.
+Removal is never expressed here — that is
+[`revokeShare`](#revokeshareshareid-recipients-requestoptions-promisesharentry).
+
+| `grade`           | Valid on        | The recipient gets                                       |
+| ----------------- | --------------- | -------------------------------------------------------- |
+| `ShareGrade.List` | folders, drives | recursive listing — names, types, versions. No contents. |
+| `ShareGrade.Read` | folders, drives | full read of the subtree, tracking later changes         |
+| `ShareGrade.Open` | files           | that one file, tracking later versions                   |
+
+- **options?** — `{ message?: string }`, carried **inside** the ACT-gated blob rather than beside the handle, so it is
+  readable only by the grantee list. Written when the grant is minted, so it does not apply when adding to a standing
+  one.
+- **Returns**: the [`ShareEntry`](#shareentry). `shareTopic` plus `publisher` is the handle.
+- **Emits**: `SHARE_CREATED` when the grant is minted, `SHARE_AMENDED` when recipients join a standing one.
+- **Throws**: `DriveError` (not initialized, drive not found); `ShareError` (`recipients` empty, the grade does not fit
+  the node type, or the backend returned no grantee list to amend against); `FolderError` (path not found, or under
+  `.trash`); `FileRecordError` (fork missing node metadata); `KeyringError` (node never reached in this session).
+
+Re-sharing a node that was itself shared with you works: the grant names the **original** owner's address, not yours, so
+the recipient reads the sharer's feeds directly rather than through you.
+
+### `getShareGrantees(shareId, requestOptions?): Promise<Hex[]>`
+
+Who a grant currently reaches. The ACT grantee list on Swarm is the only membership record — a `ShareEntry` holds its
+address, never a copy — so this is a network fetch, not a field read.
+
+- **Returns**: the grantees' compressed public keys.
+- **Throws**: `DriveError` (not initialized); `ShareError` (share not found).
+
+### `revokeShare(shareId, recipients?, requestOptions?): Promise<ShareEntry>`
+
+Withdraws access. With `recipients`, those keys are dropped from the grantee list; without it, everyone is. Either way
+the ACT is re-keyed and the new head published, so recipients still on the list follow the feed and keep reading, while
+those removed are left on an address that no longer resolves for them.
+
+**An emptied list closes the grant** — `revokedAt` is stamped whether the last member left by name or by omission. A
+revoked entry stays in `.shares` as the record that the grant existed and is never matched again, so re-sharing the same
+node at the same grade mints a fresh grant with a fresh handle.
+
+> **Denies future reads only.** Every key a recipient already unwrapped and every chunk they already dereferenced stays
+> readable — Swarm has no delete, and a reference is a capability for as long as the chunks live. Withdrawing past
+> access means rotating the subtree's keys.
+
+- **Returns**: the updated [`ShareEntry`](#shareentry), stamped `revokedAt` once nobody is left on it.
+- **Emits**: `SHARE_REVOKED`.
+- **Throws**: `DriveError` (not initialized, or the entry's drive is no longer known); `ShareError` (share not found,
+  already revoked, or it grants none of `recipients`).
+
+### `acceptShare(handle, requestOptions?): Promise<NodeEntry>`
+
+Accepts a grant handed to this identity and mounts it in [`sharedWithMe`](#getters). The share feed is read, the blob is
+fetched through ACT — which is where anyone outside the grantee list fails — and the keys it carries are re-sealed under
+this identity's own root, so the mount is an ordinary fork that survives a restart through the normal walk and needs no
+second key store.
+
+Files and folders mount alike and sit side by side, because a mantaray fork carries its own owner. `listFolder`,
+`downloadFile` and `downloadFolder` work on the result unchanged; writes do not, since the subtree is someone else's.
+
+- **handle** — `{ shareTopic, owner }` as published by the sharer. However it arrived is the application's business.
+- **Returns**: the mounted node as a [`NodeEntry`](#nodeentry) — a `FileRecord` or `FolderInfo` whose `owner` is the
+  sharer and whose `driveId` is `sharedWithMe`'s. A name already taken in the shared drive is suffixed
+  (`Q3 report (2)`), since the blob names the node but not where it sat.
+- **Emits**: `SHARE_ACCEPTED`.
+- **Throws**: `DriveError` (not initialized, or the admin manifest is not loaded); `StampError` (admin batch missing or
+  unusable); `ShareError` (the feed has no head, the payload is not a share head this version understands, the blob
+  carries no key its grade can use, or the node is already mounted). A handle whose grantee list does not include this
+  identity fails on the ACT fetch.
+
+The blob is written by someone else, so it is validated as untrusted input: the grade is re-checked against the type the
+blob claims, which rejects a control-plane node and a grade that contradicts its own subject.
+
+---
+
 ## Getters
 
-| Getter                                | Description                                                         |
-| ------------------------------------- | ------------------------------------------------------------------- |
-| `identity: IdentityInfo \| undefined` | The provisioned identity, or `undefined` on a first run. See below. |
-| `adminStamp: StampInfo \| undefined`  | Admin postage batch used for drive-management operations.           |
-| `driveList: readonly DriveInfo[]`     | In-memory list of all known drives.                                 |
-| `recordList: readonly FileRecord[]`   | In-memory cache of file records, populated lazily as you navigate.  |
-| `emitter: EventEmitter`               | Emitter carrying `FileManagerEvents`.                               |
-| `isInitialized: boolean`              | Whether `initialize()` has completed.                               |
+| Getter                                          | Description                                                         |
+| ----------------------------------------------- | ------------------------------------------------------------------- |
+| `identity: IdentityInfo \| undefined`           | The provisioned identity, or `undefined` on a first run. See below. |
+| `adminStamp: StampInfo \| undefined`            | Admin postage batch used for drive-management operations.           |
+| `driveList: readonly DriveInfo[]`               | In-memory list of all known drives. Excludes `sharedWithMe`.        |
+| `sharedWithMe: DriveInfo \| undefined`          | The drive holding everything shared **with** this identity.         |
+| `recordList: readonly FileRecord[]`             | In-memory cache of file records, populated lazily as you navigate.  |
+| `shareList: readonly ShareEntry[] \| undefined` | Grants this identity has issued. `undefined` until loaded.          |
+| `emitter: EventEmitter`                         | Emitter carrying `FileManagerEvents`.                               |
+| `isInitialized: boolean`                        | Whether `initialize()` has completed.                               |
 
-Both list getters are `readonly` — treat them as snapshots and mutate state only through the methods above.
+The list getters are `readonly` — treat them as snapshots and mutate state only through the methods above.
+
+**`sharedWithMe` is deliberately not in `driveList`.** It is provisioned with the admin state and addressed through its
+own getter, because every node in it is a mount onto someone else's subtree: a drive the user could rename, trash,
+forget or share back would be a lie. Pass its `id` to `listFolder` and `downloadFile` like any other drive — the write
+paths refuse it.
+
+**`shareList` distinguishes `undefined` from `[]`.** The index is written whole, so it is loaded as a unit: `undefined`
+means "not loaded yet", `[]` means "no grants". It is fetched during `initialize` — where a failure is logged rather
+than fatal, since the drives are usable without it — and again by the first share operation of a session, which loads it
+before writing so a write cannot publish a list missing earlier grants.
 
 ### `identity`
 
@@ -593,6 +712,10 @@ Emitted on the provided `EventEmitter` as `FileManagerEvents`:
 | `FOLDER_FORGOTTEN`      | `forget` (folder)                                  | `{ driveId, path, folderInfo }`                      |
 | `FOLDER_CREATED`        | `createFolder`, `uploadFiles` (per folder created) | `{ folderInfo }`                                     |
 | `TRASH_EMPTIED`         | `emptyTrash`                                       | `{ driveId, count }`                                 |
+| `SHARE_CREATED`         | `share` (grant minted)                             | `{ entry }`                                          |
+| `SHARE_AMENDED`         | `share` (recipients joined a standing grant)       | `{ entry }`                                          |
+| `SHARE_REVOKED`         | `revokeShare`                                      | `{ entry }`                                          |
+| `SHARE_ACCEPTED`        | `acceptShare`                                      | `{ driveId, entry }`                                 |
 
 `move` / `trash` / `recover` / `forget` are path-addressed and dispatch on node type, so each emits a file **or** folder
 event whose payloads are the same shape: the drive id, the operation's paths, and the node itself — a
@@ -630,10 +753,16 @@ enum NodeType {
   File = 'file',
   Folder = 'folder',
   Drive = 'drive',
+  Control = 'control', // a control-plane document in the admin manifest, e.g. the share index
 }
 enum NodeStatus {
   Active = 'active',
   Trashed = 'trashed',
+}
+enum DriveKind {
+  Admin = 'admin', // the drive registry and the control-plane nodes
+  User = 'user', // a regular drive
+  Shared = 'shared', // "shared with me": ours, but every node in it is a mount onto someone else's
 }
 enum ListDepth {
   Shallow = 'shallow',
@@ -643,7 +772,20 @@ enum FailureScope {
   Entry = 'entry', // this node alone
   Subtree = 'subtree', // this node's descendants were never enumerated
 }
+enum ShareGrade {
+  List = 'list', // K_meta — recursive listing, no contents
+  Read = 'read', // K_meta + K_content — full read of a subtree
+  Open = 'open', // K_content — one file
+}
+enum ShareState {
+  None = 'none',
+  Direct = 'direct', // this node is the subject of a grant
+  Inherited = 'inherited', // an ancestor is — a K_meta grant reaches every descendant
+}
 ```
+
+`NodeType.Control` never appears in a listing: `listFolder` yields files and folders, and the drive registry filters for
+`Drive`, so a control-plane node is excluded by type rather than by a reserved name.
 
 ### Port vocabulary
 
@@ -724,13 +866,18 @@ interface ContentRef {
   reference: Hex;
 }
 
-// Retained for the share layer; no tree operation produces or consumes these.
+// The share layer's vocabulary; no tree operation produces or consumes these.
 interface ActReferences {
   reference: string; // the ACT-encrypted content reference
   historyRef: string; // ACT history, required to decrypt it later
 }
 interface ProtectedRefs extends ActReferences {
   publisher: Hex; // compressed public key of whoever encrypted — see actPublisher
+}
+interface GranteeListUpdate {
+  granteeListRef: Hex; // the amended list
+  historyRef: Hex; // the ACT history it now rides
+  contentRef?: Hex; // present only when the backend rotated the encrypted reference
 }
 
 interface FeedRead {
@@ -749,6 +896,7 @@ interface ClientUploadResult {
 }
 interface ClientProtectedUploadResult {
   contentRefs: ActReferences;
+  granteeListRef?: Hex; // absent when the upload named no grantees — nothing to amend later
   tagUid?: number;
 }
 
@@ -782,12 +930,16 @@ Base shape shared by every node.
 interface NodeResource {
   batchId: string;
   topic: string;
-  owner: string; // always identity.owner — the FMK-derived address, never the login's
+  owner: string; // the FMK-derived address that owns this node's feed — never the login's
   redundancyLevel: RedundancyLevel;
   version?: string;
   status?: NodeStatus;
+  sharing?: ShareState; // derived from `.shares`, never persisted on the node
 }
 ```
+
+`owner` is this identity's for everything under `driveList`, and the **sharer's** for a node mounted in `sharedWithMe` —
+which is what lets the walk read a mounted subtree's feeds under the right address.
 
 ### `FileRecord`
 
@@ -980,10 +1132,47 @@ interface NodeHeader {
 }
 ```
 
+### Share types
+
+```ts
+interface ShareEntry {
+  id: string; // pass to getShareGrantees / revokeShare
+  shareTopic: string; // half the handle; stable for the life of the grant
+  nodeTopic: string; // the shared node — keyed by topic, so a move cannot stale it
+  driveId: string;
+  type: NodeType;
+  path: string; // snapshot, display only
+  grade: ShareGrade;
+  granteeList: ActReferences; // the ACT grantee list on Swarm — the membership itself
+  act: ActReferences; // the grant blob; mirrors the current share-feed head
+  publisher: Hex; // whoever encrypted — the other half of the handle
+  createdAt: number;
+  revokedAt?: number; // set once the grantee list is empty
+}
+
+interface ShareHandle {
+  shareTopic: string; // ShareEntry.shareTopic
+  owner: Hex; // ShareEntry.publisher
+}
+
+interface ShareOptions {
+  message?: string; // rides inside the ACT-gated blob, not beside the handle
+}
+```
+
+`ShareEntry` holds the grantee list's **address**, never a copy of its members, so membership has one home and an entry
+stays a fixed size no matter how wide the audience —
+[`getShareGrantees`](#getsharegranteesshareid-requestoptions-promisehex) fetches them.
+
+`GrantBlob` and `ShareFeedHead` are exported too, but they are wire formats rather than call arguments: the blob is what
+`acceptShare` decrypts, the head is what the share feed carries. Both are described in
+[ACCESS_CONTROL.md §2](ACCESS_CONTROL.md#2-what-a-share-is-made-of).
+
 ### `NodeKeys` and `WrappedKeys`
 
 A node's two symmetric keys and the form they take inside a parent's fork metadata. Exported for completeness; nothing
-on the public API accepts or returns them today, and they become relevant when sharing lands.
+on the public API accepts or returns them, and the share layer moves them as hex inside the grant blob rather than as
+these types.
 
 ```ts
 interface NodeKeys {
@@ -1039,9 +1228,10 @@ Each manifest fork carries a metadata map that mirrors inode metadata. Keys are 
 | `MANIFEST_METADATA_DRIVE_ID`            | `swarm-drive-id`            | drive | Drive identifier                              |
 | `MANIFEST_METADATA_DRIVE_NAME`          | `swarm-drive-name`          | drive | Drive display name                            |
 | `MANIFEST_METADATA_DRIVE_OWNER`         | `swarm-drive-owner`         | drive | Drive owner                                   |
-| `MANIFEST_METADATA_DRIVE_IS_ADMIN`      | `swarm-drive-is-admin`      | drive | Admin-drive flag                              |
+| `MANIFEST_METADATA_DRIVE_KIND`          | `swarm-drive-kind`          | drive | `admin` / `user` / `shared`                   |
 | `MANIFEST_METADATA_DRIVE_BATCH_ID`      | `swarm-drive-batch-id`      | drive | Backing postage batch                         |
 | `MANIFEST_METADATA_TRASHED_FROM`        | `swarm-trashed-from`        | trash | Path the node was trashed from                |
+| `MANIFEST_METADATA_SHARE_TOPIC`         | `swarm-share-topic`         | mount | The share feed an accepted grant came from    |
 
 The map is **not encrypted** — the manifest chunk carrying it is, under the host's `K_meta`. So reaching this metadata
 already requires the parent's key, and the two wrapped-key entries are ciphertext regardless.
@@ -1070,6 +1260,7 @@ catch broadly (`instanceof FileManagerError`) or branch on `error.name`.
 | `FileRecordError` | Record / feed / metadata failures (missing feed, invalid version, etc.).                        |
 | `IdentityError`   | The identity envelope will not unseal, belongs to another FMK, or already exists. See below.    |
 | `KeyringError`    | A node's keys are not in the chain and cannot be recovered. See below.                          |
+| `ShareError`      | An unknown or revoked grant, a grade the node cannot carry, or no grantee list to amend.        |
 | `StampError`      | Postage stamp missing or not usable.                                                            |
 | `SignerError`     | Backend-level: no signer, or the backend was used before `initialize()`. Raised by the clients. |
 | `BeeVersionError` | Connected Bee node version is unsupported.                                                      |
@@ -1088,8 +1279,7 @@ provisioning finds an envelope already present. `initialize()` surfaces it as `I
   chain disagree, which normally means a fork was relocated without re-wrapping or was written by an incompatible
   version.
 
-Neither is recoverable by retrying, and neither is a network problem. See
-[ENCRYPTION_AND_ACT.md](ENCRYPTION_AND_ACT.md).
+Neither is recoverable by retrying, and neither is a network problem. See [ENCRYPTION.md](ENCRYPTION.md).
 
 ---
 

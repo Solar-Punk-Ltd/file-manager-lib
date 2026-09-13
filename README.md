@@ -15,11 +15,13 @@ models a full, versioned, access-controlled filesystem on top of Swarm's content
 - **Trash / recover / forget** — soft-delete by relocating a node into the drive's reserved `.trash` folder, or
   hard-delete it from the manifest.
 - **Move** — relocate files and folders within a drive.
+- **Sharing** — grant a drive, folder or file to other identities at one of three grades, gated by Swarm's Access
+  Control Trie. What travels is a small handle; recipients mount what they accept in a read-only `sharedWithMe` drive.
 - **Browser + Node.js** — one unified API; the byte source differs (`file` vs `sourcePath`).
 
-> Full method-level documentation: see [REFERENCE.md](docs/REFERENCE.md). Encryption, key handling and the sharing
-> roadmap: see [ENCRYPTION_AND_ACT.md](docs/ENCRYPTION_AND_ACT.md). Test coverage and usage patterns: see
-> [docs/TESTS.md](docs/TESTS.md).
+> Full method-level documentation: see [REFERENCE.md](docs/REFERENCE.md). Encryption and key handling: see
+> [ENCRYPTION.md](docs/ENCRYPTION.md). Sharing and access control: see [ACCESS_CONTROL.md](docs/ACCESS_CONTROL.md). Test
+> coverage and usage patterns: see [docs/TESTS.md](docs/TESTS.md).
 
 ---
 
@@ -100,20 +102,54 @@ two levels.
   unlocks its content pointer. Each is wrapped under its parent's, so the tree is two parallel key chains rooted in your
   **FileManager Key (FMK)** — the same 32 bytes the identity envelope seals.
 
-That split is what will make sharing cheap: handing over a key blob of a few hundred bytes covers a subtree of any size.
-**ACT is retained for exactly that** and is not used by the tree — `uploadProtected` / `downloadProtected` /
-`actPublisher` remain on the `SwarmClient` port as the share layer's API. **Sharing itself is not implemented yet.**
+That split is what makes sharing cheap: a key blob of a few hundred bytes covers a subtree of any size, so **ACT gates
+the blob, not the tree**. One ACT write grants a whole drive.
 
-Two things this implies for your application:
+### Sharing
+
+`share(driveId, path, grade, recipients)` publishes three small objects — an ACT-protected **grant blob** holding the
+node's keys, a **share feed** whose head points at it, and an entry in your private `.shares` index. Nothing on the
+shared node is written. The **grade** decides which keys go into the blob:
+
+| grade  | applies to      | the recipient gets                           |
+| ------ | --------------- | -------------------------------------------- |
+| `List` | folders, drives | the listing of the subtree, no file contents |
+| `Read` | folders, drives | the full subtree, tracking later changes     |
+| `Open` | files           | one file, tracking later versions            |
+
+What you hand a recipient is the returned entry's `{ shareTopic, owner }` — a **handle**, not a capability. Outside the
+grantee list its addresses dereference to nothing, so it is safe on a public channel; delivering it is your app's job.
+It stays valid for the life of the grant, because membership changes move the feed's head, not the handle.
+
+```ts
+const entry = await fm.share(drive.id, 'docs', ShareGrade.Read, [alicePubKey]);
+await fm.share(drive.id, 'docs', ShareGrade.Read, [bobPubKey]); // adds Bob to the same grant
+await fm.getShareGrantees(entry.id); // [alice, bob]
+await fm.revokeShare(entry.id, [bobPubKey]); // drops Bob; omit the array to close the grant
+
+// on the recipient's side
+const mounted = await fm.acceptShare({ shareTopic: entry.shareTopic, owner: entry.publisher });
+await fm.listFolder(fm.sharedWithMe!.id, '/');
+```
+
+`share` only ever adds: a second call for the same node and grade joins the standing grant instead of issuing another,
+and a different grade mints its own, revocable on its own. `revokeShare` is the only removal. `acceptShare` mounts the
+grant as an ordinary fork in `sharedWithMe`, a drive kept out of `driveList` because every node in it belongs to someone
+else — `listFolder` and `downloadFile` work on it unchanged.
+
+Three things this implies for your application:
 
 - **List before you open.** Keys are hydrated by walking, so a `FileRecord` held across a process restart carries no key
   material. `updateFile`, `getFileVersion` and `restoreFileVersion` re-walk the record's path to recover them; if the
   path is stale, the call fails with `KeyringError` rather than returning nothing.
-- **There is no revocation.** Anything already dereferenced stays readable forever — Swarm cannot unsee. Key rotation
-  would deny future reads only, and is not implemented.
+- **Revocation denies future reads only.** Anything a recipient already dereferenced stays readable — Swarm cannot
+  unsee. Withdrawing past access means rotating the subtree's keys.
+- **`shareList` is `undefined` until loaded.** It is fetched during `initialize` and by the first share operation of a
+  session; `undefined` means "not loaded yet", an empty array means "no grants".
 
-Full detail — the identity flow, the key hierarchy, what an observer can still see, and the sharing roadmap — is in
-[ENCRYPTION_AND_ACT.md](docs/ENCRYPTION_AND_ACT.md).
+Full detail — the identity flow, the key hierarchy and what an observer can still see — is in
+[ENCRYPTION.md](docs/ENCRYPTION.md); the grant format, the ACT boundary and the accept path are in
+[ACCESS_CONTROL.md](docs/ACCESS_CONTROL.md).
 
 ---
 
@@ -298,7 +334,7 @@ With `SnahaClient` you pass **no** credential — `swarmClientCredential` delega
 on every device they log in from and unavailable to any other origin. Nothing to configure, and no other site can obtain
 it.
 
-On recovery see [Recovery](docs/ENCRYPTION_AND_ACT.md#recovery).
+On recovery see [Recovery](docs/ENCRYPTION.md#recovery).
 
 > **Deploy on one stable origin and never change it.** The origin is an input to the key derivation, so it is part of
 > the identity. Move it and every user lands on a first-run screen with their drives unreachable — no error, nothing to
@@ -357,7 +393,7 @@ click-through-able.
 
 Swarm ID's origin is `event.origin` at the postMessage boundary, so the browser enforces it and no page can claim to be
 yours. Pick the wallet path only if Swarm ID is not an option, and tell your users what they are approving. Full
-comparison in [Portability versus phishability](docs/ENCRYPTION_AND_ACT.md#portability-versus-phishability).
+comparison in [Portability versus phishability](docs/ENCRYPTION.md#portability-versus-phishability).
 
 ### Tuning concurrency
 

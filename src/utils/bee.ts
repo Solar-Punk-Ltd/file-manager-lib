@@ -3,12 +3,14 @@ import { type BatchId, Bytes, FeedIndex, Reference, Topic } from '@ethersphere/c
 
 import type { Identity } from '../types/identity';
 import type { StampInfo } from '../types/info';
+import type { GrantBlob, ShareFeedHead, ShareHandle } from '../types/share';
 import type { SwarmClient } from '../types/swarmClient';
 import { type ContentRef, type FeedResultWithIndex, type FeedTarget, type FeedWriteResult } from '../types/utils';
 
+import { assertGrantBlob, assertShareFeedHead } from './asserts';
 import { FEED_INDEX_NONE, FEED_INDEX_ZERO } from './constants';
 import { generateRandomBytes, openWithKey, sealWithKey } from './crypto';
-import { ErrorHandler, StampError } from './errors';
+import { ErrorHandler, ShareError, StampError } from './errors';
 
 const errorHandler = ErrorHandler.getInstance();
 
@@ -130,6 +132,46 @@ export async function openFeedRef(payload: Bytes, key: Uint8Array): Promise<Cont
   const opened = await openWithKey(key, payload.toUint8Array());
 
   return { reference: new Reference(opened).toString() };
+}
+
+export async function readShareHead(
+  swarmClient: SwarmClient,
+  handle: ShareHandle,
+  requestOptions?: BeeRequestOptions,
+): Promise<ShareFeedHead> {
+  const { payload, feedIndex } = await getFeedData(
+    swarmClient,
+    new Topic(handle.shareTopic),
+    handle.owner,
+    undefined,
+    requestOptions,
+  );
+  if (feedIndex.equals(FEED_INDEX_NONE)) {
+    throw new ShareError('Share feed has no head — the handle is wrong or the grant was never published');
+  }
+
+  const head = payload.toJSON();
+  assertShareFeedHead(head);
+
+  return head;
+}
+
+export async function openGrantBlob(
+  swarmClient: SwarmClient,
+  head: ShareFeedHead,
+  requestOptions?: BeeRequestOptions,
+): Promise<GrantBlob> {
+  const bytes = await swarmClient.downloadProtected(
+    { reference: head.reference, historyRef: head.historyRef, publisher: head.publisher },
+    undefined,
+    undefined,
+    requestOptions,
+  );
+
+  const blob = new Bytes(bytes).toJSON();
+  assertGrantBlob(blob);
+
+  return blob;
 }
 
 export async function fetchStamp(
