@@ -20,9 +20,13 @@ export enum NodeType {
 export enum DriveKind {
   /** The admin drive — the drive registry and the control-plane nodes. */
   Admin = 'admin',
+  /** Regular user drive */
   User = 'user',
-  /** An accepted share: foreign owner, read-only. */
-  Mount = 'mount',
+  /**
+   * The inbound-share drive. Owned and written by this identity, but every node in it is a mount
+   * point onto someone else's subtree, so the drive itself is read-only and kept out of `driveList`.
+   */
+  Shared = 'shared',
 }
 
 export enum ListDepth {

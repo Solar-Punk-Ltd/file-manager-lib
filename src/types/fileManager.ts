@@ -12,9 +12,10 @@ import type {
   FolderInfo,
   ListDepth,
   ListFolderResult,
+  NodeEntry,
   StampInfo,
 } from './info';
-import type { ShareAmendment, ShareEntry, ShareFilter, ShareGrade, ShareOptions } from './share';
+import type { ShareAmendment, ShareEntry, ShareGrade, ShareHandle, ShareOptions } from './share';
 import type { UpdateItem, UploadFilesResult, UploadItem, UploadOptions } from './upload';
 import type { Hex } from './utils';
 
@@ -450,14 +451,6 @@ export interface FileManager {
   ): Promise<ShareEntry>;
 
   /**
-   * Grants this identity has issued, filtered. Reads the loaded share index — no I/O.
-   * @param filter - Restrict by drive or node topic; revoked grants are excluded unless asked for.
-   * @returns Copies of the matching entries, or undefined if the index has not been loaded — see
-   *   {@link shareList} for why those are different answers.
-   */
-  listShares(filter?: ShareFilter): ShareEntry[] | undefined;
-
-  /**
    * Who a grant currently reaches, read from its ACT grantee list.
    *
    * The list on Swarm is the only membership record — an entry holds its address, never a copy — so
@@ -503,6 +496,37 @@ export interface FileManager {
    * @see {@link getShareGrantees} — the current membership this withdraws.
    */
   revokeShare(shareId: string, requestOptions?: BeeRequestOptions): Promise<ShareEntry>;
+
+  /**
+   * Accepts a grant handed to this identity, mounting it in {@link sharedWithMe}.
+   *
+   * The handle is read, the grant blob is fetched through ACT — which is where anyone outside the
+   * grantee list fails — and the keys it carries are re-sealed under this identity's own root. The
+   * mount is then an ordinary fork, so it survives a restart through the normal walk and needs no
+   * second key store. A file and a folder mount the same way and sit side by side;
+   * {@link listFolder} and {@link downloadFile} work on both unchanged.
+   *
+   * The shared drive is created on the first accepted grant.
+   * @param handle - `{ shareTopic, owner }`, as published by the sharer. However it arrived —
+   *   messenger, link, inbox feed — is the application's business.
+   * @param requestOptions - Additional Bee request options.
+   * @emits FileManagerEvents.SHARE_ACCEPTED
+   * @returns The mounted node as an ordinary entry — a FileRecord or FolderInfo whose `owner` is the
+   *   sharer and whose `driveId` is {@link sharedWithMe}'s. A name already taken in the shared drive
+   *   is suffixed, so two people may share a folder of the same name.
+   * @throws {DriveError} If not initialized, or the admin manifest is not loaded.
+   * @throws {StampError} If the admin batch stamp is missing or not usable.
+   * @throws {ShareError} If the feed has no head, the payload is not a share head this version
+   *   understands, the blob carries no key the grade can use, or the node is already mounted. A
+   *   handle whose grantee list does not include this identity fails on the ACT fetch.
+   */
+  acceptShare(handle: ShareHandle, requestOptions?: BeeRequestOptions): Promise<NodeEntry>;
+
+  /**
+   * The drive holding everything shared with this identity, or undefined until the first grant is
+   * accepted.
+   */
+  readonly sharedWithMe: DriveInfo | undefined;
 
   /**
    * The identity of the feed owner.

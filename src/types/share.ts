@@ -1,8 +1,6 @@
 import type { NodeType } from './info';
 import type { ActReferences, Hex } from './utils';
 
-export const SHARE_FORMAT_VERSION = 1;
-
 export enum ShareGrade {
   /** `K_meta` — recursive listing of a folder or drive. No file contents. */
   List = 'list',
@@ -50,13 +48,6 @@ export interface ShareOptions {
 export interface ShareAmendment {
   add?: Hex[];
   remove?: Hex[];
-}
-
-export interface ShareFilter {
-  driveId?: string;
-  nodeTopic?: string;
-  /** Revoked grants are excluded by default. */
-  includeRevoked?: boolean;
 }
 
 export interface ShareEntry {

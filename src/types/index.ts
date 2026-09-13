@@ -29,16 +29,8 @@ export type {
 export type { DownloadFilesResult, DownloadResource, DownloadResult } from './download';
 export type { FileManager, FileManagerConfig } from './fileManager';
 export type { SwarmClient } from './swarmClient';
-export type {
-  GrantBlob,
-  ShareAmendment,
-  ShareEntry,
-  ShareFeedHead,
-  ShareFilter,
-  ShareHandle,
-  ShareOptions,
-} from './share';
-export { SHARE_FORMAT_VERSION, ShareGrade, ShareState } from './share';
+export type { GrantBlob, ShareAmendment, ShareEntry, ShareFeedHead, ShareHandle, ShareOptions } from './share';
+export { ShareGrade, ShareState } from './share';
 export type {
   ActReferences,
   ContentRef,

@@ -29,6 +29,7 @@ import {
   MANIFEST_METADATA_NODE_TYPE,
   MANIFEST_METADATA_NODE_VERSION,
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
+  MANIFEST_METADATA_SHARE_TOPIC,
   MANIFEST_METADATA_TRASHED_FROM,
   MANIFEST_METADATA_WRAPPED_CONTENT_KEY,
   MANIFEST_METADATA_WRAPPED_META_KEY,
@@ -36,11 +37,6 @@ import {
 import { openWithKey, sealWithKey } from './crypto';
 import { FolderError, KeyringError } from './errors';
 
-/**
- * Load a manifest tree, decrypting every node under `key`.
- *
- * `key` is the host's `meta` key: one manifest is one node's listing, so all of its chunks share it.
- */
 export async function loadMantaray(
   swarmClient: SwarmClient,
   mantarayRef: string | Reference,
@@ -89,16 +85,6 @@ async function loadForks(
   }
 }
 
-/**
- * Marshal each node, seal it under `key`, and upload it **unencrypted** at the Swarm level.
- *
- * Native encryption is deliberately not used here. Mantaray stores one reference length per node
- * and applies it to the entry *and* every fork, while fm-lib's entries are 32-byte topics; a
- * natively encrypted manifest would mix a 32-byte entry with 64-byte fork addresses, and any node
- * carrying both — one entry name being a prefix of another, `report` beside `report.pdf` — would
- * be written successfully and fail to parse on the way back. Sealing the bytes ourselves keeps
- * every reference 32 bytes and puts the key under our control rather than inside the reference.
- */
 async function saveMantarayRecursively(
   swarmClient: SwarmClient,
   node: MantarayNode,
@@ -161,13 +147,6 @@ export function getAllNodeEntries(root: MantarayNode): NodeHeader[] {
     .filter((e): e is NodeHeader => e !== null);
 }
 
-/**
- * Save the manifest tree under `key`, then seal its root reference into the host's feed.
- *
- * The root reference goes into the feed slot directly. It is 32 bytes, so nothing is gained by
- * uploading it as its own blob first, and a manifest read would then cost an extra round trip on
- * every node a listing walks.
- */
 export async function saveNodeManifest(
   swarmClient: SwarmClient,
   identity: Identity,
@@ -247,6 +226,20 @@ export function driveForkMetadata(drive: DriveInfo, wrapped: WrappedKeys): Recor
   };
 }
 
+export function mountForkMetadata(
+  mount: { topic: string; type: NodeType; owner: string; shareTopic: string; redundancyLevel: RedundancyLevel },
+  wrapped: WrappedKeys,
+): Record<string, string> {
+  return {
+    [MANIFEST_METADATA_NODE_TOPIC]: mount.topic,
+    [MANIFEST_METADATA_NODE_TYPE]: mount.type,
+    [MANIFEST_METADATA_NODE_OWNER]: mount.owner,
+    [MANIFEST_METADATA_REDUNDANCY_LEVEL]: mount.redundancyLevel.toString(),
+    [MANIFEST_METADATA_SHARE_TOPIC]: mount.shareTopic,
+    ...wrappedKeysMetadata(wrapped),
+  };
+}
+
 export function controlForkMetadata(node: ControlNode, wrapped: WrappedKeys): Record<string, string> {
   return {
     [MANIFEST_METADATA_NODE_TOPIC]: node.topic,
@@ -273,4 +266,17 @@ export function getRlevel(meta: Record<string, string>, cachedRlevel: Redundancy
   }
 
   return parsed as RedundancyLevel;
+}
+
+export function freeMountName(sharedNode: MantarayNode, name: string): string {
+  if (!sharedNode.find(name)) {
+    return name;
+  }
+
+  for (let n = 2; ; n++) {
+    const candidate = `${name} (${n})`;
+    if (!sharedNode.find(candidate)) {
+      return candidate;
+    }
+  }
 }

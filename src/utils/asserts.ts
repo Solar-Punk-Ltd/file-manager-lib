@@ -1,5 +1,5 @@
 import type { RedundancyLevel } from '@ethersphere/bee-js';
-import { BatchId, EthAddress, FeedIndex, Identifier, PublicKey, Reference, Topic } from '@ethersphere/core-sdk';
+import { BatchId, Bytes, EthAddress, FeedIndex, Identifier, PublicKey, Reference, Topic } from '@ethersphere/core-sdk';
 import { Types } from 'cafe-utility';
 
 import type { Identity, IdentityEnvelope } from '../types/identity';
@@ -12,7 +12,7 @@ import {
   NodeStatus,
   NodeType,
 } from '../types/info';
-import { type ShareEntry, ShareGrade } from '../types/share';
+import { type GrantBlob, type ShareEntry, type ShareFeedHead, ShareGrade } from '../types/share';
 import { type ActReferences, type ContentRef } from '../types/utils';
 
 import {
@@ -23,7 +23,9 @@ import {
   MANIFEST_METADATA_DRIVE_OWNER,
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
+  SHARE_FORMAT_VERSION,
 } from './constants';
+import { DERIVED_SECRET_LENGTH } from './crypto';
 import { DriveError, ShareError } from './errors';
 
 export function isRecord(value: unknown): value is Record<string, string> {
@@ -185,6 +187,58 @@ export function assertShareEntry(value: unknown): asserts value is ShareEntry {
 
   if (se.revokedAt !== undefined && typeof se.revokedAt !== 'number') {
     throw new TypeError('revokedAt property of ShareEntry has to be number!');
+  }
+}
+
+export function assertShareFeedHead(value: unknown): asserts value is ShareFeedHead {
+  if (!Types.isStrictlyObject(value)) {
+    throw new TypeError('ShareFeedHead has to be object!');
+  }
+
+  const head = value as unknown as ShareFeedHead;
+
+  if (head.v !== SHARE_FORMAT_VERSION) {
+    throw new TypeError(`Unsupported share format version: ${String(head.v)}`);
+  }
+
+  assertActReferences(head);
+  new PublicKey(head.publisher);
+
+  if (!Object.values(ShareGrade).includes(head.grade)) {
+    throw new TypeError('grade property of ShareFeedHead has to be a valid ShareGrade!');
+  }
+}
+
+export function assertGrantBlob(value: unknown): asserts value is GrantBlob {
+  if (!Types.isStrictlyObject(value)) {
+    throw new TypeError('GrantBlob has to be object!');
+  }
+
+  const blob = value as unknown as GrantBlob;
+
+  if (blob.v !== SHARE_FORMAT_VERSION) {
+    throw new TypeError(`Unsupported grant format version: ${String(blob.v)}`);
+  }
+
+  new EthAddress(blob.owner);
+  new Topic(blob.topic);
+
+  if (!Object.values(NodeType).includes(blob.type)) {
+    throw new TypeError('type property of GrantBlob has to be a valid NodeType!');
+  }
+
+  if (typeof blob.name !== 'string' || blob.name.length === 0) {
+    throw new TypeError('name property of GrantBlob has to be a non-empty string!');
+  }
+
+  for (const key of [blob.meta, blob.content]) {
+    if (key !== undefined) {
+      new Bytes(key, DERIVED_SECRET_LENGTH);
+    }
+  }
+
+  if (blob.message !== undefined && typeof blob.message !== 'string') {
+    throw new TypeError('message property of GrantBlob has to be string!');
   }
 }
 

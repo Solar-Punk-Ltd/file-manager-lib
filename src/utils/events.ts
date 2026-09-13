@@ -23,4 +23,5 @@ export enum FileManagerEvents {
   SHARE_CREATED = 'share-created',
   SHARE_AMENDED = 'share-amended',
   SHARE_REVOKED = 'share-revoked',
+  SHARE_ACCEPTED = 'share-accepted',
 }
