@@ -11,7 +11,8 @@ and troubleshoot it. It covers both **unit** and **integration** tests (includin
 
 - **Jest** with three **projects** (`unit-node`, `unit-browser`, `integration`), all under **ts-jest** in a Node
   environment.
-- **Unit tests** mock all Swarm/Bee internals and focus on `FileManagerBase` behavior — no network. They run **twice**:
+- **Unit tests** mock all Swarm/Bee internals and focus on `FileManagerBase` behavior — no network. The exception is
+  `identity.spec.ts`, which drives the identity and `Keyring` modules directly, with real crypto. They run **twice**:
   `unit-node` and `unit-browser` execute the same specs, the latter adding `tests/platform-browser.ts` to shim browser
   globals so the platform-split code is exercised both ways.
 - **Integration tests** run against real Bee nodes provisioned by **`@ethersphere/bee-factory`** and exercise ACT
@@ -76,12 +77,14 @@ tests/
 ├─ unit/
 │   ├─ setup.ts                 # setupFilesAfterEnv — centralizes jest.mock() for @/utils/bee & @/utils/mantaray
 │   ├─ mock.ts                  # applyDefaultMocks, mock factories, seedRecords, unit createInitializedFileManager
+│   ├─ identity.spec.ts         # identity envelope, key derivation, Keyring — the only spec using the real Keyring
 │   ├─ init.spec.ts
 │   ├─ drive.spec.ts
 │   ├─ file.spec.ts
 │   ├─ folder.spec.ts
 │   ├─ version.spec.ts
 │   ├─ trash.spec.ts
+│   ├─ share.spec.ts
 │   ├─ events.spec.ts
 │   └─ abort.spec.ts
 └─ integration/
@@ -99,7 +102,9 @@ tests/
     └─ abort.spec.ts
 ```
 
-Each domain area lives in its own spec file, mirrored across `unit/` and `integration/`.
+Each domain area lives in its own spec file, mirrored across `unit/` and `integration/`, except for the two unit-only
+suites: `identity.spec.ts` and `share.spec.ts`. The key chain needs no integration suite of its own — integration mocks
+nothing, so every upload and download there already exercises the real AES wrapping end-to-end.
 
 ### Shared helpers
 
@@ -115,12 +120,22 @@ Each domain area lives in its own spec file, mirrored across `unit/` and `integr
 **Unit — `tests/unit/setup.ts` + `tests/unit/mock.ts`**
 
 - `setup.ts` is wired via `setupFilesAfterEnv` and holds the module-level `jest.mock()` calls for `@/utils/bee`
-  (`getFeedData`, `fetchStamp`) and `@/utils/mantaray` (`loadMantaray`, `getAllNodeEntries`). Centralizing them here
-  keeps every spec free of duplicated mock boilerplate.
+  (`getFeedData`, `fetchStamp`, `writeSealedRefFeed`, `writeEncryptedFeed`, `openFeedRef`) and `@/utils/mantaray`
+  (`loadMantaray`, `getAllNodeEntries`). Centralizing them here keeps every spec free of duplicated mock boilerplate.
+- `setup.ts` also replaces `@/keyring` with a **fake cipher, not a fake key chain**. Fork metadata in the unit specs is
+  written by hand, and a real `wrapFor` seals a child's keys under a parent key minted at runtime, which no static
+  fixture can reproduce. So wrapping is plain hex here while every other property holds: keys stay per-node, are
+  registered only by minting or unwrapping, and `requireKeys` still throws for a node nothing walked to. The real AES
+  path runs unmocked in the integration suite, and against the real `Keyring` in `identity.spec.ts`.
 - `mock.ts` provides `applyDefaultMocks()` (call it first in each `beforeEach` — resets mocks, installs
   `createInitMocks` and sensible default return values), mock factories (`createMockDriveInfo`, `createMockFileInfo`,
   `createMockFeedReader`, `createMockFeedWriter`, `createMockMantarayNode`, …), `seedRecords(fm, ...records)` to
-  pre-populate the record cache, and a unit-local `createInitializedFileManager`.
+  pre-populate the record cache, `seedKeys(fm, ...topics)` to mint keys for hand-written forks, `mockWrappedKeys()` for
+  the two wrapped-key metadata entries a fork needs, `mockIdentityFeed(client, rest)` to seal a test identity into the
+  envelope slot and answer every other feed through one callback, and a unit-local `createInitializedFileManager`.
+- The mock feed writer parks any **string** feed payload in an internal slot map that the default `getFeedData` reads
+  back, so a JSON feed head written by the code under test is readable afterwards without extra wiring. Sealed reference
+  feeds are bytes and are not captured.
 
 **Integration — `tests/integration/setup/utils.ts`**
 
@@ -144,6 +159,9 @@ Each domain area lives in its own spec file, mirrored across `unit/` and `integr
 - **Drives are mantaray manifests.** A drive's file tree is a mantaray whose forks carry per-file metadata; per-file
   version history lives in each file's own Swarm feed.
 - **ACT** wraps content per file (`content.historyRef`, `actPublisher`).
+- **Every node carries its own key pair** — `K_meta` unlocks its listing, `K_content` its content pointer — each wrapped
+  under its parent's matching key and rooted in the FileManager Key, which is itself sealed in a feed envelope the
+  backend's `deriveSecret` unlocks. A node's keys are reachable only by walking to it from the root.
 - **Trash is a reserved `.trash` folder** at the drive root: trashing relocates the node's fork into it keyed by topic,
   so status is _derived_ from a node's location and a fresh instance sees it by walking the tree.
 - **A node's name is its fork label**, not part of the record payload, so `move` (rename or relocate) rewrites no record
@@ -153,7 +171,10 @@ Each domain area lives in its own spec file, mirrored across `unit/` and `integr
   folds those listing failures into its own `failed`.
 - **A drive that cannot be loaded emits `DRIVE_UNRESOLVED`** during `initialize` instead of vanishing silently.
 - `FileManagerConfig` lets clients cap `uploadConcurrency` and `feedFetchConcurrency`.
-- Sharing / grantees are **not** part of v2 and are not tested.
+- **Sharing gates one grant blob, not the tree.** A grant is an ACT-protected blob carrying the shared node's keys; the
+  stable handle is `{ shareTopic, owner }`, and the churning ACT references live in that feed's head. At most one live
+  grant exists per `(node, grade)`: `share` is additive, `revokeShare` is the only removal, and a grade never changes.
+  Inbound grants mount as forks of the single `SharedWithMe` drive, which is kept out of `driveList`.
 
 ---
 
@@ -203,10 +224,28 @@ Key strategies:
   `jest.mock()`-ed in `setup.ts`; `applyDefaultMocks()` gives them default resolved values per test.
 - Bee client methods are spied via `createInitMocks` (`downloadData`, `uploadData`, feed reader/writer, stamps, …).
 - `seedRecords()` injects `FileRecord`s directly into the cache to test read paths without uploading.
+- **A mocked module member is only mocked for its importers.** `jest.mock('@/utils/bee')` does not intercept calls a
+  function in that same module makes to its own siblings — `readShareHead` reaches the real `getFeedData`, and so the
+  real `SwarmClient`. Anything exercising such a function has to satisfy the Bee client itself (spy `feed.makeReader` /
+  `data.download`), not just the helper.
 
+- **`identity.spec.ts`** — _Identity envelope and key chain_, the one suite running the **real** `Keyring` (via
+  `jest.requireActual`) and real crypto against an in-memory envelope feed. _provision and resolve_ (a fresh credential
+  has no envelope; provisioning seals one and unseals the same identity back; feeds are owned by the identity's own
+  address rather than the login address; two credentials get two unrelated identities and cannot see each other's
+  envelope), _derivation_ (the same FMK derives the same identity; `keyId` is envelope-scoped while the identity is
+  salt-independent; every secret addresses a different envelope; wrong FMK length rejected), _unlock failures_ (a
+  different derived secret, a tampered salt, a tampered sealed FMK, a newer KDF epoch, a `keyId` that does not match its
+  FMK, a malformed envelope and a non-JSON payload all throw), _provisioning over an existing identity_ (refused twice
+  for one credential; a lost write race leaving a foreign envelope in the slot is detected; an envelope that never
+  landed yields no identity), _credential contract_ (the handed-over secret is zeroed), and _Keyring_ (root keys derive
+  from the FMK, a node whose parent was never resolved is refused, a child key is recovered from its parent, a child
+  wrapped under a different parent is refused, child keys are never stored in the clear, `requireKeys` hands out copies
+  so `clear()` cannot zero a key still in use, and the root re-derives after a clear).
 - **`init.spec.ts`** — _constructor_ (missing signer, emitter wiring), _initialize_ (emits `INITIALIZED`; idempotent),
-  _reinitialization_, and `DRIVE_UNRESOLVED` for a drive whose manifest feed is missing as well as one whose fork
-  metadata is unparseable (id/name fall back to `'unknown'`).
+  _reinitialization_, `DRIVE_UNRESOLVED` for a drive whose fork metadata is unparseable (id/name fall back to
+  `'unknown'`), and the lazy hand-off: a drive whose manifest feed is empty still loads into `driveList` and surfaces
+  the failure on first touch, because `initialize` reads the admin feed only.
 - **`drive.spec.ts`** — `creatAdminDrive`, `createDrive` (duplicate name/batchId → `DriveError`), `forgetDrive`, and
   _rename via move_ (admin-fork metadata rewritten in place under its id-keyed path; admin drive, duplicate and no-op
   names refused; every other root move still rejected).
@@ -223,17 +262,25 @@ Key strategies:
   (head restore is a no-op / emits no event).
 - **`trash.spec.ts`** — _Lifecycle management_ → `trash`, `recover`, `listTrash`, `emptyTrash`, `forget` (fork
   relocation, origin stamping and event emission).
+- **`share.spec.ts`** — _Sharing_ → `share` (a drive-root grant and `SHARE_CREATED`; a second call for the same node and
+  grade joining the standing grant instead of minting a second, keeping `id` and `shareTopic` so the handle the first
+  recipients hold survives; a different grade minting its own; a file shared as `open` and refused at any other grade;
+  empty recipients, `open` on a container and an unknown drive), `getShareGrantees` (members back with duplicates
+  collapsed; unknown id throws), `revokeShare` (full revoke stamping `revokedAt` and emptying the list, after which the
+  same subject mints a fresh grant because a revoked entry is never re-matched; a partial revoke dropping only the named
+  keys; a partial revoke that takes the last member still closing the entry; double revoke and non-member recipients),
+  and `acceptShare` (mounting a granted folder into `sharedWithMe` with `SHARE_ACCEPTED`, refusing a second mount of the
+  same node, and an unpublished handle). The suite stands up a grantee-list double over `bee.grantee.create` / `patch` /
+  `get` — Bee merges lists node-side, so without it membership assertions would be vacuous — and `acceptShare` consumes
+  the head `share` actually published, replayed through a `feed.makeReader` spy, plus the grant blob captured off
+  `data.upload`.
 - **`events.spec.ts`** — _Events and emitter_: deterministic `FILE_UPLOADED` payloads (system time pinned via
   `jest.useFakeTimers()`), `INITIALIZED` fired once per cold init.
 - **`abort.spec.ts`** — abort-signal plumbing at the unit level.
 
-Emitted events live in `FileManagerEvents` (`src/utils/events.ts`): `FILE_UPLOADED`, `FILE_UPDATED`, `FILE_TRASHED`,
-`FILE_RECOVERED`, `FILE_FORGOTTEN`, `FILE_VERSION_RESTORED`, `FILE_MOVED`, `INITIALIZED`, `DRIVE_CREATED`,
-`DRIVE_RENAMED`, `DRIVE_UNRESOLVED`, `DRIVE_FORGOTTEN`, `FOLDER_*` (including `FOLDER_MOVED`), `FILES_UPLOADED`,
-`TRASH_EMPTIED`, `STATE_INVALID`. Events emitted _during_ `initialize` (`INITIALIZED`, `STATE_INVALID`,
-`DRIVE_UNRESOLVED`) require the emitter to be injected via the constructor before initializing — tests that assert them
-do exactly that. The file/folder pairs of a path-addressed operation carry the same payload shape — see
-[REFERENCE.md](REFERENCE.md#events).
+Emitted events live in `FileManagerEvents` (`src/utils/events.ts`).Events emitted _during_ `initialize` require the
+emitter to be injected via the constructor before initializing — tests that assert them do exactly that. The file/folder
+pairs of a path-addressed operation carry the same payload shape — see [REFERENCE.md](REFERENCE.md#events).
 
 ---
 
@@ -274,7 +321,11 @@ do exactly that. The file/folder pairs of a path-addressed operation carry the s
 - **Propagation** — wrap reads that follow a write in `retryOnPropagationDelay(() => ...)` to avoid devnet flakiness.
 
 - **Unit ordering** — call `applyDefaultMocks()` at the top of `beforeEach`, _before_ `createInitializedFileManager()`,
-  so the mocks are in place when the manager initializes.
+  so the mocks are in place when the manager initializes. Anything else the spec spies on Bee's prototypes goes after
+  it, since `applyDefaultMocks` resets every mock.
+
+- **Hand-written forks** — a fork the spec writes by hand needs `mockWrappedKeys()` in its metadata and
+  `seedKeys(fm, topic)` for its node, or the walk that reaches it will refuse the node for having no resolvable parent.
 
 - **Prefer explicit errors** — assert both the error **type** and **message** so regressions are easy to spot.
 
@@ -289,6 +340,10 @@ do exactly that. The file/folder pairs of a path-addressed operation carry the s
 - **Version assertions fail** — confirm the test re-uploads using the **same path** the record was created with and
   reads the feed head after propagation.
 - **Flaky reads right after a write** — increase the `retryOnPropagationDelay` attempts/delay for that step.
+- **`Cannot read properties of undefined (reading 'toBigInt')` in a unit spec** — the code under test reached the real
+  `SwarmClient.readFeed` instead of the mocked `getFeedData`, because the caller lives in `@/utils/bee` alongside it.
+  Serve that feed through a `bee.feed.makeReader` spy returning `{ payload, feedIndex, feedIndexNext }`, and throw
+  `{ status: 404 }` for the not-found branch.
 - **Leftover temp files** — shouldn't happen; every fixture goes through `tempFileRegistry()` and is removed in
   `afterAll(cleanup)`. If you added a raw `fs` write, route it through the registry.
 

@@ -21,6 +21,7 @@ import {
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
+  ROOT_PATH,
 } from '@/utils/constants';
 import { getAllNodeEntries } from '@/utils/mantaray';
 
@@ -100,7 +101,7 @@ describe('Initialization and construction', () => {
       expect(fm.recordList).toHaveLength(0);
     });
 
-    it('emits DRIVE_UNRESOLVED for a drive it cannot load instead of dropping it silently', async () => {
+    it('lists a drive whose manifest feed is empty and surfaces the failure on first touch', async () => {
       const bee = new Bee(BEE_URL);
       const client = new BeeClient(bee, DEFAULT_MOCK_SIGNER);
       const emitter = new EventEmitterBase();
@@ -145,10 +146,11 @@ describe('Initialization and construction', () => {
 
       await fm.initialize();
 
-      expect(fm.driveList.find((d) => d.id === driveId)).toBeUndefined();
-      expect(unresolved).toHaveLength(1);
-      expect(unresolved[0]).toMatchObject({ id: driveId, name: 'broken-drive' });
-      expect(unresolved[0].error).toContain('manifest feed');
+      // Init reads the admin feed only, so an unresolvable drive feed is not an init concern.
+      expect(fm.driveList.find((d) => d.id === driveId)).toMatchObject({ id: driveId, name: 'broken-drive' });
+      expect(unresolved).toHaveLength(0);
+
+      await expect(fm.listFolder(driveId, ROOT_PATH)).rejects.toThrow('Manifest feed not found');
     });
 
     it('emits DRIVE_UNRESOLVED for a malformed drive fork it cannot even parse', async () => {
