@@ -237,8 +237,8 @@ Key strategies:
   salt-independent; every secret addresses a different envelope; wrong FMK length rejected), _unlock failures_ (a
   different derived secret, a tampered salt, a tampered sealed FMK, a newer KDF epoch, a `keyId` that does not match its
   FMK, a malformed envelope and a non-JSON payload all throw), _provisioning over an existing identity_ (refused twice
-  for one credential; a lost write race leaving a foreign envelope in the slot is detected; an envelope that never
-  landed yields no identity), _credential contract_ (the handed-over secret is zeroed), and _Keyring_ (root keys derive
+  for one credential; a lost write race leaving a foreign envelope in the slot throws; an envelope that is not readable
+  back yet keeps the identity and reports `confirmed: false`), _credential contract_ (the handed-over secret is zeroed), and _Keyring_ (root keys derive
   from the FMK, a node whose parent was never resolved is refused, a child key is recovered from its parent, a child
   wrapped under a different parent is refused, child keys are never stored in the clear, `requireKeys` hands out copies
   so `clear()` cannot zero a key still in use, and the root re-derives after a clear).

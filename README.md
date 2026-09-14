@@ -418,11 +418,8 @@ The FileManager emits `FileManagerEvents` on its `emitter`:
 fm.emitter.on(FileManagerEvents.FILE_UPLOADED, ({ record }) => console.log('uploaded', record.path));
 ```
 
-`INITIALIZED`, `IDENTITY_INVALID`, `STATE_INVALID`, `DRIVE_CREATED`, `DRIVE_RENAMED`, `DRIVE_UNRESOLVED`,
-`DRIVE_FORGOTTEN`, `FILE_UPLOADED`, `FILES_UPLOADED`, `FILE_UPDATED`, `FILE_MOVED`, `FILE_TRASHED`, `FILE_RECOVERED`,
-`FILE_FORGOTTEN`, `FILE_VERSION_RESTORED`, `FOLDER_CREATED`, `FOLDER_MOVED`, `FOLDER_TRASHED`, `FOLDER_RECOVERED`,
-`FOLDER_FORGOTTEN`, `TRASH_EMPTIED`. Path-addressed operations (`move`, `trash`, `recover`, `forget`) emit the file or
-folder variant with the same payload shape. See [REFERENCE.md](docs/REFERENCE.md#events) for each payload.
+Path-addressed operations (`move`, `trash`, `recover`, `forget`) emit the file or folder variant with the same payload
+shape. See [REFERENCE.md](docs/REFERENCE.md#events) for each payload.
 
 `DRIVE_UNRESOLVED` fires **during `initialize`** for a drive that is registered in the admin manifest but cannot be
 loaded. Such a drive is absent from `driveList`, so every later call addressing it fails with "drive not found" — the
@@ -465,6 +462,9 @@ From `package.json`:
 - **`IdentityError` / `IDENTITY_INVALID` on initialize** → this credential derives a different unlock secret than the
   one that sealed the stored identity. Sign in with the credential that created it; a wallet that signs
   non-deterministically will fail here every time.
+- **`IDENTITY_UNCONFIRMED` after `createAdminDrive`** → the envelope was written but had not become readable back within
+  the retry budget, which a busy node makes likely. The identity is kept and the drive is created; re-run `initialize()`
+  later to confirm the envelope is there.
 - **A file or folder is missing from a listing** → check `failed` on the `listFolder` result. A node that cannot be
   resolved is reported there, never dropped silently; `scope: 'subtree'` means its descendants were never enumerated, so
   their number and names are unknown.

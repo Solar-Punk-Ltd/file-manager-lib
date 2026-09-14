@@ -213,11 +213,11 @@ later runs, `initialize()` alone restores everything.
   manifest at the next free slot of the same state feed; the topic itself is stable). Required when admin state already
   exists. It does **not** re-mint the identity: an existing envelope is reused, so the same drives remain reachable.
 - **Returns**: the newly-created admin `DriveInfo`.
-- **Emits**: `DRIVE_CREATED`.
+- **Emits**: `DRIVE_CREATED`; `IDENTITY_UNCONFIRMED` when the envelope it just wrote is not readable back yet.
 - **Throws**: `DriveError` (not initialized, an admin drive already exists without `reset`, or admin state already
   exists without `reset`); `StampError` (the batch is unknown or not usable); `IdentityError` (an envelope already
-  exists for this credential, or the freshly written envelope could not be read back). Retry `initialize()` — it unseals
-  the envelope that is actually there.
+  exists for this credential, or the slot came back holding a foreign one). Retry `initialize()` — it unseals the
+  envelope that is actually there.
 
 ### `createDrive(batchId, name, redundancyLevel?, requestOptions?): Promise<DriveInfo>`
 
@@ -693,6 +693,7 @@ Emitted on the provided `EventEmitter` as `FileManagerEvents`:
 | ----------------------- | -------------------------------------------------- | ---------------------------------------------------- |
 | `INITIALIZED`           | `initialize` (success or failure)                  | `boolean`                                            |
 | `IDENTITY_INVALID`      | `initialize` (credential does not unlock)          | `boolean` (always `false`)                           |
+| `IDENTITY_UNCONFIRMED`  | `createAdminDrive` (envelope not readable back)    | `{ keyId, message }`                                 |
 | `STATE_INVALID`         | `initialize` (unparseable state)                   | `boolean`                                            |
 | `DRIVE_CREATED`         | `createAdminDrive`, `createDrive`                  | `{ driveInfo }`                                      |
 | `DRIVE_RENAMED`         | `move` with `'/'` as source                        | `{ driveInfo }`                                      |
@@ -735,6 +736,12 @@ will not unseal — the credential re-derived a different unlock secret, or the 
 a distinct event on purpose: "sign in with the other credential" and "the node is unreachable" need different screens,
 and the alternative would be presenting a silently empty drive list. A **missing** envelope is not this event: that is a
 first run, and it leaves `identity === undefined` with `INITIALIZED true`.
+
+`IDENTITY_UNCONFIRMED` fires from `createAdminDrive` when the envelope it wrote is not readable back within the
+retry budget. A fresh feed update takes time to become retrievable, so this is an open question rather than a failure:
+the identity is kept and the admin drive is created under it. Surface it as a warning and confirm on the next
+`initialize()`, which reads the envelope through the ordinary path. A lost race — a *different* envelope in the slot —
+is `IdentityError` instead, and discards the identity.
 
 `DRIVE_UNRESOLVED` ([`UnresolvedDrive`](#unresolveddrive)) fires once per drive that is registered in the admin manifest
 but cannot be loaded — most often one whose own manifest feed has not propagated or was never fully written. Such a
@@ -1267,9 +1274,10 @@ catch broadly (`instanceof FileManagerError`) or branch on `error.name`.
 
 **`IdentityError`** means the credential and the stored identity disagree, and it is always fatal for that credential —
 there is no retry that helps. It is raised when the envelope's authentication tag fails (a different unlock secret was
-derived), when its `keyId` names a different FMK, when its version does not match the current KDF epoch, or when
-provisioning finds an envelope already present. `initialize()` surfaces it as `IDENTITY_INVALID` before
-`INITIALIZED false`.
+derived), when its `keyId` names a different FMK, when its version does not match the current KDF epoch, when
+provisioning finds an envelope already present, or when provisioning reads back a foreign one. `initialize()` surfaces
+it as `IDENTITY_INVALID` before `INITIALIZED false`. An envelope that has simply not become readable yet is
+`IDENTITY_UNCONFIRMED`, not this error.
 
 **`KeyringError`** means a node cannot be opened because its keys were never recovered. Two shapes:
 

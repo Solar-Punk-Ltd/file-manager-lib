@@ -1,6 +1,7 @@
 export enum FileManagerEvents {
   INITIALIZED = 'initialized',
   IDENTITY_INVALID = 'identity-invalid',
+  IDENTITY_UNCONFIRMED = 'identity-unconfirmed',
   STATE_INVALID = 'state-invalid',
   FILE_UPLOADED = 'file-uploaded',
   FILE_UPDATED = 'file-updated',

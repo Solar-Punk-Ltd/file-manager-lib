@@ -28,7 +28,7 @@ export const IDENTITY_ENVELOPE_TOPIC_LABEL = 'fm-identity-envelope';
 export const IDENTITY_ENVELOPE_FEED_INDEX = 0n;
 // Read-back of the envelope write. A fresh feed update is not immediately readable, hence the retry.
 export const ENVELOPE_READBACK_ATTEMPTS = 5;
-export const ENVELOPE_READBACK_DELAY_MS = 500;
+export const ENVELOPE_READBACK_DELAY_MS = 1000;
 export const FMK_LENGTH = 32;
 export const UNLOCK_SALT_LENGTH = 16;
 export const SWARM_ZERO_ADDRESS = new Reference(NULL_ADDRESS);

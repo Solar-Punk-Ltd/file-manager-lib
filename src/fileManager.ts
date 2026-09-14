@@ -297,8 +297,21 @@ export class FileManagerBase implements FileManager {
     verifyStampUsability(this.adminStamp, batchIdStr);
 
     if (!this.store.identity) {
-      const provisioned = await provisionIdentity(this.swarmClient, this.credential, batchIdStr, requestOptions);
+      const { identity: provisioned, confirmed } = await provisionIdentity(
+        this.swarmClient,
+        this.credential,
+        batchIdStr,
+        requestOptions,
+      );
       this.store.setIdentity(provisioned);
+
+      if (!confirmed) {
+        this.emitter.emit(FileManagerEvents.IDENTITY_UNCONFIRMED, {
+          keyId: provisioned.keyId,
+          message:
+            'The identity envelope was written but could not be read back yet. Initialize again later to confirm it reached Swarm.',
+        });
+      }
     }
 
     const identity = this.store.requireIdentity();

@@ -74,7 +74,7 @@ describe('Identity envelope and key chain', () => {
 
     it('should seal a new identity into the envelope slot', async () => {
       const client = mockClient();
-      const identity = await provisionIdentity(client, swarmClientCredential(client), DUMMY_BATCH_ID);
+      const { identity } = await provisionIdentity(client, swarmClientCredential(client), DUMMY_BATCH_ID);
 
       const topic = await envelopeTopic(await secretOf(client));
       expect(client.writeFeed).toHaveBeenCalledWith(
@@ -96,7 +96,7 @@ describe('Identity envelope and key chain', () => {
 
     it('should unseal the same identity it provisioned', async () => {
       const client = mockClient();
-      const provisioned = await provisionIdentity(client, swarmClientCredential(client), DUMMY_BATCH_ID);
+      const { identity: provisioned } = await provisionIdentity(client, swarmClientCredential(client), DUMMY_BATCH_ID);
 
       const resolved = await resolveIdentity(client, swarmClientCredential(client));
 
@@ -112,7 +112,7 @@ describe('Identity envelope and key chain', () => {
 
     it('should own feeds under an address of its own, not the login address', async () => {
       const client = mockClient();
-      const identity = await provisionIdentity(client, swarmClientCredential(client), DUMMY_BATCH_ID);
+      const { identity } = await provisionIdentity(client, swarmClientCredential(client), DUMMY_BATCH_ID);
 
       expect(identity.owner).not.toBe(client.owner);
     });
@@ -131,8 +131,8 @@ describe('Identity envelope and key chain', () => {
       const a = mockClient(0x7f);
       const b = mockClient(0x11);
 
-      const first = await provisionIdentity(a, swarmClientCredential(a), DUMMY_BATCH_ID);
-      const second = await provisionIdentity(b, swarmClientCredential(b), DUMMY_BATCH_ID);
+      const { identity: first } = await provisionIdentity(a, swarmClientCredential(a), DUMMY_BATCH_ID);
+      const { identity: second } = await provisionIdentity(b, swarmClientCredential(b), DUMMY_BATCH_ID);
 
       expect(second.owner).not.toBe(first.owner);
       expect(second.keyId).not.toBe(first.keyId);
@@ -301,9 +301,8 @@ describe('Identity envelope and key chain', () => {
       // an identity the next session cannot find.
       (client.writeFeed as jest.Mock).mockResolvedValue({ reference: '0'.repeat(64), index: '0' });
 
-      await expect(provisionIdentity(client, swarmClientCredential(client), DUMMY_BATCH_ID)).rejects.toThrow(
-        /Could not re-confirm the identity/,
-      );
+      const { confirmed } = await provisionIdentity(client, swarmClientCredential(client), DUMMY_BATCH_ID);
+      expect(confirmed).toBeFalsy();
     });
   });
 

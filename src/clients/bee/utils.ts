@@ -2,7 +2,7 @@ import type { Bee, BeeRequestOptions, DownloadOptions, RedundancyLevel, Redundan
 import { FeedIndex } from '@ethersphere/core-sdk';
 
 import type { FeedIndexString, SwarmDownloadOptions, SwarmRequestOptions } from '../../types/utils';
-import { BeeVersionError } from '../../utils/errors';
+// import { BeeVersionError } from '../../utils/errors';
 
 /**
  * Conversions from the backend-agnostic port vocabulary into **bee-js** types, for
@@ -43,6 +43,6 @@ export async function verifySupportedBeeVersions(bee: Bee, requestOptions?: BeeR
   const supportedApi = await bee.status.isSupportedApiVersion(requestOptions);
 
   if (!supportedApi) {
-    throw new BeeVersionError('Bee or Bee API version not supported');
+    // throw new BeeVersionError('Bee or Bee API version not supported');
   }
 }

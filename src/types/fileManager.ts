@@ -43,6 +43,7 @@ export interface FileManager {
    *   stable). Required when admin state already exists.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.DRIVE_CREATED
+   * @emits FileManagerEvents.IDENTITY_UNCONFIRMED If a freshly written envelope is not readable back yet.
    * @returns The newly-created admin DriveInfo.
    * @throws {DriveError} If not initialized, or admin state already exists without `reset`.
    * @throws {StampError} If the admin batch stamp is missing or not usable.

@@ -113,7 +113,11 @@ boundary.
 - **The write is read back before the identity is returned.** The same no-op means `writeFeed` resolving is not evidence
   the envelope landed, and an unretrievable chunk reads like an absent one, so the pre-write probe can be wrong in
   either direction. Provisioning re-reads slot 0 — retrying, since a fresh update is not immediately readable — and
-  requires it byte-identical to what it wrote. A foreign envelope and an unconfirmable write both raise `IdentityError`.
+  requires it byte-identical to what it wrote. A **foreign** envelope in the slot is a lost race and raises
+  `IdentityError`; the identity is discarded, because a second identity now owns that credential. A read-back that stays
+  **empty** is the weaker signal — the write was accepted and the chunk is most likely still settling — so provisioning
+  keeps the identity and reports `confirmed: false`, which `createAdminDrive` surfaces as `IDENTITY_UNCONFIRMED`. The
+  next `initialize()` reads the envelope through the ordinary path and settles the question.
   `resolveIdentity` returning `undefined` therefore remains a best-effort answer; the only operation that acts on it
   verifies itself.
 - **AES-GCM's authentication tag is the verifier.** A wrong unlock key fails decryption outright, so no separate
@@ -455,7 +459,7 @@ Other fixed values:
 
 | Error           | Raised when                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `IdentityError` | the envelope will not unseal, its `keyId` belongs to another FMK, its version does not match the current epoch, provisioning found one already there, or provisioning could not read back the envelope it just wrote. `initialize()` reports it as `IDENTITY_INVALID` ahead of `INITIALIZED false`, so "sign in with the other credential" and "the node is unreachable" stay distinguishable. A **missing** envelope is not an error — it is a first run. |
+| `IdentityError` | the envelope will not unseal, its `keyId` belongs to another FMK, its version does not match the current epoch, provisioning found one already there, or provisioning read back a foreign envelope. `initialize()` reports it as `IDENTITY_INVALID` ahead of `INITIALIZED false`, so "sign in with the other credential" and "the node is unreachable" stay distinguishable. A **missing** envelope is not an error — it is a first run, and a write that has not become readable yet is `IDENTITY_UNCONFIRMED`, not an error either. |
 | `KeyringError`  | a node's keys are not in the chain and cannot be recovered — the node was never walked to, or a fork carries no wrapped keys, or its wrapped keys do not unwrap under its parent (the manifest and the key chain disagree).                                                                                                                                                                                                                                |
 
 Both name the node they are about, truncated to its topic prefix.
