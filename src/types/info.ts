@@ -1,6 +1,7 @@
 import { type RedundancyLevel } from '@ethersphere/bee-js';
 import { type BatchId, type MantarayNode } from '@ethersphere/core-sdk';
 
+import { type ShareEntry } from './share';
 import { type ContentRef, type Hex } from './utils';
 
 export enum NodeStatus {
@@ -12,6 +13,20 @@ export enum NodeType {
   File = 'file',
   Folder = 'folder',
   Drive = 'drive',
+  /** A control-plane document in the admin manifest: the share index, the address book. */
+  Control = 'control',
+}
+
+export enum DriveKind {
+  /** The admin drive — the drive registry and the control-plane nodes. */
+  Admin = 'admin',
+  /** Regular user drive */
+  User = 'user',
+  /**
+   * The inbound-share drive. Owned and written by this identity, but every node in it is a mount
+   * point onto someone else's subtree, so the drive itself is read-only and kept out of `driveList`.
+   */
+  Shared = 'shared',
 }
 
 export enum ListDepth {
@@ -34,7 +49,11 @@ export interface FileRecord extends NodeResource {
   name: string;
   // On a record loaded straight off its feed this falls back to `name` until a listing hydrates it.
   path: string;
-  content: ContentRef;
+  /**
+   * Pointer to the bytes. Absent on a file listed through a `list` grant, which carries the
+   * structure of a subtree and no key to any file in it
+   */
+  content?: ContentRef;
   timestamp?: number;
   customMetadata?: Record<string, string>;
   trashedFrom?: string;
@@ -49,8 +68,16 @@ export interface DriveInfo extends ManifestHost {
   type: NodeType.Drive;
   id: string;
   name: string;
-  isAdmin: boolean;
+  kind: DriveKind;
 }
+
+/** A document node in the admin manifest: no manifest of its own, one JSON payload on its own feed. */
+export interface ControlNode extends NodeResource {
+  type: NodeType.Control;
+  name: string;
+}
+
+export type ControlDocument = ShareEntry[];
 
 export interface FolderInfo extends ManifestHost {
   type: NodeType.Folder;

@@ -13,7 +13,7 @@ import { ensureUniqueSignerWithStamp, tempFileRegistry } from './setup/utils';
 import type { BeeClient } from '@/clients';
 import { EventEmitterBase } from '@/eventEmitter';
 import { type FileManagerBase } from '@/fileManager';
-import { type DriveInfo, ListDepth, type StampInfo, type UnresolvedDrive } from '@/types';
+import { type DriveInfo, DriveKind, ListDepth, type StampInfo, type UnresolvedDrive } from '@/types';
 import { DriveError, FileManagerEvents } from '@/utils';
 import { ROOT_PATH } from '@/utils/constants';
 
@@ -103,7 +103,7 @@ describe('Drive operations', () => {
   });
 
   it('should throw when trying to forget the admin drive', async () => {
-    const adminDrive = fileManager.driveList.find((d) => d.isAdmin);
+    const adminDrive = fileManager.driveList.find((d) => d.kind === DriveKind.Admin);
     expect(adminDrive).toBeDefined();
     await expect(fileManager.forgetDrive(new Identifier(adminDrive!.id))).rejects.toThrow(
       new DriveError('Cannot forget admin drive'),
@@ -171,12 +171,12 @@ describe('Drive operations', () => {
   });
 
   it('refuses to rename the admin drive or reuse an existing drive name', async () => {
-    const adminDrive = fileManager.driveList.find((d) => d.isAdmin)!;
+    const adminDrive = fileManager.driveList.find((d) => d.kind === DriveKind.Admin)!;
     await expect(fileManager.move(ROOT_PATH, 'not-admin', adminDrive.id)).rejects.toThrow(
       new DriveError('Cannot rename the admin drive'),
     );
 
-    const taken = fileManager.driveList.find((d) => !d.isAdmin)!;
+    const taken = fileManager.driveList.find((d) => d.kind !== DriveKind.Admin)!;
     const batchId = await buyStampSerialized(bee, DEFAULT_BATCH_AMOUNT, DEFAULT_BATCH_DEPTH, 'renameClashStamp');
     await fileManager.createDrives([{ batchId, name: 'Rename clash source' }]);
     const source = fileManager.driveList.find((d) => d.name === 'Rename clash source')!;

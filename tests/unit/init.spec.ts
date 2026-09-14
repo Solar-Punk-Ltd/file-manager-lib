@@ -7,19 +7,21 @@ import { applyDefaultMocks, mockIdentityFeed, mockStampInfo, mockWrappedKeys, re
 import { BeeClient } from '@/clients';
 import { EventEmitterBase } from '@/eventEmitter';
 import { FileManagerBase } from '@/fileManager';
-import { NodeType, type UnresolvedDrive } from '@/types';
+import { DriveKind, NodeType, type UnresolvedDrive } from '@/types';
 import { FileManagerEvents, SignerError } from '@/utils';
 import { fetchStamp } from '@/utils/bee';
 import {
+  DRIVE_FORK_PREFIX,
   FEED_INDEX_ZERO,
   MANIFEST_METADATA_DRIVE_BATCH_ID,
   MANIFEST_METADATA_DRIVE_ID,
-  MANIFEST_METADATA_DRIVE_IS_ADMIN,
+  MANIFEST_METADATA_DRIVE_KIND,
   MANIFEST_METADATA_DRIVE_NAME,
   MANIFEST_METADATA_DRIVE_OWNER,
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
+  ROOT_PATH,
 } from '@/utils/constants';
 import { getAllNodeEntries } from '@/utils/mantaray';
 
@@ -99,7 +101,7 @@ describe('Initialization and construction', () => {
       expect(fm.recordList).toHaveLength(0);
     });
 
-    it('emits DRIVE_UNRESOLVED for a drive it cannot load instead of dropping it silently', async () => {
+    it('lists a drive whose manifest feed is empty and surfaces the failure on first touch', async () => {
       const bee = new Bee(BEE_URL);
       const client = new BeeClient(bee, DEFAULT_MOCK_SIGNER);
       const emitter = new EventEmitterBase();
@@ -113,7 +115,7 @@ describe('Initialization and construction', () => {
 
       (getAllNodeEntries as jest.Mock).mockReturnValue([
         {
-          path: `/drive-${driveId}`,
+          path: `${DRIVE_FORK_PREFIX}-${driveId}`,
           type: NodeType.Drive,
           topic: driveTopic,
           rawMetadata: {
@@ -123,7 +125,7 @@ describe('Initialization and construction', () => {
             [MANIFEST_METADATA_DRIVE_NAME]: 'broken-drive',
             [MANIFEST_METADATA_DRIVE_OWNER]: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
             [MANIFEST_METADATA_DRIVE_BATCH_ID]: DUMMY_BATCH_ID.toString(),
-            [MANIFEST_METADATA_DRIVE_IS_ADMIN]: 'false',
+            [MANIFEST_METADATA_DRIVE_KIND]: DriveKind.User,
             [MANIFEST_METADATA_REDUNDANCY_LEVEL]: '0',
             ...mockWrappedKeys(),
           },
@@ -144,10 +146,11 @@ describe('Initialization and construction', () => {
 
       await fm.initialize();
 
-      expect(fm.driveList.find((d) => d.id === driveId)).toBeUndefined();
-      expect(unresolved).toHaveLength(1);
-      expect(unresolved[0]).toMatchObject({ id: driveId, name: 'broken-drive' });
-      expect(unresolved[0].error).toContain('manifest feed');
+      // Init reads the admin feed only, so an unresolvable drive feed is not an init concern.
+      expect(fm.driveList.find((d) => d.id === driveId)).toMatchObject({ id: driveId, name: 'broken-drive' });
+      expect(unresolved).toHaveLength(0);
+
+      await expect(fm.listFolder(driveId, ROOT_PATH)).rejects.toThrow('Manifest feed not found');
     });
 
     it('emits DRIVE_UNRESOLVED for a malformed drive fork it cannot even parse', async () => {
@@ -161,7 +164,7 @@ describe('Initialization and construction', () => {
 
       (getAllNodeEntries as jest.Mock).mockReturnValue([
         {
-          path: '/drive-malformed',
+          path: `${DRIVE_FORK_PREFIX}-malformed`,
           type: NodeType.Drive,
           topic: Topic.fromString('malformed-drive').toString(),
           rawMetadata: {},
@@ -191,7 +194,7 @@ describe('Initialization and construction', () => {
       const fm = new FileManagerBase(client, emitter);
 
       const driveFork = (id: string, name: string, wrapped: Record<string, string>): object => ({
-        path: `/drive-${id}`,
+        path: `${DRIVE_FORK_PREFIX}-${id}`,
         type: NodeType.Drive,
         topic: Topic.fromString(name).toString(),
         rawMetadata: {
@@ -201,7 +204,7 @@ describe('Initialization and construction', () => {
           [MANIFEST_METADATA_DRIVE_NAME]: name,
           [MANIFEST_METADATA_DRIVE_OWNER]: DEFAULT_MOCK_SIGNER.publicKey().address().toString(),
           [MANIFEST_METADATA_DRIVE_BATCH_ID]: DUMMY_BATCH_ID.toString(),
-          [MANIFEST_METADATA_DRIVE_IS_ADMIN]: 'false',
+          [MANIFEST_METADATA_DRIVE_KIND]: DriveKind.User,
           [MANIFEST_METADATA_REDUNDANCY_LEVEL]: '0',
           ...wrapped,
         },

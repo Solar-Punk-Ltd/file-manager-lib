@@ -168,5 +168,8 @@ export async function unwrapKey(kek: Uint8Array, wrapped: Hex): Promise<Uint8Arr
 }
 
 export function copyKeys(keys: NodeKeys): NodeKeys {
-  return { meta: new Uint8Array(keys.meta), content: new Uint8Array(keys.content) };
+  return {
+    meta: new Uint8Array(keys.meta),
+    ...(keys.content ? { content: new Uint8Array(keys.content) } : {}),
+  };
 }

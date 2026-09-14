@@ -1,0 +1,63 @@
+import type { NodeType } from './info';
+import type { ActReferences, Hex } from './utils';
+
+export enum ShareGrade {
+  /** `K_meta` — recursive listing of a folder. No file contents. */
+  List = 'list',
+  /** `K_meta` + `K_content` — full read of a subtree, tracking future changes. */
+  Read = 'read',
+  /** `K_content` — one file, tracking future versions. */
+  Open = 'open',
+}
+
+export interface GrantBlob {
+  v: number;
+  owner: Hex;
+  topic: string;
+  type: NodeType;
+  name: string;
+  meta?: Hex; // `K_meta`
+  content?: Hex; // `K_content`
+  message?: string;
+}
+
+export interface ShareFeedHead extends ActReferences {
+  v: number;
+  publisher: Hex;
+  grade: ShareGrade;
+}
+
+export interface ShareHandle {
+  shareTopic: string;
+  /** The sharer's `identity.owner` — the address signing the share feed, not the ACT publisher. */
+  owner: Hex;
+}
+
+export interface ShareOptions {
+  /** Rides inside the grant blob, so it is readable only by the grantee list. */
+  message?: string;
+}
+
+export interface ShareSubject {
+  topic: string;
+  type: NodeType;
+  name: string;
+  owner: Hex;
+  path: string;
+}
+
+export interface ShareEntry {
+  id: string;
+  shareTopic: string;
+  nodeTopic: string;
+  driveId: string;
+  type: NodeType;
+  path: string;
+  grade: ShareGrade;
+  granteeList: ActReferences;
+  act: ActReferences;
+  /** ACT key of whoever encrypted this blob, kept because amending never re-encrypts it. */
+  publisher: Hex;
+  createdAt: number;
+  revokedAt?: number;
+}

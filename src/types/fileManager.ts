@@ -12,9 +12,12 @@ import type {
   FolderInfo,
   ListDepth,
   ListFolderResult,
+  NodeEntry,
   StampInfo,
 } from './info';
+import type { ShareEntry, ShareGrade, ShareHandle, ShareOptions } from './share';
 import type { UpdateItem, UploadFilesResult, UploadItem, UploadOptions } from './upload';
+import type { Hex } from './utils';
 
 /**
  * Interface representing a file manager with various file, folder and drive operations.
@@ -40,6 +43,7 @@ export interface FileManager {
    *   stable). Required when admin state already exists.
    * @param requestOptions - Additional Bee request options.
    * @emits FileManagerEvents.DRIVE_CREATED
+   * @emits FileManagerEvents.IDENTITY_UNCONFIRMED If a freshly written envelope is not readable back yet.
    * @returns The newly-created admin DriveInfo.
    * @throws {DriveError} If not initialized, or admin state already exists without `reset`.
    * @throws {StampError} If the admin batch stamp is missing or not usable.
@@ -193,7 +197,8 @@ export interface FileManager {
   /**
    * Downloads files whose FileRecords the caller already holds — no drive traversal or hydration.
    * Fetches exactly the passed records; does not re-resolve them against current drive state.
-   * @param fileRecords - The FileRecords to fetch content for.
+   * @param fileRecords - The FileRecords to fetch content for. One without `content` — listed
+   *   through a `ShareGrade.List` grant — is reported as failed rather than fetched.
    * @param options - Optional download options.
    * @param requestOptions - Additional Bee request options.
    * @returns A promise that resolves to a DownloadFilesResult.
@@ -217,7 +222,8 @@ export interface FileManager {
    * @param maxDepth - Maximum BFS levels when depth is Deep; must be positive, unlimited if omitted.
    * @param requestOptions - Additional Bee request options.
    * @returns {@link ListFolderResult}: `entries` ({@link NodeEntry}) for every node resolved at or
-   *   below the given path, and `failed` for every node that could not be.
+   *   below the given path, and `failed` for every node that could not be. Under a `ShareGrade.List`
+   *   mount a file entry comes from its fork metadata alone and carries no `content`.
    * @throws {DriveError} If not initialized, driveId is not found, or a path segment does not exist.
    * @throws {FolderError} If the path is the reserved `.trash` folder, or `maxDepth` is not positive.
    */
@@ -410,6 +416,100 @@ export interface FileManager {
   ): Promise<FolderInfo>;
 
   /**
+   * Grants a folder or file to a list of grantee public keys. What a recipient needs is the handle
+   * `{ shareTopic, owner }` — the returned entry's `shareTopic` and this identity's {@link identity}
+   * `owner`, not the entry's `publisher`.
+   *
+   * Additive in both senses. Nothing on the shared node is written, and a second call for the same
+   * node and grade adds its recipients to the standing grant rather than issuing another one, so
+   * the handle the first recipients hold keeps working. A different grade mints its own grant,
+   * revocable on its own; the grade of a standing grant never changes. Removal is
+   * {@link revokeShare} alone.
+   * @param driveId - The drive containing the node.
+   * @param path - Absolute path of the file or folder. The drive root is not a share subject.
+   * @param grade - What the recipients get: `List`, `Read` (folders) or `Open` (files).
+   * @param recipients - Compressed secp256k1 public keys — a Bee node key for a `BeeClient`
+   *   recipient, an `appKey` for a swarm-id one.
+   * @param options - Optional note, carried inside the ACT-gated blob. Written when the grant is
+   *   minted, so it does not apply when adding to a standing one.
+   * @param requestOptions - Additional Bee request options.
+   * @emits FileManagerEvents.SHARE_CREATED when minted, FileManagerEvents.SHARE_AMENDED when
+   *   recipients are added to a standing grant.
+   * @returns The ShareEntry, whose `shareTopic` is half the handle.
+   * @throws {DriveError} If not initialized or the drive is not found.
+   * @throws {ShareError} If `recipients` is empty, `path` is the drive root, the grade does not fit
+   *   the node type, or the backend returned no grantee list to amend against.
+   * @throws {FolderError} If the path does not exist or is under the reserved `.trash` folder.
+   * @throws {FileRecordError} If the fork at the path carries no node metadata.
+   * @throws {KeyringError} If the node has not been reached through a listing in this session.
+   */
+  share(
+    driveId: string | Identifier,
+    path: string,
+    grade: ShareGrade,
+    recipients: Hex[],
+    options?: ShareOptions,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<ShareEntry>;
+
+  /**
+   * Who a grant currently reaches. The ACT grantee list on Swarm is the only membership record — an
+   * entry holds its address, never a copy — so this is a fetch.
+   * @param shareId - `ShareEntry.id` of the grant.
+   * @param requestOptions - Additional Bee request options.
+   * @returns The grantees' compressed public keys.
+   * @throws {DriveError} If the FileManager is not initialized.
+   * @throws {ShareError} If the share is unknown.
+   */
+  getShareGrantees(shareId: string, requestOptions?: BeeRequestOptions): Promise<Hex[]>;
+
+  /**
+   * Withdraws access, from named recipients or — with `recipients` omitted — from the whole grant.
+   * The grantee list is re-keyed and republished as the share feed's next head, so those still on
+   * it keep reading. Emptying the list closes the grant.
+   *
+   * **Denies future reads only.** Keys a recipient already unwrapped and chunks they already
+   * dereferenced stay readable, since Swarm has no delete. Withdrawing past access means rotating
+   * the subtree's keys.
+   * @param shareId - `ShareEntry.id` of the grant to withdraw from.
+   * @param recipients - Grantee public keys to drop. Omit to withdraw the grant entirely.
+   * @param requestOptions - Additional Bee request options.
+   * @emits FileManagerEvents.SHARE_REVOKED
+   * @returns The entry, stamped `revokedAt` once nobody is left on it. It stays in the index as a
+   *   record of the grant.
+   * @throws {DriveError} If not initialized or the entry's drive is no longer known.
+   * @throws {ShareError} If the share is unknown, already revoked, or grants none of `recipients`.
+   * @see {@link getShareGrantees} — the current membership this withdraws from.
+   */
+  revokeShare(shareId: string, recipients?: Hex[], requestOptions?: BeeRequestOptions): Promise<ShareEntry>;
+
+  /**
+   * Accepts a grant handed to this identity, mounting it in {@link sharedWithMe}. The grant blob is
+   * fetched through ACT — where anyone outside the grantee list fails — and the keys it carries are
+   * re-sealed under this identity's own root, so the mount is an ordinary fork that survives a
+   * restart and needs no second key store. Files and folders mount alike;
+   * {@link listFolder} and {@link downloadFile} work on both unchanged.
+   * @param handle - `{ shareTopic, owner }`, as published by the sharer. However it arrived is the
+   *   application's business.
+   * @param requestOptions - Additional Bee request options.
+   * @emits FileManagerEvents.SHARE_ACCEPTED
+   * @returns The mounted node as an ordinary entry, whose `owner` is the sharer and whose `driveId`
+   *   is {@link sharedWithMe}'s. A name already taken in the shared drive is suffixed.
+   * @throws {DriveError} If not initialized, or the admin manifest is not loaded.
+   * @throws {StampError} If the admin batch stamp is missing or not usable.
+   * @throws {ShareError} If the feed has no head, the payload is not a share head this version
+   *   understands, the blob carries no key the grade can use, or the node is already mounted. A
+   *   handle whose grantee list does not include this identity fails on the ACT fetch.
+   */
+  acceptShare(handle: ShareHandle, requestOptions?: BeeRequestOptions): Promise<NodeEntry>;
+
+  /**
+   * The drive holding everything shared with this identity. Provisioned with the admin state and
+   * kept out of {@link driveList}, since every node in it is a mount onto someone else's subtree.
+   */
+  readonly sharedWithMe: DriveInfo | undefined;
+
+  /**
    * The identity of the feed owner.
    * @returns an IdentityInfo object, or undefined if not set.
    */
@@ -432,6 +532,14 @@ export interface FileManager {
    * @returns An array of FileRecord objects.
    */
   readonly recordList: readonly FileRecord[];
+
+  /**
+   * Grants this identity has issued, as loaded from the owner-private share index.
+   *
+   * The index is fetched  during {@link initialize} and by the first share operation of a session;
+   * @returns An array of ShareEntry objects, or undefined if the index has not been loaded.
+   */
+  readonly shareList: readonly ShareEntry[] | undefined;
 
   /**
    * Event emitter for handling file manager events.

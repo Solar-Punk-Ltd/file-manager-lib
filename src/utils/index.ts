@@ -1,5 +1,12 @@
 export { FileManagerEvents } from './events';
-export { ADMIN_DRIVE_NAME, STATE_TOPIC_LABEL, FEED_INDEX_NOT_FOUND, FEED_INDEX_START } from './constants';
+export {
+  KDF_EPOCH,
+  SHARE_FORMAT_VERSION,
+  ADMIN_DRIVE_NAME,
+  STATE_TOPIC_LABEL,
+  FEED_INDEX_NOT_FOUND,
+  FEED_INDEX_START,
+} from './constants';
 export {
   BeeVersionError,
   DriveError,
@@ -10,6 +17,7 @@ export {
   FolderError,
   IdentityError,
   KeyringError,
+  ShareError,
   SignerError,
   StampError,
 } from './errors';

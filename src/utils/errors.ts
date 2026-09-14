@@ -76,6 +76,14 @@ export class SignerError extends FileManagerError {
   }
 }
 
+// Grant failures: an unknown or revoked share, a grade the node cannot carry, or an ACT upload that
+// yielded no grantee list to amend against.
+export class ShareError extends FileManagerError {
+  public constructor(message: string, cause?: unknown) {
+    super(message, 'ShareError', cause);
+  }
+}
+
 // Identity envelope failures: a credential that unseals nothing, a malformed or foreign envelope,
 // or provisioning attempted through a client that cannot write the envelope feed.
 export class IdentityError extends FileManagerError {

@@ -41,6 +41,19 @@ export class Keyring {
     return copyKeys(root);
   }
 
+  /**
+   * `K_content` for `topic`. Throws where {@link requireKeys} would succeed but the node carries no
+   * content key — a subtree reached through a `list` grant lists but never opens.
+   */
+  async requireContentKey(topic: string): Promise<Uint8Array> {
+    const { content } = await this.requireKeys(topic);
+    if (!content) {
+      throw new KeyringError(`No content key for node ${topic.slice(0, 6)} — it was reached through a list grant`);
+    }
+
+    return content;
+  }
+
   /** Whether {@link requireKeys} would resolve `topic` without a walk. */
   has(topic: string): boolean {
     return this.keys.has(topic) || topic === this.rootTopic;
@@ -65,7 +78,7 @@ export class Keyring {
 
     return {
       meta: await wrapKey(parent.meta, child.meta),
-      content: await wrapKey(parent.content, child.content),
+      ...(parent.content && child.content ? { content: await wrapKey(parent.content, child.content) } : {}),
     };
   }
 
@@ -76,11 +89,15 @@ export class Keyring {
 
     const parent = await this.requireKeys(parentTopic);
 
+    // No content key above means none below: a list-only chain stays list-only all the way down.
+    const parentContent = parent.content;
+    const wrappedContent = wrapped.content;
+
     let keys: NodeKeys;
     try {
       keys = {
         meta: await unwrapKey(parent.meta, wrapped.meta),
-        content: await unwrapKey(parent.content, wrapped.content),
+        ...(parentContent && wrappedContent ? { content: await unwrapKey(parentContent, wrappedContent) } : {}),
       };
     } catch (err: unknown) {
       throw new KeyringError(
@@ -98,7 +115,7 @@ export class Keyring {
   clear(): void {
     for (const keys of this.keys.values()) {
       keys.meta.fill(0);
-      keys.content.fill(0);
+      keys.content?.fill(0);
     }
     this.keys.clear();
   }

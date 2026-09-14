@@ -42,6 +42,11 @@ export interface IdentityInfo {
   readonly keyId: Hex;
 }
 
+export interface ProvisionedIdentity {
+  identity: Identity;
+  confirmed: boolean;
+}
+
 export interface Identity extends IdentityInfo {
   readonly stateTopic: Topic;
   /**

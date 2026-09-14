@@ -113,7 +113,11 @@ boundary.
 - **The write is read back before the identity is returned.** The same no-op means `writeFeed` resolving is not evidence
   the envelope landed, and an unretrievable chunk reads like an absent one, so the pre-write probe can be wrong in
   either direction. Provisioning re-reads slot 0 — retrying, since a fresh update is not immediately readable — and
-  requires it byte-identical to what it wrote. A foreign envelope and an unconfirmable write both raise `IdentityError`.
+  requires it byte-identical to what it wrote. A **foreign** envelope in the slot is a lost race and raises
+  `IdentityError`; the identity is discarded, because a second identity now owns that credential. A read-back that stays
+  **empty** is the weaker signal — the write was accepted and the chunk is most likely still settling — so provisioning
+  keeps the identity and reports `confirmed: false`, which `createAdminDrive` surfaces as `IDENTITY_UNCONFIRMED`. The
+  next `initialize()` reads the envelope through the ordinary path and settles the question.
   `resolveIdentity` returning `undefined` therefore remains a best-effort answer; the only operation that acts on it
   verifies itself.
 - **AES-GCM's authentication tag is the verifier.** A wrong unlock key fails decryption outright, so no separate
@@ -413,66 +417,6 @@ zeroed at all, so `identity.signer` — the highest-value secret in the heap —
 
 ---
 
-## 7. ACT and sharing
-
-ACT (Swarm's Access Control Trie) is **not used by the tree**. It remains on the `SwarmClient` port — `uploadProtected`,
-`downloadProtected`, `downloadProtectedStream`, `actPublisher` — as the **share layer's** API, and no library operation
-calls it today.
-
-The reason for narrowing it there rather than removing it: ACT is good at gating a small blob to a named grantee list.
-It is a poor fit for a tree, where it costs one grant per node and scales with the size of what you share instead of
-with the number of shares. Under the key chain, sharing means handing over keys — a payload of a few hundred bytes — so
-one ACT write covers a subtree of any size.
-
-**Sharing is not implemented.** The mechanism it will use is already in place; the delivery is not.
-
-```mermaid
-flowchart TD
-    S["User picks a node to share"] --> T{"Phase"}
-
-    T -->|"1 — possible today, no API"| P1["Single file:<br/>publish record.content.reference (64 bytes)"]
-    P1 --> P2["Send over any channel<br/>messenger, email, URL fragment"]
-    P2 --> P3["Recipient: downloadData via any gateway<br/>no identity, no stamp, no fm-lib"]
-
-    T -->|"2 — not built"| R1["Build a key blob:<br/>{ owner, topic, K_meta, K_content? }"]
-    R1 --> R2["swarmClient.uploadProtected(blob, grantees)"]
-    R2 --> R3["write the share feed head"]
-    R3 --> R4["Recipient: ACT-decrypt the blob → keys"]
-    R4 --> R5["traverse the OWNER'S LIVE TREE<br/>public feed reads plus those keys"]
-```
-
-Phase 1 needs no library support for a single file: `record.content.reference` is a complete, self-contained capability
-— the reference carries its own decryption key, which is exactly what makes publishing it a share. It is also
-irrevocable, and it pins one version rather than tracking the file.
-
-Share grades phase 2 will offer, all from the same mechanism:
-
-| Hand over                            | The recipient can                                                   |
-| ------------------------------------ | ------------------------------------------------------------------- |
-| `K_meta(folder)`                     | full recursive listing — names, types, versions. No file contents.  |
-| `K_meta` + `K_content(folder)`       | full read of the subtree, tracking future changes                   |
-| `K_content(file)`                    | open that one file — equivalent to publishing its 64-byte reference |
-| `K_meta(folder)` + `K_content(file)` | browse everything, open one thing                                   |
-
-**Not supported, deliberately:** shallow listing (list a folder but not its subfolders). Neither UNIX nor Google Drive
-offers it, and implementing it would mean breaking the `K_meta` chain at every subfolder boundary, turning one share
-into N.
-
-### Known limits on the sharing path
-
-- **Rotation is the only revocation, and it denies future reads only.** Re-keying a subtree costs no content re-upload —
-  the 64-byte content references are unchanged — but it does mean re-sealing a feed payload and re-wrapping child keys
-  per node. Anything a recipient has already dereferenced is theirs permanently. Rotation is not implemented; when it
-  is, it must be a resumable job with a persisted progress marker, because a half-rotated subtree leaves parents holding
-  wrapped keys that no longer match their children, and because Bee silently no-ops on a taken feed index.
-- **Cross-backend shares will not work.** ACT decryption is node-side on bee-js and iframe-side on Swarm ID, so a share
-  created for a Swarm ID identity is unreadable by a `BeeClient` user, and vice versa.
-- **Discovery is out of scope.** ACT gates who _can_ read a share; nothing announces that one exists.
-- **Swarm ID has no ACT history continuity.** `actUploadData` takes no history parameter, so every protected write mints
-  a fresh history and grantee list. Reads work; amending a grantee list in place does not.
-
----
-
 ## 8. Constants and labels
 
 All HKDF `info` labels are versioned by a single **KDF epoch**. Bumping it re-derives the whole tree and orphans every
@@ -515,7 +459,7 @@ Other fixed values:
 
 | Error           | Raised when                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `IdentityError` | the envelope will not unseal, its `keyId` belongs to another FMK, its version does not match the current epoch, provisioning found one already there, or provisioning could not read back the envelope it just wrote. `initialize()` reports it as `IDENTITY_INVALID` ahead of `INITIALIZED false`, so "sign in with the other credential" and "the node is unreachable" stay distinguishable. A **missing** envelope is not an error — it is a first run. |
+| `IdentityError` | the envelope will not unseal, its `keyId` belongs to another FMK, its version does not match the current epoch, provisioning found one already there, or provisioning read back a foreign envelope. `initialize()` reports it as `IDENTITY_INVALID` ahead of `INITIALIZED false`, so "sign in with the other credential" and "the node is unreachable" stay distinguishable. A **missing** envelope is not an error — it is a first run, and a write that has not become readable yet is `IDENTITY_UNCONFIRMED`, not an error either. |
 | `KeyringError`  | a node's keys are not in the chain and cannot be recovered — the node was never walked to, or a fork carries no wrapped keys, or its wrapped keys do not unwrap under its parent (the manifest and the key chain disagree).                                                                                                                                                                                                                                |
 
 Both name the node they are about, truncated to its topic prefix.
