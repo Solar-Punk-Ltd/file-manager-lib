@@ -416,8 +416,9 @@ export interface FileManager {
   ): Promise<FolderInfo>;
 
   /**
-   * Grants a folder or file to a list of grantee public keys. What a recipient needs is the
-   * returned entry's `{ shareTopic, owner }`; delivering that handle is the application's job.
+   * Grants a folder or file to a list of grantee public keys. What a recipient needs is the handle
+   * `{ shareTopic, owner }` — the returned entry's `shareTopic` and this identity's {@link identity}
+   * `owner`, not the entry's `publisher`.
    *
    * Additive in both senses. Nothing on the shared node is written, and a second call for the same
    * node and grade adds its recipients to the standing grant rather than issuing another one, so

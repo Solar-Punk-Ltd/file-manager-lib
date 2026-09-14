@@ -37,6 +37,7 @@ export interface ShareFeedHead extends ActReferences {
 
 export interface ShareHandle {
   shareTopic: string;
+  /** The sharer's `identity.owner` — the address signing the share feed, not the ACT publisher. */
   owner: Hex;
 }
 
@@ -63,6 +64,7 @@ export interface ShareEntry {
   grade: ShareGrade;
   granteeList: ActReferences;
   act: ActReferences;
+  /** ACT key of whoever encrypted this blob, kept because amending never re-encrypts it. */
   publisher: Hex;
   createdAt: number;
   revokedAt?: number;

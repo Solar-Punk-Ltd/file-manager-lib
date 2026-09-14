@@ -111,24 +111,27 @@ the blob, not the tree**. One ACT write grants a whole drive.
 node's keys, a **share feed** whose head points at it, and an entry in your private `.shares` index. Nothing on the
 shared node is written. The **grade** decides which keys go into the blob:
 
-| grade  | applies to      | the recipient gets                           |
-| ------ | --------------- | -------------------------------------------- |
-| `List` | folders, drives | the listing of the subtree, no file contents |
-| `Read` | folders, drives | the full subtree, tracking later changes     |
-| `Open` | files           | one file, tracking later versions            |
+| grade  | applies to | the recipient gets                           |
+| ------ | ---------- | -------------------------------------------- |
+| `List` | folders    | the listing of the subtree, no file contents |
+| `Read` | folders    | the full subtree, tracking later changes     |
+| `Open` | files      | one file, tracking later versions            |
 
-What you hand a recipient is the returned entry's `{ shareTopic, owner }` — a **handle**, not a capability. Outside the
-grantee list its addresses dereference to nothing, so it is safe on a public channel; delivering it is your app's job.
-It stays valid for the life of the grant, because membership changes move the feed's head, not the handle.
+What you hand a recipient is a **handle**, not a capability: the entry's `shareTopic` plus `fm.identity.owner`, the
+address that signs every feed you write. Outside the grantee list its addresses dereference to nothing, so it is safe on
+a public channel; delivering it is your app's job. It stays valid for the life of the grant, because membership changes
+move the feed's head, not the handle.
 
 ```ts
 const entry = await fm.share(drive.id, 'docs', ShareGrade.Read, [alicePubKey]);
+const handle = { shareTopic: entry.shareTopic, owner: fm.identity!.owner }; // hand this to Alice
+
 await fm.share(drive.id, 'docs', ShareGrade.Read, [bobPubKey]); // adds Bob to the same grant
 await fm.getShareGrantees(entry.id); // [alice, bob]
 await fm.revokeShare(entry.id, [bobPubKey]); // drops Bob; omit the array to close the grant
 
 // on the recipient's side
-const mounted = await fm.acceptShare({ shareTopic: entry.shareTopic, owner: entry.publisher });
+const mounted = await fm.acceptShare(handle);
 await fm.listFolder(fm.sharedWithMe!.id, '/');
 ```
 

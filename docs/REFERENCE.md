@@ -547,9 +547,11 @@ A share hands another identity the keys to one node, gated by Swarm's Access Con
 **the shared node is not touched**: an ACT-protected grant blob holding the node's keys, a share feed whose head points
 at the blob, and an entry in the owner-private `.shares` index. One ACT write covers a subtree of any size.
 
-What a recipient needs is the returned entry's **handle** — `{ shareTopic, owner }`, where `owner` is the entry's
-`publisher`. Outside the grantee list those addresses dereference to nothing, so the handle is safe on a public channel;
-delivering it is the application's job. It never changes: membership churn moves the feed's head, not the handle.
+What a recipient needs is a **handle** — `{ shareTopic, owner }`, assembled from the returned entry's `shareTopic` and
+`identity.owner`, the address that signs the share feed along with every other feed this identity writes. It is not the
+entry's `publisher`, which is the ACT public key of whoever encrypted the blob. Outside the grantee list those addresses
+dereference to nothing, so the handle is safe on a public channel; delivering it is the application's job. It never
+changes: membership churn moves the feed's head, not the handle.
 
 Grantee keys are **compressed secp256k1 public keys** (66 hex), and which key an identity publishes is backend-specific
 — a Bee node key on `BeeClient`, the origin-scoped `appKey` on `SnahaClient`. Both engines implement the same ACT
@@ -579,7 +581,7 @@ Removal is never expressed here — that is
 - **options?** — `{ message?: string }`, carried **inside** the ACT-gated blob rather than beside the handle, so it is
   readable only by the grantee list. Written when the grant is minted, so it does not apply when adding to a standing
   one.
-- **Returns**: the [`ShareEntry`](#shareentry). `shareTopic` plus `publisher` is the handle.
+- **Returns**: the [`ShareEntry`](#shareentry). Its `shareTopic` plus `identity.owner` is the handle.
 - **Emits**: `SHARE_CREATED` when the grant is minted, `SHARE_AMENDED` when recipients join a standing one.
 - **Throws**: `DriveError` (not initialized, drive not found); `ShareError` (`recipients` empty, `path` is the drive
   root, the grade does not fit the node type, or the backend returned no grantee list to amend against); `FolderError`
@@ -746,10 +748,10 @@ a distinct event on purpose: "sign in with the other credential" and "the node i
 and the alternative would be presenting a silently empty drive list. A **missing** envelope is not this event: that is a
 first run, and it leaves `identity === undefined` with `INITIALIZED true`.
 
-`IDENTITY_UNCONFIRMED` fires from `createAdminDrive` when the envelope it wrote is not readable back within the
-retry budget. A fresh feed update takes time to become retrievable, so this is an open question rather than a failure:
-the identity is kept and the admin drive is created under it. Surface it as a warning and confirm on the next
-`initialize()`, which reads the envelope through the ordinary path. A lost race — a *different* envelope in the slot —
+`IDENTITY_UNCONFIRMED` fires from `createAdminDrive` when the envelope it wrote is not readable back within the retry
+budget. A fresh feed update takes time to become retrievable, so this is an open question rather than a failure: the
+identity is kept and the admin drive is created under it. Surface it as a warning and confirm on the next
+`initialize()`, which reads the envelope through the ordinary path. A lost race — a _different_ envelope in the slot —
 is `IdentityError` instead, and discards the identity.
 
 `DRIVE_UNRESOLVED` ([`UnresolvedDrive`](#unresolveddrive)) fires once per drive that is registered in the admin manifest
@@ -1165,14 +1167,14 @@ interface ShareEntry {
   grade: ShareGrade;
   granteeList: ActReferences; // the ACT grantee list on Swarm — the membership itself
   act: ActReferences; // the grant blob; mirrors the current share-feed head
-  publisher: Hex; // whoever encrypted — the other half of the handle
+  publisher: Hex; // whoever encrypted the blob — not the feed owner, and not part of the handle
   createdAt: number;
   revokedAt?: number; // set once the grantee list is empty
 }
 
 interface ShareHandle {
   shareTopic: string; // ShareEntry.shareTopic
-  owner: Hex; // ShareEntry.publisher
+  owner: Hex; // identity.owner — the address signing the share feed
 }
 
 interface ShareOptions {

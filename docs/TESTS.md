@@ -153,7 +153,7 @@ download there already exercises the real AES wrapping end-to-end.
 
 ---
 
-## Domain model under test (v2)
+## Domain model under test
 
 - `FileManagerBase` exposes `recordList` (`FileRecord[]`) and `driveList` (`DriveInfo[]`); records and drives carry a
   `NodeType`.
@@ -208,16 +208,16 @@ Executed against live bee-factory nodes.
   `emptyTrash`, and `forget` (hard de-reference).
 - **`share.spec.ts`** — _Sharing_ → `share` (a folder grant with `SHARE_CREATED` and its real grantee list; the head
   published on the share feed matching the entry's ACT refs; a second call joining the standing grant; a second grade
-  minting its own; a file as `open`; the validation refusals, including a drive root however the path spells it; a
-  fresh instance loading the published index),
-  `revokeShare` (full, partial, last-member and non-member cases), and `acceptShare` (a `read` folder grant mounted and
-  listed, an `open` file grant downloaded, a `list` grant walking a nested subtree whose file entries carry no `content`
-  and whose downloads are reported failed, the same subtree refusing `downloadFile` and `getFileVersion` because the
-  record feed is sealed under a key the chain does not carry, a double mount, an unpublished handle). Both identities run on one Bee node,
-  so ACT decryption always succeeds for the publisher — what is exercised is the grant blob, the share feed, the keyring
-  registration and the mount, not Bee's gating. The grantee-list PATCH settles asynchronously on a fresh list, so the
-  calls that issue one retry through `retryWhileGranteeSettles`; `acceptShare` writes its fork only once the granted
-  node has resolved, so it is retried directly — an attempt that lands ahead of propagation leaves nothing mounted.
+  minting its own; a file as `open`; the validation refusals, including a drive root however the path spells it; a fresh
+  instance loading the published index), `revokeShare` (full, partial, last-member and non-member cases), and
+  `acceptShare` (a `read` folder grant mounted and listed, an `open` file grant downloaded, a `list` grant walking a
+  nested subtree whose file entries carry no `content` and whose downloads are reported failed, the same subtree
+  refusing `downloadFile` and `getFileVersion` because the record feed is sealed under a key the chain does not carry, a
+  double mount, an unpublished handle). Both identities run on one Bee node, so ACT decryption always succeeds for the
+  publisher — what is exercised is the grant blob, the share feed, the keyring registration and the mount, not Bee's
+  gating. The grantee-list PATCH settles asynchronously on a fresh list, so the calls that issue one retry through
+  `retryWhileGranteeSettles`; `acceptShare` writes its fork only once the granted node has resolved, so it is retried
+  directly — an attempt that lands ahead of propagation leaves nothing mounted.
 - **`abort.spec.ts`** — _Abort signal handling_: `AbortSignal` forwarding for `uploadFile`, `downloadFiles`, and
   `listFolder` — pre-aborted, mid-flight cancel, and clean completion when not aborted; plus a live (never-aborted)
   signal not suppressing failure reporting. An _aborted_ walk rejects via `throwIfAborted`, so it never produces a
@@ -251,11 +251,12 @@ Key strategies:
   different derived secret, a tampered salt, a tampered sealed FMK, a newer KDF epoch, a `keyId` that does not match its
   FMK, a malformed envelope and a non-JSON payload all throw), _provisioning over an existing identity_ (refused twice
   for one credential; a lost write race leaving a foreign envelope in the slot throws; an envelope that is not readable
-  back yet keeps the identity and reports `confirmed: false`), _credential contract_ (the handed-over secret is zeroed), and _Keyring_ (root keys derive
-  from the FMK, a node whose parent was never resolved is refused, a child key is recovered from its parent, a child
-  wrapped under a different parent is refused, child keys are never stored in the clear, a chain entered with `K_meta`
-  alone stays meta-only under a fork that does carry a wrapped content key and `requireContentKey` throws there,
-  `requireKeys` hands out copies so `clear()` cannot zero a key still in use, and the root re-derives after a clear).
+  back yet keeps the identity and reports `confirmed: false`), _credential contract_ (the handed-over secret is zeroed),
+  and _Keyring_ (root keys derive from the FMK, a node whose parent was never resolved is refused, a child key is
+  recovered from its parent, a child wrapped under a different parent is refused, child keys are never stored in the
+  clear, a chain entered with `K_meta` alone stays meta-only under a fork that does carry a wrapped content key and
+  `requireContentKey` throws there, `requireKeys` hands out copies so `clear()` cannot zero a key still in use, and the
+  root re-derives after a clear).
 - **`init.spec.ts`** — _constructor_ (missing signer, emitter wiring), _initialize_ (emits `INITIALIZED`; idempotent),
   _reinitialization_, `DRIVE_UNRESOLVED` for a drive whose fork metadata is unparseable (id/name fall back to
   `'unknown'`), and the lazy hand-off: a drive whose manifest feed is empty still loads into `driveList` and surfaces
@@ -280,18 +281,16 @@ Key strategies:
   grade joining the standing grant instead of minting a second, keeping `id` and `shareTopic` so the handle the first
   recipients hold survives; a different grade minting its own; a file shared as `open` and refused at any other grade;
   empty recipients, `open` on a container, an unknown drive and a drive root however the path spells it),
-  `getShareGrantees` (members back with duplicates
-  collapsed; unknown id throws), `revokeShare` (full revoke stamping `revokedAt` and emptying the list, after which the
-  same subject mints a fresh grant because a revoked entry is never re-matched; a partial revoke dropping only the named
-  keys; a partial revoke that takes the last member still closing the entry; double revoke and non-member recipients),
-  and `acceptShare` (mounting a granted folder into `sharedWithMe` with `SHARE_ACCEPTED`, a `list` grant mounting with
-  no content key on the chain, refusing a blob whose claimed type is a drive, writing no fork when the granted node
-  fails to resolve so a later attempt still mounts, refusing a second mount of the same node, and an unpublished
-  handle). The suite stands up
-  a grantee-list double over `bee.grantee.create` / `patch` /
-  `get` — Bee merges lists node-side, so without it membership assertions would be vacuous — and `acceptShare` consumes
-  the head `share` actually published, replayed through a `feed.makeReader` spy, plus the grant blob captured off
-  `data.upload`.
+  `getShareGrantees` (members back with duplicates collapsed; unknown id throws), `revokeShare` (full revoke stamping
+  `revokedAt` and emptying the list, after which the same subject mints a fresh grant because a revoked entry is never
+  re-matched; a partial revoke dropping only the named keys; a partial revoke that takes the last member still closing
+  the entry; double revoke and non-member recipients), and `acceptShare` (mounting a granted folder into `sharedWithMe`
+  with `SHARE_ACCEPTED`, a `list` grant mounting with no content key on the chain, refusing a blob whose claimed type is
+  a drive, writing no fork when the granted node fails to resolve so a later attempt still mounts, refusing a second
+  mount of the same node, and an unpublished handle). The suite stands up a grantee-list double over
+  `bee.grantee.create` / `patch` / `get` — Bee merges lists node-side, so without it membership assertions would be
+  vacuous — and `acceptShare` consumes the head `share` actually published, replayed through a `feed.makeReader` spy,
+  plus the grant blob captured off `data.upload`.
 - **`events.spec.ts`** — _Events and emitter_: deterministic `FILE_UPLOADED` payloads (system time pinned via
   `jest.useFakeTimers()`), `INITIALIZED` fired once per cold init.
 - **`abort.spec.ts`** — abort-signal plumbing at the unit level.
