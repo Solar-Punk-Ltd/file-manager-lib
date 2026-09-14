@@ -443,6 +443,9 @@ drive simply is not found. To relocate content between drives, `forget` it and r
 `FileRecord`s are also purged from `recordList`. The underlying Swarm data persists (content-addressed), but the node is
 removed from the tree.
 
+Existing grants are unaffected — a recipient reads the node by topic, not through this manifest — so call `revokeShare`
+if the grant should end with the node. It takes a share id, not a path, and works before or after.
+
 - **Emits**: `FILE_FORGOTTEN` (file) or `FOLDER_FORGOTTEN` (folder).
 - **Throws**: `DriveError` (not initialized, drive not found, or a folder along the path missing); `FolderError` (path
   is the drive root, or `.trash` itself — use `emptyTrash`); `FileRecordError` (path not found, or a folder feed is
@@ -795,11 +798,6 @@ enum ShareGrade {
   Read = 'read', // K_meta + K_content — full read of a subtree
   Open = 'open', // K_content — one file
 }
-enum ShareState {
-  None = 'none',
-  Direct = 'direct', // this node is the subject of a grant
-  Inherited = 'inherited', // an ancestor is — a K_meta grant reaches every descendant
-}
 ```
 
 `NodeType.Control` never appears in a listing: `listFolder` yields files and folders, and the drive registry filters for
@@ -952,7 +950,6 @@ interface NodeResource {
   redundancyLevel: RedundancyLevel;
   version?: string;
   status?: NodeStatus;
-  sharing?: ShareState; // derived from `.shares`, never persisted on the node
 }
 ```
 

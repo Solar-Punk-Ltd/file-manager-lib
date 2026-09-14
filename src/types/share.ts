@@ -10,14 +10,6 @@ export enum ShareGrade {
   Open = 'open',
 }
 
-/** A node's share state, derived from the share index and never persisted on a record. */
-export enum ShareState {
-  None = 'none',
-  Direct = 'direct',
-  /** An ancestor is shared: a `K_meta` grant reaches every descendant. */
-  Inherited = 'inherited',
-}
-
 export interface GrantBlob {
   v: number;
   owner: Hex;

@@ -1,7 +1,7 @@
 import { type RedundancyLevel } from '@ethersphere/bee-js';
 import { type BatchId, type MantarayNode } from '@ethersphere/core-sdk';
 
-import { type ShareEntry, type ShareState } from './share';
+import { type ShareEntry } from './share';
 import { type ContentRef, type Hex } from './utils';
 
 export enum NodeStatus {
@@ -41,7 +41,6 @@ export interface NodeResource {
   redundancyLevel: RedundancyLevel;
   version?: string;
   status?: NodeStatus;
-  sharing?: ShareState;
 }
 
 export interface FileRecord extends NodeResource {

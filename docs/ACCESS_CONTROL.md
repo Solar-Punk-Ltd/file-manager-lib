@@ -331,9 +331,12 @@ node's child keys; content is never re-uploaded, since the content references ar
 with a persisted progress marker — a half-rotated subtree leaves parents holding wrapped keys that no longer match their
 children, and Bee no-ops on a taken feed index.
 
-**Lifecycle of the shared node.** `trash` leaves grants intact: the node still exists, the move is reversible, and its
-keys and feed are untouched. `forget` — and `emptyTrash`, which is `forget` in bulk — revokes every grant on the node
-and stamps its entries `revokedAt`, because the fork it pointed at is gone from the manifest.
+**Lifecycle of the shared node.** `trash`, `forget` and `emptyTrash` all leave grants untouched. None of them removes
+the node: `trash` moves its fork, `forget` and `emptyTrash` drop forks from a manifest, and the node's own feed, keys
+and chunks survive all three. That is what a grant reads — a recipient resolves the subject by topic and owner and never
+traverses the sharer's manifest — so removing a fork neither withdraws access nor degrades it. Withdrawing is
+`revokeShare`, and the caller chooses when: it takes a share id rather than a path, so it works as well after the fork
+is gone as before. `shareList` is where a forgotten node's entries are found.
 
 ---
 
@@ -351,22 +354,3 @@ Sharing adds grantee management to `SwarmClient`:
 The two backends address a grantee list differently — Bee by the list's own reference, swarm-id by the ACT history — so
 the port carries both and each adapter ignores the one it does not need. `revokeGrantees` returns a rotated `contentRef`
 when the backend produces one.
-
----
-
-## 8. Derived share state
-
-A node's share state is **derived, never persisted** — the rule `status` already follows. The truth is `.shares`; a
-record carries no share field on the wire.
-
-```ts
-enum ShareState {
-  None,
-  Direct, // this node is the subject of a share entry
-  Inherited, // an ancestor is
-}
-```
-
-`Inherited` carries real information: a `K_meta(folder)` grant reaches every descendant, so a per-node flag computed
-without ancestor context would be wrong on every child. Because `.shares` is keyed by topic and a walk already holds
-every ancestor's topic, the derivation is N map lookups with no extra I/O, and a `move` cannot stale it.
