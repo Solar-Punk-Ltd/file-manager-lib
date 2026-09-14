@@ -229,7 +229,9 @@ describe('acceptShare', () => {
   let recipientClient: BeeClient;
   let folderHandle: ShareHandle;
   let fileHandle: ShareHandle;
+  let listHandle: ShareHandle;
   let folderTopic: string;
+  let shelfTopic: string;
   const FILE_CONTENT = 'Accepted Share Content';
   const { writeTempFile, cleanup } = tempFileRegistry();
 
@@ -243,6 +245,12 @@ describe('acceptShare', () => {
     await owner.uploadFile(drive.id, { path: 'Docs/inner.txt', sourcePath: inner });
     await owner.uploadFile(drive.id, { path: 'solo.txt', sourcePath: solo });
 
+    const shelf = await owner.createFolder(drive.id, ROOT_PATH, 'Shelf');
+    shelfTopic = shelf.topic;
+    await owner.createFolder(drive.id, 'Shelf', 'Nested');
+    await owner.uploadFile(drive.id, { path: 'Shelf/top.txt', sourcePath: inner });
+    await owner.uploadFile(drive.id, { path: 'Shelf/Nested/deep.txt', sourcePath: inner });
+
     // The two identities share one Bee node, so ACT decryption succeeds for the publisher itself;
     // what this exercises is the grant blob, the share feed and the mount, not Bee's gating.
     const { client, ownerStamp } = await ensureUniqueSignerWithStamp();
@@ -251,8 +259,10 @@ describe('acceptShare', () => {
 
     const folderEntry = await owner.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_A]);
     const fileEntry = await owner.share(drive.id, 'solo.txt', ShareGrade.Open, [RECIPIENT_A]);
+    const listEntry = await owner.share(drive.id, 'Shelf', ShareGrade.List, [RECIPIENT_A]);
     folderHandle = { shareTopic: folderEntry.shareTopic, owner: drive.owner };
     fileHandle = { shareTopic: fileEntry.shareTopic, owner: drive.owner };
+    listHandle = { shareTopic: listEntry.shareTopic, owner: drive.owner };
   });
 
   afterAll(cleanup);
@@ -311,6 +321,48 @@ describe('acceptShare', () => {
 
     const downloaded = await retryOnPropagationDelay(() => recipient.downloadFile(mounted));
     expect(Buffer.from(await streamToUint8Array(downloaded.result)).toString('utf-8')).toBe(FILE_CONTENT);
+  });
+
+  it('mounts a list grant that walks the whole subtree without opening anything in it', async () => {
+    const mounted = await acceptWhenReadable(listHandle);
+
+    expect(mounted).toMatchObject({ type: NodeType.Folder, topic: shelfTopic, path: 'Shelf' });
+
+    const { entries, failed } = await retryOnPropagationDelay(async () => {
+      const listed = await recipient.listFolder(recipient.sharedWithMe!.id, 'Shelf', ListDepth.Deep);
+      if (!listed.entries.some((e) => e.path === 'Shelf/Nested/deep.txt')) {
+        throw new Error('list-granted subtree not yet propagated');
+      }
+      return listed;
+    });
+
+    // The whole subtree lists — the missing content key is not a failure, it is the grade.
+    expect(failed).toEqual([]);
+    expect(entries.map((e) => e.path).sort()).toEqual(['Shelf/Nested', 'Shelf/Nested/deep.txt', 'Shelf/top.txt']);
+
+    const files = entries.filter((e): e is FileRecord => e.type === NodeType.File);
+    expect(files.map((f) => f.name).sort()).toEqual(['deep.txt', 'top.txt']);
+    for (const file of files) {
+      // The fork metadata is the whole entry: no record feed was opened, so there is no content ref.
+      expect(file.content).toBeUndefined();
+      expect(file).toMatchObject({ owner: drive.owner, driveId: recipient.sharedWithMe!.id });
+      expect(file.version).toEqual(expect.any(String));
+    }
+
+    // Reaching for the bytes fails where the key is missing, not at accept time.
+    const { succeeded, failed: downloadFailed } = await recipient.downloadFiles(files);
+    expect(succeeded).toEqual([]);
+    expect(downloadFailed.map((f) => f.path).sort()).toEqual(['Shelf/Nested/deep.txt', 'Shelf/top.txt']);
+  });
+
+  it('refuses to open a file the list grant only listed', async () => {
+    const { entries } = await recipient.listFolder(recipient.sharedWithMe!.id, 'Shelf', ListDepth.Deep);
+    const file = entries.find((e): e is FileRecord => e.type === NodeType.File && e.path === 'Shelf/top.txt')!;
+
+    await expect(recipient.downloadFile(file)).rejects.toThrow('Failed to download Shelf/top.txt');
+
+    // Not the missing pointer but the key chain itself: the record feed is sealed under K_content.
+    await expect(recipient.getFileVersion(file)).rejects.toThrow(/No content key for node .+ list grant/);
   });
 
   it('refuses to mount the same node twice', async () => {

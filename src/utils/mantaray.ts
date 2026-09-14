@@ -36,6 +36,7 @@ import {
 } from './constants';
 import { openWithKey, sealWithKey } from './crypto';
 import { FolderError, KeyringError } from './errors';
+import { splitPath } from './path';
 
 export async function loadMantaray(
   swarmClient: SwarmClient,
@@ -108,20 +109,19 @@ async function saveMantarayRecursively(
 export function wrappedKeysMetadata(wrapped: WrappedKeys): Record<string, string> {
   return {
     [MANIFEST_METADATA_WRAPPED_META_KEY]: wrapped.meta,
-    [MANIFEST_METADATA_WRAPPED_CONTENT_KEY]: wrapped.content,
+    ...(wrapped.content ? { [MANIFEST_METADATA_WRAPPED_CONTENT_KEY]: wrapped.content } : {}),
   };
 }
 
 export function wrappedKeysFromMetadata(meta: Record<string, string>): WrappedKeys {
-  const wrapped = {
-    meta: meta[MANIFEST_METADATA_WRAPPED_META_KEY],
-    content: meta[MANIFEST_METADATA_WRAPPED_CONTENT_KEY],
-  };
-  if (!wrapped.meta || !wrapped.content) {
+  const wrappedMeta = meta[MANIFEST_METADATA_WRAPPED_META_KEY];
+  if (!wrappedMeta) {
     throw new KeyringError('Fork carries no wrapped keys — it was written by an incompatible version');
   }
 
-  return wrapped;
+  const wrappedContent = meta[MANIFEST_METADATA_WRAPPED_CONTENT_KEY];
+
+  return { meta: wrappedMeta, ...(wrappedContent ? { content: wrappedContent } : {}) };
 }
 
 export function getAllNodeEntries(root: MantarayNode): NodeHeader[] {
@@ -190,6 +190,27 @@ export function folderForkMetadata(folder: FolderInfo, wrapped: WrappedKeys): Re
     [MANIFEST_METADATA_REDUNDANCY_LEVEL]: folder.redundancyLevel.toString(),
     [MANIFEST_METADATA_NODE_OWNER]: folder.owner,
     ...wrappedKeysMetadata(wrapped),
+  };
+}
+
+export function listedRecordFromMetadata(
+  meta: Record<string, string>,
+  drive: DriveInfo,
+  path: string,
+  fallbackOwner: string,
+): FileRecord {
+  return {
+    type: NodeType.File,
+    topic: meta[MANIFEST_METADATA_NODE_TOPIC],
+    owner: meta[MANIFEST_METADATA_NODE_OWNER] ?? fallbackOwner,
+    batchId: drive.batchId,
+    redundancyLevel: getRlevel(meta, drive.redundancyLevel),
+    name: splitPath(path).name,
+    path,
+    driveId: drive.id,
+    status: getRecordStatus(path),
+    ...(meta[MANIFEST_METADATA_NODE_VERSION] ? { version: meta[MANIFEST_METADATA_NODE_VERSION] } : {}),
+    ...(meta[MANIFEST_METADATA_TRASHED_FROM] ? { trashedFrom: meta[MANIFEST_METADATA_TRASHED_FROM] } : {}),
   };
 }
 

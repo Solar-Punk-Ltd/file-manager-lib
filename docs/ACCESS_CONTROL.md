@@ -260,7 +260,16 @@ suffixed when that name is already taken — two people may share a `Q3 report` 
 what identifies it, so accepting the same grant twice is refused rather than mounted twice.
 
 A grade the recipient cannot walk is refused at accept time rather than mounted broken: `assertShareGrade` re-runs on
-the untrusted blob, because a blob written by someone else is data, not a promise.
+the untrusted blob, because a blob written by someone else is data, not a promise. Which keys the blob must carry
+follows from the grade: `List` needs `K_meta`, `Open` needs `K_content`, `Read` needs both.
+
+**A `List` mount carries half a key chain, and the chain stays half the whole way down.** `unwrapChild` derives a
+content key only where both the parent's and the fork's are present, so every node under a `List` mount is meta-only —
+listable, never openable. A file listed that way is a `FileRecord` built from its fork metadata alone: name, path,
+topic, owner and version, with `content` absent. That is the whole of what a manifest holds about a file; size, MIME
+type and timestamp live in the content-keyed record. Reaching for the bytes fails where the key is missing rather than
+at accept time: `downloadFiles` reports the file under `failed`, and anything needing `K_content` throws a
+`KeyringError`. It is the reach of a UNIX directory that is readable but not searchable — `ls` works, `stat` does not.
 
 ---
 

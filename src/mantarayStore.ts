@@ -24,6 +24,8 @@ import {
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
+  MANIFEST_METADATA_WRAPPED_CONTENT_KEY,
+  MANIFEST_METADATA_WRAPPED_META_KEY,
   ROOT_PATH,
 } from './utils/constants';
 import { DriveError, FileRecordError, FolderError, IdentityError } from './utils/errors';
@@ -231,7 +233,7 @@ export class MantarayStore {
     delete persistable.driveId;
     delete (persistable as Partial<FileRecord>).path;
 
-    const { content } = await this.keyring.requireKeys(record.topic);
+    const content = await this.keyring.requireContentKey(record.topic);
 
     const { contentRef, index, nextIndex } = await writeEncryptedFeed(
       this.swarmClient,
@@ -262,7 +264,7 @@ export class MantarayStore {
     document: ControlDocument,
     requestOptions?: BeeRequestOptions,
   ): Promise<FeedWriteResult> {
-    const { content } = await this.keyring.requireKeys(node.topic);
+    const content = await this.keyring.requireContentKey(node.topic);
 
     const result = await writeEncryptedFeed(
       this.swarmClient,
@@ -313,7 +315,7 @@ export class MantarayStore {
     );
     if (feedIndex.equals(FEED_INDEX_NONE)) return undefined;
 
-    const { content } = await this.keyring.requireKeys(topic);
+    const content = await this.keyring.requireContentKey(topic);
     const contentRef = await openFeedRef(payload, content);
     const bytes = await this.swarmClient.downloadData(contentRef.reference, undefined, requestOptions);
 
@@ -333,7 +335,7 @@ export class MantarayStore {
       throw new FileRecordError(`File record not found for topic: ${topic.slice(0, 6)}`);
     }
 
-    const { content } = await this.keyring.requireKeys(topic);
+    const content = await this.keyring.requireContentKey(topic);
     const contentRef = await openFeedRef(feedData.payload, content);
     const fileBytes = await this.swarmClient.downloadData(contentRef.reference, undefined, requestOptions);
 
@@ -428,7 +430,11 @@ export class MantarayStore {
   ): Promise<Record<string, string>> {
     await this.unwrapFork(fromParentTopic, childTopic, meta);
 
-    return { ...meta, ...wrappedKeysMetadata(await this.keyring.wrapFor(toParentTopic, childTopic)) };
+    // Dropped rather than overwritten: the new wrap omits a key the chain no longer carries, and a
+    // leftover entry would claim a key that does not open under the new parent.
+    const { [MANIFEST_METADATA_WRAPPED_META_KEY]: _m, [MANIFEST_METADATA_WRAPPED_CONTENT_KEY]: _c, ...rest } = meta;
+
+    return { ...rest, ...wrappedKeysMetadata(await this.keyring.wrapFor(toParentTopic, childTopic)) };
   }
 
   // --- Cache management  ---

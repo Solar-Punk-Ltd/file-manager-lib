@@ -95,6 +95,7 @@ import {
   getAllNodeEntries,
   getDriveForkPath,
   getRlevel,
+  listedRecordFromMetadata,
   mountForkMetadata,
 } from './utils/mantaray';
 import {
@@ -795,6 +796,9 @@ export class FileManagerBase implements FileManager {
         requestOptions,
       ));
     } else {
+      if (!cached.content) {
+        throw new FileRecordError(`${cached.path} carries no content pointer — metadata cannot be updated in place`);
+      }
       content = cached.content;
     }
 
@@ -859,12 +863,22 @@ export class FileManagerBase implements FileManager {
 
     if (fileRecords.length === 0) return { succeeded: [], failed: [] };
 
-    const resources: DownloadResource[] = fileRecords.map((fr) => ({
-      path: fr.path,
-      reference: fr.content.reference,
-    }));
+    const resources: DownloadResource[] = [];
+    const failed: FailedResult[] = [];
+    for (const fr of fileRecords) {
+      if (!fr.content) {
+        failed.push({ path: fr.path, error: `${fr.path} was listed through a list grant and carries no content` });
+        continue;
+      }
 
-    return await processDownload(this.swarmClient, resources, options, requestOptions);
+      resources.push({ path: fr.path, reference: fr.content.reference });
+    }
+
+    if (resources.length === 0) return { succeeded: [], failed };
+
+    const result = await processDownload(this.swarmClient, resources, options, requestOptions);
+
+    return { succeeded: result.succeeded, failed: [...failed, ...result.failed] };
   }
 
   // --- File version operations ---
@@ -935,6 +949,10 @@ export class FileManagerBase implements FileManager {
 
     if (!versionToRestore.version) {
       throw new FileRecordError('Restore version has to be defined');
+    }
+
+    if (!versionToRestore.content) {
+      throw new FileRecordError('Restore version has to carry a content pointer');
     }
 
     const versionToRestoreIndex = new FeedIndex(versionToRestore.version);
@@ -1101,7 +1119,11 @@ export class FileManagerBase implements FileManager {
           const owner = e.owner ?? driveOwner;
           const version = e.version ? new FeedIndex(e.version).toBigInt() : undefined;
 
-          await this.store.unwrapFork(e.hostTopic, e.topic, e.rawMetadata);
+          const keys = await this.store.unwrapFork(e.hostTopic, e.topic, e.rawMetadata);
+          if (!keys.content) {
+            return listedRecordFromMetadata(e.rawMetadata, cachedDrive, e.path, owner);
+          }
+
           const { record } = await this.loadRecord(e.topic, owner, version, requestOptions);
           record.path = e.path;
           record.name = splitPath(e.path).name;
@@ -1666,6 +1688,7 @@ export class FileManagerBase implements FileManager {
 
   // --- Sharing ---
 
+  // TODO: shall we disable drive share -- what happens to .trash ?
   async share(
     driveId: string | Identifier,
     path: string,
@@ -1774,7 +1797,10 @@ export class FileManagerBase implements FileManager {
       meta: blob.meta ? new Bytes(blob.meta).toUint8Array() : undefined,
       content: blob.content ? new Bytes(blob.content).toUint8Array() : undefined,
     };
-    if (!keys.content || (blob.type !== NodeType.File && !keys.meta)) {
+    // What the grade promises: `list` walks the manifest, `open` opens one file, `read` does both.
+    const needsMeta = blob.type !== NodeType.File;
+    const needsContent = head.grade !== ShareGrade.List;
+    if ((needsMeta && !keys.meta) || (needsContent && !keys.content)) {
       throw new ShareError(`Grant blob carries no usable keys for a "${head.grade}" grant of a ${blob.type}`);
     }
 
@@ -1787,11 +1813,11 @@ export class FileManagerBase implements FileManager {
       throw new ShareError(`"${blob.name}" is already mounted at ${foundNode.path}`);
     }
 
-    // A file has no manifest, so its meta key is never read — but a fork carries a pair, and the
-    // recipient must be able to re-wrap both on every relocation.
+    // A file has no manifest, so its meta key is never read — but every fork is sealed under one,
+    // and the recipient must be able to re-wrap it on each relocation.
     this.store.keyring.register(blob.topic, {
       meta: keys.meta ?? generateRandomBytes(DERIVED_SECRET_LENGTH).toUint8Array(),
-      content: keys.content,
+      ...(keys.content ? { content: keys.content } : {}),
     });
 
     const name = freeMountName(sharedNode, blob.name);
@@ -2017,6 +2043,9 @@ export class FileManagerBase implements FileManager {
     requestOptions?: BeeRequestOptions,
   ): Promise<ShareEntry> {
     const keys = await this.store.keyring.requireKeys(subject.topic);
+    // Every grade but `list` hands out `K_content`, so a subtree held list-only cannot pass on more
+    const content = grade === ShareGrade.List ? undefined : await this.store.keyring.requireContentKey(subject.topic);
+
     const blob: GrantBlob = {
       v: SHARE_FORMAT_VERSION,
       owner: subject.owner,
@@ -2024,7 +2053,7 @@ export class FileManagerBase implements FileManager {
       type: subject.type,
       name: subject.name,
       meta: grade !== ShareGrade.Open ? new Bytes(keys.meta).toString() : undefined,
-      content: grade !== ShareGrade.List ? new Bytes(keys.content).toString() : undefined,
+      content: content ? new Bytes(content).toString() : undefined,
       message: options?.message,
     };
 

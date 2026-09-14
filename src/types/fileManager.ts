@@ -197,7 +197,8 @@ export interface FileManager {
   /**
    * Downloads files whose FileRecords the caller already holds — no drive traversal or hydration.
    * Fetches exactly the passed records; does not re-resolve them against current drive state.
-   * @param fileRecords - The FileRecords to fetch content for.
+   * @param fileRecords - The FileRecords to fetch content for. One without `content` — listed
+   *   through a `ShareGrade.List` grant — is reported as failed rather than fetched.
    * @param options - Optional download options.
    * @param requestOptions - Additional Bee request options.
    * @returns A promise that resolves to a DownloadFilesResult.
@@ -221,7 +222,8 @@ export interface FileManager {
    * @param maxDepth - Maximum BFS levels when depth is Deep; must be positive, unlimited if omitted.
    * @param requestOptions - Additional Bee request options.
    * @returns {@link ListFolderResult}: `entries` ({@link NodeEntry}) for every node resolved at or
-   *   below the given path, and `failed` for every node that could not be.
+   *   below the given path, and `failed` for every node that could not be. Under a `ShareGrade.List`
+   *   mount a file entry comes from its fork metadata alone and carries no `content`.
    * @throws {DriveError} If not initialized, driveId is not found, or a path segment does not exist.
    * @throws {FolderError} If the path is the reserved `.trash` folder, or `maxDepth` is not positive.
    */

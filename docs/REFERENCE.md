@@ -623,6 +623,9 @@ second key store.
 Files and folders mount alike and sit side by side, because a mantaray fork carries its own owner. `listFolder`,
 `downloadFile` and `downloadFolder` work on the result unchanged; writes do not, since the subtree is someone else's.
 
+A `ShareGrade.List` mount walks but does not open: its files list with `content` absent, and `downloadFiles` reports
+them under `failed`. See [`FileRecord`](#filerecord).
+
 - **handle** — `{ shareTopic, owner }` as published by the sharer. However it arrived is the application's business.
 - **Returns**: the mounted node as a [`NodeEntry`](#nodeentry) — a `FileRecord` or `FolderInfo` whose `owner` is the
   sharer and whose `driveId` is `sharedWithMe`'s. A name already taken in the shared drive is suffixed
@@ -962,12 +965,16 @@ interface FileRecord extends NodeResource {
   status?: NodeStatus;
   path: string; // absolute path within the drive
   name: string; // bare filename — the one identity field of the three that IS persisted
-  content: ContentRef; // { reference } — 64 bytes: address ‖ decryption key
+  content?: ContentRef; // { reference } — 64 bytes: address ‖ decryption key
   timestamp?: number;
   customMetadata?: Record<string, string>;
   trashedFrom?: string;
 }
 ```
+
+**`content` is absent on a file listed through a `ShareGrade.List` grant** — that chain carries no `K_content`, so the
+record is what the fork metadata holds and nothing more: `name`, `path`, `topic`, `owner`, `version`. `size`, MIME type
+and `timestamp` live in the record feed, which stays sealed. `downloadFiles` reports such a file under `failed`.
 
 **`content.reference` is a capability, not just a locator.** Its second half is the key Swarm generated for those bytes,
 so anyone holding the full 64 bytes can fetch and decrypt the file from any gateway, with no identity and no stamp.
@@ -1184,14 +1191,17 @@ these types.
 ```ts
 interface NodeKeys {
   meta: Uint8Array; // 32 bytes — unlocks this node's listing (its manifest and manifest feed)
-  content: Uint8Array; // 32 bytes — unlocks this node's content pointer (its record feed)
+  content?: Uint8Array; // 32 bytes — unlocks this node's content pointer (its record feed)
 }
 
 interface WrappedKeys {
   meta: Hex; // iv ‖ AES-256-GCM(K_meta(parent), K_meta(child))
-  content: Hex; // iv ‖ AES-256-GCM(K_content(parent), K_content(child))
+  content?: Hex; // iv ‖ AES-256-GCM(K_content(parent), K_content(child))
 }
 ```
+
+`content` is absent on a subtree reached through a `ShareGrade.List` grant, and on every node below it: a fork is
+unwrapped under its parent, so a missing content key above means a missing content key all the way down.
 
 ### Identity types
 

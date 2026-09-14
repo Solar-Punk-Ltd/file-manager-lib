@@ -361,7 +361,28 @@ describe('Identity envelope and key chain', () => {
       const wrapped = await keyring.wrapFor(root, child);
 
       expect(wrapped.meta).not.toContain(new Bytes(minted.meta).toString());
-      expect(wrapped.content).not.toContain(new Bytes(minted.content).toString());
+      expect(wrapped.content).not.toContain(new Bytes(minted.content!).toString());
+    });
+
+    it('should keep a list-only chain list-only, even where the fork carries a wrapped content key', async () => {
+      const shared = topicOf(1);
+      const child = topicOf(2);
+
+      // The owner holds both keys at every level, so the fork it wrote carries a wrapped content key.
+      const owner = new Keyring(identity) as RealKeyring;
+      const sharedKeys = owner.mint(shared);
+      const childKeys = owner.mint(child);
+      const fork = await owner.wrapFor(shared, child);
+      expect(fork.content).toBeDefined();
+
+      // What a `list` grant hands over: K_meta of the shared node and nothing else.
+      keyring.register(shared, { meta: sharedKeys.meta });
+      const unwrapped = await keyring.unwrapChild(shared, child, fork);
+
+      expect(unwrapped.meta).toEqual(childKeys.meta);
+      expect(unwrapped.content).toBeUndefined();
+      await expect(keyring.requireContentKey(child)).rejects.toThrow(KeyringError);
+      await expect(keyring.requireContentKey(child)).rejects.toThrow(/No content key for node/);
     });
 
     it('should refuse a child wrapped under a different parent', async () => {

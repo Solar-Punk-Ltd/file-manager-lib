@@ -130,18 +130,18 @@ describe('Version control', () => {
     const v0 = await fileManager.getFileVersion(v0Fi, FEED_INDEX_ZERO);
     const head = await fileManager.getFileVersion(v0Fi);
 
-    expect(v0.content.reference).not.toBe(head.content.reference);
+    expect(v0.content!.reference).not.toBe(head.content!.reference);
 
     const v0Bytes = await retryOnPropagationDelay(async () => {
       return streamToUint8Array(
         // A 64-byte reference carries its own key, so the bytes come back without any ACT context.
-        await bee.data.downloadReadable(v0.content.reference),
+        await bee.data.downloadReadable(v0.content!.reference),
       );
     });
     expect(Buffer.from(v0Bytes).toString('utf-8')).toBe('Version bytes v0');
 
     const headBytes = await retryOnPropagationDelay(async () => {
-      return streamToUint8Array(await bee.data.downloadReadable(head.content.reference));
+      return streamToUint8Array(await bee.data.downloadReadable(head.content!.reference));
     });
     expect(Buffer.from(headBytes).toString('utf-8')).toBe('Version bytes v1');
   });
@@ -202,7 +202,7 @@ describe('Version control', () => {
     const NAME = 'restore-file';
     const base = await ensureBase(NAME);
     const initialVersion = BigInt(base.version!.toString());
-    const firstRef = base.content.reference;
+    const firstRef = base.content!.reference;
 
     const src = writeTempFile(NAME, 'second');
     await fileManager.updateFile(drive.id, base, { item: { sourcePath: src } });
@@ -222,7 +222,7 @@ describe('Version control', () => {
 
     const restored = await fileManager.getFileVersion(base, current);
 
-    expect(restored.content.reference).toBe(firstRef);
+    expect(restored.content!.reference).toBe(firstRef);
     expect(BigInt(restored.version!.toString())).toBe(initialVersion + 2n);
   });
 
@@ -238,7 +238,7 @@ describe('Version control', () => {
 
     const reHead = await fileManager.getFileVersion(base, base.version!);
     expect(reHead.version).toBe(currentHead.version);
-    expect(reHead.content.reference).toBe(currentHead.content.reference);
+    expect(reHead.content!.reference).toBe(currentHead.content!.reference);
   });
 
   it('restoring the current head does nothing', async () => {
@@ -252,7 +252,7 @@ describe('Version control', () => {
 
     const after = await fileManager.getFileVersion(base, headIdx);
     expect(after.version).toBe(before.version);
-    expect(after.content.reference).toBe(before.content.reference);
+    expect(after.content!.reference).toBe(before.content!.reference);
   });
 
   it("restoring an old version keeps the current (post-move) location, not the version's recorded path", async () => {

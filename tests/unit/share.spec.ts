@@ -241,11 +241,13 @@ describe('Sharing', () => {
     };
 
     /** Publishes a real grant, then wires back what the recipient reads and downloads. */
-    const publishFolderGrant = async (): Promise<{ folder: FolderInfo; handle: ShareHandle }> => {
+    const publishFolderGrant = async (
+      grade: ShareGrade = ShareGrade.Read,
+    ): Promise<{ folder: FolderInfo; handle: ShareHandle }> => {
       const folder = await fm.createFolder(drive.id, '', 'Docs');
 
       const blobs = captureBlobUploads();
-      const entry = await fm.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_A]);
+      const entry = await fm.share(drive.id, 'Docs', grade, [RECIPIENT_A]);
       expect(blobs).toHaveLength(1);
 
       jest.spyOn(Object.getPrototypeOf(new Bee(BEE_URL).data), 'download').mockResolvedValue(Bytes.fromUtf8(blobs[0]));
@@ -272,6 +274,18 @@ describe('Sharing', () => {
         driveId: fm.sharedWithMe!.id,
       });
       expect(handler).toHaveBeenCalledWith({ driveId: fm.sharedWithMe!.id, entry: mounted });
+    });
+
+    it('mounts a list grant, which carries no content key', async () => {
+      const { folder, handle } = await publishFolderGrant(ShareGrade.List);
+
+      const mounted = await fm.acceptShare(handle);
+
+      expect(mounted).toMatchObject({ type: NodeType.Folder, topic: folder.topic, path: 'Docs' });
+
+      const keys = await (fm as any).store.keyring.requireKeys(folder.topic);
+      expect(keys.meta).toEqual(expect.any(Uint8Array));
+      expect(keys.content).toBeUndefined();
     });
 
     it('refuses to mount the same node twice', async () => {

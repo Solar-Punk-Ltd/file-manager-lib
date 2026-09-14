@@ -50,7 +50,11 @@ export interface FileRecord extends NodeResource {
   name: string;
   // On a record loaded straight off its feed this falls back to `name` until a listing hydrates it.
   path: string;
-  content: ContentRef;
+  /**
+   * Pointer to the bytes. Absent on a file listed through a `list` grant, which carries the
+   * structure of a subtree and no key to any file in it
+   */
+  content?: ContentRef;
   timestamp?: number;
   customMetadata?: Record<string, string>;
   trashedFrom?: string;
