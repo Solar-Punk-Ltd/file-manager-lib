@@ -41,18 +41,19 @@ describe('share', () => {
 
   afterAll(cleanup);
 
-  it('mints a grant for the drive root, emits SHARE_CREATED and lists its grantees', async () => {
+  it('mints a grant for a folder, emits SHARE_CREATED and lists its grantees', async () => {
     const handler = jest.fn();
     fileManager.emitter.on(FileManagerEvents.SHARE_CREATED, handler);
 
     try {
-      const entry = await fileManager.share(drive.id, ROOT_PATH, ShareGrade.Read, [RECIPIENT_A]);
+      const folder = await fileManager.createFolder(drive.id, ROOT_PATH, 'granted');
+      const entry = await fileManager.share(drive.id, 'granted', ShareGrade.Read, [RECIPIENT_A]);
 
       expect(entry).toMatchObject({
-        nodeTopic: drive.topic,
+        nodeTopic: folder.topic,
         driveId: drive.id,
-        type: NodeType.Drive,
-        path: ROOT_PATH,
+        type: NodeType.Folder,
+        path: 'granted',
         grade: ShareGrade.Read,
       });
       expect(entry.revokedAt).toBeUndefined();
@@ -124,17 +125,29 @@ describe('share', () => {
   });
 
   it('refuses an empty recipient list, an open grant of a container and an unknown drive', async () => {
-    await expect(fileManager.share(drive.id, ROOT_PATH, ShareGrade.Read, [])).rejects.toThrow(
+    await fileManager.createFolder(drive.id, ROOT_PATH, 'refusals');
+
+    await expect(fileManager.share(drive.id, 'refusals', ShareGrade.Read, [])).rejects.toThrow(
       'A share needs at least one recipient',
     );
-    await expect(fileManager.share(drive.id, ROOT_PATH, ShareGrade.Open, [RECIPIENT_A])).rejects.toThrow(
+    await expect(fileManager.share(drive.id, 'refusals', ShareGrade.Open, [RECIPIENT_A])).rejects.toThrow(
       'shares a single file',
     );
 
     const ghostDrive = Identifier.fromString('ghost-drive').toString();
-    await expect(fileManager.share(ghostDrive, ROOT_PATH, ShareGrade.Read, [RECIPIENT_A])).rejects.toThrow(
+    await expect(fileManager.share(ghostDrive, 'refusals', ShareGrade.Read, [RECIPIENT_A])).rejects.toThrow(
       `Drive with id ${ghostDrive.slice(0, 6)} not found`,
     );
+  });
+
+  it('refuses a grant on the drive root, however the path spells it', async () => {
+    for (const path of [ROOT_PATH, '', '//']) {
+      await expect(fileManager.share(drive.id, path, ShareGrade.Read, [RECIPIENT_A])).rejects.toThrow(
+        'Cannot share a drive',
+      );
+    }
+
+    expect(fileManager.shareList!.some((e) => e.nodeTopic === drive.topic)).toBe(false);
   });
 
   it('a fresh instance loads the published share index', async () => {

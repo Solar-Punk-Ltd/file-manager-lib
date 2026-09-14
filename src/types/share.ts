@@ -2,7 +2,7 @@ import type { NodeType } from './info';
 import type { ActReferences, Hex } from './utils';
 
 export enum ShareGrade {
-  /** `K_meta` — recursive listing of a folder or drive. No file contents. */
+  /** `K_meta` — recursive listing of a folder. No file contents. */
   List = 'list',
   /** `K_meta` + `K_content` — full read of a subtree, tracking future changes. */
   Read = 'read',

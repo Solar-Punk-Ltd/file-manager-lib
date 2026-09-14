@@ -37,6 +37,13 @@ Browsing a folder while opening only one file inside it is two shares, not a gra
 **Shallow listing is not a grade.** Neither UNIX nor Google Drive offers "list this folder but not its subfolders", and
 it would mean breaking the `K_meta` chain at every subfolder boundary, turning one share into N.
 
+**A drive root is not a share subject.** `.trash` sits at the root of a drive, and every fork under that root is sealed
+under the root's `K_meta` — so a grant on the root hands over the trash along with the live tree, which is what
+`share()` refuses when a path names `.trash` directly. Omitting the folder from the walk would not withhold its keys.
+The shareable units are the folders inside a drive: the root of a personal volume is not shareable in Google Drive or
+Dropbox either, and a volume that is shared by construction is a different object, with membership and a trash of its
+own.
+
 **Publishing a single file's content needs no share.** `record.content.reference` is 64 bytes of `address ‖ key` — a
 self-contained capability any gateway will dereference, granted to whoever holds the string, pinned to one version.
 `share()` covers everything that is not that.
@@ -260,8 +267,9 @@ suffixed when that name is already taken — two people may share a `Q3 report` 
 what identifies it, so accepting the same grant twice is refused rather than mounted twice.
 
 A grade the recipient cannot walk is refused at accept time rather than mounted broken: `assertShareGrade` re-runs on
-the untrusted blob, because a blob written by someone else is data, not a promise. Which keys the blob must carry
-follows from the grade: `List` needs `K_meta`, `Open` needs `K_content`, `Read` needs both.
+the untrusted blob, because a blob written by someone else is data, not a promise. It is the same rule the sharer ran,
+so a blob claiming a drive root or a control-plane node is refused here too. Which keys the blob must carry follows from
+the grade: `List` needs `K_meta`, `Open` needs `K_content`, `Read` needs both.
 
 **A `List` mount carries half a key chain, and the chain stays half the whole way down.** `unwrapChild` derives a
 content key only where both the parent's and the fork's are present, so every node under a `List` mount is meta-only —

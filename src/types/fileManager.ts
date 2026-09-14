@@ -416,7 +416,7 @@ export interface FileManager {
   ): Promise<FolderInfo>;
 
   /**
-   * Grants a drive, folder or file to a list of grantee public keys. What a recipient needs is the
+   * Grants a folder or file to a list of grantee public keys. What a recipient needs is the
    * returned entry's `{ shareTopic, owner }`; delivering that handle is the application's job.
    *
    * Additive in both senses. Nothing on the shared node is written, and a second call for the same
@@ -425,8 +425,8 @@ export interface FileManager {
    * revocable on its own; the grade of a standing grant never changes. Removal is
    * {@link revokeShare} alone.
    * @param driveId - The drive containing the node.
-   * @param path - Absolute path of the file or folder, or `/` to share the whole drive.
-   * @param grade - What the recipients get: `List`, `Read` (folders and drives) or `Open` (files).
+   * @param path - Absolute path of the file or folder. The drive root is not a share subject.
+   * @param grade - What the recipients get: `List`, `Read` (folders) or `Open` (files).
    * @param recipients - Compressed secp256k1 public keys — a Bee node key for a `BeeClient`
    *   recipient, an `appKey` for a swarm-id one.
    * @param options - Optional note, carried inside the ACT-gated blob. Written when the grant is
@@ -436,8 +436,8 @@ export interface FileManager {
    *   recipients are added to a standing grant.
    * @returns The ShareEntry, whose `shareTopic` is half the handle.
    * @throws {DriveError} If not initialized or the drive is not found.
-   * @throws {ShareError} If `recipients` is empty, the grade does not fit the node type, or the
-   *   backend returned no grantee list to amend against.
+   * @throws {ShareError} If `recipients` is empty, `path` is the drive root, the grade does not fit
+   *   the node type, or the backend returned no grantee list to amend against.
    * @throws {FolderError} If the path does not exist or is under the reserved `.trash` folder.
    * @throws {FileRecordError} If the fork at the path carries no node metadata.
    * @throws {KeyringError} If the node has not been reached through a listing in this session.

@@ -1688,7 +1688,6 @@ export class FileManagerBase implements FileManager {
 
   // --- Sharing ---
 
-  // TODO: shall we disable drive share -- what happens to .trash ?
   async share(
     driveId: string | Identifier,
     path: string,
@@ -1770,7 +1769,7 @@ export class FileManagerBase implements FileManager {
     }
 
     // An emptied list grants nobody, so a partial removal that takes the last member closes the
-    // entry too — leaving it open would let a later share() amend a grant that reaches no one.
+    // entry too — leaving it open would let a later share amend a grant that reaches no one.
     if (!recipients || remove.length === members.length) {
       entry.revokedAt = Date.now();
     }
@@ -2112,18 +2111,12 @@ export class FileManagerBase implements FileManager {
     path: string,
     requestOptions?: BeeRequestOptions,
   ): Promise<ShareSubject> {
-    if (!path || path === ROOT_PATH) {
-      return {
-        topic: drive.topic,
-        type: NodeType.Drive,
-        name: drive.name,
-        owner: drive.owner,
-        path: ROOT_PATH,
-      };
+    const nodePath = normalizePath(path);
+    if (!nodePath) {
+      throw new ShareError('Cannot share a drive');
     }
 
-    assertNotTrashPath(path);
-    const nodePath = normalizePath(path);
+    assertNotTrashPath(nodePath);
 
     const fork = await this.store.resolveNodeFork(drive, nodePath, requestOptions);
     const topic = fork.metadata[MANIFEST_METADATA_NODE_TOPIC];

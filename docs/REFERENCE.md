@@ -559,7 +559,9 @@ See [ACCESS_CONTROL.md](ACCESS_CONTROL.md) for the grant format, the publisher/g
 
 ### `share(driveId, path, grade, recipients, options?, requestOptions?): Promise<ShareEntry>`
 
-Grants the node at `path` — or the whole drive, with `'/'` — to `recipients`.
+Grants the folder or file at `path` to `recipients`. **A drive root is not a share subject** — it carries `.trash`,
+whose forks are sealed under it, so a grant on the root would hand over what `share()` refuses to name. Share a folder
+inside it.
 
 **Additive, and additive only.** A second call for the same node and the same grade adds its recipients to the standing
 grant instead of issuing another one, so the handle the first recipients hold keeps working. There is **at most one live
@@ -568,20 +570,21 @@ of a standing grant never changes, because the blob is immutable and already car
 Removal is never expressed here — that is
 [`revokeShare`](#revokeshareshareid-recipients-requestoptions-promisesharentry).
 
-| `grade`           | Valid on        | The recipient gets                                       |
-| ----------------- | --------------- | -------------------------------------------------------- |
-| `ShareGrade.List` | folders, drives | recursive listing — names, types, versions. No contents. |
-| `ShareGrade.Read` | folders, drives | full read of the subtree, tracking later changes         |
-| `ShareGrade.Open` | files           | that one file, tracking later versions                   |
+| `grade`           | Valid on | The recipient gets                                       |
+| ----------------- | -------- | -------------------------------------------------------- |
+| `ShareGrade.List` | folders  | recursive listing — names, types, versions. No contents. |
+| `ShareGrade.Read` | folders  | full read of the subtree, tracking later changes         |
+| `ShareGrade.Open` | files    | that one file, tracking later versions                   |
 
 - **options?** — `{ message?: string }`, carried **inside** the ACT-gated blob rather than beside the handle, so it is
   readable only by the grantee list. Written when the grant is minted, so it does not apply when adding to a standing
   one.
 - **Returns**: the [`ShareEntry`](#shareentry). `shareTopic` plus `publisher` is the handle.
 - **Emits**: `SHARE_CREATED` when the grant is minted, `SHARE_AMENDED` when recipients join a standing one.
-- **Throws**: `DriveError` (not initialized, drive not found); `ShareError` (`recipients` empty, the grade does not fit
-  the node type, or the backend returned no grantee list to amend against); `FolderError` (path not found, or under
-  `.trash`); `FileRecordError` (fork missing node metadata); `KeyringError` (node never reached in this session).
+- **Throws**: `DriveError` (not initialized, drive not found); `ShareError` (`recipients` empty, `path` is the drive
+  root, the grade does not fit the node type, or the backend returned no grantee list to amend against); `FolderError`
+  (path not found, or under `.trash`); `FileRecordError` (fork missing node metadata); `KeyringError` (node never
+  reached in this session).
 
 Re-sharing a node that was itself shared with you works: the grant names the **original** owner's address, not yours, so
 the recipient reads the sharer's feeds directly rather than through you.
@@ -637,7 +640,7 @@ them under `failed`. See [`FileRecord`](#filerecord).
   identity fails on the ACT fetch.
 
 The blob is written by someone else, so it is validated as untrusted input: the grade is re-checked against the type the
-blob claims, which rejects a control-plane node and a grade that contradicts its own subject.
+blob claims, which rejects a drive root, a control-plane node, and a grade that contradicts its own subject.
 
 ---
 

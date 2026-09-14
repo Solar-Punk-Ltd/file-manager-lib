@@ -254,7 +254,7 @@ export function assertShareGrade(grade: ShareGrade, type: NodeType): void {
     return;
   }
 
-  if (type !== NodeType.Folder && type !== NodeType.Drive) {
+  if (type !== NodeType.Folder) {
     throw new ShareError(`A ${type} node cannot be shared`);
   }
 

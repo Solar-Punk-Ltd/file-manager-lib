@@ -206,9 +206,10 @@ Executed against live bee-factory nodes.
   stops listing the node and finds it via `listTrash`, **no** version bump), folder trash carrying its subtree,
   same-named nodes kept apart, recover to an explicit destination after the origin was forgotten, the write guards,
   `emptyTrash`, and `forget` (hard de-reference).
-- **`share.spec.ts`** — _Sharing_ → `share` (a drive-root grant with `SHARE_CREATED` and its real grantee list; the head
+- **`share.spec.ts`** — _Sharing_ → `share` (a folder grant with `SHARE_CREATED` and its real grantee list; the head
   published on the share feed matching the entry's ACT refs; a second call joining the standing grant; a second grade
-  minting its own; a file as `open`; the validation refusals; a fresh instance loading the published index),
+  minting its own; a file as `open`; the validation refusals, including a drive root however the path spells it; a
+  fresh instance loading the published index),
   `revokeShare` (full, partial, last-member and non-member cases), and `acceptShare` (a `read` folder grant mounted and
   listed, an `open` file grant downloaded, a `list` grant walking a nested subtree whose file entries carry no `content`
   and whose downloads are reported failed, the same subtree refusing `downloadFile` and `getFileVersion` because the
@@ -276,15 +277,17 @@ Key strategies:
   (head restore is a no-op / emits no event).
 - **`trash.spec.ts`** — _Lifecycle management_ → `trash`, `recover`, `listTrash`, `emptyTrash`, `forget` (fork
   relocation, origin stamping and event emission).
-- **`share.spec.ts`** — _Sharing_ → `share` (a drive-root grant and `SHARE_CREATED`; a second call for the same node and
+- **`share.spec.ts`** — _Sharing_ → `share` (a folder grant and `SHARE_CREATED`; a second call for the same node and
   grade joining the standing grant instead of minting a second, keeping `id` and `shareTopic` so the handle the first
   recipients hold survives; a different grade minting its own; a file shared as `open` and refused at any other grade;
-  empty recipients, `open` on a container and an unknown drive), `getShareGrantees` (members back with duplicates
+  empty recipients, `open` on a container, an unknown drive and a drive root however the path spells it),
+  `getShareGrantees` (members back with duplicates
   collapsed; unknown id throws), `revokeShare` (full revoke stamping `revokedAt` and emptying the list, after which the
   same subject mints a fresh grant because a revoked entry is never re-matched; a partial revoke dropping only the named
   keys; a partial revoke that takes the last member still closing the entry; double revoke and non-member recipients),
   and `acceptShare` (mounting a granted folder into `sharedWithMe` with `SHARE_ACCEPTED`, a `list` grant mounting with
-  no content key on the chain, refusing a second mount of the same node, and an unpublished handle). The suite stands up
+  no content key on the chain, refusing a blob whose claimed type is a drive, refusing a second mount of the same node,
+  and an unpublished handle). The suite stands up
   a grantee-list double over `bee.grantee.create` / `patch` /
   `get` — Bee merges lists node-side, so without it membership assertions would be vacuous — and `acceptShare` consumes
   the head `share` actually published, replayed through a `feed.makeReader` spy, plus the grant blob captured off

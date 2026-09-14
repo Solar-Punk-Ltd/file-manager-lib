@@ -16,7 +16,7 @@ import { BEE_URL, createInitializedFileManager, makeUploadSource } from '../util
 import { applyDefaultMocks, createMockFeedReader } from './mock';
 
 import { type FileManagerBase } from '@/fileManager';
-import { type DriveInfo, type FolderInfo, NodeType, ShareGrade, type ShareHandle } from '@/types';
+import { type DriveInfo, type FolderInfo, type GrantBlob, NodeType, ShareGrade, type ShareHandle } from '@/types';
 import { FileManagerEvents } from '@/utils';
 import { getFeedData } from '@/utils/bee';
 import { FEED_INDEX_ZERO, ROOT_PATH, SWARM_ZERO_ADDRESS } from '@/utils/constants';
@@ -29,6 +29,7 @@ const RECIPIENT_C = new PrivateKey('55'.repeat(32)).publicKey().toCompressedHex(
 describe('Sharing', () => {
   let fm: FileManagerBase;
   let drive: DriveInfo;
+  let folder: FolderInfo;
 
   // Bee merges grantee lists node-side, so the mock keeps the membership a real list would.
   const granteeLists = new Map<string, string[]>();
@@ -92,20 +93,21 @@ describe('Sharing', () => {
     fm = await createInitializedFileManager();
     drive = fm.driveList[0];
     await fm.uploadFile(drive.id, { path: 'notes.txt', ...makeUploadSource('package.json') });
+    folder = await fm.createFolder(drive.id, '', 'Docs');
   });
 
   describe('share', () => {
-    it('mints a grant for the drive root and emits SHARE_CREATED', async () => {
+    it('mints a grant for a folder and emits SHARE_CREATED', async () => {
       const handler = jest.fn();
       fm.emitter.on(FileManagerEvents.SHARE_CREATED, handler);
 
-      const entry = await fm.share(drive.id, ROOT_PATH, ShareGrade.Read, [RECIPIENT_A]);
+      const entry = await fm.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_A]);
 
       expect(entry).toMatchObject({
-        nodeTopic: drive.topic,
+        nodeTopic: folder.topic,
         driveId: drive.id,
-        type: NodeType.Drive,
-        path: ROOT_PATH,
+        type: NodeType.Folder,
+        path: 'Docs',
         grade: ShareGrade.Read,
       });
       expect(entry.revokedAt).toBeUndefined();
@@ -119,8 +121,8 @@ describe('Sharing', () => {
       const handler = jest.fn();
       fm.emitter.on(FileManagerEvents.SHARE_AMENDED, handler);
 
-      const first = await fm.share(drive.id, ROOT_PATH, ShareGrade.Read, [RECIPIENT_A]);
-      const second = await fm.share(drive.id, ROOT_PATH, ShareGrade.Read, [RECIPIENT_B]);
+      const first = await fm.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_A]);
+      const second = await fm.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_B]);
 
       // The handle the first recipients hold has to keep working.
       expect(second.id).toBe(first.id);
@@ -131,8 +133,8 @@ describe('Sharing', () => {
     });
 
     it('mints a separate grant for a different grade of the same node', async () => {
-      const read = await fm.share(drive.id, ROOT_PATH, ShareGrade.Read, [RECIPIENT_A]);
-      const list = await fm.share(drive.id, ROOT_PATH, ShareGrade.List, [RECIPIENT_A]);
+      const read = await fm.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_A]);
+      const list = await fm.share(drive.id, 'Docs', ShareGrade.List, [RECIPIENT_A]);
 
       expect(list.id).not.toBe(read.id);
       expect(list.shareTopic).not.toBe(read.shareTopic);
@@ -150,23 +152,29 @@ describe('Sharing', () => {
     });
 
     it('refuses an empty recipient list, an open grant of a container and an unknown drive', async () => {
-      await expect(fm.share(drive.id, ROOT_PATH, ShareGrade.Read, [])).rejects.toThrow(
+      await expect(fm.share(drive.id, 'Docs', ShareGrade.Read, [])).rejects.toThrow(
         'A share needs at least one recipient',
       );
-      await expect(fm.share(drive.id, ROOT_PATH, ShareGrade.Open, [RECIPIENT_A])).rejects.toThrow(
-        'shares a single file',
-      );
+      await expect(fm.share(drive.id, 'Docs', ShareGrade.Open, [RECIPIENT_A])).rejects.toThrow('shares a single file');
 
       const ghostDrive = Identifier.fromString('ghost-drive').toString();
-      await expect(fm.share(ghostDrive, ROOT_PATH, ShareGrade.Read, [RECIPIENT_A])).rejects.toThrow(
+      await expect(fm.share(ghostDrive, 'Docs', ShareGrade.Read, [RECIPIENT_A])).rejects.toThrow(
         `Drive with id ${ghostDrive.slice(0, 6)} not found`,
       );
+    });
+
+    it('refuses a grant on the drive root, however the path spells it', async () => {
+      for (const path of [ROOT_PATH, '', '//']) {
+        await expect(fm.share(drive.id, path, ShareGrade.Read, [RECIPIENT_A])).rejects.toThrow('Cannot share a drive');
+      }
+
+      expect(fm.shareList).toHaveLength(0);
     });
   });
 
   describe('getShareGrantees', () => {
     it('returns the members of the grant and throws for an unknown share', async () => {
-      const entry = await fm.share(drive.id, ROOT_PATH, ShareGrade.Read, [RECIPIENT_A, RECIPIENT_B, RECIPIENT_A]);
+      const entry = await fm.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_A, RECIPIENT_B, RECIPIENT_A]);
 
       // Duplicates are collapsed before the grant is minted.
       expect(await fm.getShareGrantees(entry.id)).toEqual([RECIPIENT_A, RECIPIENT_B]);
@@ -180,7 +188,7 @@ describe('Sharing', () => {
     it('closes the grant, emits SHARE_REVOKED and lets a later share mint a fresh one', async () => {
       const handler = jest.fn();
       fm.emitter.on(FileManagerEvents.SHARE_REVOKED, handler);
-      const entry = await fm.share(drive.id, ROOT_PATH, ShareGrade.Read, [RECIPIENT_A, RECIPIENT_B]);
+      const entry = await fm.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_A, RECIPIENT_B]);
 
       const revoked = await fm.revokeShare(entry.id);
 
@@ -189,13 +197,13 @@ describe('Sharing', () => {
       expect(handler).toHaveBeenCalledWith({ entry: revoked });
 
       // A revoked entry is never matched again, so the same subject mints a new grant.
-      const reshared = await fm.share(drive.id, ROOT_PATH, ShareGrade.Read, [RECIPIENT_C]);
+      const reshared = await fm.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_C]);
       expect(reshared.id).not.toBe(entry.id);
       expect(fm.shareList).toHaveLength(2);
     });
 
     it('drops only the named recipients and keeps the grant open', async () => {
-      const entry = await fm.share(drive.id, ROOT_PATH, ShareGrade.Read, [RECIPIENT_A, RECIPIENT_B]);
+      const entry = await fm.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_A, RECIPIENT_B]);
 
       const amended = await fm.revokeShare(entry.id, [RECIPIENT_A]);
 
@@ -205,7 +213,7 @@ describe('Sharing', () => {
     });
 
     it('closes the grant when a partial revoke removes its last member', async () => {
-      const entry = await fm.share(drive.id, ROOT_PATH, ShareGrade.Read, [RECIPIENT_A]);
+      const entry = await fm.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_A]);
 
       const revoked = await fm.revokeShare(entry.id, [RECIPIENT_A]);
 
@@ -213,7 +221,7 @@ describe('Sharing', () => {
     });
 
     it('refuses a double revoke and recipients the grant does not include', async () => {
-      const entry = await fm.share(drive.id, ROOT_PATH, ShareGrade.Read, [RECIPIENT_A]);
+      const entry = await fm.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_A]);
 
       await expect(fm.revokeShare(entry.id, [RECIPIENT_B])).rejects.toThrow(
         `Share ${entry.id.slice(0, 6)} grants none of the given recipients`,
@@ -240,29 +248,31 @@ describe('Sharing', () => {
         }));
     };
 
+    const serveGrantBlob = (json: string): void => {
+      jest.spyOn(Object.getPrototypeOf(new Bee(BEE_URL).data), 'download').mockResolvedValue(Bytes.fromUtf8(json));
+    };
+
     /** Publishes a real grant, then wires back what the recipient reads and downloads. */
     const publishFolderGrant = async (
       grade: ShareGrade = ShareGrade.Read,
-    ): Promise<{ folder: FolderInfo; handle: ShareHandle }> => {
-      const folder = await fm.createFolder(drive.id, '', 'Docs');
-
+    ): Promise<{ handle: ShareHandle; blob: GrantBlob }> => {
       const blobs = captureBlobUploads();
       const entry = await fm.share(drive.id, 'Docs', grade, [RECIPIENT_A]);
       expect(blobs).toHaveLength(1);
 
-      jest.spyOn(Object.getPrototypeOf(new Bee(BEE_URL).data), 'download').mockResolvedValue(Bytes.fromUtf8(blobs[0]));
+      serveGrantBlob(blobs[0]);
 
       // Whatever `share` published is what comes back, rather than a hand-built head.
       const published = await (getFeedData as jest.Mock)(null, new Topic(entry.shareTopic), drive.owner);
       serveShareFeed(entry.shareTopic, published.payload.toUint8Array());
 
-      return { folder, handle: { shareTopic: entry.shareTopic, owner: drive.owner } };
+      return { handle: { shareTopic: entry.shareTopic, owner: drive.owner }, blob: JSON.parse(blobs[0]) as GrantBlob };
     };
 
     it('mounts the granted folder into sharedWithMe and emits SHARE_ACCEPTED', async () => {
       const handler = jest.fn();
       fm.emitter.on(FileManagerEvents.SHARE_ACCEPTED, handler);
-      const { folder, handle } = await publishFolderGrant();
+      const { handle } = await publishFolderGrant();
 
       const mounted = await fm.acceptShare(handle);
 
@@ -277,7 +287,7 @@ describe('Sharing', () => {
     });
 
     it('mounts a list grant, which carries no content key', async () => {
-      const { folder, handle } = await publishFolderGrant(ShareGrade.List);
+      const { handle } = await publishFolderGrant(ShareGrade.List);
 
       const mounted = await fm.acceptShare(handle);
 
@@ -289,13 +299,22 @@ describe('Sharing', () => {
     });
 
     it('refuses to mount the same node twice', async () => {
-      const { folder, handle } = await publishFolderGrant();
+      const { handle } = await publishFolderGrant();
 
       (getAllNodeEntries as jest.Mock).mockReturnValue([
         { path: 'Docs', type: NodeType.Folder, topic: folder.topic, rawMetadata: {} },
       ]);
 
       await expect(fm.acceptShare(handle)).rejects.toThrow(/already mounted at Docs/);
+    });
+
+    it('refuses a blob claiming a drive, which no grade can accept', async () => {
+      const { handle, blob } = await publishFolderGrant();
+
+      // The blob is someone else's bytes: the grade is re-checked against the type it claims.
+      serveGrantBlob(JSON.stringify({ ...blob, type: NodeType.Drive }));
+
+      await expect(fm.acceptShare(handle)).rejects.toThrow('A drive node cannot be shared');
     });
 
     it('throws when the share feed has no head', async () => {
