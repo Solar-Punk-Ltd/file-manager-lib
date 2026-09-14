@@ -150,6 +150,16 @@ export function assertFolderInfo(value: unknown): asserts value is FolderInfo {
   }
 }
 
+const COMPRESSED_PUBLIC_KEY_PATTERN = /^(0x)?0[23][0-9a-f]{64}$/i;
+
+// Shape only: `new PublicKey` decompresses the curve point, which is orders of magnitude more
+// expensive than every other check here combined and would dominate a large share index.
+function assertCompressedPublicKeyShape(value: unknown, label: string): void {
+  if (typeof value !== 'string' || !COMPRESSED_PUBLIC_KEY_PATTERN.test(value)) {
+    throw new TypeError(`${label} has to be a compressed secp256k1 public key!`);
+  }
+}
+
 export function assertShareEntry(value: unknown): asserts value is ShareEntry {
   if (!Types.isStrictlyObject(value)) {
     throw new TypeError('ShareEntry has to be object!');
@@ -164,7 +174,7 @@ export function assertShareEntry(value: unknown): asserts value is ShareEntry {
   new Topic(se.shareTopic);
   new Topic(se.nodeTopic);
   new Identifier(se.driveId);
-  new PublicKey(se.publisher);
+  assertCompressedPublicKeyShape(se.publisher, 'publisher property of ShareEntry');
 
   if (!Object.values(NodeType).includes(se.type)) {
     throw new TypeError('type property of ShareEntry has to be a valid NodeType!');
@@ -270,8 +280,8 @@ export function assertShareEntryList(value: unknown): asserts value is ShareEntr
     throw new TypeError('Share index has to be an array!');
   }
 
-  if (value.length > 0) {
-    assertShareEntry(value[0]);
+  for (const entry of value) {
+    assertShareEntry(entry);
   }
 }
 
