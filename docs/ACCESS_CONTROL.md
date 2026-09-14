@@ -247,10 +247,15 @@ flowchart TD
     R2 -->|"outside the grantee list"| X["fails here — the blob is the gate"]
     R2 --> R3["grant blob → owner · topic · type · name · keys"]
     R3 --> R4["keyring.register(topic, keys)"]
-    R4 --> R5["keyring.wrapFor(sharedDrive.topic, topic)<br/>re-seal under MY root key"]
-    R5 --> R6["a fork in MY &quot;Shared with me&quot; manifest<br/>+ the sharer's owner and shareTopic"]
-    R6 --> R7["an ordinary entry —<br/>listFolder and downloadFile unchanged"]
+    R4 --> R5["read the granted node<br/>record feed, or manifest feed"]
+    R5 --> R6["keyring.wrapFor(sharedDrive.topic, topic)<br/>re-seal under MY root key"]
+    R6 --> R7["a fork in MY &quot;Shared with me&quot; manifest<br/>+ the sharer's owner and shareTopic"]
+    R7 --> R8["an ordinary entry —<br/>listFolder and downloadFile unchanged"]
 ```
+
+**The granted node is read before the fork is written.** A mount is durable and a node is identified by topic, so a fork
+written ahead of that read would answer every later attempt with "already mounted" — an accept that cannot complete has
+to leave nothing behind. Accepting is therefore safe to retry: everything before the manifest write is a read.
 
 Three properties make this cheap:
 

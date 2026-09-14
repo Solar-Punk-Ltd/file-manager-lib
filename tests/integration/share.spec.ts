@@ -17,8 +17,8 @@ import {
   type ShareHandle,
 } from '@/types';
 import { FileManagerEvents } from '@/utils';
-import { getFeedData, openGrantBlob, readShareHead } from '@/utils/bee';
-import { FEED_INDEX_NONE, ROOT_PATH } from '@/utils/constants';
+import { readShareHead } from '@/utils/bee';
+import { ROOT_PATH } from '@/utils/constants';
 
 const RECIPIENT_A = new PrivateKey('11'.repeat(32)).publicKey().toCompressedHex();
 const RECIPIENT_B = new PrivateKey('44'.repeat(32)).publicKey().toCompressedHex();
@@ -239,7 +239,6 @@ describe('acceptShare', () => {
   let owner: FileManagerBase;
   let drive: DriveInfo;
   let recipient: FileManagerBase;
-  let recipientClient: BeeClient;
   let folderHandle: ShareHandle;
   let fileHandle: ShareHandle;
   let listHandle: ShareHandle;
@@ -267,7 +266,6 @@ describe('acceptShare', () => {
     // The two identities share one Bee node, so ACT decryption succeeds for the publisher itself;
     // what this exercises is the grant blob, the share feed and the mount, not Bee's gating.
     const { client, ownerStamp } = await ensureUniqueSignerWithStamp();
-    recipientClient = client;
     recipient = await createInitializedFileManager(client, ownerStamp);
 
     const folderEntry = await owner.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_A]);
@@ -280,22 +278,8 @@ describe('acceptShare', () => {
 
   afterAll(cleanup);
 
-  /**
-   * `acceptShare` mounts before it resolves the granted node, so a retry around it would hit
-   * "already mounted" instead of the propagation delay. Warm every read it depends on first.
-   */
-  const acceptWhenReadable = async (handle: ShareHandle): Promise<NodeEntry> => {
-    await retryOnPropagationDelay(async () => {
-      const head = await readShareHead(recipientClient, handle);
-      const blob = await openGrantBlob(recipientClient, head);
-      const { feedIndex } = await getFeedData(recipientClient, new Topic(blob.topic), blob.owner);
-      if (feedIndex.equals(FEED_INDEX_NONE)) {
-        throw new Error('granted node feed not yet propagated');
-      }
-    });
-
-    return await recipient.acceptShare(handle);
-  };
+  const acceptWhenReadable = (handle: ShareHandle): Promise<NodeEntry> =>
+    retryOnPropagationDelay(() => recipient.acceptShare(handle));
 
   it('mounts a granted folder into sharedWithMe and reads what it contains', async () => {
     const handler = jest.fn();

@@ -216,9 +216,8 @@ Executed against live bee-factory nodes.
   record feed is sealed under a key the chain does not carry, a double mount, an unpublished handle). Both identities run on one Bee node,
   so ACT decryption always succeeds for the publisher — what is exercised is the grant blob, the share feed, the keyring
   registration and the mount, not Bee's gating. The grantee-list PATCH settles asynchronously on a fresh list, so the
-  calls that issue one retry through `retryWhileGranteeSettles`; `acceptShare` cannot be retried (it mounts before it
-  resolves the granted node, so a second attempt hits "already mounted"), and instead every read it depends on is warmed
-  first.
+  calls that issue one retry through `retryWhileGranteeSettles`; `acceptShare` writes its fork only once the granted
+  node has resolved, so it is retried directly — an attempt that lands ahead of propagation leaves nothing mounted.
 - **`abort.spec.ts`** — _Abort signal handling_: `AbortSignal` forwarding for `uploadFile`, `downloadFiles`, and
   `listFolder` — pre-aborted, mid-flight cancel, and clean completion when not aborted; plus a live (never-aborted)
   signal not suppressing failure reporting. An _aborted_ walk rejects via `throwIfAborted`, so it never produces a
@@ -286,8 +285,9 @@ Key strategies:
   same subject mints a fresh grant because a revoked entry is never re-matched; a partial revoke dropping only the named
   keys; a partial revoke that takes the last member still closing the entry; double revoke and non-member recipients),
   and `acceptShare` (mounting a granted folder into `sharedWithMe` with `SHARE_ACCEPTED`, a `list` grant mounting with
-  no content key on the chain, refusing a blob whose claimed type is a drive, refusing a second mount of the same node,
-  and an unpublished handle). The suite stands up
+  no content key on the chain, refusing a blob whose claimed type is a drive, writing no fork when the granted node
+  fails to resolve so a later attempt still mounts, refusing a second mount of the same node, and an unpublished
+  handle). The suite stands up
   a grantee-list double over `bee.grantee.create` / `patch` /
   `get` — Bee merges lists node-side, so without it membership assertions would be vacuous — and `acceptShare` consumes
   the head `share` actually published, replayed through a `feed.makeReader` spy, plus the grant blob captured off

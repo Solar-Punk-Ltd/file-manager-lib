@@ -298,6 +298,30 @@ describe('Sharing', () => {
       expect(keys.content).toBeUndefined();
     });
 
+    it('writes no fork when the granted node cannot be resolved', async () => {
+      const { handle } = await publishFolderGrant();
+      const store = (fm as any).store;
+      const resolveOther = store.resolveManifestRef.bind(store);
+
+      const resolve = jest
+        .spyOn(store, 'resolveManifestRef')
+        .mockImplementation((topic: unknown, ...rest: unknown[]) =>
+          topic === folder.topic
+            ? Promise.reject(new Error('Manifest feed not found for mount'))
+            : resolveOther(topic, ...rest),
+        );
+      const save = jest.spyOn(store, 'saveMantarayNode');
+
+      await expect(fm.acceptShare(handle)).rejects.toThrow('Manifest feed not found');
+
+      expect(save).not.toHaveBeenCalled();
+
+      resolve.mockRestore();
+      const mounted = await fm.acceptShare(handle);
+      expect(mounted).toMatchObject({ type: NodeType.Folder, topic: folder.topic, path: 'Docs' });
+      expect(save).toHaveBeenCalled();
+    });
+
     it('refuses to mount the same node twice', async () => {
       const { handle } = await publishFolderGrant();
 

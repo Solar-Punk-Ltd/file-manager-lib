@@ -1820,6 +1820,8 @@ export class FileManagerBase implements FileManager {
     });
 
     const name = freeMountName(sharedNode, blob.name);
+    const entry = await this.loadMountedEntry(shared, blob, name, requestOptions);
+
     const wrapped = await this.store.keyring.wrapFor(shared.topic, blob.topic);
     sharedNode.addFork(
       name,
@@ -1837,7 +1839,6 @@ export class FileManagerBase implements FileManager {
     );
 
     shared.manifestRef = await this.store.saveMantarayNode(sharedNode, sharedHost.host, requestOptions);
-    const entry = await this.loadMountedEntry(shared, blob, name, requestOptions);
     this.emitter.emit(FileManagerEvents.SHARE_ACCEPTED, { driveId: shared.id, entry });
 
     return entry;

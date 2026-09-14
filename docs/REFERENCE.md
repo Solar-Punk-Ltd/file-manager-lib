@@ -629,6 +629,9 @@ Files and folders mount alike and sit side by side, because a mantaray fork carr
 A `ShareGrade.List` mount walks but does not open: its files list with `content` absent, and `downloadFiles` reports
 them under `failed`. See [`FileRecord`](#filerecord).
 
+**Safe to retry.** The granted node is read before the fork is written, so an attempt that cannot finish — a feed that
+has not propagated yet, a dropped connection — leaves nothing mounted and the same handle can be accepted again.
+
 - **handle** — `{ shareTopic, owner }` as published by the sharer. However it arrived is the application's business.
 - **Returns**: the mounted node as a [`NodeEntry`](#nodeentry) — a `FileRecord` or `FolderInfo` whose `owner` is the
   sharer and whose `driveId` is `sharedWithMe`'s. A name already taken in the shared drive is suffixed
