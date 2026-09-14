@@ -1715,8 +1715,8 @@ export class FileManagerBase implements FileManager {
       ? await this.addShareGrantees(current, subject, cachedDrive, grantees, requestOptions)
       : await this.mintShareEntry(subject, cachedDrive, grade, grantees, options, requestOptions);
 
-    await this.publishShareHead(cachedDrive.batchId, entry, requestOptions);
     await this.commitShareEntry(shares, entry, requestOptions);
+    await this.publishShareHead(cachedDrive.batchId, entry, requestOptions);
 
     this.emitter.emit(current ? FileManagerEvents.SHARE_AMENDED : FileManagerEvents.SHARE_CREATED, { entry });
 
@@ -1774,10 +1774,8 @@ export class FileManagerBase implements FileManager {
       entry.revokedAt = Date.now();
     }
 
-    // Published rather than abandoned: recipients follow this feed, and its final head is what tells
-    // them the grant is gone instead of leaving them on an address that quietly stops resolving.
-    await this.publishShareHead(cachedDrive.batchId, entry, requestOptions);
     await this.commitShareEntry(shares, entry, requestOptions);
+    await this.publishShareHead(cachedDrive.batchId, entry, requestOptions);
 
     this.emitter.emit(FileManagerEvents.SHARE_REVOKED, { entry });
 
@@ -2153,31 +2151,24 @@ export class FileManagerBase implements FileManager {
     await this.store.saveShareHead({ batchId, topic: entry.shareTopic }, head, requestOptions);
   }
 
-  // Swarm is already ahead by the time this runs, so a failed index write must not leave memory
-  // ahead of it too — the entry is rolled back and the caller retries against the real state.
+  // The grantee mutation is already on Swarm by the time this runs, so the entry stays even when
+  // the index write fails — it is the only record of the references the grant now lives under, and
+  // the next successful save carries it.
   private async commitShareEntry(
     shares: ShareEntry[],
     entry: ShareEntry,
     requestOptions?: BeeRequestOptions,
   ): Promise<void> {
     const ix = shares.findIndex((e) => e.id === entry.id);
-    const previous = ix === -1 ? undefined : shares[ix];
-
-    if (previous) {
-      shares[ix] = entry;
-    } else {
+    if (ix === -1) {
       shares.push(entry);
+    } else {
+      shares[ix] = entry;
     }
 
     try {
       await this.saveShareList(shares, requestOptions);
     } catch (err: unknown) {
-      if (previous) {
-        shares[ix] = previous;
-      } else {
-        shares.pop();
-      }
-
       this.errorHandler.handleError(err, 'Failed to commit share entry');
       throw err;
     }
