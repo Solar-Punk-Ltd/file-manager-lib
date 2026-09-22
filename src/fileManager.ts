@@ -37,7 +37,14 @@ import {
 import type { SwarmClient } from './types/swarmClient';
 import type { UpdateItem, UploadFilesResult, UploadItem, UploadOptions } from './types/upload';
 import type { ContentRef, FailedResult, Hex } from './types/utils';
-import { assertDriveInfoFromMetadata, assertReady, assertShareEntryList, assertShareGrade } from './utils/asserts';
+import {
+  assertDriveInfoFromMetadata,
+  assertMountName,
+  assertReady,
+  assertShareEntryList,
+  assertShareGrade,
+  toGranteeKey,
+} from './utils/asserts';
 import {
   fetchStamp,
   getFeedData,
@@ -70,7 +77,7 @@ import {
   ROOT_PATH,
   SHARE_FORMAT_VERSION,
   SHARE_INDEX_NODE_NAME,
-  SHARED_DRIVE_NAME,
+  SHARED_WITH_ME_DRIVE_NAME,
   TRASH_FOLDER_NAME,
 } from './utils/constants';
 import { DERIVED_SECRET_LENGTH, generateRandomBytes } from './utils/crypto';
@@ -243,6 +250,8 @@ export class FileManagerBase implements FileManager {
         await this.initDriveList(requestOptions);
 
         try {
+          // TODO: do not even load them during init -> just init the root sharelist node
+          // TODO: emit invalid share item event per unresolvable or malformed share record
           await this.initShareList(requestOptions);
         } catch (err: unknown) {
           this.errorHandler.handleError(err, 'Failed to load the share index');
@@ -344,7 +353,12 @@ export class FileManagerBase implements FileManager {
     const [adminDrive] = await this.registerDrive(
       [
         { name: ADMIN_DRIVE_NAME, batchId: batchIdStr, kind: DriveKind.Admin, redundancyLevel: level },
-        { name: SHARED_DRIVE_NAME, batchId: batchIdStr, kind: DriveKind.Shared, redundancyLevel: RedundancyLevel.OFF },
+        {
+          name: SHARED_WITH_ME_DRIVE_NAME,
+          batchId: batchIdStr,
+          kind: DriveKind.Shared,
+          redundancyLevel: RedundancyLevel.OFF,
+        },
       ],
       requestOptions,
     );
@@ -1700,7 +1714,7 @@ export class FileManagerBase implements FileManager {
     assertReady(this.isInitialized, this.store.identity);
     const cachedDrive = this.findReadableDriveOrThrow(driveId);
 
-    const grantees = [...new Set(recipients)];
+    const grantees = [...new Set(recipients.map((r) => toGranteeKey(r, 'recipient')))];
     if (grantees.length === 0) {
       throw new ShareError('A share needs at least one recipient');
     }
@@ -1722,7 +1736,7 @@ export class FileManagerBase implements FileManager {
 
     return { ...entry };
   }
-
+  // TODO: address book cache
   async getShareGrantees(shareId: string, requestOptions?: BeeRequestOptions): Promise<Hex[]> {
     requestOptions?.signal?.throwIfAborted();
     assertReady(this.isInitialized, this.store.identity);
@@ -1730,11 +1744,13 @@ export class FileManagerBase implements FileManager {
     const shareList = await this.ensureShareList(requestOptions);
     const entry = this.findShareOrThrow(shareList, shareId);
 
-    return await this.swarmClient.listGrantees(
+    const members = await this.swarmClient.listGrantees(
       entry.granteeList.reference,
       entry.granteeList.historyRef,
       requestOptions,
     );
+
+    return members.map((m) => toGranteeKey(m, 'grantee'));
   }
 
   async revokeShare(shareId: string, recipients?: Hex[], requestOptions?: BeeRequestOptions): Promise<ShareEntry> {
@@ -1751,8 +1767,9 @@ export class FileManagerBase implements FileManager {
     const entry: ShareEntry = { ...current };
 
     const members = await this.getShareGrantees(shareId, requestOptions);
-    const remove = recipients ? members.filter((m) => recipients.includes(m)) : members;
-    if (recipients && remove.length === 0) {
+    const named = recipients && new Set(recipients.map((r) => toGranteeKey(r, 'recipient')));
+    const remove = named ? members.filter((m) => named.has(m)) : members;
+    if (named && remove.length === 0) {
       throw new ShareError(`Share ${shareId.slice(0, 6)} grants none of the given recipients`);
     }
 
@@ -1770,7 +1787,7 @@ export class FileManagerBase implements FileManager {
 
     // An emptied list grants nobody, so a partial removal that takes the last member closes the
     // entry too — leaving it open would let a later share amend a grant that reaches no one.
-    if (!recipients || remove.length === members.length) {
+    if (!named || remove.length === members.length) {
       entry.revokedAt = Date.now();
     }
 
@@ -1810,6 +1827,11 @@ export class FileManagerBase implements FileManager {
       throw new ShareError(`"${blob.name}" is already mounted at ${foundNode.path}`);
     }
 
+    // Make sure that a grant does not overwrite our topic
+    if (this.store.keyring.has(blob.topic)) {
+      throw new ShareError(`Grant names node ${blob.topic.slice(0, 6)}, which this identity already holds keys for`);
+    }
+
     // A file has no manifest, so its meta key is never read — but every fork is sealed under one,
     // and the recipient must be able to re-wrap it on each relocation.
     this.store.keyring.register(blob.topic, {
@@ -1817,26 +1839,33 @@ export class FileManagerBase implements FileManager {
       ...(keys.content ? { content: keys.content } : {}),
     });
 
-    const name = freeMountName(sharedNode, blob.name);
-    const entry = await this.loadMountedEntry(shared, blob, name, requestOptions);
+    let entry: NodeEntry;
+    try {
+      const name = freeMountName(sharedNode, blob.name);
+      entry = await this.loadMountedEntry(shared, blob, name, requestOptions);
+      const wrapped = await this.store.keyring.wrapFor(shared.topic, blob.topic);
 
-    const wrapped = await this.store.keyring.wrapFor(shared.topic, blob.topic);
-    sharedNode.addFork(
-      name,
-      new Reference(blob.topic),
-      mountForkMetadata(
-        {
-          topic: blob.topic,
-          type: blob.type,
-          owner: blob.owner,
-          shareTopic: handle.shareTopic,
-          redundancyLevel: shared.redundancyLevel,
-        },
-        wrapped,
-      ),
-    );
+      sharedNode.addFork(
+        name,
+        new Reference(blob.topic),
+        mountForkMetadata(
+          {
+            topic: blob.topic,
+            type: blob.type,
+            owner: blob.owner,
+            shareTopic: handle.shareTopic,
+            redundancyLevel: shared.redundancyLevel,
+          },
+          wrapped,
+        ),
+      );
 
-    shared.manifestRef = await this.store.saveMantarayNode(sharedNode, sharedHost.host, requestOptions);
+      shared.manifestRef = await this.store.saveMantarayNode(sharedNode, sharedHost.host, requestOptions);
+    } catch (err: unknown) {
+      this.store.keyring.drop(blob.topic);
+      throw err;
+    }
+
     this.emitter.emit(FileManagerEvents.SHARE_ACCEPTED, { driveId: shared.id, entry });
 
     return entry;
@@ -1898,7 +1927,7 @@ export class FileManagerBase implements FileManager {
 
     return true;
   }
-
+  // TODO: are shares stored in a mantaray, should they be vs plain list?
   private async provisionShareList(
     batchId: string,
     redundancyLevel: RedundancyLevel,
@@ -1936,6 +1965,7 @@ export class FileManagerBase implements FileManager {
     }
 
     await this.initShareList(requestOptions);
+
     if (!this._shareList) {
       throw new ShareError('Share index not provisioned — create an admin drive first');
     }
@@ -1971,6 +2001,7 @@ export class FileManagerBase implements FileManager {
     };
 
     const entries = await this.store.loadControlDocument(topic, requestOptions);
+    // TODO: do not throw away the whole list for one malformed data - just like for init list
     if (entries) {
       assertShareEntryList(entries);
     }
@@ -2040,6 +2071,8 @@ export class FileManagerBase implements FileManager {
     options?: ShareOptions,
     requestOptions?: BeeRequestOptions,
   ): Promise<ShareEntry> {
+    assertMountName(subject.name);
+
     const keys = await this.store.keyring.requireKeys(subject.topic);
     // Every grade but `list` hands out `K_content`, so a subtree held list-only cannot pass on more
     const content = grade === ShareGrade.List ? undefined : await this.store.keyring.requireContentKey(subject.topic);

@@ -72,7 +72,15 @@ jest.mock('@/keyring', () => {
     }
 
     register(topic: string, keys: Keys): void {
+      if (this.has(topic)) {
+        throw new KeyringError(`Node ${topic.slice(0, 6)} already has keys — refusing to replace them`);
+      }
+
       this.keys.set(topic, keys);
+    }
+
+    drop(topic: string): void {
+      this.keys.delete(topic);
     }
 
     async wrapFor(parentTopic: string, childTopic: string): Promise<{ meta: string; content?: string }> {

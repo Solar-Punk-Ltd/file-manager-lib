@@ -266,6 +266,8 @@ describe('Sharing', () => {
       const published = await (getFeedData as jest.Mock)(null, new Topic(entry.shareTopic), drive.owner);
       serveShareFeed(entry.shareTopic, published.payload.toUint8Array());
 
+      (fm as any).store.keyring.drop(folder.topic);
+
       return { handle: { shareTopic: entry.shareTopic, owner: drive.owner }, blob: JSON.parse(blobs[0]) as GrantBlob };
     };
 

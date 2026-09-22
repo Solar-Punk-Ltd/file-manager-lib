@@ -516,7 +516,6 @@ export class MantarayStore {
     }
 
     return {
-      // The drive's own owner, which for a mount is the sharer — every feed below it is theirs.
       owner: drive.owner,
       topic: drive.topic,
       manifestRef: drive.manifestRef,

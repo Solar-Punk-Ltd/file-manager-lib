@@ -13,7 +13,7 @@ import {
   NodeType,
 } from '../types/info';
 import { type GrantBlob, type ShareEntry, type ShareFeedHead, ShareGrade } from '../types/share';
-import { type ActReferences, type ContentRef } from '../types/utils';
+import { type ActReferences, type ContentRef, type Hex } from '../types/utils';
 
 import {
   MANIFEST_METADATA_DRIVE_BATCH_ID,
@@ -23,7 +23,9 @@ import {
   MANIFEST_METADATA_DRIVE_OWNER,
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
+  MOUNT_NAME_MAX_LENGTH,
   SHARE_FORMAT_VERSION,
+  TRASH_FOLDER_NAME,
 } from './constants';
 import { DERIVED_SECRET_LENGTH } from './crypto';
 import { DriveError, ShareError } from './errors';
@@ -160,6 +162,12 @@ function assertCompressedPublicKeyShape(value: unknown, label: string): void {
   }
 }
 
+export function toGranteeKey(value: unknown, label: string): Hex {
+  assertCompressedPublicKeyShape(value, label);
+
+  return (value as string).replace(/^0x/i, '').toLowerCase();
+}
+
 export function assertShareEntry(value: unknown): asserts value is ShareEntry {
   if (!Types.isStrictlyObject(value)) {
     throw new TypeError('ShareEntry has to be object!');
@@ -219,6 +227,21 @@ export function assertShareFeedHead(value: unknown): asserts value is ShareFeedH
   }
 }
 
+export function assertMountName(value: unknown): void {
+  if (typeof value !== 'string' || value.length === 0 || value.length > MOUNT_NAME_MAX_LENGTH) {
+    throw new ShareError(`A share name has to be 1-${MOUNT_NAME_MAX_LENGTH} characters`);
+  }
+
+  if (value.includes('/') || value === '.' || value === '..' || value === TRASH_FOLDER_NAME) {
+    throw new ShareError(`"${value}" is not a usable share name`);
+  }
+
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(value)) {
+    throw new ShareError('A share name cannot contain control characters');
+  }
+}
+
 export function assertGrantBlob(value: unknown): asserts value is GrantBlob {
   if (!Types.isStrictlyObject(value)) {
     throw new TypeError('GrantBlob has to be object!');
@@ -237,9 +260,7 @@ export function assertGrantBlob(value: unknown): asserts value is GrantBlob {
     throw new TypeError('type property of GrantBlob has to be a valid NodeType!');
   }
 
-  if (typeof blob.name !== 'string' || blob.name.length === 0) {
-    throw new TypeError('name property of GrantBlob has to be a non-empty string!');
-  }
+  assertMountName(blob.name);
 
   for (const key of [blob.meta, blob.content]) {
     if (key !== undefined) {
