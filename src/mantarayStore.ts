@@ -304,8 +304,14 @@ export class MantarayStore {
     this.setNodeNextIndexCache(target.topic, nextIndex);
   }
 
-  /** Undefined when the node's feed has no update yet — a control node provisioned but never written. */
-  async loadControlDocument(topic: string, requestOptions?: BeeRequestOptions): Promise<ControlDocument | undefined> {
+  /**
+   * The document at a control node's feed head, as parsed JSON and nothing more.
+   *
+   * Unvalidated on purpose: the store moves control documents, it does not know what any of them
+   * mean — the node's owner is what turns this into entries. Undefined when the feed has no update
+   * yet, a control node provisioned but never written.
+   */
+  async loadControlDocument(topic: string, requestOptions?: BeeRequestOptions): Promise<unknown> {
     const { payload, feedIndex, feedIndexNext } = await getFeedData(
       this.swarmClient,
       new Topic(topic),
@@ -322,7 +328,7 @@ export class MantarayStore {
     this.setNodeRef(topic, contentRef);
     this.setNodeNextIndexCache(topic, feedIndexNext.toBigInt());
 
-    return new Bytes(bytes).toJSON() as ControlDocument;
+    return new Bytes(bytes).toJSON();
   }
 
   async getRecord(

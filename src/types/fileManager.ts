@@ -452,6 +452,20 @@ export interface FileManager {
   ): Promise<ShareEntry>;
 
   /**
+   * Loads the share index and returns the grants this identity has issued, revoked ones included.
+   *
+   * One document, read on first use and cached for the session. Rows this version cannot parse are
+   * left out of the result and dropped from the index on its next save, so a damaged row costs its
+   * own grant and no other; a load that finds any reports them once, with the raw row attached.
+   * @param requestOptions - Additional Bee request options.
+   * @emits FileManagerEvents.MALFORMED_SHARES once per load that found unparseable entries.
+   * @returns Every ShareEntry in the index.
+   * @throws {DriveError} If the FileManager is not initialized.
+   * @throws {ShareError} If no admin drive has been created, so there is no index to read.
+   */
+  listShares(requestOptions?: BeeRequestOptions): Promise<readonly ShareEntry[]>;
+
+  /**
    * Who a grant currently reaches. The ACT grantee list on Swarm is the only membership record — an
    * entry holds its address, never a copy — so this is a fetch.
    * @param shareId - `ShareEntry.id` of the grant.
@@ -535,7 +549,9 @@ export interface FileManager {
   /**
    * Grants this identity has issued, as loaded from the owner-private share index.
    *
-   * The index is fetched  during {@link initialize} and by the first share operation of a session;
+   * The index is read on the first share operation of a session, not during {@link initialize} —
+   * so this stays `undefined` until something has loaded it, which is not the same answer as `[]`.
+   * {@link listShares} reads it without issuing a grant.
    * @returns An array of ShareEntry objects, or undefined if the index has not been loaded.
    */
   readonly shareList: readonly ShareEntry[] | undefined;

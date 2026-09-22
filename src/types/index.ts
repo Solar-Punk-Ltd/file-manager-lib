@@ -30,7 +30,7 @@ export type { DownloadFilesResult, DownloadResource, DownloadResult } from './do
 export type { FileManager, FileManagerConfig } from './fileManager';
 export type { SwarmClient } from './swarmClient';
 export type { GrantBlob, ShareEntry, ShareFeedHead, ShareHandle, ShareOptions } from './share';
-export { ShareGrade } from './share';
+export { ShareGrade, type MalformedShare } from './share';
 export type {
   ActReferences,
   ContentRef,

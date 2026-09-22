@@ -41,8 +41,8 @@ import {
   assertDriveInfoFromMetadata,
   assertMountName,
   assertReady,
-  assertShareEntryList,
   assertShareGrade,
+  partitionShareEntries,
   toGranteeKey,
 } from './utils/asserts';
 import {
@@ -250,11 +250,9 @@ export class FileManagerBase implements FileManager {
         await this.initDriveList(requestOptions);
 
         try {
-          // TODO: do not even load them during init -> just init the root sharelist node
-          // TODO: emit invalid share item event per unresolvable or malformed share record
-          await this.initShareList(requestOptions);
+          await this.resolveShareNode();
         } catch (err: unknown) {
-          this.errorHandler.handleError(err, 'Failed to load the share index');
+          this.errorHandler.handleError(err, 'Failed to resolve the share index');
         }
       }
 
@@ -1701,6 +1699,15 @@ export class FileManagerBase implements FileManager {
   }
 
   // --- Sharing ---
+  // TODO: tests list and malformed case + lazy init shares
+  async listShares(requestOptions?: BeeRequestOptions): Promise<readonly ShareEntry[]> {
+    requestOptions?.signal?.throwIfAborted();
+    assertReady(this.isInitialized, this.store.identity);
+
+    const shares = await this.ensureShareList(requestOptions);
+
+    return shares.map((e) => ({ ...e }));
+  }
 
   async share(
     driveId: string | Identifier,
@@ -1964,16 +1971,18 @@ export class FileManagerBase implements FileManager {
       return this._shareList;
     }
 
-    await this.initShareList(requestOptions);
+    if (!this.shareNode) {
+      await this.resolveShareNode();
+    }
 
-    if (!this._shareList) {
+    if (!this.shareNode) {
       throw new ShareError('Share index not provisioned — create an admin drive first');
     }
 
-    return this._shareList;
+    return await this.loadShareList(this.shareNode.topic, requestOptions);
   }
 
-  private async initShareList(requestOptions?: BeeRequestOptions): Promise<void> {
+  private async resolveShareNode(): Promise<void> {
     const identity = this.store.requireIdentity();
     const stateTopic = identity.stateTopic.toString();
     const fork = this.store.getManifestCache(stateTopic)?.find(SHARE_INDEX_NODE_NAME);
@@ -1999,14 +2008,22 @@ export class FileManagerBase implements FileManager {
       batchId: this.adminStamp.batchId.toString(),
       redundancyLevel: getRlevel(meta, this.adminRedundancyLevel),
     };
+  }
 
-    const entries = await this.store.loadControlDocument(topic, requestOptions);
-    // TODO: do not throw away the whole list for one malformed data - just like for init list
-    if (entries) {
-      assertShareEntryList(entries);
+  private async loadShareList(topic: string, requestOptions?: BeeRequestOptions): Promise<ShareEntry[]> {
+    // An unwritten control node reads as absent, which is an empty index rather than a failure.
+    const { entries, malformed } = partitionShareEntries(
+      (await this.store.loadControlDocument(topic, requestOptions)) ?? [],
+    );
+
+    this._shareList = entries;
+
+    if (malformed.length > 0) {
+      this.logger.error(`share index: dropping ${malformed.length} unparseable entries`);
+      this.emitter.emit(FileManagerEvents.MALFORMED_SHARES, { malformed });
     }
 
-    this._shareList = entries ?? [];
+    return entries;
   }
 
   private async saveShareList(shares: ShareEntry[], requestOptions?: BeeRequestOptions): Promise<void> {

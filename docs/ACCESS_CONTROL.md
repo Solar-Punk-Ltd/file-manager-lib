@@ -117,8 +117,17 @@ what it grants.
 
 ### The `.shares` index
 
-Owner-private, one entry per grant. It is what `shareList` exposes and what derives a node's share state (§8). It is
-loaded as a unit — `shareList` is `undefined` until that has happened, which is not the same answer as `[]`:
+Owner-private, one entry per grant. It is what `shareList` exposes and what derives a node's share state (§8).
+
+`initialize` resolves the node and stops there. The document behind it is a network read that a session which never
+shares anything has no use for, so it is loaded on first use — `listShares`, or any grant operation — and cached for the
+session, the same way a folder is. Until then `shareList` is `undefined`, which is not the same answer as `[]`.
+
+A row that does not parse costs its own grant and no other. The load keeps every entry it understands and reports the
+rest once through `MALFORMED_SHARES`, carrying the raw row so an application can log or salvage it. They are then left
+behind, and the next save writes the index without them — the index is a feed, so the slot holding a dropped row stays
+readable, and a grant whose references do not parse is no more revocable for being carried forward. A document that is
+not an array is still fatal: that is the wrong document, not one damaged row.
 
 ```ts
 interface ShareEntry {

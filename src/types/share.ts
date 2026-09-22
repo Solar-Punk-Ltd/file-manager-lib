@@ -61,3 +61,10 @@ export interface ShareEntry {
   createdAt: number;
   revokedAt?: number;
 }
+
+export interface MalformedShare {
+  index: number;
+  id?: string;
+  error: string;
+  entry: unknown;
+}

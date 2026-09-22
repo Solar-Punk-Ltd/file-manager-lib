@@ -12,9 +12,10 @@ import {
   NodeStatus,
   NodeType,
 } from '../types/info';
-import { type GrantBlob, type ShareEntry, type ShareFeedHead, ShareGrade } from '../types/share';
+import { type GrantBlob, type MalformedShare, type ShareEntry, type ShareFeedHead, ShareGrade } from '../types/share';
 import { type ActReferences, type ContentRef, type Hex } from '../types/utils';
 
+import { errorMessage } from './common';
 import {
   MANIFEST_METADATA_DRIVE_BATCH_ID,
   MANIFEST_METADATA_DRIVE_ID,
@@ -296,14 +297,28 @@ export function assertShareGrade(grade: ShareGrade, type: NodeType): void {
   }
 }
 
-export function assertShareEntryList(value: unknown): asserts value is ShareEntry[] {
+export function partitionShareEntries(value: unknown): { entries: ShareEntry[]; malformed: MalformedShare[] } {
   if (!Array.isArray(value)) {
     throw new TypeError('Share index has to be an array!');
   }
 
-  for (const entry of value) {
-    assertShareEntry(entry);
-  }
+  const entries: ShareEntry[] = [];
+  const malformed: MalformedShare[] = [];
+
+  value.forEach((entry, index) => {
+    try {
+      assertShareEntry(entry);
+      entries.push(entry);
+    } catch (err: unknown) {
+      const id =
+        Types.isStrictlyObject(entry) && typeof (entry as Record<string, unknown>).id === 'string'
+          ? ((entry as Record<string, unknown>).id as string)
+          : undefined;
+      malformed.push({ index, ...(id ? { id } : {}), error: errorMessage(err), entry });
+    }
+  });
+
+  return { entries, malformed };
 }
 
 export function assertDriveInfoFromMetadata(meta: Record<string, string>): DriveInfo {

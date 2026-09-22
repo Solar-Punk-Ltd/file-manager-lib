@@ -156,7 +156,7 @@ describe('share', () => {
 
     const fresh = await retryOnPropagationDelay(async () => {
       const fm = await createInitializedFileManager(client, ownerStamp);
-      if (!fm.shareList?.some((e) => e.id === entry.id)) {
+      if (!(await fm.listShares()).some((e) => e.id === entry.id)) {
         throw new Error('share index not yet propagated to a fresh instance');
       }
       return fm;
