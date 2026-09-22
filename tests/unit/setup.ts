@@ -29,7 +29,7 @@ jest.mock('@/keyring', () => {
 
   interface Keys {
     meta: Uint8Array;
-    content: Uint8Array;
+    content?: Uint8Array;
   }
 
   class TestKeyring {
@@ -51,6 +51,15 @@ jest.mock('@/keyring', () => {
       return this.mint(topic);
     }
 
+    async requireContentKey(topic: string): Promise<Uint8Array> {
+      const { content } = await this.requireKeys(topic);
+      if (!content) {
+        throw new KeyringError(`No content key for node ${topic.slice(0, 6)} — it was reached through a list grant`);
+      }
+
+      return content;
+    }
+
     has(topic: string): boolean {
       return this.keys.has(topic) || topic === this.rootTopic;
     }
@@ -63,28 +72,39 @@ jest.mock('@/keyring', () => {
     }
 
     register(topic: string, keys: Keys): void {
+      if (this.has(topic)) {
+        throw new KeyringError(`Node ${topic.slice(0, 6)} already has keys — refusing to replace them`);
+      }
+
       this.keys.set(topic, keys);
     }
 
-    async wrapFor(parentTopic: string, childTopic: string): Promise<{ meta: string; content: string }> {
-      await this.requireKeys(parentTopic);
+    drop(topic: string): void {
+      this.keys.delete(topic);
+    }
+
+    async wrapFor(parentTopic: string, childTopic: string): Promise<{ meta: string; content?: string }> {
+      const parent = await this.requireKeys(parentTopic);
       const child = await this.requireKeys(childTopic);
 
-      return { meta: new Bytes(child.meta).toString(), content: new Bytes(child.content).toString() };
+      return {
+        meta: new Bytes(child.meta).toString(),
+        ...(parent.content && child.content ? { content: new Bytes(child.content).toString() } : {}),
+      };
     }
 
     async unwrapChild(
       parentTopic: string,
       childTopic: string,
-      wrapped: { meta: string; content: string },
+      wrapped: { meta: string; content?: string },
     ): Promise<Keys> {
       const known = this.keys.get(childTopic);
       if (known) return known;
 
-      await this.requireKeys(parentTopic);
+      const parent = await this.requireKeys(parentTopic);
       const keys: Keys = {
         meta: new Bytes(wrapped.meta).toUint8Array(),
-        content: new Bytes(wrapped.content).toUint8Array(),
+        ...(parent.content && wrapped.content ? { content: new Bytes(wrapped.content).toUint8Array() } : {}),
       };
       this.keys.set(childTopic, keys);
 

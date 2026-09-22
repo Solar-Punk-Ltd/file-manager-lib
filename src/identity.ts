@@ -1,7 +1,7 @@
 import type { BeeRequestOptions } from '@ethersphere/bee-js';
 import { Bytes, type Topic } from '@ethersphere/core-sdk';
 
-import type { Credential, Identity, IdentityEnvelope } from './types/identity';
+import type { Credential, Identity, IdentityEnvelope, ProvisionedIdentity } from './types/identity';
 import type { SwarmClient } from './types/swarmClient';
 import type { FeedResultWithIndex, Hex } from './types/utils';
 import { assertIdentityEnvelope } from './utils/asserts';
@@ -77,7 +77,7 @@ async function confirmEnvelope(
   topic: Topic,
   written: string,
   requestOptions?: BeeRequestOptions,
-): Promise<void> {
+): Promise<boolean> {
   const expected = Bytes.fromUtf8(written);
 
   for (let attempt = 1; attempt <= ENVELOPE_READBACK_ATTEMPTS; attempt++) {
@@ -103,13 +103,14 @@ async function confirmEnvelope(
       throw new IdentityError('Identity envelope is not the expected');
     }
 
-    return;
+    return true;
   }
 
-  logger.error(
-    'Could not read back the identity envelope after writing it — refusing to return an identity whose envelope may not have landed',
+  logger.warn(
+    'Could not read back the identity envelope after writing it — the write was accepted, so it is most likely still settling',
   );
-  throw new IdentityError('Could not re-confirm the identity');
+
+  return false;
 }
 
 /**
@@ -172,6 +173,10 @@ export async function resolveIdentity(
  * taken index, so the write is read back rather than trusted. Finding another envelope there — a
  * provisioning race, or an existing identity that read as absent — raises `IdentityError`.
  *
+ * A read-back that stays empty resolves with `confirmed: false` instead: the write was accepted and
+ * a fresh update takes time to become retrievable, so the identity is returned and the caller
+ * decides how to surface the open question.
+ *
  * Separate from `resolveIdentity` because it writes: a user with no stamp can still initialize and
  * read, they just cannot provision.
  */
@@ -180,7 +185,7 @@ export async function provisionIdentity(
   credential: Credential,
   batchId: Hex,
   requestOptions?: BeeRequestOptions,
-): Promise<Identity> {
+): Promise<ProvisionedIdentity> {
   return await withUnlockSecret(credential, async (secret) => {
     const topic = await envelopeTopic(secret);
     const { feedIndex } = await readEnvelopeFeed(swarmClient, topic, requestOptions);
@@ -213,10 +218,10 @@ export async function provisionIdentity(
       requestOptions,
     );
 
-    await confirmEnvelope(swarmClient, topic, payload, requestOptions);
+    const confirmed = await confirmEnvelope(swarmClient, topic, payload, requestOptions);
 
     logger.debug('Identity envelope provisioned.');
 
-    return identity;
+    return { identity, confirmed };
   });
 }

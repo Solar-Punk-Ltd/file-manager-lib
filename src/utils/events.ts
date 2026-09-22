@@ -1,6 +1,7 @@
 export enum FileManagerEvents {
   INITIALIZED = 'initialized',
   IDENTITY_INVALID = 'identity-invalid',
+  IDENTITY_UNCONFIRMED = 'identity-unconfirmed',
   STATE_INVALID = 'state-invalid',
   FILE_UPLOADED = 'file-uploaded',
   FILE_UPDATED = 'file-updated',
@@ -20,4 +21,9 @@ export enum FileManagerEvents {
   DRIVE_UNRESOLVED = 'drive-unresolved',
   DRIVE_FORGOTTEN = 'drive-forgotten',
   TRASH_EMPTIED = 'trash-emptied',
+  SHARE_CREATED = 'share-created',
+  SHARE_AMENDED = 'share-amended',
+  SHARE_REVOKED = 'share-revoked',
+  SHARE_ACCEPTED = 'share-accepted',
+  MALFORMED_SHARES = 'malformed-shares',
 }

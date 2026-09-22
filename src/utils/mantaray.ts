@@ -4,6 +4,7 @@ import { MantarayNode, Reference } from '@ethersphere/core-sdk';
 import type { WrappedKeys } from '../types/crypto';
 import type { Identity } from '../types/identity';
 import {
+  type ControlNode,
   type DriveInfo,
   type FileRecord,
   type FolderInfo,
@@ -20,7 +21,7 @@ import {
   DRIVE_FORK_PREFIX,
   MANIFEST_METADATA_DRIVE_BATCH_ID,
   MANIFEST_METADATA_DRIVE_ID,
-  MANIFEST_METADATA_DRIVE_IS_ADMIN,
+  MANIFEST_METADATA_DRIVE_KIND,
   MANIFEST_METADATA_DRIVE_NAME,
   MANIFEST_METADATA_DRIVE_OWNER,
   MANIFEST_METADATA_NODE_OWNER,
@@ -28,18 +29,15 @@ import {
   MANIFEST_METADATA_NODE_TYPE,
   MANIFEST_METADATA_NODE_VERSION,
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
+  MANIFEST_METADATA_SHARE_TOPIC,
   MANIFEST_METADATA_TRASHED_FROM,
   MANIFEST_METADATA_WRAPPED_CONTENT_KEY,
   MANIFEST_METADATA_WRAPPED_META_KEY,
 } from './constants';
 import { openWithKey, sealWithKey } from './crypto';
 import { FolderError, KeyringError } from './errors';
+import { splitPath } from './path';
 
-/**
- * Load a manifest tree, decrypting every node under `key`.
- *
- * `key` is the host's `meta` key: one manifest is one node's listing, so all of its chunks share it.
- */
 export async function loadMantaray(
   swarmClient: SwarmClient,
   mantarayRef: string | Reference,
@@ -88,16 +86,6 @@ async function loadForks(
   }
 }
 
-/**
- * Marshal each node, seal it under `key`, and upload it **unencrypted** at the Swarm level.
- *
- * Native encryption is deliberately not used here. Mantaray stores one reference length per node
- * and applies it to the entry *and* every fork, while fm-lib's entries are 32-byte topics; a
- * natively encrypted manifest would mix a 32-byte entry with 64-byte fork addresses, and any node
- * carrying both — one entry name being a prefix of another, `report` beside `report.pdf` — would
- * be written successfully and fail to parse on the way back. Sealing the bytes ourselves keeps
- * every reference 32 bytes and puts the key under our control rather than inside the reference.
- */
 async function saveMantarayRecursively(
   swarmClient: SwarmClient,
   node: MantarayNode,
@@ -121,20 +109,19 @@ async function saveMantarayRecursively(
 export function wrappedKeysMetadata(wrapped: WrappedKeys): Record<string, string> {
   return {
     [MANIFEST_METADATA_WRAPPED_META_KEY]: wrapped.meta,
-    [MANIFEST_METADATA_WRAPPED_CONTENT_KEY]: wrapped.content,
+    ...(wrapped.content ? { [MANIFEST_METADATA_WRAPPED_CONTENT_KEY]: wrapped.content } : {}),
   };
 }
 
 export function wrappedKeysFromMetadata(meta: Record<string, string>): WrappedKeys {
-  const wrapped = {
-    meta: meta[MANIFEST_METADATA_WRAPPED_META_KEY],
-    content: meta[MANIFEST_METADATA_WRAPPED_CONTENT_KEY],
-  };
-  if (!wrapped.meta || !wrapped.content) {
+  const wrappedMeta = meta[MANIFEST_METADATA_WRAPPED_META_KEY];
+  if (!wrappedMeta) {
     throw new KeyringError('Fork carries no wrapped keys — it was written by an incompatible version');
   }
 
-  return wrapped;
+  const wrappedContent = meta[MANIFEST_METADATA_WRAPPED_CONTENT_KEY];
+
+  return { meta: wrappedMeta, ...(wrappedContent ? { content: wrappedContent } : {}) };
 }
 
 export function getAllNodeEntries(root: MantarayNode): NodeHeader[] {
@@ -160,13 +147,6 @@ export function getAllNodeEntries(root: MantarayNode): NodeHeader[] {
     .filter((e): e is NodeHeader => e !== null);
 }
 
-/**
- * Save the manifest tree under `key`, then seal its root reference into the host's feed.
- *
- * The root reference goes into the feed slot directly. It is 32 bytes, so nothing is gained by
- * uploading it as its own blob first, and a manifest read would then cost an extra round trip on
- * every node a listing walks.
- */
 export async function saveNodeManifest(
   swarmClient: SwarmClient,
   identity: Identity,
@@ -213,6 +193,27 @@ export function folderForkMetadata(folder: FolderInfo, wrapped: WrappedKeys): Re
   };
 }
 
+export function listedRecordFromMetadata(
+  meta: Record<string, string>,
+  drive: DriveInfo,
+  path: string,
+  fallbackOwner: string,
+): FileRecord {
+  return {
+    type: NodeType.File,
+    topic: meta[MANIFEST_METADATA_NODE_TOPIC],
+    owner: meta[MANIFEST_METADATA_NODE_OWNER] ?? fallbackOwner,
+    batchId: drive.batchId,
+    redundancyLevel: getRlevel(meta, drive.redundancyLevel),
+    name: splitPath(path).name,
+    path,
+    driveId: drive.id,
+    status: getRecordStatus(path),
+    ...(meta[MANIFEST_METADATA_NODE_VERSION] ? { version: meta[MANIFEST_METADATA_NODE_VERSION] } : {}),
+    ...(meta[MANIFEST_METADATA_TRASHED_FROM] ? { trashedFrom: meta[MANIFEST_METADATA_TRASHED_FROM] } : {}),
+  };
+}
+
 export function folderInfoFromMetadata(
   meta: Record<string, string>,
   drive: DriveInfo,
@@ -239,9 +240,33 @@ export function driveForkMetadata(drive: DriveInfo, wrapped: WrappedKeys): Recor
     [MANIFEST_METADATA_DRIVE_ID]: drive.id,
     [MANIFEST_METADATA_DRIVE_NAME]: drive.name,
     [MANIFEST_METADATA_DRIVE_OWNER]: drive.owner,
-    [MANIFEST_METADATA_DRIVE_IS_ADMIN]: String(drive.isAdmin),
+    [MANIFEST_METADATA_DRIVE_KIND]: drive.kind,
     [MANIFEST_METADATA_DRIVE_BATCH_ID]: drive.batchId,
     [MANIFEST_METADATA_REDUNDANCY_LEVEL]: drive.redundancyLevel.toString(),
+    ...wrappedKeysMetadata(wrapped),
+  };
+}
+
+export function mountForkMetadata(
+  mount: { topic: string; type: NodeType; owner: string; shareTopic: string; redundancyLevel: RedundancyLevel },
+  wrapped: WrappedKeys,
+): Record<string, string> {
+  return {
+    [MANIFEST_METADATA_NODE_TOPIC]: mount.topic,
+    [MANIFEST_METADATA_NODE_TYPE]: mount.type,
+    [MANIFEST_METADATA_NODE_OWNER]: mount.owner,
+    [MANIFEST_METADATA_REDUNDANCY_LEVEL]: mount.redundancyLevel.toString(),
+    [MANIFEST_METADATA_SHARE_TOPIC]: mount.shareTopic,
+    ...wrappedKeysMetadata(wrapped),
+  };
+}
+
+export function controlForkMetadata(node: ControlNode, wrapped: WrappedKeys): Record<string, string> {
+  return {
+    [MANIFEST_METADATA_NODE_TOPIC]: node.topic,
+    [MANIFEST_METADATA_NODE_TYPE]: NodeType.Control,
+    [MANIFEST_METADATA_NODE_OWNER]: node.owner,
+    [MANIFEST_METADATA_REDUNDANCY_LEVEL]: node.redundancyLevel.toString(),
     ...wrappedKeysMetadata(wrapped),
   };
 }
@@ -262,4 +287,17 @@ export function getRlevel(meta: Record<string, string>, cachedRlevel: Redundancy
   }
 
   return parsed as RedundancyLevel;
+}
+
+export function freeMountName(sharedNode: MantarayNode, name: string): string {
+  if (!sharedNode.find(name)) {
+    return name;
+  }
+
+  for (let n = 2; ; n++) {
+    const candidate = `${name} (${n})`;
+    if (!sharedNode.find(candidate)) {
+      return candidate;
+    }
+  }
 }

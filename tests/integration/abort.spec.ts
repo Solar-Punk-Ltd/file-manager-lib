@@ -150,6 +150,8 @@ describe('Abort signal handling', () => {
       await fm.initialize();
       const localDrive = fm.driveList.find((d) => d.id === drive.id);
       expect(localDrive).toBeDefined();
+      // Drives resolve on first touch, so the ref has to be hydrated before it can be snapshotted.
+      await fm.listFolder(drive.id, ROOT_PATH, ListDepth.Shallow);
       const manifestRefBefore = { ...localDrive!.manifestRef };
 
       const controller = new AbortController();

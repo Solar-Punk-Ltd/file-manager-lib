@@ -1,28 +1,35 @@
 import type { RedundancyLevel } from '@ethersphere/bee-js';
-import { BatchId, EthAddress, FeedIndex, Identifier, Reference, Topic } from '@ethersphere/core-sdk';
+import { BatchId, Bytes, EthAddress, FeedIndex, Identifier, PublicKey, Reference, Topic } from '@ethersphere/core-sdk';
 import { Types } from 'cafe-utility';
 
 import type { Identity, IdentityEnvelope } from '../types/identity';
 import {
   type DriveInfo,
+  DriveKind,
   type FileRecord,
   type FolderInfo,
   type NodeResource,
   NodeStatus,
   NodeType,
 } from '../types/info';
-import { type ActReferences, type ContentRef } from '../types/utils';
+import { type GrantBlob, type MalformedShare, type ShareEntry, type ShareFeedHead, ShareGrade } from '../types/share';
+import { type ActReferences, type ContentRef, type Hex } from '../types/utils';
 
+import { errorMessage } from './common';
 import {
   MANIFEST_METADATA_DRIVE_BATCH_ID,
   MANIFEST_METADATA_DRIVE_ID,
-  MANIFEST_METADATA_DRIVE_IS_ADMIN,
+  MANIFEST_METADATA_DRIVE_KIND,
   MANIFEST_METADATA_DRIVE_NAME,
   MANIFEST_METADATA_DRIVE_OWNER,
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
+  MOUNT_NAME_MAX_LENGTH,
+  SHARE_FORMAT_VERSION,
+  TRASH_FOLDER_NAME,
 } from './constants';
-import { DriveError } from './errors';
+import { DERIVED_SECRET_LENGTH } from './crypto';
+import { DriveError, ShareError } from './errors';
 
 export function isRecord(value: unknown): value is Record<string, string> {
   return Types.isStrictlyObject(value) && Object.values(value).every((v) => typeof v === 'string');
@@ -117,8 +124,8 @@ export function assertDriveInfo(value: unknown): asserts value is DriveInfo {
     throw new TypeError('name property of DriveInfo has to be non-empty string!');
   }
 
-  if (typeof di.isAdmin !== 'boolean') {
-    throw new TypeError('isAdmin property of DriveInfo has to be boolean!');
+  if (!Object.values(DriveKind).includes(di.kind)) {
+    throw new TypeError('kind property of DriveInfo has to be a valid DriveKind!');
   }
 
   if (di.manifestRef !== undefined) {
@@ -146,16 +153,184 @@ export function assertFolderInfo(value: unknown): asserts value is FolderInfo {
   }
 }
 
+const COMPRESSED_PUBLIC_KEY_PATTERN = /^(0x)?0[23][0-9a-f]{64}$/i;
+
+// Shape only: `new PublicKey` decompresses the curve point, which is orders of magnitude more
+// expensive than every other check here combined and would dominate a large share index.
+function assertCompressedPublicKeyShape(value: unknown, label: string): void {
+  if (typeof value !== 'string' || !COMPRESSED_PUBLIC_KEY_PATTERN.test(value)) {
+    throw new TypeError(`${label} has to be a compressed secp256k1 public key!`);
+  }
+}
+
+export function toGranteeKey(value: unknown, label: string): Hex {
+  assertCompressedPublicKeyShape(value, label);
+
+  return (value as string).replace(/^0x/i, '').toLowerCase();
+}
+
+export function assertShareEntry(value: unknown): asserts value is ShareEntry {
+  if (!Types.isStrictlyObject(value)) {
+    throw new TypeError('ShareEntry has to be object!');
+  }
+
+  const se = value as unknown as ShareEntry;
+
+  if (typeof se.id !== 'string' || se.id.length === 0) {
+    throw new TypeError('id property of ShareEntry has to be a non-empty string!');
+  }
+
+  new Topic(se.shareTopic);
+  new Topic(se.nodeTopic);
+  new Identifier(se.driveId);
+  assertCompressedPublicKeyShape(se.publisher, 'publisher property of ShareEntry');
+
+  if (!Object.values(NodeType).includes(se.type)) {
+    throw new TypeError('type property of ShareEntry has to be a valid NodeType!');
+  }
+
+  if (!Object.values(ShareGrade).includes(se.grade)) {
+    throw new TypeError('grade property of ShareEntry has to be a valid ShareGrade!');
+  }
+
+  if (typeof se.path !== 'string' || se.path.length === 0) {
+    throw new TypeError('path property of ShareEntry has to be a non-empty string!');
+  }
+
+  assertActReferences(se.granteeList);
+  assertActReferences(se.act);
+
+  if (typeof se.createdAt !== 'number') {
+    throw new TypeError('createdAt property of ShareEntry has to be number!');
+  }
+
+  if (se.revokedAt !== undefined && typeof se.revokedAt !== 'number') {
+    throw new TypeError('revokedAt property of ShareEntry has to be number!');
+  }
+}
+
+export function assertShareFeedHead(value: unknown): asserts value is ShareFeedHead {
+  if (!Types.isStrictlyObject(value)) {
+    throw new TypeError('ShareFeedHead has to be object!');
+  }
+
+  const head = value as unknown as ShareFeedHead;
+
+  if (head.v !== SHARE_FORMAT_VERSION) {
+    throw new TypeError(`Unsupported share format version: ${String(head.v)}`);
+  }
+
+  assertActReferences(head);
+  new PublicKey(head.publisher);
+
+  if (!Object.values(ShareGrade).includes(head.grade)) {
+    throw new TypeError('grade property of ShareFeedHead has to be a valid ShareGrade!');
+  }
+}
+
+export function assertMountName(value: unknown): void {
+  if (typeof value !== 'string' || value.length === 0 || value.length > MOUNT_NAME_MAX_LENGTH) {
+    throw new ShareError(`A share name has to be 1-${MOUNT_NAME_MAX_LENGTH} characters`);
+  }
+
+  if (value.includes('/') || value === '.' || value === '..' || value === TRASH_FOLDER_NAME) {
+    throw new ShareError(`"${value}" is not a usable share name`);
+  }
+
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(value)) {
+    throw new ShareError('A share name cannot contain control characters');
+  }
+}
+
+export function assertGrantBlob(value: unknown): asserts value is GrantBlob {
+  if (!Types.isStrictlyObject(value)) {
+    throw new TypeError('GrantBlob has to be object!');
+  }
+
+  const blob = value as unknown as GrantBlob;
+
+  if (blob.v !== SHARE_FORMAT_VERSION) {
+    throw new TypeError(`Unsupported grant format version: ${String(blob.v)}`);
+  }
+
+  new EthAddress(blob.owner);
+  new Topic(blob.topic);
+
+  if (!Object.values(NodeType).includes(blob.type)) {
+    throw new TypeError('type property of GrantBlob has to be a valid NodeType!');
+  }
+
+  assertMountName(blob.name);
+
+  for (const key of [blob.meta, blob.content]) {
+    if (key !== undefined) {
+      new Bytes(key, DERIVED_SECRET_LENGTH);
+    }
+  }
+
+  if (blob.message !== undefined && typeof blob.message !== 'string') {
+    throw new TypeError('message property of GrantBlob has to be string!');
+  }
+}
+
+/**
+ * A grade is a set of keys, and which keys a node has to give depends on what it is: a file has no
+ * manifest, so `K_meta` grants nothing on one and `Open` grants nothing on anything else.
+ */
+export function assertShareGrade(grade: ShareGrade, type: NodeType): void {
+  if (type === NodeType.File) {
+    if (grade !== ShareGrade.Open) {
+      throw new ShareError(`A file can only be shared as "${ShareGrade.Open}"`);
+    }
+    return;
+  }
+
+  if (type !== NodeType.Folder) {
+    throw new ShareError(`A ${type} node cannot be shared`);
+  }
+
+  if (grade === ShareGrade.Open) {
+    throw new ShareError(
+      `"${ShareGrade.Open}" shares a single file — use "${ShareGrade.List}" or "${ShareGrade.Read}"`,
+    );
+  }
+}
+
+export function partitionShareEntries(value: unknown): { entries: ShareEntry[]; malformed: MalformedShare[] } {
+  if (!Array.isArray(value)) {
+    throw new TypeError('Share index has to be an array!');
+  }
+
+  const entries: ShareEntry[] = [];
+  const malformed: MalformedShare[] = [];
+
+  value.forEach((entry, index) => {
+    try {
+      assertShareEntry(entry);
+      entries.push(entry);
+    } catch (err: unknown) {
+      const id =
+        Types.isStrictlyObject(entry) && typeof (entry as Record<string, unknown>).id === 'string'
+          ? ((entry as Record<string, unknown>).id as string)
+          : undefined;
+      malformed.push({ index, ...(id ? { id } : {}), error: errorMessage(err), entry });
+    }
+  });
+
+  return { entries, malformed };
+}
+
 export function assertDriveInfoFromMetadata(meta: Record<string, string>): DriveInfo {
   const id = meta[MANIFEST_METADATA_DRIVE_ID];
   const name = meta[MANIFEST_METADATA_DRIVE_NAME];
   const owner = meta[MANIFEST_METADATA_DRIVE_OWNER];
   const batchId = meta[MANIFEST_METADATA_DRIVE_BATCH_ID];
-  const isAdmin = meta[MANIFEST_METADATA_DRIVE_IS_ADMIN] === 'true';
+  const kind = meta[MANIFEST_METADATA_DRIVE_KIND] as DriveKind;
   const redundancyLevel = parseInt(meta[MANIFEST_METADATA_REDUNDANCY_LEVEL] ?? '0') as RedundancyLevel;
   const topic = meta[MANIFEST_METADATA_NODE_TOPIC];
 
-  if (!id || !name || !owner || !batchId || !topic) {
+  if (!id || !name || !owner || !batchId || !topic || !kind) {
     throw new DriveError(`Invalid drive fork metadata — missing required fields`);
   }
 
@@ -165,7 +340,7 @@ export function assertDriveInfoFromMetadata(meta: Record<string, string>): Drive
     name,
     owner,
     batchId,
-    isAdmin,
+    kind,
     redundancyLevel,
     topic,
   };

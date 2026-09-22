@@ -3,12 +3,14 @@ import { type BatchId, Bytes, FeedIndex, Reference, Topic } from '@ethersphere/c
 
 import type { Identity } from '../types/identity';
 import type { StampInfo } from '../types/info';
+import type { GrantBlob, ShareFeedHead, ShareHandle } from '../types/share';
 import type { SwarmClient } from '../types/swarmClient';
 import { type ContentRef, type FeedResultWithIndex, type FeedTarget, type FeedWriteResult } from '../types/utils';
 
+import { assertGrantBlob, assertShareFeedHead } from './asserts';
 import { FEED_INDEX_NONE, FEED_INDEX_ZERO } from './constants';
 import { generateRandomBytes, openWithKey, sealWithKey } from './crypto';
-import { ErrorHandler, StampError } from './errors';
+import { ErrorHandler, ShareError, StampError } from './errors';
 
 const errorHandler = ErrorHandler.getInstance();
 
@@ -63,17 +65,6 @@ export async function getTopicAndVersion(
   return { topic, version: feedIndexNext.toString() };
 }
 
-/**
- * Seal `reference` under `key` and write it as the feed payload at `target.topic`.
- *
- * A node's feed payload is one Swarm reference and nothing else: `AES-GCM(key, reference)`, ~60 or
- * ~92 bytes, unreadable without the node's key. This is the library's only feed write outside the
- * identity envelope, signed by `identity.signer` so it lands under the identity's address rather
- * than the backend's.
- *
- * Call it directly for a reference that already exists — every manifest root, which needs no blob
- * in between. {@link writeEncryptedFeed} is the variant that uploads first.
- */
 export async function writeSealedRefFeed(
   swarmClient: SwarmClient,
   identity: Identity,
@@ -83,7 +74,18 @@ export async function writeSealedRefFeed(
   requestOptions?: BeeRequestOptions,
 ): Promise<FeedWriteResult> {
   const sealed = await sealWithKey(key, reference.toUint8Array());
+  const { index, nextIndex } = await writePlainFeed(swarmClient, identity, sealed, target, requestOptions);
 
+  return { contentRef: { reference: reference.toString() }, index, nextIndex };
+}
+
+export async function writePlainFeed(
+  swarmClient: SwarmClient,
+  identity: Identity,
+  payload: string | Uint8Array,
+  target: FeedTarget,
+  requestOptions?: BeeRequestOptions,
+): Promise<{ index: bigint; nextIndex: bigint }> {
   let writeIndex = target.index;
   if (writeIndex === undefined) {
     const { feedIndexNext } = await getFeedData(
@@ -99,22 +101,15 @@ export async function writeSealedRefFeed(
   await swarmClient.writeFeed(
     target.batchId,
     target.topic,
-    sealed,
+    payload,
     writeIndex.toString(),
     { signer: identity.signer },
     requestOptions,
   );
 
-  return { contentRef: { reference: reference.toString() }, index: writeIndex, nextIndex: writeIndex + 1n };
+  return { index: writeIndex, nextIndex: writeIndex + 1n };
 }
 
-/**
- * Upload `payload` with Swarm native encryption, then seal the 64-byte reference into the feed.
- *
- * For a payload too large for a feed slot — a file record, whose `customMetadata` is unbounded. The
- * reference carries the content key, so sealing the reference is what gates the payload; the bytes
- * themselves need no second encryption.
- */
 export async function writeEncryptedFeed(
   swarmClient: SwarmClient,
   identity: Identity,
@@ -133,16 +128,50 @@ export async function writeEncryptedFeed(
   return await writeSealedRefFeed(swarmClient, identity, new Reference(upload.reference), key, target, requestOptions);
 }
 
-/**
- * Open a sealed feed payload back into the reference it carries.
- *
- * Throws if `key` is wrong (GCM authenticates) or if the plaintext is not a 32/64-byte reference,
- * so a mis-keyed read fails here rather than as a puzzling 404 further down.
- */
 export async function openFeedRef(payload: Bytes, key: Uint8Array): Promise<ContentRef> {
   const opened = await openWithKey(key, payload.toUint8Array());
 
   return { reference: new Reference(opened).toString() };
+}
+
+export async function readShareHead(
+  swarmClient: SwarmClient,
+  handle: ShareHandle,
+  requestOptions?: BeeRequestOptions,
+): Promise<ShareFeedHead> {
+  const { payload, feedIndex } = await getFeedData(
+    swarmClient,
+    new Topic(handle.shareTopic),
+    handle.owner,
+    undefined,
+    requestOptions,
+  );
+  if (feedIndex.equals(FEED_INDEX_NONE)) {
+    throw new ShareError('Share feed has no head — the handle is wrong or the grant was never published');
+  }
+
+  const head = payload.toJSON();
+  assertShareFeedHead(head);
+
+  return head;
+}
+
+export async function openGrantBlob(
+  swarmClient: SwarmClient,
+  head: ShareFeedHead,
+  requestOptions?: BeeRequestOptions,
+): Promise<GrantBlob> {
+  const bytes = await swarmClient.downloadProtected(
+    { reference: head.reference, historyRef: head.historyRef, publisher: head.publisher },
+    undefined,
+    undefined,
+    requestOptions,
+  );
+
+  const blob = new Bytes(bytes).toJSON();
+  assertGrantBlob(blob);
+
+  return blob;
 }
 
 export async function fetchStamp(

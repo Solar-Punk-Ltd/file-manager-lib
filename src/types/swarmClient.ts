@@ -6,6 +6,7 @@ import type {
   FeedIndexString,
   FeedRead,
   FeedWrite,
+  GranteeListUpdate,
   Hex,
   ProtectedRefs,
   SwarmDownloadOptions,
@@ -37,16 +38,18 @@ export interface SwarmClient {
   /**
    * Compressed secp256k1 public key (66 hex chars) of {@link owner}.
    *
-   * This is the *identity* key — the self grantee once sharing lands. It is **not** the ACT
-   * publisher; see {@link actPublisher}.
+   * The *identity* key: who this login is. It is **not** what ACT decrypts with, and it is not what to publish as a grantee key.
+   * {@link actPublisher} is the key an identity hands out to be shared with.
    */
   readonly publicKey: Hex;
 
   /**
-   * Compressed public key to quote as `actPublisher` when reading ACT-protected content.
+   * Compressed public key of whatever performs ACT for this backend — quoted as `actPublisher` when
+   * reading protected content, and the key to hand out to be granted access.
    *
    * Distinct from {@link publicKey} and not interchangeable with it. Under bee-js the Bee **node**
-   * performs the ACT encryption, so this is the node's key from `getNodeAddresses()`. Under
+   * performs the ACT encryption, so this is the node's key from `getNodeAddresses()` — which means
+   * it identifies a node and not a person, and everyone sharing that node shares its grants. Under
    * swarm-id it is the origin-scoped `appKey`. Only valid after {@link initialize}.
    */
   readonly actPublisher: Hex;
@@ -92,9 +95,19 @@ export interface SwarmClient {
 
   // --- ACT-protected bytes ---
 
+  /**
+   * Upload bytes gated by an ACT grantee list.
+   *
+   * `grantees` are compressed public keys, each the key its holder's own ACT engine decrypts with —
+   * a Bee node's key for a `BeeClient` recipient, an origin-scoped `appKey` for a swarm-id one; in
+   * both cases the recipient's {@link actPublisher}, never their {@link publicKey}. The publisher is
+   * always granted and needs no entry. Passing `historyRef` continues an existing ACT history
+   * instead of minting one.
+   */
   uploadProtected(
     batchId: Hex,
     data: Uint8Array | string | Blob | Readable,
+    grantees?: Hex[],
     historyRef?: Hex,
     options?: SwarmUploadOptions,
     requestOptions?: SwarmRequestOptions,
@@ -113,6 +126,43 @@ export interface SwarmClient {
     options?: SwarmDownloadOptions,
     requestOptions?: SwarmRequestOptions,
   ): Promise<ReadableStream<Uint8Array>>;
+
+  // --- grantee lists ---
+
+  /**
+   * Add public keys to the grantee list at `granteeListRef`, on the ACT history `historyRef`.
+   *
+   * The protected object's encrypted reference is unchanged, so only the returned history and list
+   * reference need republishing.
+   */
+  addGrantees(
+    batchId: Hex,
+    granteeListRef: Hex,
+    historyRef: Hex,
+    grantees: Hex[],
+    requestOptions?: SwarmRequestOptions,
+  ): Promise<GranteeListUpdate>;
+
+  /**
+   * Remove public keys from the grantee list, re-keying the ACT.
+   *
+   * `contentRef` is the protected object's current encrypted reference: a revocation may return a
+   * rotated one. Access already exercised is not withdrawn — a grantee keeps whatever they have
+   * already dereferenced.
+   */
+  revokeGrantees(
+    batchId: Hex,
+    granteeListRef: Hex,
+    historyRef: Hex,
+    contentRef: Hex,
+    grantees: Hex[],
+    requestOptions?: SwarmRequestOptions,
+  ): Promise<GranteeListUpdate>;
+
+  /**
+   * The grantee list's current members, as compressed public keys.
+   */
+  listGrantees(granteeListRef: Hex, historyRef: Hex, requestOptions?: SwarmRequestOptions): Promise<Hex[]>;
 
   // --- chunks: the mantaray substrate ---
 

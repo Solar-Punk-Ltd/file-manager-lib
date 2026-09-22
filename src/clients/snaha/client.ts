@@ -8,6 +8,7 @@ import {
   type FeedIndexString,
   type FeedRead,
   type FeedWrite,
+  type GranteeListUpdate,
   type Hex,
   type ProtectedRefs,
   type SwarmDownloadOptions,
@@ -52,10 +53,9 @@ import {
  *   in-flight cancellation is not propagated across the iframe boundary.
  * - **Streaming is faked.** swarm-id is buffered-only; the stream variants wrap the full response
  *   in a one-chunk `ReadableStream`, so there is no backpressure.
- * - **ACT history continuity is lost.** `actUploadData` takes no history reference, so every
- *   protected write mints a fresh ACT history and grantee list. Reads still work (fm-lib persists
- *   the returned history per node), but grantee state does not carry over between writes. This
- *   matters once sharing lands, not before.
+ * - **A protected upload cannot continue an ACT history.** `actUploadData` takes no history
+ *   reference, so each one mints a fresh history and grantee list. Amending an existing grant is
+ *   unaffected: `actAddGrantees`/`actRevokeGrantees` both take a history and carry it forward.
  * - **`redundancyStrategy` is dropped on protected downloads** — `actDownloadData` has no options
  *   parameter.
  * - **`redundancyLevel` is dropped on upload.** Data written through this backend has no erasure
@@ -148,6 +148,7 @@ export class SnahaClient implements SwarmClient {
   async uploadProtected(
     _batchId: Hex,
     data: Uint8Array | string | Blob | Readable,
+    grantees?: Hex[],
     /** Ignored — `actUploadData` always mints a fresh history. See the class note. */
     _historyRef?: Hex,
     /** `redundancyLevel` is the only member and swarm-id has no home for it */
@@ -156,14 +157,14 @@ export class SnahaClient implements SwarmClient {
   ): Promise<ClientProtectedUploadResult> {
     const result = await this.client.actUploadData(
       await toBytesAsync(data),
-      // The publisher is always granted access to its own upload, so self needs no entry.
-      [],
+      grantees ?? [],
       undefined,
       toSnahaRequestOptions(requestOptions),
     );
 
     return {
       contentRefs: { reference: result.encryptedReference, historyRef: result.historyReference },
+      granteeListRef: result.granteeListReference,
       tagUid: result.tagUid,
     };
   }
@@ -191,6 +192,49 @@ export class SnahaClient implements SwarmClient {
     requestOptions?: SwarmRequestOptions,
   ): Promise<ReadableStream<Uint8Array>> {
     return toStream(await this.downloadProtected(refs, at, options, requestOptions));
+  }
+
+  // --- grantee lists ---
+  //
+  // swarm-id addresses a grantee list by its ACT history, so `batchId` and `granteeListRef` carry
+  // no meaning here — the list's own reference is returned for the caller to keep in step.
+
+  async addGrantees(
+    _batchId: Hex,
+    _granteeListRef: Hex,
+    historyRef: Hex,
+    grantees: Hex[],
+    requestOptions?: SwarmRequestOptions,
+  ): Promise<GranteeListUpdate> {
+    const result = await this.client.actAddGrantees(historyRef, grantees, toSnahaRequestOptions(requestOptions));
+
+    return { granteeListRef: result.granteeListReference, historyRef: result.historyReference };
+  }
+
+  async revokeGrantees(
+    _batchId: Hex,
+    _granteeListRef: Hex,
+    historyRef: Hex,
+    contentRef: Hex,
+    grantees: Hex[],
+    requestOptions?: SwarmRequestOptions,
+  ): Promise<GranteeListUpdate> {
+    const result = await this.client.actRevokeGrantees(
+      historyRef,
+      contentRef,
+      grantees,
+      toSnahaRequestOptions(requestOptions),
+    );
+
+    return {
+      granteeListRef: result.granteeListReference,
+      historyRef: result.historyReference,
+      contentRef: result.encryptedReference,
+    };
+  }
+
+  listGrantees(_granteeListRef: Hex, historyRef: Hex, requestOptions?: SwarmRequestOptions): Promise<Hex[]> {
+    return this.client.actGetGrantees(historyRef, toSnahaRequestOptions(requestOptions));
   }
 
   // --- chunks ---

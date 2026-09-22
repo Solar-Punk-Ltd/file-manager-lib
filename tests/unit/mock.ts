@@ -25,7 +25,15 @@ import { Optional } from 'cafe-utility';
 import { DEFAULT_MOCK_SIGNER, DUMMY_BATCH_ID, MOCK_NODE_SIGNER } from '../utils';
 
 import { type FileManagerBase } from '@/fileManager';
-import { type DriveInfo, type FileRecord, type Identity, NodeType, type StampInfo, type SwarmClient } from '@/types';
+import {
+  type DriveInfo,
+  DriveKind,
+  type FileRecord,
+  type Identity,
+  NodeType,
+  type StampInfo,
+  type SwarmClient,
+} from '@/types';
 import { fetchStamp, getFeedData, openFeedRef, writeEncryptedFeed, writeSealedRefFeed } from '@/utils/bee';
 import {
   ADMIN_DRIVE_NAME,
@@ -94,7 +102,7 @@ export function createMockDriveInfo(overrides?: Partial<DriveInfo>): DriveInfo {
     topic: Topic.fromString('drive-topic-1').toString(),
     redundancyLevel: RedundancyLevel.MEDIUM,
     manifestRef: { reference: new Reference('1'.repeat(64)).toString() },
-    isAdmin: false,
+    kind: DriveKind.User,
     ...overrides,
   };
 }

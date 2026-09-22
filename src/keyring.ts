@@ -1,7 +1,7 @@
 import type { NodeKeys, WrappedKeys } from './types/crypto';
 import type { Identity } from './types/identity';
 import { ROOT_CONTENT_KEY_LABEL, ROOT_META_KEY_LABEL } from './utils/constants';
-import { copyKeys, generateNodeKeys, unwrapKey, wrapKey } from './utils/crypto';
+import { copyKeys, generateNodeKeys, sameKey, unwrapKey, wrapKey } from './utils/crypto';
 import { KeyringError } from './utils/errors';
 
 /**
@@ -41,6 +41,19 @@ export class Keyring {
     return copyKeys(root);
   }
 
+  /**
+   * `K_content` for `topic`. Throws where {@link requireKeys} would succeed but the node carries no
+   * content key — a subtree reached through a `list` grant lists but never opens.
+   */
+  async requireContentKey(topic: string): Promise<Uint8Array> {
+    const { content } = await this.requireKeys(topic);
+    if (!content) {
+      throw new KeyringError(`No content key for node ${topic.slice(0, 6)} — it was reached through a list grant`);
+    }
+
+    return content;
+  }
+
   /** Whether {@link requireKeys} would resolve `topic` without a walk. */
   has(topic: string): boolean {
     return this.keys.has(topic) || topic === this.rootTopic;
@@ -54,8 +67,23 @@ export class Keyring {
     return copyKeys(keys);
   }
 
+  /** Install keys received from outside the chain */
   register(topic: string, keys: NodeKeys): void {
+    if (this.has(topic)) {
+      throw new KeyringError(`Node ${topic.slice(0, 6)} already has keys — refusing to replace them`);
+    }
+
     this.keys.set(topic, keys);
+  }
+
+  /** Undo a registration whose caller could not finish. */
+  drop(topic: string): void {
+    const keys = this.keys.get(topic);
+    if (!keys) return;
+
+    keys.meta.fill(0);
+    keys.content?.fill(0);
+    this.keys.delete(topic);
   }
 
   /** Seal `childTopic`'s keys under `parentTopic`'s, for storing in the parent's fork metadata. */
@@ -65,28 +93,45 @@ export class Keyring {
 
     return {
       meta: await wrapKey(parent.meta, child.meta),
-      content: await wrapKey(parent.content, child.content),
+      ...(parent.content && child.content ? { content: await wrapKey(parent.content, child.content) } : {}),
     };
   }
 
-  /** Recover and register a child's keys from its fork metadata. Cached children skip the unwrap. */
+  /** Recover and register a child's keys from its fork metadata. */
   async unwrapChild(parentTopic: string, childTopic: string, wrapped: WrappedKeys): Promise<NodeKeys> {
-    const known = this.keys.get(childTopic);
-    if (known) return copyKeys(known);
-
     const parent = await this.requireKeys(parentTopic);
+
+    // No content key above means none below: a list-only chain stays list-only all the way down.
+    const parentContent = parent.content;
+    const wrappedContent = wrapped.content;
 
     let keys: NodeKeys;
     try {
       keys = {
         meta: await unwrapKey(parent.meta, wrapped.meta),
-        content: await unwrapKey(parent.content, wrapped.content),
+        ...(parentContent && wrappedContent ? { content: await unwrapKey(parentContent, wrappedContent) } : {}),
       };
     } catch (err: unknown) {
       throw new KeyringError(
         `Fork ${childTopic.slice(0, 6)} does not unwrap under its parent — the manifest and the key chain disagree`,
         err,
       );
+    }
+
+    const known = this.keys.get(childTopic);
+    if (known) {
+      // Only what both sides carry: a chain that gained a content key is an upgrade, not a conflict.
+      const contentConflict =
+        known.content !== undefined && keys.content !== undefined && !sameKey(known.content, keys.content);
+      const metaConflict = !sameKey(known.meta, keys.meta);
+
+      if (metaConflict || contentConflict) {
+        throw new KeyringError(
+          `Fork ${childTopic.slice(0, 6)} unwraps to different keys than the chain already holds for it`,
+        );
+      }
+
+      return copyKeys(known);
     }
 
     this.keys.set(childTopic, keys);
@@ -98,7 +143,7 @@ export class Keyring {
   clear(): void {
     for (const keys of this.keys.values()) {
       keys.meta.fill(0);
-      keys.content.fill(0);
+      keys.content?.fill(0);
     }
     this.keys.clear();
   }

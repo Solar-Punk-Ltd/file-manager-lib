@@ -3,21 +3,34 @@ import { Bytes, FeedIndex, type MantarayNode, Topic } from '@ethersphere/core-sd
 
 import type { NodeKeys } from './types/crypto';
 import type { Identity } from './types/identity';
-import { type DriveInfo, type FileRecord, type FolderInfo, type ManifestHost, NodeType } from './types/info';
+import {
+  type ControlDocument,
+  type ControlNode,
+  type DriveInfo,
+  type FileRecord,
+  type FolderInfo,
+  type ManifestHost,
+  NodeType,
+  type ResolvedFileFork,
+} from './types/info';
+import type { ShareFeedHead } from './types/share';
 import { type SwarmClient } from './types/swarmClient';
-import { type ContentRef, type FeedResultWithIndex, type FeedWriteResult } from './types/utils';
+import { type ContentRef, type FeedResultWithIndex, type FeedTarget, type FeedWriteResult } from './types/utils';
 import { assertFileRecord } from './utils/asserts';
-import { getFeedData, openFeedRef, writeEncryptedFeed } from './utils/bee';
+import { getFeedData, openFeedRef, writeEncryptedFeed, writePlainFeed } from './utils/bee';
 import {
   FEED_INDEX_NONE,
+  MANIFEST_METADATA_NODE_OWNER,
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
+  MANIFEST_METADATA_WRAPPED_CONTENT_KEY,
+  MANIFEST_METADATA_WRAPPED_META_KEY,
   ROOT_PATH,
 } from './utils/constants';
-import { DriveError, FileRecordError, IdentityError } from './utils/errors';
+import { DriveError, FileRecordError, FolderError, IdentityError } from './utils/errors';
 import { loadMantaray, saveNodeManifest, wrappedKeysFromMetadata, wrappedKeysMetadata } from './utils/mantaray';
-import { pathSegments } from './utils/path';
+import { pathSegments, splitPath } from './utils/path';
 import { Keyring } from './keyring';
 
 /**
@@ -76,7 +89,7 @@ export class MantarayStore {
     requestOptions?: BeeRequestOptions,
   ): Promise<{ host: ManifestHost; folder: FolderInfo | null }> {
     const folder = await this.resolveFolder(drive, path, requestOptions);
-    return { host: folder ?? this.driveRootHost(drive), folder };
+    return { host: folder ?? (await this.driveRootHost(drive, requestOptions)), folder };
   }
 
   /** {@link resolveHost} plus the loaded mantaray node for that host — the common resolve→load→mutate entry point. */
@@ -88,6 +101,62 @@ export class MantarayStore {
     const { host, folder } = await this.resolveHost(drive, path, requestOptions);
     const node = await this.getMantarayNode(host.topic, host.manifestRef, requestOptions);
     return { host, folder, node };
+  }
+
+  /**
+   * {@link resolveHostMantaray} on the node's *parent*, plus the fork that names it.
+   *
+   * The entry point for anything that mutates a node in place — the parent's loaded manifest comes
+   * back with it, since that is what has to be saved afterwards.
+   */
+  async resolveNodeFork(
+    drive: DriveInfo,
+    absolutePath: string,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<ResolvedFileFork> {
+    const { parentPath, name: filename } = splitPath(absolutePath);
+
+    const {
+      host: parentHost,
+      folder: parentFolder,
+      node: parentNode,
+    } = await this.resolveHostMantaray(drive, parentPath, requestOptions);
+    const fork = parentNode.find(filename);
+    if (!fork) {
+      throw new FolderError(`Path not found: ${absolutePath}`);
+    }
+
+    return {
+      host: parentHost,
+      folder: parentFolder,
+      node: parentNode,
+      filename,
+      targetAddress: fork.targetAddress,
+      metadata: { ...(fork.metadata ?? {}) },
+    };
+  }
+
+  /**
+   * {@link resolveNodeFork} for a caller that already knows which node it expects to find.
+   *
+   * A path is not an identity — a node can be moved out and another moved in under the same name —
+   * so a write addressed by path has to confirm the fork still belongs to the node it came for.
+   */
+  async resolveFileFork(
+    drive: DriveInfo,
+    absolutePath: string,
+    expectedTopic: string,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<ResolvedFileFork> {
+    const fork = await this.resolveNodeFork(drive, absolutePath, requestOptions);
+
+    if (fork.metadata[MANIFEST_METADATA_NODE_TOPIC] !== expectedTopic) {
+      throw new FileRecordError(
+        `Fork at ${absolutePath} belongs to a different node than ${expectedTopic.slice(0, 6)} — refusing to write its version`,
+      );
+    }
+
+    return fork;
   }
 
   async getMantarayNode(
@@ -164,7 +233,7 @@ export class MantarayStore {
     delete persistable.driveId;
     delete (persistable as Partial<FileRecord>).path;
 
-    const { content } = await this.keyring.requireKeys(record.topic);
+    const content = await this.keyring.requireContentKey(record.topic);
 
     const { contentRef, index, nextIndex } = await writeEncryptedFeed(
       this.swarmClient,
@@ -185,6 +254,83 @@ export class MantarayStore {
     return { contentRef, index, nextIndex };
   }
 
+  /**
+   * Write a control node's document as its new feed head.
+   *
+   * Content-keyed like a file: a control node has no manifest, so nothing above it needs `K_meta`.
+   */
+  async saveControlDocument(
+    node: ControlNode,
+    document: ControlDocument,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<FeedWriteResult> {
+    const content = await this.keyring.requireContentKey(node.topic);
+
+    const result = await writeEncryptedFeed(
+      this.swarmClient,
+      this.requireIdentity(),
+      JSON.stringify(document),
+      content,
+      {
+        batchId: node.batchId,
+        topic: node.topic,
+        redundancyLevel: node.redundancyLevel,
+        index: this.getNodeNextIndexCache(node.topic),
+      },
+      requestOptions,
+    );
+    this.setNodeNextIndexCache(node.topic, result.nextIndex);
+    this.setNodeRef(node.topic, result.contentRef);
+
+    return result;
+  }
+
+  /**
+   * Write a share feed head — the stable handle behind every grant.
+   *
+   * In the clear, unlike every other feed this library writes: the head is an ACT address, and an
+   * ACT address resolves to nothing outside its grantee list.
+   */
+  async saveShareHead(target: FeedTarget, head: ShareFeedHead, requestOptions?: BeeRequestOptions): Promise<void> {
+    const index = target.index ?? this.getNodeNextIndexCache(target.topic);
+    const { nextIndex } = await writePlainFeed(
+      this.swarmClient,
+      this.requireIdentity(),
+      JSON.stringify(head),
+      { ...target, index },
+      requestOptions,
+    );
+
+    this.setNodeNextIndexCache(target.topic, nextIndex);
+  }
+
+  /**
+   * The document at a control node's feed head, as parsed JSON and nothing more.
+   *
+   * Unvalidated on purpose: the store moves control documents, it does not know what any of them
+   * mean — the node's owner is what turns this into entries. Undefined when the feed has no update
+   * yet, a control node provisioned but never written.
+   */
+  async loadControlDocument(topic: string, requestOptions?: BeeRequestOptions): Promise<unknown> {
+    const { payload, feedIndex, feedIndexNext } = await getFeedData(
+      this.swarmClient,
+      new Topic(topic),
+      this.requireIdentity().owner,
+      undefined,
+      requestOptions,
+    );
+    if (feedIndex.equals(FEED_INDEX_NONE)) return undefined;
+
+    const content = await this.keyring.requireContentKey(topic);
+    const contentRef = await openFeedRef(payload, content);
+    const bytes = await this.swarmClient.downloadData(contentRef.reference, undefined, requestOptions);
+
+    this.setNodeRef(topic, contentRef);
+    this.setNodeNextIndexCache(topic, feedIndexNext.toBigInt());
+
+    return new Bytes(bytes).toJSON();
+  }
+
   async getRecord(
     topic: string,
     feedData: FeedResultWithIndex,
@@ -195,7 +341,7 @@ export class MantarayStore {
       throw new FileRecordError(`File record not found for topic: ${topic.slice(0, 6)}`);
     }
 
-    const { content } = await this.keyring.requireKeys(topic);
+    const content = await this.keyring.requireContentKey(topic);
     const contentRef = await openFeedRef(feedData.payload, content);
     const fileBytes = await this.swarmClient.downloadData(contentRef.reference, undefined, requestOptions);
 
@@ -221,12 +367,18 @@ export class MantarayStore {
   }
 
   /**
-   * A folder carries no stored version, so its manifest root comes from its feed head. Caches the
-   * probed next index, which is what lets a later write to the same folder skip its own probe.
+   * A manifest host carries no stored version, so its mantaray root comes from its feed head. Caches
+   * the probed next index, which is what lets a later write to the same host skip its own probe.
+   *
+   * Drives and folders both land here, on first touch rather than at init: a host's identity lives
+   * in its parent's fork metadata, and only its current root needs the network.
+   *
+   * `owner` is the node's, not this identity's — inside a mount every feed belongs to the sharer.
    */
-  async resolveFolderManifestRef(
+  async resolveManifestRef(
     nodeTopic: string,
-    currentPath: string,
+    owner: string,
+    label: string,
     requestOptions?: BeeRequestOptions,
   ): Promise<ContentRef> {
     const cachedRef = this.getNodeRef(nodeTopic);
@@ -237,12 +389,12 @@ export class MantarayStore {
     const { payload, feedIndex, feedIndexNext } = await getFeedData(
       this.swarmClient,
       new Topic(nodeTopic),
-      this.requireIdentity().owner,
+      owner,
       undefined,
       requestOptions,
     );
     if (feedIndex.equals(FEED_INDEX_NONE)) {
-      throw new DriveError(`Folder feed not found for path: ${currentPath}`);
+      throw new DriveError(`Manifest feed not found for ${label}`);
     }
 
     const manifestRef = await this.openManifestRef(nodeTopic, payload);
@@ -284,7 +436,11 @@ export class MantarayStore {
   ): Promise<Record<string, string>> {
     await this.unwrapFork(fromParentTopic, childTopic, meta);
 
-    return { ...meta, ...wrappedKeysMetadata(await this.keyring.wrapFor(toParentTopic, childTopic)) };
+    // Dropped rather than overwritten: the new wrap omits a key the chain no longer carries, and a
+    // leftover entry would claim a key that does not open under the new parent.
+    const { [MANIFEST_METADATA_WRAPPED_META_KEY]: _m, [MANIFEST_METADATA_WRAPPED_CONTENT_KEY]: _c, ...rest } = meta;
+
+    return { ...rest, ...wrappedKeysMetadata(await this.keyring.wrapFor(toParentTopic, childTopic)) };
   }
 
   // --- Cache management  ---
@@ -355,9 +511,18 @@ export class MantarayStore {
 
   // --- Private helpers  ---
 
-  private driveRootHost(drive: DriveInfo): ManifestHost {
+  private async driveRootHost(drive: DriveInfo, requestOptions?: BeeRequestOptions): Promise<ManifestHost> {
+    if (!drive.manifestRef) {
+      drive.manifestRef = await this.resolveManifestRef(
+        drive.topic,
+        drive.owner,
+        `drive "${drive.name}"`,
+        requestOptions,
+      );
+    }
+
     return {
-      owner: this.requireIdentity().owner,
+      owner: drive.owner,
       topic: drive.topic,
       manifestRef: drive.manifestRef,
       batchId: drive.batchId,
@@ -373,7 +538,7 @@ export class MantarayStore {
     if (!path || path === ROOT_PATH) return null;
 
     const segments = pathSegments(path);
-    const driveRootHost = this.driveRootHost(driveInfo);
+    const driveRootHost = await this.driveRootHost(driveInfo, requestOptions);
     let currentMantaray = await this.getMantarayNode(driveRootHost.topic, driveRootHost.manifestRef, requestOptions);
     let currentTopic = driveRootHost.topic;
     let currentPath = '';
@@ -397,11 +562,17 @@ export class MantarayStore {
       }
 
       await this.unwrapFork(currentTopic, nodeTopic, meta);
-      const folderManifestRef = await this.resolveFolderManifestRef(nodeTopic, currentPath, requestOptions);
+      const owner = meta[MANIFEST_METADATA_NODE_OWNER] ?? driveInfo.owner;
+      const folderManifestRef = await this.resolveManifestRef(
+        nodeTopic,
+        owner,
+        `folder ${currentPath}`,
+        requestOptions,
+      );
 
       currentFolderInfo = {
         type: NodeType.Folder,
-        owner: this.requireIdentity().owner,
+        owner,
         topic: nodeTopic,
         manifestRef: folderManifestRef,
         batchId: driveInfo.batchId,

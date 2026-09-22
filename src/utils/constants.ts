@@ -3,11 +3,11 @@ import { FeedIndex, Reference } from '@ethersphere/core-sdk';
 
 import { type FeedIndexString } from '../types/utils';
 
-/**
- * Key-derivation epoch. Bumping it re-derives the whole tree and orphans every existing drive.
- * Not the package version — a breaking change to the public API does not belong here.
- */
+//  Key-derivation epoch. Bumping it re-derives the whole tree and orphans every existing drive.
 export const KDF_EPOCH = 1;
+export const SHARE_FORMAT_VERSION = 1;
+// `NAME_MAX` on every filesystem the library's own names already live under.
+export const MOUNT_NAME_MAX_LENGTH = 255;
 export const ADMIN_DRIVE_NAME = 'admin';
 // HKDF `info` labels. Changing one orphans every existing identity, hence the version suffixes.
 const label = (name: string): string => `fm-${name}-v${KDF_EPOCH}`;
@@ -27,7 +27,7 @@ export const IDENTITY_ENVELOPE_TOPIC_LABEL = 'fm-identity-envelope';
 export const IDENTITY_ENVELOPE_FEED_INDEX = 0n;
 // Read-back of the envelope write. A fresh feed update is not immediately readable, hence the retry.
 export const ENVELOPE_READBACK_ATTEMPTS = 5;
-export const ENVELOPE_READBACK_DELAY_MS = 500;
+export const ENVELOPE_READBACK_DELAY_MS = 1000;
 export const FMK_LENGTH = 32;
 export const UNLOCK_SALT_LENGTH = 16;
 export const SWARM_ZERO_ADDRESS = new Reference(NULL_ADDRESS);
@@ -46,6 +46,8 @@ export const FEED_INDEX_NONE = FeedIndex.fromBigInt(BigInt(FEED_INDEX_NOT_FOUND)
 
 export const ROOT_PATH = '/';
 export const TRASH_FOLDER_NAME = '.trash';
+export const SHARE_INDEX_NODE_NAME = '.shares';
+export const SHARED_WITH_ME_DRIVE_NAME = 'SharedWithMe';
 export const MAX_CONCURRENT_FEED_FETCHES = 10;
 export const MAX_CONCURRENT_UPLOADS = 2;
 export const DRIVE_FORK_PREFIX = '/drive';
@@ -60,5 +62,6 @@ export const MANIFEST_METADATA_TRASHED_FROM = 'swarm-trashed-from';
 export const MANIFEST_METADATA_DRIVE_ID = 'swarm-drive-id';
 export const MANIFEST_METADATA_DRIVE_NAME = 'swarm-drive-name';
 export const MANIFEST_METADATA_DRIVE_OWNER = 'swarm-drive-owner';
-export const MANIFEST_METADATA_DRIVE_IS_ADMIN = 'swarm-drive-is-admin';
+export const MANIFEST_METADATA_DRIVE_KIND = 'swarm-drive-kind';
 export const MANIFEST_METADATA_DRIVE_BATCH_ID = 'swarm-drive-batch-id';
+export const MANIFEST_METADATA_SHARE_TOPIC = 'swarm-share-topic';
