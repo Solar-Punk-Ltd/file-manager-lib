@@ -24,7 +24,7 @@ jest.mock('@/utils/mantaray', () => ({
  */
 jest.mock('@/keyring', () => {
   const { Bytes } = jest.requireActual('@ethersphere/core-sdk');
-  const { generateNodeKeys } = jest.requireActual('@/utils/crypto');
+  const { generateNodeKeys, effectiveKey } = jest.requireActual('@/utils/crypto');
   const { KeyringError } = jest.requireActual('@/utils/errors');
 
   interface Keys {
@@ -48,7 +48,7 @@ jest.mock('@/keyring', () => {
         throw new KeyringError(`No keys for node ${topic.slice(0, 6)} — its parent was never resolved`);
       }
 
-      return this.mint(topic);
+      return this.mintAnchor(topic);
     }
 
     async requireContentKey(topic: string): Promise<Uint8Array> {
@@ -64,19 +64,45 @@ jest.mock('@/keyring', () => {
       return this.keys.has(topic) || topic === this.rootTopic;
     }
 
-    mint(topic: string): Keys {
+    adoptScope(_anchorTopic: string, _epoch: number, _secret: Uint8Array): void {}
+
+    bumpEpoch(_anchorTopic: string): number {
+      return 0;
+    }
+
+    mint(topic: string, _parentTopic: string): Keys {
       const keys = generateNodeKeys() as Keys;
       this.keys.set(topic, keys);
-
       return keys;
     }
 
-    register(topic: string, keys: Keys): void {
+    async mintAnchor(topic: string): Promise<Keys> {
+      return this.mint(topic, topic);
+    }
+
+    register(topic: string, keys: Keys, _scope: { epoch: number; secret: Uint8Array }): void {
       if (this.has(topic)) {
         throw new KeyringError(`Node ${topic.slice(0, 6)} already has keys — refusing to replace them`);
       }
-
       this.keys.set(topic, keys);
+    }
+
+    async openScope(_topic: string, _current?: number): Promise<void> {}
+    noteEpoch(_topic: string, _epoch: number): void {}
+    epochFor(_topic: string): number {
+      return 0;
+    }
+
+    async metaSealKey(topic: string, _epoch: number): Promise<CryptoKey> {
+      return await effectiveKey((await this.requireKeys(topic)).meta, new Uint8Array(32));
+    }
+
+    async contentSealKey(topic: string, _epoch: number): Promise<CryptoKey> {
+      return await effectiveKey(await this.requireContentKey(topic), new Uint8Array(32));
+    }
+
+    currentSecret(_topic: string): { epoch: number; secret: Uint8Array } {
+      return { epoch: 0, secret: new Uint8Array(32) };
     }
 
     drop(topic: string): void {

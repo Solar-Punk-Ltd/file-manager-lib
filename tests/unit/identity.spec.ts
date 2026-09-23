@@ -14,7 +14,7 @@ import {
   UNLOCK_KDF_LABEL,
   UNLOCK_SALT_LENGTH,
 } from '@/utils/constants';
-import { GCM_IV_LENGTH } from '@/utils/crypto';
+import { decryptBytes, encryptBytes, GCM_IV_LENGTH } from '@/utils/crypto';
 import { IdentityError, KeyringError } from '@/utils/errors';
 import { deriveIdentity, envelopeTopic, sealKey, unsealKey } from '@/utils/identity';
 
@@ -345,7 +345,8 @@ describe('Identity envelope and key chain', () => {
 
     it('should recover a child key from its parent', async () => {
       const child = topicOf(1);
-      const minted = keyring.mint(child);
+      await keyring.requireKeys(root);
+      const minted = keyring.mint(child, root);
       const wrapped = await keyring.wrapFor(root, child);
 
       // A fresh session: nothing cached, the root re-derived from the same FMK.
@@ -357,7 +358,8 @@ describe('Identity envelope and key chain', () => {
 
     it('should not store a child key in the clear', async () => {
       const child = topicOf(1);
-      const minted = keyring.mint(child);
+      await keyring.requireKeys(root);
+      const minted = keyring.mint(child, root);
       const wrapped = await keyring.wrapFor(root, child);
 
       expect(wrapped.meta).not.toContain(new Bytes(minted.meta).toString());
@@ -370,13 +372,14 @@ describe('Identity envelope and key chain', () => {
 
       // The owner holds both keys at every level, so the fork it wrote carries a wrapped content key.
       const owner = new Keyring(identity) as RealKeyring;
-      const sharedKeys = owner.mint(shared);
-      const childKeys = owner.mint(child);
+      await owner.requireKeys(root);
+      const sharedKeys = owner.mint(shared, root);
+      const childKeys = owner.mint(child, shared);
       const fork = await owner.wrapFor(shared, child);
       expect(fork.content).toBeDefined();
 
       // What a `list` grant hands over: K_meta of the shared node and nothing else.
-      keyring.register(shared, { meta: sharedKeys.meta });
+      keyring.register(shared, { meta: sharedKeys.meta }, { epoch: 0, secret: new Uint8Array(32) });
       const unwrapped = await keyring.unwrapChild(shared, child, fork);
 
       expect(unwrapped.meta).toEqual(childKeys.meta);
@@ -388,8 +391,9 @@ describe('Identity envelope and key chain', () => {
     it('should refuse a child wrapped under a different parent', async () => {
       const parent = topicOf(1);
       const child = topicOf(2);
-      keyring.mint(parent);
-      keyring.mint(child);
+      await keyring.requireKeys(root);
+      keyring.mint(parent, root);
+      keyring.mint(child, root);
       const wrapped = await keyring.wrapFor(root, child);
 
       // Same ciphertext, wrong key-encryption key: GCM authenticates, so this cannot half-succeed.
@@ -397,6 +401,24 @@ describe('Identity envelope and key chain', () => {
       await expect(keyring.unwrapChild(parent, topicOf(3), wrapped)).rejects.toThrow(
         /does not unwrap under its parent/,
       );
+    });
+
+    it('should open a node sealed past the epoch its drive root recorded', async () => {
+      const child = topicOf(1);
+      await keyring.requireKeys(root);
+      keyring.mint(child, root);
+      const wrapped = await keyring.wrapFor(root, child);
+      keyring.bumpEpoch(root);
+      const sealed = await encryptBytes(await keyring.metaSealKey(child, 1), new Uint8Array([1, 2, 3]));
+
+      // A later session whose root head still says 0, reading a child written at 1.
+      const reopened = new Keyring(await deriveIdentity(FIXED_FMK.slice(), FIXED_SALT));
+      await reopened.requireKeys(root);
+      await reopened.unwrapChild(root, child, wrapped);
+
+      expect(await decryptBytes(await reopened.metaSealKey(child, 1), sealed)).toEqual(new Uint8Array([1, 2, 3]));
+      reopened.noteEpoch(child, 1);
+      expect(reopened.epochFor(child)).toBe(1);
     });
 
     it('should hand out copies, so a clear cannot zero a key still in use', async () => {

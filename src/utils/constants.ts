@@ -17,6 +17,12 @@ export const KEY_ID_LABEL = label('key-id');
 export const SIGNER_LABEL = label('signer');
 export const ROOT_META_KEY_LABEL = label('root-meta');
 export const ROOT_CONTENT_KEY_LABEL = label('root-content');
+export const EPOCH_ROOT_LABEL = label('epoch-root');
+export const EPOCH_SEAL_LABEL = label('epoch-seal');
+export const BULLETIN_TOPIC_LABEL = label('bulletin-topic');
+// Withdrawals a drive can make before it has to re-anchor on a fresh chain root.
+export const EPOCH_CHAIN_LENGTH = 4096;
+export const EPOCH_START = 0;
 
 // Deliberately epoch-free: these two locate the envelope, and an envelope that cannot be found
 // cannot be reported as outdated — resolveIdentity would read it as a first run and provision a
@@ -47,6 +53,7 @@ export const FEED_INDEX_NONE = FeedIndex.fromBigInt(BigInt(FEED_INDEX_NOT_FOUND)
 export const ROOT_PATH = '/';
 export const TRASH_FOLDER_NAME = '.trash';
 export const SHARE_INDEX_NODE_NAME = '.shares';
+export const BULLETIN_NODE_NAME = '.bulletin';
 export const SHARED_WITH_ME_DRIVE_NAME = 'SharedWithMe';
 export const MAX_CONCURRENT_FEED_FETCHES = 10;
 export const MAX_CONCURRENT_UPLOADS = 2;
@@ -65,3 +72,5 @@ export const MANIFEST_METADATA_DRIVE_OWNER = 'swarm-drive-owner';
 export const MANIFEST_METADATA_DRIVE_KIND = 'swarm-drive-kind';
 export const MANIFEST_METADATA_DRIVE_BATCH_ID = 'swarm-drive-batch-id';
 export const MANIFEST_METADATA_SHARE_TOPIC = 'swarm-share-topic';
+export const MANIFEST_METADATA_BULLETIN_TOPIC = 'swarm-bulletin-topic';
+export const MANIFEST_METADATA_BULLETIN_OWNER = 'swarm-bulletin-owner';

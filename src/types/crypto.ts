@@ -19,3 +19,10 @@ export interface WrappedKeys {
   meta: Hex;
   content?: Hex;
 }
+
+export interface EpochScope {
+  current: number;
+  secrets: Map<number, Uint8Array>;
+  /** Absent on a mount, which is handed one epoch's secret rather than the chain it came from. */
+  root?: Uint8Array;
+}

@@ -435,9 +435,10 @@ export interface FileManager {
    * @emits FileManagerEvents.SHARE_CREATED when minted, FileManagerEvents.SHARE_AMENDED when
    *   recipients are added to a standing grant.
    * @returns The ShareEntry, whose `shareTopic` is half the handle.
-   * @throws {DriveError} If not initialized or the drive is not found.
-   * @throws {ShareError} If `recipients` is empty, `path` is the drive root, the grade does not fit
-   *   the node type, or the backend returned no grantee list to amend against.
+   * @throws {DriveError} If not initialized, the drive is not found, or it is the admin drive.
+   * @throws {ShareError} If `recipients` is empty, `path` is the drive root or in the shared-with-me
+   *   drive, the grade does not fit the node type, or the backend returned no grantee list to amend
+   *   against; or if the share index could not be saved — retry the call.
    * @throws {FolderError} If the path does not exist or is under the reserved `.trash` folder.
    * @throws {FileRecordError} If the fork at the path carries no node metadata.
    * @throws {KeyringError} If the node has not been reached through a listing in this session.
@@ -478,12 +479,11 @@ export interface FileManager {
 
   /**
    * Withdraws access, from named recipients or — with `recipients` omitted — from the whole grant.
-   * The grantee list is re-keyed and republished as the share feed's next head, so those still on
-   * it keep reading. Emptying the list closes the grant.
+   * The grantee list is re-keyed, the drive's key epoch bumped and the grant republished as the
+   * share feed's next head, so those still on it keep reading. Emptying the list closes the grant.
    *
-   * **Denies future reads only.** Keys a recipient already unwrapped and chunks they already
-   * dereferenced stay readable, since Swarm has no delete. Withdrawing past access means rotating
-   * the subtree's keys.
+   * **Denies future writes.** Everything that existed at the moment of the revoke stays readable to
+   * a removed recipient, whether or not they had fetched it.
    * @param shareId - `ShareEntry.id` of the grant to withdraw from.
    * @param recipients - Grantee public keys to drop. Omit to withdraw the grant entirely.
    * @param requestOptions - Additional Bee request options.
@@ -491,7 +491,9 @@ export interface FileManager {
    * @returns The entry, stamped `revokedAt` once nobody is left on it. It stays in the index as a
    *   record of the grant.
    * @throws {DriveError} If not initialized or the entry's drive is no longer known.
-   * @throws {ShareError} If the share is unknown, already revoked, or grants none of `recipients`.
+   * @throws {ShareError} If the share is unknown, already revoked, or grants none of `recipients`; or
+   *   if the share index could not be saved. The index is left as it was, so a retry runs the whole
+   *   revoke again.
    * @see {@link getShareGrantees} — the current membership this withdraws from.
    */
   revokeShare(shareId: string, recipients?: Hex[], requestOptions?: BeeRequestOptions): Promise<ShareEntry>;
@@ -505,7 +507,7 @@ export interface FileManager {
    * @param handle - `{ shareTopic, owner }`, as published by the sharer. However it arrived is the
    *   application's business.
    * @param requestOptions - Additional Bee request options.
-   * @emits FileManagerEvents.SHARE_ACCEPTED
+   * @emits FileManagerEvents.SHARE_ACCEPTED with the sharer's `message`, when the grant carries one.
    * @returns The mounted node as an ordinary entry, whose `owner` is the sharer and whose `driveId`
    *   is {@link sharedWithMe}'s. A name already taken in the shared drive is suffixed.
    * @throws {DriveError} If not initialized, or the admin manifest is not loaded.

@@ -8,6 +8,7 @@ import { type BeeClient } from '@/clients';
 import { type FileManagerBase } from '@/fileManager';
 import {
   type DriveInfo,
+  DriveKind,
   type FileRecord,
   ListDepth,
   type NodeEntry,
@@ -79,8 +80,8 @@ describe('share', () => {
       reference: entry.act.reference,
       historyRef: entry.act.historyRef,
       publisher: entry.publisher,
-      grade: ShareGrade.Read,
     });
+    expect(head).not.toHaveProperty('grade');
   });
 
   it('adds recipients to the standing grant of the same node and grade', async () => {
@@ -137,6 +138,13 @@ describe('share', () => {
     const ghostDrive = Identifier.fromString('ghost-drive').toString();
     await expect(fileManager.share(ghostDrive, 'refusals', ShareGrade.Read, [RECIPIENT_A])).rejects.toThrow(
       `Drive with id ${ghostDrive.slice(0, 6)} not found`,
+    );
+  });
+
+  it('refuses to share from the admin drive', async () => {
+    const admin = fileManager.driveList.find((d) => d.kind === DriveKind.Admin)!;
+    await expect(fileManager.share(admin.id, '.shares', ShareGrade.Read, [RECIPIENT_A])).rejects.toThrow(
+      'Cannot share from the admin drive',
     );
   });
 
@@ -370,5 +378,73 @@ describe('acceptShare', () => {
     await expect(
       recipient.acceptShare({ shareTopic: Topic.fromString('never-published').toString(), owner: drive.owner }),
     ).rejects.toThrow('Share feed has no head');
+  });
+
+  it('refuses to re-share a mounted node', async () => {
+    await expect(recipient.share(recipient.sharedWithMe!.id, 'Docs', ShareGrade.Read, [RECIPIENT_B])).rejects.toThrow(
+      /cannot be re-shared/,
+    );
+  });
+});
+
+describe('reading a revoked grant', () => {
+  let owner: FileManagerBase;
+  let drive: DriveInfo;
+  let recipientClient: BeeClient;
+  let recipientStamp: BatchId;
+  let entry: ShareEntry;
+  const BEFORE_CONTENT = 'Readable Before The Revoke';
+  const AFTER_CONTENT = 'Written After The Revoke';
+  const { writeTempFile, cleanup } = tempFileRegistry();
+
+  beforeAll(async () => {
+    ({ fileManager: owner, drive } = await setupUserDrive('sharerevoked', { stampLabel: 'shareRevokedIntegration' }));
+
+    await owner.createFolder(drive.id, ROOT_PATH, 'Docs');
+    await owner.uploadFile(drive.id, {
+      path: 'Docs/A.pdf',
+      sourcePath: writeTempFile('it-share-revoked-a.pdf', BEFORE_CONTENT),
+    });
+
+    ({ client: recipientClient, ownerStamp: recipientStamp } = await ensureUniqueSignerWithStamp());
+    const recipient = await createInitializedFileManager(recipientClient, recipientStamp);
+
+    entry = await owner.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_A]);
+    await retryOnPropagationDelay(() => recipient.acceptShare({ shareTopic: entry.shareTopic, owner: drive.owner }));
+  });
+
+  afterAll(cleanup);
+  // TODO: test access of the same identity of siblings if other grants are still live
+  it('denies a revoked recipient the writes that land after the revoke', async () => {
+    const revoked = await retryWhileGranteeSettles(() => owner.revokeShare(entry.id));
+    expect(revoked.revokedAt).toEqual(expect.any(Number));
+    expect(await owner.getShareGrantees(entry.id)).toEqual([]);
+
+    await owner.uploadFile(drive.id, {
+      path: 'Docs/C.pdf',
+      sourcePath: writeTempFile('it-share-revoked-c.pdf', AFTER_CONTENT),
+    });
+
+    // Cold caches, same persisted keys: the recipient that comes back after the revoke.
+    const returning = await createInitializedFileManager(recipientClient, recipientStamp);
+    const sharedId = returning.sharedWithMe!.id;
+    const listMount = async (): Promise<string[]> => {
+      try {
+        const { entries } = await returning.listFolder(sharedId, 'Docs', ListDepth.Shallow);
+        return entries.map((e) => e.path);
+      } catch {
+        // A re-keyed subtree no longer opens at all, which is the outcome this asserts.
+        return [];
+      }
+    };
+
+    // Give the post-revoke write time to land before concluding it is invisible.
+    let paths = await listMount();
+    for (let attempt = 0; attempt < 8 && !paths.includes('Docs/C.pdf'); attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      paths = await listMount();
+    }
+
+    expect(paths).not.toContain('Docs/C.pdf');
   });
 });

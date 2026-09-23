@@ -16,15 +16,31 @@ export interface GrantBlob {
   topic: string;
   type: NodeType;
   name: string;
+  grade: ShareGrade;
   meta?: Hex; // `K_meta`
   content?: Hex; // `K_content`
+  /** Where the sharer publishes the epoch secret. Carries no key material itself. */
+  bulletin: BulletinHandle;
   message?: string;
 }
 
+/** Where a drive's epoch bulletin is published — the topic is derived, so only a grantee needs telling. */
+export interface BulletinHandle {
+  topic: string;
+  owner: Hex;
+}
+
+/** The drive's current epoch secret. Safe to share drive-wide: it salts a base key it does not supply. */
+export interface BulletinPayload {
+  v: number;
+  epoch: number;
+  secret: Hex;
+}
+
+/** Published in the clear on a share or bulletin feed: an ACT address, useless outside its grantee list. */
 export interface ShareFeedHead extends ActReferences {
   v: number;
   publisher: Hex;
-  grade: ShareGrade;
 }
 
 export interface ShareHandle {
@@ -60,6 +76,8 @@ export interface ShareEntry {
   publisher: Hex;
   createdAt: number;
   revokedAt?: number;
+  /** Membership as of the last write, so the bulletin's audience needs no ACT read per grant. */
+  grantees: Hex[];
 }
 
 export interface MalformedShare {

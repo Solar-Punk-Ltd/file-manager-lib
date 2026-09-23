@@ -592,7 +592,8 @@ Removal is never expressed here — that is
   reached in this session).
 
 Re-sharing a node that was itself shared with you works: the grant names the **original** owner's address, not yours, so
-the recipient reads the sharer's feeds directly rather than through you.
+the recipient reads the sharer's feeds directly rather than through you. Only the sharer's key epoch comes through you —
+each session that sees a newer one relays it, and a relay that fails emits `BULLETIN_RELAY_FAILED`.
 
 ### `getShareGrantees(shareId, requestOptions?): Promise<Hex[]>`
 
@@ -612,9 +613,10 @@ those removed are left on an address that no longer resolves for them.
 revoked entry stays in `.shares` as the record that the grant existed and is never matched again, so re-sharing the same
 node at the same grade mints a fresh grant with a fresh handle.
 
-> **Denies future reads only.** Every key a recipient already unwrapped and every chunk they already dereferenced stays
-> readable — Swarm has no delete, and a reference is a capability for as long as the chunks live. Withdrawing past
-> access means rotating the subtree's keys.
+> **Denies future writes.** The drive's key epoch is bumped, so everything written afterwards is sealed under a secret
+> removed recipients cannot derive. Everything that existed at the moment of the revoke stays readable to them — Swarm
+> has no delete, and a reference is a capability for as long as the chunks live. Revoking a re-share takes effect at
+> the original sharer's next bump.
 
 - **Returns**: the updated [`ShareEntry`](#shareentry), stamped `revokedAt` once nobody is left on it.
 - **Emits**: `SHARE_REVOKED`.

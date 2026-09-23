@@ -250,6 +250,40 @@ parent's fork metadata:
 | `swarm-wrapped-meta-key`    | `MANIFEST_METADATA_WRAPPED_META_KEY`    | `iv ‖ AES-GCM(K_meta(parent), K_meta(child))`       |
 | `swarm-wrapped-content-key` | `MANIFEST_METADATA_WRAPPED_CONTENT_KEY` | `iv ‖ AES-GCM(K_content(parent), K_content(child))` |
 
+### Base keys and the drive epoch
+
+The pair above is a node's **base key**: minted at creation, wrapped into the parent, never changed. It does the
+scoping — a grant on a folder hands over that folder's base key and the recipient walks down unwrapping the rest.
+
+What seals a feed payload is the **effective key**, derived per write:
+
+```
+K_eff(node, e) = HKDF(K_base(node), S_e)
+S_e            = HKDF(FMK, driveId ‖ e)
+```
+
+`S_e` is the drive's **epoch secret** — one per drive, bumped on every withdrawal. Bumping it changes the effective key
+of every node in the drive at once while touching nothing on the wire, because the wraps in every manifest are over
+base keys. That is what makes withdrawal cost one publish per live grant instead of one write per node; see
+ACCESS_CONTROL.md §6. The diagram above names base keys, and every payload it shows sealed is sealed under the
+effective key derived from them.
+
+Re-keying is lazy: a node keeps its old seal until the next time it is written, so the epochs in a drive are mixed by
+design and each feed head records its own in the clear. The drive root's tag is the authoritative current epoch — it is
+re-sealed on every withdrawal and at no other time, which is the whole of the bookkeeping.
+
+Secrets form a **reverse hash chain**: `S_e = keccak(S_e+1)`, rooted at `R = HKDF(FMK, driveId ‖ 'epoch-root')` with
+`S_e = keccak^(E-e)(R)` and `E = EPOCH_CHAIN_LENGTH`. Holding one epoch's secret derives every earlier one and none later, which is exactly the shape a
+withdrawal needs — a node not written since an earlier epoch is still sealed under it, so a reader without the history
+would see a subtree full of holes. The owner walks the chain once per drive load, about 13ms at `E = 4096`, shrinking
+as epochs advance; every historical epoch after that is a handful of hashes from the value already in hand.
+
+`E` caps how many withdrawals a drive can make. Past it the drive re-anchors on a fresh root, and the bulletin carries
+the generation alongside the secret so a reader knows which chain an epoch belongs to.
+
+A grant blob carries the shared node's base key and a handle to the drive's bulletin. It carries **no epoch material**,
+so a withdrawal never re-mints it — see ACCESS_CONTROL.md §6.
+
 Root keys are raw bytes rather than a non-extractable `CryptoKey`, because every node key below the root is wrapped into
 a manifest and — once sharing lands — handed to a grantee, so none of them can be non-extractable. The FMK itself is
 imported non-extractable, which keeps its bytes out of the heap but is not a mitigation against code running in the page
@@ -284,6 +318,9 @@ beside the address. **Seal the reference; let Swarm encrypt the bytes.**
 Sealing only the key half of a 64-byte reference would be equally secure — the address alone yields ciphertext — but
 sealing all 64 costs 32 bytes and additionally hides _which chunk_ a feed points at, so an observer cannot correlate a
 feed to a chunk.
+
+A slot is the epoch and the sealed reference, the epoch in the clear: nodes are re-keyed lazily, so a reader has to
+know which epoch secret to derive with before it can unseal anything ([§3](#base-keys-and-the-drive-epoch)).
 
 Two writers follow from payload size:
 

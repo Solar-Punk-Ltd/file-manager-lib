@@ -16,7 +16,15 @@ import { BEE_URL, createInitializedFileManager, makeUploadSource } from '../util
 import { applyDefaultMocks, createMockFeedReader } from './mock';
 
 import { type FileManagerBase } from '@/fileManager';
-import { type DriveInfo, type FolderInfo, type GrantBlob, NodeType, ShareGrade, type ShareHandle } from '@/types';
+import {
+  type DriveInfo,
+  type FolderInfo,
+  type GrantBlob,
+  NodeType,
+  ShareGrade,
+  type ShareHandle,
+  type ShareOptions,
+} from '@/types';
 import { FileManagerEvents } from '@/utils';
 import { getFeedData } from '@/utils/bee';
 import { FEED_INDEX_ZERO, ROOT_PATH, SWARM_ZERO_ADDRESS } from '@/utils/constants';
@@ -230,6 +238,17 @@ describe('Sharing', () => {
       await fm.revokeShare(entry.id);
       await expect(fm.revokeShare(entry.id)).rejects.toThrow(`Share ${entry.id.slice(0, 6)} is already revoked`);
     });
+
+    it('leaves the index as persisted when its save fails, so a retry completes the revoke', async () => {
+      const entry = await fm.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_A]);
+      jest.spyOn((fm as any).store, 'saveControlDocument').mockRejectedValueOnce(new Error('batch full'));
+
+      await expect(fm.revokeShare(entry.id)).rejects.toThrow('share index was not saved');
+      expect(fm.shareList![0].revokedAt).toBeUndefined();
+
+      const revoked = await fm.revokeShare(entry.id);
+      expect(fm.shareList![0].revokedAt).toEqual(revoked.revokedAt);
+    });
   });
 
   describe('acceptShare', () => {
@@ -255,12 +274,15 @@ describe('Sharing', () => {
     /** Publishes a real grant, then wires back what the recipient reads and downloads. */
     const publishFolderGrant = async (
       grade: ShareGrade = ShareGrade.Read,
+      options?: ShareOptions,
     ): Promise<{ handle: ShareHandle; blob: GrantBlob }> => {
       const blobs = captureBlobUploads();
-      const entry = await fm.share(drive.id, 'Docs', grade, [RECIPIENT_A]);
-      expect(blobs).toHaveLength(1);
+      const entry = await fm.share(drive.id, 'Docs', grade, [RECIPIENT_A], options);
+      // The grant blob, then the drive's bulletin — which the recipient reads back through the store.
+      expect(blobs).toHaveLength(2);
 
       serveGrantBlob(blobs[0]);
+      jest.spyOn((fm as any).store, 'readBulletin').mockResolvedValue(JSON.parse(blobs[1]));
 
       // Whatever `share` published is what comes back, rather than a hand-built head.
       const published = await (getFeedData as jest.Mock)(null, new Topic(entry.shareTopic), drive.owner);
@@ -286,6 +308,17 @@ describe('Sharing', () => {
         driveId: fm.sharedWithMe!.id,
       });
       expect(handler).toHaveBeenCalledWith({ driveId: fm.sharedWithMe!.id, entry: mounted });
+    });
+
+    it("hands the sharer's message to SHARE_ACCEPTED", async () => {
+      const message = 'Q3 numbers, please review';
+      const handler = jest.fn();
+      fm.emitter.on(FileManagerEvents.SHARE_ACCEPTED, handler);
+      const { handle } = await publishFolderGrant(ShareGrade.Read, { message });
+
+      const mounted = await fm.acceptShare(handle);
+
+      expect(handler).toHaveBeenCalledWith({ driveId: fm.sharedWithMe!.id, entry: mounted, message });
     });
 
     it('mounts a list grant, which carries no content key', async () => {

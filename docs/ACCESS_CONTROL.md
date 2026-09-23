@@ -311,6 +311,7 @@ flowchart TD
     B -- no --> M["upload the grant blob under a new ACT<br/>→ new entry, new shareTopic"]
     B -- yes --> C["addGrantees on the ACT history<br/>→ new grantee list and historyRef"]
     R["revokeShare(shareId, recipients?)"] --> C2["revokeGrantees, re-keying the ACT<br/>→ new grantee list and historyRef"]
+    C2 --> C3["bump the drive epoch<br/>→ new bulletin, re-sealed drive root"]
     M --> D["write the new share-feed head"]
     C --> D
     C2 --> D
@@ -323,22 +324,110 @@ the protected bytes and — on `BeeClient` — the encrypted reference stay put.
 life of a grant: the blob is immutable and already carries the keys it was minted with.
 
 `revokeShare(shareId, recipients?)` covers both shapes of withdrawal against that one list. Named recipients are
-intersected with the current membership and dropped; omitting them drops everyone. Either way the ACT is re-keyed and
-the new head published, so those still on the list follow the feed and keep reading while those removed are left on an
-address that no longer resolves for them. **An emptied list closes the entry** — `revokedAt` is stamped whether the last
+intersected with the current membership and dropped; omitting them drops everyone. Either way the ACT is re-keyed, the
+drive's key epoch is bumped and the new head published, so those still on the list follow the feed and keep reading
+while those removed are left on an address that no longer resolves for them. **An emptied list closes the entry** — `revokedAt` is stamped whether the last
 member left by name or by omission, because a grant reaching nobody is one `share()` would otherwise keep amending.
 
 A revoked entry stays in `.shares` as the record that the grant existed, and is never matched again: re-sharing the same
 node at the same grade mints a fresh grant with a fresh handle, which is the honest outcome — the old handle was
 published to people who no longer hold it.
 
-**Revocation denies future reads.** Every key a recipient already unwrapped and every chunk they already dereferenced
-stays readable: Swarm has no delete, and a 64-byte reference is a capability for as long as the chunks live.
+### Rotation is an epoch bump, not a re-keying job
 
-**Rotation is what withdraws past access.** Re-keying a subtree re-seals one feed payload per node and re-wraps each
-node's child keys; content is never re-uploaded, since the content references are unchanged. It runs as a resumable job
-with a persisted progress marker — a half-rotated subtree leaves parents holding wrapped keys that no longer match their
-children, and Bee no-ops on a taken feed index.
+Every node's feed payload is sealed under an **effective key**, derived from the node's own base key and the drive's
+current **epoch secret** — see ENCRYPTION.md §3. Base keys do the scoping and never change; the epoch secret does the
+confidentiality and changes on every withdrawal.
+
+So a withdrawal re-keys the whole drive by minting one secret, and **nothing in the shared subtree is rewritten**. The
+wrapped keys in every manifest wrap base keys, which are untouched, so no manifest is re-uploaded and no feed index is
+contended. A subfolder with a feed of its own is re-keyed by the same bump that re-keys its parent, without being
+touched or even visited — the epoch is an input every node already depends on, so there is nothing to propagate.
+
+### The epoch bulletin
+
+The current epoch secret lives in one ACT-protected **bulletin** per drive, published behind a bulletin feed the way a
+grant is published behind a share feed. Its grantee list is everyone holding any live grant in the drive. Each publish
+mints a fresh bulletin rather than patching the last one, so it keeps no ACT history.
+
+A grant blob carries base keys and the bulletin's handle, never epoch material, so a withdrawal never re-mints a blob.
+Recipients still on the list read the new secret from the bulletin and carry on under the handle they already hold.
+
+A recipient reaches a folder through both feeds, and the two paths meet only at the effective key. The grant decides
+*what* opens; the bulletin decides *until when*:
+
+```mermaid
+flowchart TD
+    subgraph PUB["Public"]
+        SH["Share feed head<br/>ACT ref · grade"]
+        BH["Bulletin feed head<br/>ACT ref · epoch number e"]
+    end
+    subgraph GATED["ACT-gated"]
+        GB["Grant blob<br/>K_base(F) · bulletin handle"]
+        BP["Bulletin payload<br/>epoch secret S(e)"]
+    end
+    subgraph SEALED["Sealed under K_eff"]
+        FP["Folder F feed payload<br/>epoch tag e + sealed manifest ref"]
+        FM["Folder F manifest<br/>forks hold wrapped child keys"]
+    end
+    SH --> GB
+    BH --> BP
+    GB -. "handle" .-> BH
+    GB --> K["K_eff(F, e) = HKDF(K_base(F), S(e))<br/>derived, never stored"]
+    BP --> K
+    K --> FP --> FM
+    FM -. "each child: unwrap its K_base under K_base(F), same S(e)" .-> K
+```
+
+That is the whole of a withdrawal: revoke the grant's ACT, upload the new secret to those still on a grant, publish
+the bulletin head, and re-seal the drive root at the new epoch — whose head tag is what makes that epoch the drive's
+current one. Four writes, constant in both the size of the tree and the number of grants, each idempotent. There is no
+resumable job, and no half-rotated state that leaves parents holding keys their children no longer answer to.
+
+The bump itself lives only in the keyring. The drive root's head tag is where it persists, and every path resolution
+reads that head before any write:
+
+```mermaid
+flowchart TD
+    B["Session 1: revokeShare bumps e → e+1<br/>keyring memory only"]
+    B --> S1["Drive root re-sealed<br/>new slot, tag e+1"]
+    B -. "without the re-seal" .-> X1["Latest root slot<br/>still tag e"]
+    S1 --> S2["Session 2 reads the root head<br/>current = e+1"]
+    X1 --> X2["Session 2 reads the root head<br/>current = e"]
+    S2 --> S3["Next write seals under K_eff(node, e+1)"]
+    X2 --> X3["Next write seals under K_eff(node, e)"]
+    S3 --> S4["Revoked recipient cannot derive S(e+1)"]
+    X3 --> X4["Revoked recipient holds S(e) and reads it"]
+```
+
+The secret can be shared that widely because it is not a capability on its own: `K_eff = HKDF(K_base, S_e)`, and a
+recipient holds base keys only for what they were granted. The epoch secret is the lever that withdraws, not a key that
+reads.
+
+Re-keying is **lazy**. A node keeps its old seal until the next time it is written, and its head records in the clear
+which epoch sealed it, so the owner knows which secret opens it. A withdrawn recipient therefore keeps opening any node
+that has not changed since — which is exactly the state they already held. The moment a node is written it seals under
+the new epoch and they are out of it, and anything created afterwards is invisible to them, because the parent manifest
+naming it is sealed under the new epoch too.
+
+**What withdrawal denies is future writes.** It does not deny access a recipient held but never exercised: everything
+that existed at the moment of withdrawal stays readable to them, whether or not they had fetched it. Eagerly re-sealing
+those nodes would not change that — Swarm has no delete, a 64-byte reference is a capability for as long as the chunks
+live, and a `read` recipient can mirror a subtree in one pass the moment they accept. Paying a write per node to re-seal
+state the recipient is free to have copied buys nothing.
+
+Content is never re-uploaded. The content references are unchanged; only the pointer to them is re-sealed.
+
+### Re-sharing
+
+A mounted node follows its sharer's epoch, and only the sharer can bump it. So a re-share cannot point its recipients
+at the sharer's bulletin, which they are not on — the re-sharer runs a bulletin of its own for that mount and relays the
+sharer's secret through it. Each session that reads a newer secret from the sharer passes it on, so the re-share's
+recipients are exactly as current as the re-sharer's last visit.
+
+Access flows through the re-sharer, as it does on Google Drive: when the sharer withdraws the re-sharer, the relay
+stops receiving new epochs and every recipient behind it is withdrawn with it. Revoking a re-share drops its recipients
+from the relay, and takes effect at the sharer's next bump — until then they hold the same epoch as everyone else.
 
 **Lifecycle of the shared node.** `trash`, `forget` and `emptyTrash` all leave grants untouched. None of them removes
 the node: `trash` moves its fork, `forget` and `emptyTrash` drop forks from a manifest, and the node's own feed, keys

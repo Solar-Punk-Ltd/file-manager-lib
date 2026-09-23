@@ -12,11 +12,19 @@ import {
   NodeStatus,
   NodeType,
 } from '../types/info';
-import { type GrantBlob, type MalformedShare, type ShareEntry, type ShareFeedHead, ShareGrade } from '../types/share';
+import {
+  type BulletinPayload,
+  type GrantBlob,
+  type MalformedShare,
+  type ShareEntry,
+  type ShareFeedHead,
+  ShareGrade,
+} from '../types/share';
 import { type ActReferences, type ContentRef, type Hex } from '../types/utils';
 
 import { errorMessage } from './common';
 import {
+  EPOCH_CHAIN_LENGTH,
   MANIFEST_METADATA_DRIVE_BATCH_ID,
   MANIFEST_METADATA_DRIVE_ID,
   MANIFEST_METADATA_DRIVE_KIND,
@@ -200,6 +208,11 @@ export function assertShareEntry(value: unknown): asserts value is ShareEntry {
   assertActReferences(se.granteeList);
   assertActReferences(se.act);
 
+  if (!Array.isArray(se.grantees)) {
+    throw new TypeError('grantees property of ShareEntry has to be an array!');
+  }
+  se.grantees.forEach((g) => assertCompressedPublicKeyShape(g, 'grantee of ShareEntry'));
+
   if (typeof se.createdAt !== 'number') {
     throw new TypeError('createdAt property of ShareEntry has to be number!');
   }
@@ -222,10 +235,24 @@ export function assertShareFeedHead(value: unknown): asserts value is ShareFeedH
 
   assertActReferences(head);
   new PublicKey(head.publisher);
+}
 
-  if (!Object.values(ShareGrade).includes(head.grade)) {
-    throw new TypeError('grade property of ShareFeedHead has to be a valid ShareGrade!');
+export function assertBulletinPayload(value: unknown): asserts value is BulletinPayload {
+  if (!Types.isStrictlyObject(value)) {
+    throw new TypeError('BulletinPayload has to be object!');
   }
+
+  const payload = value as unknown as BulletinPayload;
+
+  if (payload.v !== SHARE_FORMAT_VERSION) {
+    throw new TypeError(`Unsupported bulletin format version: ${String(payload.v)}`);
+  }
+
+  if (!Number.isInteger(payload.epoch) || payload.epoch < 0 || payload.epoch > EPOCH_CHAIN_LENGTH) {
+    throw new TypeError('epoch property of BulletinPayload has to be a valid epoch!');
+  }
+
+  new Bytes(payload.secret, DERIVED_SECRET_LENGTH);
 }
 
 export function assertMountName(value: unknown): void {
@@ -263,11 +290,22 @@ export function assertGrantBlob(value: unknown): asserts value is GrantBlob {
 
   assertMountName(blob.name);
 
+  if (!Object.values(ShareGrade).includes(blob.grade)) {
+    throw new TypeError('grade property of GrantBlob has to be a valid ShareGrade!');
+  }
+
   for (const key of [blob.meta, blob.content]) {
     if (key !== undefined) {
       new Bytes(key, DERIVED_SECRET_LENGTH);
     }
   }
+
+  if (!Types.isStrictlyObject(blob.bulletin)) {
+    throw new TypeError('bulletin property of GrantBlob has to be object!');
+  }
+
+  new Topic(blob.bulletin.topic);
+  new EthAddress(blob.bulletin.owner);
 
   if (blob.message !== undefined && typeof blob.message !== 'string') {
     throw new TypeError('message property of GrantBlob has to be string!');

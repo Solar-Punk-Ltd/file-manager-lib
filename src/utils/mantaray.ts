@@ -12,6 +12,7 @@ import {
   type NodeHeader,
   NodeType,
 } from '../types/info';
+import type { BulletinHandle } from '../types/share';
 import type { SwarmClient } from '../types/swarmClient';
 import type { FeedWriteResult, SwarmDownloadOptions, SwarmRequestOptions, SwarmUploadOptions } from '../types/utils';
 
@@ -19,6 +20,8 @@ import { writeSealedRefFeed } from './bee';
 import { getRecordStatus } from './common';
 import {
   DRIVE_FORK_PREFIX,
+  MANIFEST_METADATA_BULLETIN_OWNER,
+  MANIFEST_METADATA_BULLETIN_TOPIC,
   MANIFEST_METADATA_DRIVE_BATCH_ID,
   MANIFEST_METADATA_DRIVE_ID,
   MANIFEST_METADATA_DRIVE_KIND,
@@ -34,14 +37,14 @@ import {
   MANIFEST_METADATA_WRAPPED_CONTENT_KEY,
   MANIFEST_METADATA_WRAPPED_META_KEY,
 } from './constants';
-import { openWithKey, sealWithKey } from './crypto';
+import { decryptBytes, encryptBytes } from './crypto';
 import { FolderError, KeyringError } from './errors';
 import { splitPath } from './path';
 
 export async function loadMantaray(
   swarmClient: SwarmClient,
   mantarayRef: string | Reference,
-  key: Uint8Array,
+  key: CryptoKey,
   options?: SwarmDownloadOptions,
   requestOptions?: SwarmRequestOptions,
 ): Promise<MantarayNode> {
@@ -54,12 +57,12 @@ export async function loadMantaray(
 async function unmarshalNode(
   swarmClient: SwarmClient,
   reference: Reference,
-  key: Uint8Array,
+  key: CryptoKey,
   options?: SwarmDownloadOptions,
   requestOptions?: SwarmRequestOptions,
 ): Promise<MantarayNode> {
   const sealed = await swarmClient.downloadData(reference.toString(), options, requestOptions);
-  const data = await openWithKey(key, sealed);
+  const data = await decryptBytes(key, sealed);
 
   return MantarayNode.unmarshalFromData(data, reference.toUint8Array());
 }
@@ -67,7 +70,7 @@ async function unmarshalNode(
 async function loadForks(
   swarmClient: SwarmClient,
   node: MantarayNode,
-  key: Uint8Array,
+  key: CryptoKey,
   options?: SwarmDownloadOptions,
   requestOptions?: SwarmRequestOptions,
 ): Promise<void> {
@@ -90,7 +93,7 @@ async function saveMantarayRecursively(
   swarmClient: SwarmClient,
   node: MantarayNode,
   batchId: string,
-  key: Uint8Array,
+  key: CryptoKey,
   options?: SwarmUploadOptions,
   requestOptions?: SwarmRequestOptions,
 ): Promise<Reference> {
@@ -98,7 +101,7 @@ async function saveMantarayRecursively(
     await saveMantarayRecursively(swarmClient, fork.node, batchId, key, options, requestOptions);
   }
 
-  const sealed = await sealWithKey(key, await node.marshal());
+  const sealed = await encryptBytes(key, await node.marshal());
   const { reference } = await swarmClient.uploadData(batchId, sealed, options, requestOptions);
   const saved = new Reference(reference);
   node.selfAddress = saved.toUint8Array();
@@ -152,7 +155,8 @@ export async function saveNodeManifest(
   identity: Identity,
   node: MantarayNode,
   host: ManifestHost,
-  key: Uint8Array,
+  key: CryptoKey,
+  epoch: number,
   index?: bigint,
   requestOptions?: BeeRequestOptions,
 ): Promise<FeedWriteResult> {
@@ -163,6 +167,7 @@ export async function saveNodeManifest(
     identity,
     rootReference,
     key,
+    epoch,
     {
       batchId: host.batchId,
       topic: host.topic,
@@ -248,7 +253,14 @@ export function driveForkMetadata(drive: DriveInfo, wrapped: WrappedKeys): Recor
 }
 
 export function mountForkMetadata(
-  mount: { topic: string; type: NodeType; owner: string; shareTopic: string; redundancyLevel: RedundancyLevel },
+  mount: {
+    topic: string;
+    type: NodeType;
+    owner: string;
+    shareTopic: string;
+    bulletin: BulletinHandle;
+    redundancyLevel: RedundancyLevel;
+  },
   wrapped: WrappedKeys,
 ): Record<string, string> {
   return {
@@ -256,7 +268,10 @@ export function mountForkMetadata(
     [MANIFEST_METADATA_NODE_TYPE]: mount.type,
     [MANIFEST_METADATA_NODE_OWNER]: mount.owner,
     [MANIFEST_METADATA_REDUNDANCY_LEVEL]: mount.redundancyLevel.toString(),
+    // Kept so a mount can find its grant's share feed again. Private to the recipient's own manifest.
     [MANIFEST_METADATA_SHARE_TOPIC]: mount.shareTopic,
+    [MANIFEST_METADATA_BULLETIN_TOPIC]: mount.bulletin.topic,
+    [MANIFEST_METADATA_BULLETIN_OWNER]: mount.bulletin.owner,
     ...wrappedKeysMetadata(wrapped),
   };
 }

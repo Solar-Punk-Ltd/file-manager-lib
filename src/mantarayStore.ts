@@ -13,13 +13,21 @@ import {
   NodeType,
   type ResolvedFileFork,
 } from './types/info';
-import type { ShareFeedHead } from './types/share';
+import type { BulletinHandle, BulletinPayload, ShareFeedHead } from './types/share';
 import { type SwarmClient } from './types/swarmClient';
-import { type ContentRef, type FeedResultWithIndex, type FeedTarget, type FeedWriteResult } from './types/utils';
+import {
+  type ContentRef,
+  type FeedResultWithIndex,
+  type FeedTarget,
+  type FeedWriteResult,
+  type Hex,
+} from './types/utils';
 import { assertFileRecord } from './utils/asserts';
-import { getFeedData, openFeedRef, writeEncryptedFeed, writePlainFeed } from './utils/bee';
+import { feedEpoch, getFeedData, openFeedRef, readBulletin, writeEncryptedFeed, writePlainFeed } from './utils/bee';
 import {
   FEED_INDEX_NONE,
+  MANIFEST_METADATA_BULLETIN_OWNER,
+  MANIFEST_METADATA_BULLETIN_TOPIC,
   MANIFEST_METADATA_NODE_OWNER,
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
@@ -27,7 +35,9 @@ import {
   MANIFEST_METADATA_WRAPPED_CONTENT_KEY,
   MANIFEST_METADATA_WRAPPED_META_KEY,
   ROOT_PATH,
+  SHARE_FORMAT_VERSION,
 } from './utils/constants';
+import { bulletinTopic } from './utils/crypto';
 import { DriveError, FileRecordError, FolderError, IdentityError } from './utils/errors';
 import { loadMantaray, saveNodeManifest, wrappedKeysFromMetadata, wrappedKeysMetadata } from './utils/mantaray';
 import { pathSegments, splitPath } from './utils/path';
@@ -45,6 +55,8 @@ export class MantarayStore {
   private readonly nodeManifestLoading: Map<string, Promise<MantarayNode>> = new Map();
   private readonly nodeNextIndexCache: Map<string, bigint> = new Map();
   private readonly nodeRefCache: Map<string, ContentRef> = new Map();
+  private readonly nodeEpochCache: Map<string, number> = new Map();
+  private readonly bulletinCache: Map<string, BulletinPayload> = new Map();
 
   // --- Initialization ---
 
@@ -177,8 +189,8 @@ export class MantarayStore {
     // Concurrent getMantarayNode calls for the same but not yet cached topic must share one load (and thus one MantarayNode instance) — otherwise
     // each caller mutates its own copy and all but the last are dropped before the batched save.
     const loadPromise = (async (): Promise<MantarayNode> => {
-      const { meta } = await this.keyring.requireKeys(topic);
-      const node = await loadMantaray(this.swarmClient, manifestRef.reference, meta, undefined, requestOptions);
+      const key = await this.keyring.metaSealKey(topic, this.epochOf(topic));
+      const node = await loadMantaray(this.swarmClient, manifestRef.reference, key, undefined, requestOptions);
 
       this.setManifestCache(topic, node);
       this.setNodeRef(topic, manifestRef);
@@ -200,7 +212,8 @@ export class MantarayStore {
     requestOptions?: BeeRequestOptions,
   ): Promise<ContentRef> {
     const cachedWriteIx = this.getNodeNextIndexCache(host.topic);
-    const { meta } = await this.keyring.requireKeys(host.topic);
+    const epoch = this.keyring.epochFor(host.topic);
+    const key = await this.keyring.metaSealKey(host.topic, epoch);
 
     let contentRef: ContentRef;
     let nextIndex: bigint;
@@ -210,7 +223,8 @@ export class MantarayStore {
         this.requireIdentity(),
         node,
         host,
-        meta,
+        key,
+        epoch,
         cachedWriteIx,
         requestOptions,
       ));
@@ -220,6 +234,7 @@ export class MantarayStore {
     }
     this.setNodeNextIndexCache(host.topic, nextIndex);
     this.setNodeRef(host.topic, contentRef);
+    this.nodeEpochCache.set(host.topic, epoch);
 
     return contentRef;
   }
@@ -233,13 +248,15 @@ export class MantarayStore {
     delete persistable.driveId;
     delete (persistable as Partial<FileRecord>).path;
 
-    const content = await this.keyring.requireContentKey(record.topic);
+    const epoch = this.keyring.epochFor(record.topic);
+    const key = await this.keyring.contentSealKey(record.topic, epoch);
 
     const { contentRef, index, nextIndex } = await writeEncryptedFeed(
       this.swarmClient,
       this.requireIdentity(),
       JSON.stringify(persistable),
-      content,
+      key,
+      epoch,
       {
         batchId: record.batchId,
         topic: record.topic,
@@ -250,6 +267,7 @@ export class MantarayStore {
     );
     this.setNodeNextIndexCache(record.topic, nextIndex);
     this.setNodeRef(record.topic, contentRef);
+    this.nodeEpochCache.set(record.topic, epoch);
 
     return { contentRef, index, nextIndex };
   }
@@ -264,13 +282,15 @@ export class MantarayStore {
     document: ControlDocument,
     requestOptions?: BeeRequestOptions,
   ): Promise<FeedWriteResult> {
-    const content = await this.keyring.requireContentKey(node.topic);
+    const epoch = this.keyring.epochFor(node.topic);
+    const key = await this.keyring.contentSealKey(node.topic, epoch);
 
     const result = await writeEncryptedFeed(
       this.swarmClient,
       this.requireIdentity(),
       JSON.stringify(document),
-      content,
+      key,
+      epoch,
       {
         batchId: node.batchId,
         topic: node.topic,
@@ -281,17 +301,18 @@ export class MantarayStore {
     );
     this.setNodeNextIndexCache(node.topic, result.nextIndex);
     this.setNodeRef(node.topic, result.contentRef);
+    this.nodeEpochCache.set(node.topic, epoch);
 
     return result;
   }
 
   /**
-   * Write a share feed head — the stable handle behind every grant.
+   * Write a share or bulletin feed head.
    *
    * In the clear, unlike every other feed this library writes: the head is an ACT address, and an
    * ACT address resolves to nothing outside its grantee list.
    */
-  async saveShareHead(target: FeedTarget, head: ShareFeedHead, requestOptions?: BeeRequestOptions): Promise<void> {
+  async savePublicHead(target: FeedTarget, head: ShareFeedHead, requestOptions?: BeeRequestOptions): Promise<void> {
     const index = target.index ?? this.getNodeNextIndexCache(target.topic);
     const { nextIndex } = await writePlainFeed(
       this.swarmClient,
@@ -302,6 +323,54 @@ export class MantarayStore {
     );
 
     this.setNodeNextIndexCache(target.topic, nextIndex);
+  }
+
+  /** A bulletin's current secret, read once per session. */
+  async readBulletin(handle: BulletinHandle, requestOptions?: BeeRequestOptions): Promise<BulletinPayload> {
+    let payload = this.bulletinCache.get(handle.topic);
+    if (!payload) {
+      payload = await readBulletin(this.swarmClient, handle, requestOptions);
+      this.bulletinCache.set(handle.topic, payload);
+    }
+
+    return payload;
+  }
+
+  /**
+   * Publish the drive's current epoch secret to `audience`. Minted fresh rather than patched: one
+   * upload instead of two, and no ACT history to keep alive.
+   */
+  async publishBulletin(
+    driveTopic: string,
+    batchId: string,
+    audience: Hex[],
+    redundancyLevel: RedundancyLevel,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void> {
+    // Nobody left to read it. The epoch still moved, so the drive is simply closed to its old readers.
+    if (audience.length === 0) return;
+
+    const { epoch, secret } = this.keyring.currentSecret(driveTopic);
+    const payload: BulletinPayload = { v: SHARE_FORMAT_VERSION, epoch, secret: new Bytes(secret).toString() };
+
+    const upload = await this.swarmClient.uploadProtected(
+      batchId,
+      JSON.stringify(payload),
+      audience,
+      undefined,
+      { redundancyLevel },
+      requestOptions,
+    );
+
+    const head: ShareFeedHead = {
+      v: SHARE_FORMAT_VERSION,
+      reference: upload.contentRefs.reference,
+      historyRef: upload.contentRefs.historyRef,
+      publisher: this.swarmClient.actPublisher,
+    };
+    const topic = await bulletinTopic(this.requireIdentity(), driveTopic);
+
+    await this.savePublicHead({ batchId, topic }, head, requestOptions);
   }
 
   /**
@@ -321,8 +390,7 @@ export class MantarayStore {
     );
     if (feedIndex.equals(FEED_INDEX_NONE)) return undefined;
 
-    const content = await this.keyring.requireContentKey(topic);
-    const contentRef = await openFeedRef(payload, content);
+    const contentRef = await openFeedRef(payload, await this.contentKeyAt(topic, payload));
     const bytes = await this.swarmClient.downloadData(contentRef.reference, undefined, requestOptions);
 
     this.setNodeRef(topic, contentRef);
@@ -341,8 +409,7 @@ export class MantarayStore {
       throw new FileRecordError(`File record not found for topic: ${topic.slice(0, 6)}`);
     }
 
-    const content = await this.keyring.requireContentKey(topic);
-    const contentRef = await openFeedRef(feedData.payload, content);
+    const contentRef = await openFeedRef(feedData.payload, await this.contentKeyAt(topic, feedData.payload));
     const fileBytes = await this.swarmClient.downloadData(contentRef.reference, undefined, requestOptions);
 
     const record = new Bytes(fileBytes).toJSON() as FileRecord;
@@ -410,16 +477,46 @@ export class MantarayStore {
    * payload, the store holds the key.
    */
   async openManifestRef(topic: string, payload: Bytes): Promise<ContentRef> {
-    const { meta } = await this.keyring.requireKeys(topic);
+    const epoch = feedEpoch(payload);
+    this.keyring.noteEpoch(topic, epoch);
+    this.nodeEpochCache.set(topic, epoch);
 
-    return await openFeedRef(payload, meta);
+    return await openFeedRef(payload, await this.keyring.metaSealKey(topic, epoch));
+  }
+
+  // As the node's last-read head declared, falling back to current for one written but not read back.
+  private epochOf(topic: string): number {
+    // TODO: do we cache if nodeEpochCache.get returns undefined and store epochfor?
+    return this.nodeEpochCache.get(topic) ?? this.keyring.epochFor(topic);
+  }
+
+  private async contentKeyAt(topic: string, payload: Bytes): Promise<CryptoKey> {
+    const epoch = feedEpoch(payload);
+    this.keyring.noteEpoch(topic, epoch);
+    this.nodeEpochCache.set(topic, epoch);
+
+    return await this.keyring.contentSealKey(topic, epoch);
   }
 
   // --- Key chain ---
 
   /** Recover a child's keys from its fork metadata, sealed under `parentTopic`'s. */
   async unwrapFork(parentTopic: string, childTopic: string, meta: Record<string, string>): Promise<NodeKeys> {
-    return await this.keyring.unwrapChild(parentTopic, childTopic, wrappedKeysFromMetadata(meta));
+    const keys = await this.keyring.unwrapChild(parentTopic, childTopic, wrappedKeysFromMetadata(meta));
+    await this.adoptMountScope(childTopic, meta);
+
+    return keys;
+  }
+
+  // A mount follows the sharer's epoch, not that of the drive it is mounted in.
+  private async adoptMountScope(topic: string, meta: Record<string, string>): Promise<void> {
+    const bulletin = meta[MANIFEST_METADATA_BULLETIN_TOPIC];
+    const owner = meta[MANIFEST_METADATA_BULLETIN_OWNER];
+    // TODO: throw isntead of return
+    if (!bulletin || !owner) return;
+
+    const payload = await this.readBulletin({ topic: bulletin, owner });
+    this.keyring.adoptScope(topic, payload.epoch, new Bytes(payload.secret).toUint8Array());
   }
 
   /**
@@ -490,6 +587,7 @@ export class MantarayStore {
     this.nodeManifestLoading.delete(topic);
     this.nodeNextIndexCache.delete(topic);
     this.nodeRefCache.delete(topic);
+    this.nodeEpochCache.delete(topic);
   }
 
   /** Drop all cached state */
@@ -498,6 +596,8 @@ export class MantarayStore {
     this.nodeManifestLoading.clear();
     this.nodeNextIndexCache.clear();
     this.nodeRefCache.clear();
+    this.nodeEpochCache.clear();
+    this.bulletinCache.clear();
     this._keyring?.clear();
   }
 

@@ -1,8 +1,10 @@
-import { Bytes } from '@ethersphere/core-sdk';
+import { Bytes, Topic } from '@ethersphere/core-sdk';
 
 import type { NodeKeys } from '../types/crypto';
+import type { Identity } from '../types/identity';
 import type { Hex } from '../types/utils';
 
+import { BULLETIN_TOPIC_LABEL, EPOCH_CHAIN_LENGTH, EPOCH_SEAL_LABEL } from './constants';
 import { KeyringError } from './errors';
 
 const HKDF_ALG = 'HKDF';
@@ -176,4 +178,44 @@ export function copyKeys(keys: NodeKeys): NodeKeys {
 
 export function sameKey(a: Uint8Array, b: Uint8Array): boolean {
   return a.length === b.length && a.every((byte, i) => byte === b[i]);
+}
+
+/** The key a feed payload is sealed under: the node's base key salted with the drive's epoch secret. */
+export async function effectiveKey(baseKey: Uint8Array, secret: Uint8Array): Promise<CryptoKey> {
+  return await deriveAesKey(await importDerivationKey(baseKey), EPOCH_SEAL_LABEL, secret);
+}
+
+function hashChain(seed: Uint8Array, steps: number): Uint8Array {
+  let out = seed;
+  for (let i = 0; i < steps; i++) {
+    out = Bytes.keccak256(out).toUint8Array();
+  }
+
+  return out;
+}
+
+/**
+ * Epoch `e`'s secret. The chain runs backwards, so a holder derives every earlier epoch and none
+ * later — that asymmetry is the whole of a withdrawal, and reversing it would void every one.
+ */
+export function epochSecret(root: Uint8Array, epoch: number): Uint8Array {
+  if (!Number.isInteger(epoch) || epoch < 0 || epoch > EPOCH_CHAIN_LENGTH) {
+    throw new KeyringError(`Epoch ${epoch} is outside the chain`);
+  }
+
+  return hashChain(root, EPOCH_CHAIN_LENGTH - epoch);
+}
+
+/** An earlier epoch's secret, from one already in hand. Cheaper than walking the root again. */
+export function pastEpochSecret(secret: Uint8Array, from: number, to: number): Uint8Array {
+  if (to > from) {
+    throw new KeyringError(`Cannot derive epoch ${to} from ${from} — the chain only runs backwards`);
+  }
+
+  return hashChain(secret, from - to);
+}
+
+/** Where a drive publishes its epoch bulletin. Derived, so the owner never stores it. */
+export async function bulletinTopic(identity: Identity, driveTopic: string): Promise<string> {
+  return new Topic(await identity.deriveKeyBytes(`${BULLETIN_TOPIC_LABEL}:${driveTopic}`)).toString();
 }
