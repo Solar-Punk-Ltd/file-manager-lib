@@ -93,12 +93,13 @@ async function buyStamp(
 
   return await bee.stamp.create(amount, depth, {
     waitForUsable: true,
+    waitForUsableTimeout: 60_000,
     label,
   });
 }
 
-// Stamp creation is an on-chain op; a Bee node rejects simultaneous ones
-const ON_CHAIN_BUSY = /simultaneous on-chain operations|too many requests|\b429\b/i;
+// Stamp creation is an on-chain op; a Bee node rejects simultaneous ones. A batch that never turns usable is bought again.
+const RETRYABLE = /simultaneous on-chain operations|too many requests|\b429\b|postage stamp to become usable/i;
 
 export async function buyStampSerialized(
   bee: Bee,
@@ -115,7 +116,7 @@ export async function buyStampSerialized(
     } catch (err: unknown) {
       lastError = err;
       const haystack = `${(err as any)?.message ?? ''} ${(err as any)?.status ?? ''} ${(err as any)?.code ?? ''}`;
-      if (i === attempts - 1 || !ON_CHAIN_BUSY.test(haystack)) {
+      if (i === attempts - 1 || !RETRYABLE.test(haystack)) {
         throw err;
       }
       const base = 500 * (i + 1);
