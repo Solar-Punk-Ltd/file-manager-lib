@@ -266,6 +266,18 @@ describe('Sharing', () => {
       const revoked = await fm.revokeShare(entry.id);
       expect(fm.shareList![0].revokedAt).toEqual(revoked.revokedAt);
     });
+
+    it('closes the open grants of a forgotten drive', async () => {
+      const handler = jest.fn();
+      fm.emitter.on(FileManagerEvents.SHARE_REVOKED, handler);
+      const entry = await fm.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_A]);
+
+      await fm.forgetDrive(drive.id);
+
+      expect(fm.shareList![0].revokedAt).toEqual(expect.any(Number));
+      expect(granteeLists.get(entry.granteeList.reference)).toEqual([]);
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('key rotation', () => {
@@ -317,6 +329,35 @@ describe('Sharing', () => {
       await fm.move('Docs/report.txt', 'Private/report.txt', drive.id);
 
       expect(forkMeta(privateFolder.topic, 'report.txt')[MANIFEST_METADATA_KEY_GEN]).toBe('1');
+    });
+
+    it('rotates nothing when the index commit fails, so no later write re-issues to the withdrawn', async () => {
+      const entry = await fm.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_A, RECIPIENT_B]);
+      jest.spyOn((fm as any).store, 'saveControlDocument').mockRejectedValueOnce(new Error('batch full'));
+
+      await expect(fm.revokeShare(entry.id, [RECIPIENT_A])).rejects.toThrow('share index was not saved');
+      expect(forkMeta(drive.topic, 'Docs')[MANIFEST_METADATA_KEY_GEN]).toBe('0');
+
+      const blobs = captureBlobUploads();
+      await fm.createFolder(drive.id, 'Docs', 'Later');
+
+      expect(blobs).toEqual([]);
+    });
+
+    it('leaves a rotation that did not land to the next write into the node', async () => {
+      const entry = await fm.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_A, RECIPIENT_B]);
+      jest.spyOn((fm as any).store, 'rotateNode').mockRejectedValueOnce(new Error('batch full'));
+
+      const amended = await fm.revokeShare(entry.id, [RECIPIENT_A]);
+      expect(amended.gen).toBe(1);
+      expect(forkMeta(drive.topic, 'Docs')[MANIFEST_METADATA_KEY_GEN]).toBe('0');
+
+      const blobs = captureBlobUploads();
+      await fm.createFolder(drive.id, 'Docs', 'Later');
+
+      expect(forkMeta(drive.topic, 'Docs')[MANIFEST_METADATA_KEY_GEN]).toBe('1');
+      expect(blobs).toEqual([]);
+      expect(await fm.getShareGrantees(entry.id)).toEqual([RECIPIENT_B]);
     });
 
     it('refuses a write to a node that is due a rotation', async () => {
@@ -386,6 +427,28 @@ describe('Sharing', () => {
         driveId: fm.sharedWithMe!.id,
       });
       expect(handler).toHaveBeenCalledWith({ driveId: fm.sharedWithMe!.id, entry: mounted });
+    });
+
+    it('unmounts a grant and emits SHARE_UNMOUNTED, leaving the handle able to mount it again', async () => {
+      const handler = jest.fn();
+      fm.emitter.on(FileManagerEvents.SHARE_UNMOUNTED, handler);
+      const { handle } = await publishFolderGrant();
+      await fm.acceptShare(handle);
+      const store = (fm as any).store;
+      const shared = fm.sharedWithMe!;
+
+      await fm.unmountShare('Docs');
+
+      expect(store.getManifestCache(shared.topic).find('Docs')).toBeNull();
+      expect(store.keyring.has(folder.topic)).toBe(false);
+      expect(handler).toHaveBeenCalledWith({ driveId: shared.id, path: 'Docs' });
+
+      const remounted = await fm.acceptShare(handle);
+      expect(remounted).toMatchObject({ type: NodeType.Folder, topic: folder.topic, path: 'Docs' });
+    });
+
+    it('refuses to unmount a name nothing is mounted under', async () => {
+      await expect(fm.unmountShare('Nope')).rejects.toThrow('Nothing is mounted at "Nope"');
     });
 
     it("hands the sharer's message to SHARE_ACCEPTED", async () => {

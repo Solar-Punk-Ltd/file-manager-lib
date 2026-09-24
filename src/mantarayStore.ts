@@ -494,6 +494,12 @@ export class MantarayStore {
     this.grantHandles.set(topic, handle);
   }
 
+  /** Stop following an unmounted grant and drop its keys. */
+  releaseGrant(topic: string): void {
+    this.grantHandles.delete(topic);
+    this.keyring.drop(topic);
+  }
+
   /**
    * Re-seal a fork's keys for a new parent, returning the metadata to store there.
    *
@@ -541,7 +547,10 @@ export class MantarayStore {
     }
   }
 
-  /** Rotate the node at `path` one generation on. Only its fork in the parent is re-written, not its own head. */
+  /**
+   * Rotate the node at `path` one generation on, or up to its floor. Only its fork in the parent is
+   * re-written, not its own head.
+   */
   async rotateNode(drive: DriveInfo, path: string, topic: string, requestOptions?: BeeRequestOptions): Promise<void> {
     const { parentPath, name } = splitPath(normalizePath(path));
     await this.prepareWrite(drive, parentPath, requestOptions);
@@ -615,7 +624,15 @@ export class MantarayStore {
     node.removeFork(name);
     node.addFork(name, target, { ...withoutWrappedKeys(meta), ...wrappedKeysMetadata(wrapped) });
 
-    const manifestRef = await this.saveMantarayNode(node, host, requestOptions);
+    let manifestRef: ContentRef;
+    try {
+      manifestRef = await this.saveMantarayNode(node, host, requestOptions);
+    } catch (err: unknown) {
+      // Not rolled back: the save may have landed anyway, and a node sealed below its rotation is
+      // open to whoever the rotation withdrew. Its next write re-wraps it instead.
+      this.keyring.markForkLag(topic);
+      throw err;
+    }
     if (host.topic === drive.topic) {
       drive.manifestRef = manifestRef;
     }
@@ -650,7 +667,7 @@ export class MantarayStore {
     try {
       blob = await openGrantBlob(this.swarmClient, await readShareHead(this.swarmClient, handle));
     } catch (err: unknown) {
-      throw new ShareError(`The grant for ${topic.slice(0, 6)} could not be renewed — it may be withdrawn`, err);
+      throw new ShareError(`The grant for ${topic.slice(0, 6)} could not be renewed`, err);
     }
     if (blob.topic !== topic) {
       throw new ShareError(`The share feed for ${topic.slice(0, 6)} now carries a grant for another node`);

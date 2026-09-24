@@ -320,7 +320,12 @@ export interface FileManager {
   /**
    * Removes the drive and all of its file metadata from local state and persists the updated drive list.
    * Does NOT touch the underlying Swarm batch (no dilution).
+   *
+   * Every open grant on the drive is closed first, as {@link revokeShare} would: nothing is written
+   * to the drive again, so recipients keep what they could already read, and a handle not yet
+   * accepted opens nothing.
    * @param driveId - The ID of the drive to forget.
+   * @emits FileManagerEvents.SHARE_REVOKED for each grant closed.
    * @emits FileManagerEvents.DRIVE_FORGOTTEN
    * @returns A promise that resolves when the drive is forgotten.
    * @throws {DriveError} If not initialized, driveId is not found, or the target is the admin drive.
@@ -427,11 +432,11 @@ export interface FileManager {
    * @param driveId - The drive containing the node.
    * @param path - Absolute path of the file or folder. The drive root is not a share subject.
    * @param grade - What the recipients get: `List`, `Read` (folders) or `Open` (files).
-   * @param recipients - Compressed secp256k1 public keys — a Bee node key for a `BeeClient`
-   *   recipient, an `appKey` for a swarm-id one.
+   * @param recipients - Compressed secp256k1 public keys: each recipient's `SwarmClient.granteeKey`.
    * @param options - Optional note, carried inside the ACT-gated blob. Written when the grant is
    *   minted, so it does not apply when adding to a standing one.
-   * @param requestOptions - Additional Bee request options.
+   * @param requestOptions - Additional Bee request options. Headers and timeout apply; an abort
+   *   signal does not — a grant change runs to completion once started.
    * @emits FileManagerEvents.SHARE_CREATED when minted, FileManagerEvents.SHARE_AMENDED when
    *   recipients are added to a standing grant.
    * @returns The ShareEntry, whose `shareTopic` is half the handle.
@@ -449,7 +454,7 @@ export interface FileManager {
     grade: ShareGrade,
     recipients: Hex[],
     options?: ShareOptions,
-    requestOptions?: BeeRequestOptions,
+    requestOptions?: Omit<BeeRequestOptions, 'signal'>,
   ): Promise<ShareEntry>;
 
   /**
@@ -486,7 +491,8 @@ export interface FileManager {
    * a removed recipient, whether or not they had fetched it.
    * @param shareId - `ShareEntry.id` of the grant to withdraw from.
    * @param recipients - Grantee public keys to drop. Omit to withdraw the grant entirely.
-   * @param requestOptions - Additional Bee request options.
+   * @param requestOptions - Additional Bee request options. Headers and timeout apply; an abort
+   *   signal does not — a revoke runs to completion once started.
    * @emits FileManagerEvents.SHARE_REVOKED
    * @returns The entry, stamped `revokedAt` once nobody is left on it. It stays in the index as a
    *   record of the grant.
@@ -496,7 +502,11 @@ export interface FileManager {
    *   revoke again.
    * @see {@link getShareGrantees} — the current membership this withdraws from.
    */
-  revokeShare(shareId: string, recipients?: Hex[], requestOptions?: BeeRequestOptions): Promise<ShareEntry>;
+  revokeShare(
+    shareId: string,
+    recipients?: Hex[],
+    requestOptions?: Omit<BeeRequestOptions, 'signal'>,
+  ): Promise<ShareEntry>;
 
   /**
    * Accepts a grant handed to this identity, mounting it in {@link sharedWithMe}. The grant blob is
@@ -517,6 +527,18 @@ export interface FileManager {
    *   handle whose grantee list does not include this identity fails on the ACT fetch.
    */
   acceptShare(handle: ShareHandle, requestOptions?: BeeRequestOptions): Promise<NodeEntry>;
+
+  /**
+   * Removes a mount from {@link sharedWithMe} — the recipient's side of a grant, like removing an item
+   * from Google Drive's "Shared with me". The grant itself is the sharer's and stays as it is, so the
+   * same handle can be accepted again.
+   * @param path - The mount's name in {@link sharedWithMe}.
+   * @param requestOptions - Additional Bee request options.
+   * @emits FileManagerEvents.SHARE_UNMOUNTED
+   * @throws {DriveError} If not initialized.
+   * @throws {ShareError} If nothing is mounted under `path`.
+   */
+  unmountShare(path: string, requestOptions?: BeeRequestOptions): Promise<void>;
 
   /**
    * The drive holding everything shared with this identity. Provisioned with the admin state and

@@ -127,7 +127,11 @@ address that signs every feed you write. Outside the grantee list its addresses 
 a public channel; delivering it is your app's job. It stays valid for the life of the grant, because membership changes
 move the feed's head, not the handle.
 
+Recipients are named by **grantee key**: each one's `swarmClient.granteeKey`, which their app hands to yours. On Swarm ID
+that is the account-wide sharing key, so a grant opens on every site the recipient logs in from.
+
 ```ts
+// alicePubKey, bobPubKey: each recipient's swarmClient.granteeKey
 const entry = await fm.share(drive.id, 'docs', ShareGrade.Read, [alicePubKey]);
 const handle = { shareTopic: entry.shareTopic, owner: fm.identity!.owner }; // hand this to Alice
 
@@ -138,6 +142,7 @@ await fm.revokeShare(entry.id, [bobPubKey]); // drops Bob; omit the array to clo
 // on the recipient's side
 const mounted = await fm.acceptShare(handle);
 await fm.listFolder(fm.sharedWithMe!.id, '/');
+await fm.unmountShare(mounted.path); // removes it again; the handle can be accepted anew
 ```
 
 `share` only ever adds: a second call for the same node and grade joins the standing grant instead of issuing another,
@@ -149,9 +154,10 @@ ordinary fork in `sharedWithMe`, a drive kept out of `driveList` because every n
 `revokeShare` is the only removal. It rotates the shared node and re-issues the grant, at the new generation, to whoever
 is still on it — behind the same handle, so they keep reading without doing anything. Emptying the list closes the
 grant. Nothing below the node is touched at revoke time: each node re-keys on its own next write. Moving a node to
-another folder, or trashing it, rotates it the same way, so readers of its old folder stop following it.
+another folder, or trashing it, rotates it the same way, so readers of its old folder stop following it. Forgetting a
+drive closes every grant on it.
 
-Four things this implies for your application:
+Five things this implies for your application:
 
 - **List before you open.** Keys are hydrated by walking, so a `FileRecord` held across a process restart carries no key
   material. `updateFile`, `getFileVersion` and `restoreFileVersion` re-walk the record's path to recover them; if the
@@ -162,8 +168,11 @@ Four things this implies for your application:
 - **A re-issue can lag.** Grants rotated by an ordinary write (a move, a write under a revoked folder) are re-issued once
   that write lands. If that fails it is logged, the write still succeeds, and the grant's recipients see nothing newer
   until a later write retries it.
-- **`shareList` is `undefined` until loaded.** It is fetched on first use — a share operation, or a write that rotates a
-  node; `undefined` means "not loaded yet", an empty array means "no grants".
+- **`shareList` is `undefined` until loaded.** It is fetched on first use — a share operation, or the session's first
+  write; `undefined` means "not loaded yet", an empty array means "no grants".
+- **One instance, one call at a time.** Sharing assumes a single `FileManagerBase` per identity, making one call at a
+  time. `share` and `revokeShare` take no abort signal: a grant change runs to completion once started, and a revoke
+  that fails partway leaves nothing the removed recipients can use.
 
 Full detail — the identity flow, the key hierarchy and what an observer can still see — is in
 [ENCRYPTION.md](docs/ENCRYPTION.md); the grant format, the ACT boundary and the accept path are in
@@ -360,8 +369,9 @@ On recovery see [Recovery](docs/ENCRYPTION.md#recovery).
 > gateway the same `appSecret`); use a stable custom or ENS-backed domain. `www.` and bare, and `localhost` and
 > production, are different origins and therefore different identities.
 
-The limitation: identities do not cross origins, so the same user on two sites has two separate file managers. That
-limits cross-app sharing, not login.
+The limitation: identities do not cross origins, so the same user on two sites has two separate file managers. Shares
+do cross: a grant made out to a user's `granteeKey` — their account-wide sharing key — opens on every site they log in
+from, mounted into that site's `sharedWithMe`.
 
 ### Custom credentials and the wallet tradeoff
 

@@ -255,8 +255,9 @@ Key strategies:
   and _Keyring_ (root keys derive from the FMK, a node whose parent was never resolved is refused, a child key is
   recovered from its parent, a child wrapped under a different parent is refused, child keys are never stored in the
   clear, a chain entered with `K_meta` alone stays meta-only under a fork that does carry a wrapped content key and
-  `requireContentKey` throws there, `requireKeys` hands out copies so `clear()` cannot zero a key still in use, and the
-  root re-derives after a clear).
+  `requireContentKey` throws there, `requireKeys` hands out copies so `clear()` cannot zero a key still in use, the
+  root re-derives after a clear, a fork read at an earlier generation than the one held marks the node for a re-wrap
+  before its next write, and a floor holds a node stale until it rotates straight up to it).
 - **`init.spec.ts`** — _constructor_ (missing signer, emitter wiring), _initialize_ (emits `INITIALIZED`; idempotent),
   _reinitialization_, `DRIVE_UNRESOLVED` for a drive whose fork metadata is unparseable (id/name fall back to
   `'unknown'`), and the lazy hand-off: a drive whose manifest feed is empty still loads into `driveList` and surfaces
@@ -284,10 +285,13 @@ Key strategies:
   `getShareGrantees` (members back with duplicates collapsed; unknown id throws), `revokeShare` (full revoke stamping
   `revokedAt` and emptying the list, after which the same subject mints a fresh grant because a revoked entry is never
   re-matched; a partial revoke dropping only the named keys; a partial revoke that takes the last member still closing
-  the entry; double revoke and non-member recipients), and `acceptShare` (mounting a granted folder into `sharedWithMe`
-  with `SHARE_ACCEPTED`, a `list` grant mounting with no content key on the chain, refusing a blob whose claimed type is
-  a drive, writing no fork when the granted node fails to resolve so a later attempt still mounts, refusing a second
-  mount of the same node, and an unpublished handle). The suite stands up a grantee-list double over
+  the entry; double revoke and non-member recipients; a forgotten drive closing its open grants), _key rotation_ (a
+  failed index commit rotating nothing, so a later write re-issues nothing to the withdrawn; a rotation that did not
+  land being done by the next write into the node), `acceptShare` (mounting a granted folder into `sharedWithMe` with
+  `SHARE_ACCEPTED`, a `list` grant mounting with no content key on the chain, refusing a blob whose claimed type is a
+  drive, writing no fork when the granted node fails to resolve so a later attempt still mounts, refusing a second mount
+  of the same node, and an unpublished handle), and `unmountShare` (removing a mount with `SHARE_UNMOUNTED`, after which
+  the same handle mounts again; refusing a name nothing is mounted under). The suite stands up a grantee-list double over
   `bee.grantee.create` / `patch` / `get` — Bee merges lists node-side, so without it membership assertions would be
   vacuous — and `acceptShare` consumes the head `share` actually published, replayed through a `feed.makeReader` spy,
   plus the grant blob captured off `data.upload`.

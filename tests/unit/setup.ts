@@ -45,6 +45,7 @@ jest.mock('@/keyring', () => {
     keys: Keys;
     link?: { parent: string; parentGen: number };
     foreign: boolean;
+    forkLag?: boolean;
   }
 
   const freshKeys = (): Keys => ({
@@ -54,6 +55,7 @@ jest.mock('@/keyring', () => {
 
   class TestKeyring {
     private readonly nodes = new Map<string, Held>();
+    private readonly floors = new Map<string, number>();
     private readonly rootTopic: string;
 
     constructor(identity: { stateTopic: { toString: () => string } }) {
@@ -93,6 +95,27 @@ jest.mock('@/keyring', () => {
       return content;
     }
 
+    async requireKeysAt(topic: string, _gen: number): Promise<Keys> {
+      return this.node(topic).keys;
+    }
+
+    raiseFloor(topic: string, gen: number): void {
+      if (gen > (this.floors.get(topic) ?? 0)) {
+        this.floors.set(topic, gen);
+      }
+    }
+
+    grantGen(topic: string): number {
+      return Math.max(this.genOf(topic), this.floors.get(topic) ?? 0);
+    }
+
+    markForkLag(topic: string): void {
+      const node = this.nodes.get(topic);
+      if (node && !node.foreign) {
+        node.forkLag = true;
+      }
+    }
+
     has(topic: string): boolean {
       return this.nodes.has(topic) || topic === this.rootTopic;
     }
@@ -115,7 +138,7 @@ jest.mock('@/keyring', () => {
         throw new KeyringError(`Node ${topic.slice(0, 6)} was shared with this identity — only its owner rotates it`);
       }
 
-      node.gen += 1;
+      node.gen = Math.max(node.gen + 1, this.floors.get(topic) ?? 0);
 
       return node.gen;
     }
@@ -150,12 +173,17 @@ jest.mock('@/keyring', () => {
     }
 
     isStale(topic: string): boolean {
-      let node = this.nodes.get(topic);
-      while (node?.link && !node.foreign) {
+      let current = topic;
+      let node = this.nodes.get(current);
+      while (node && !node.foreign) {
+        if (node.forkLag || node.gen < (this.floors.get(current) ?? 0)) return true;
+        if (!node.link) return false;
+
         const parent = this.nodes.get(node.link.parent);
         if (!parent) return false;
         if (node.link.parentGen < parent.gen) return true;
 
+        current = node.link.parent;
         node = parent;
       }
 
@@ -178,6 +206,7 @@ jest.mock('@/keyring', () => {
       const parent = this.node(parentTopic);
       const child = this.node(childTopic);
       child.link = { parent: parentTopic, parentGen: parent.gen };
+      child.forkLag = false;
 
       return {
         meta: new Bytes(child.keys.meta).toString(),
@@ -191,9 +220,16 @@ jest.mock('@/keyring', () => {
       const parent = this.node(parentTopic);
       const link = { parent: parentTopic, parentGen: wrapped.parentGen };
       const known = this.nodes.get(childTopic);
-      if (known && known.gen > wrapped.gen) return known.keys;
+      if (known && known.gen > wrapped.gen) {
+        known.link = link;
+        if (!known.foreign) {
+          known.forkLag = true;
+        }
+        return known.keys;
+      }
       if (known && known.gen === wrapped.gen) {
         known.link = link;
+        known.forkLag = false;
         return known.keys;
       }
 
@@ -213,6 +249,7 @@ jest.mock('@/keyring', () => {
 
     clear(): void {
       this.nodes.clear();
+      this.floors.clear();
     }
   }
 

@@ -61,7 +61,7 @@ export interface ShareEntry {
   act: ActReferences;
   /** ACT key of whoever encrypted this blob, kept because amending never re-encrypts it. */
   publisher: Hex;
-  /** The node's key generation the current blob carries. Behind the node's, the grant is due a re-issue. */
+  /** The node's key generation the current blob carries. For a revoked grant, the one its revoke rotated the node to. */
   gen: number;
   createdAt: number;
   revokedAt?: number;

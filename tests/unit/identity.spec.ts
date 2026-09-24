@@ -488,6 +488,37 @@ describe('Identity envelope and key chain', () => {
         expect(await retry.requireHeld(file)).toEqual(await keyring.requireHeld(file));
       });
 
+      it('should re-wrap a node whose rotation never reached its fork before the next write', async () => {
+        await keyring.mint(shared);
+        const staleFork = await keyring.wrapFor(root, shared);
+        await keyring.bump(shared);
+        await keyring.wrapFor(root, shared);
+
+        // The parent, re-read after the rotation's save failed, still carries generation 0.
+        await keyring.unwrapChild(root, shared, staleFork);
+        expect(keyring.genOf(shared)).toBe(1);
+        expect(keyring.isStale(shared)).toBe(true);
+
+        await keyring.bump(shared);
+        expect(await keyring.wrapFor(root, shared)).toMatchObject({ gen: 2 });
+        expect(keyring.isStale(shared)).toBe(false);
+      });
+
+      it('should hold a node below its floor stale, and rotate it straight to the floor', async () => {
+        await keyring.mint(shared);
+        await keyring.wrapFor(root, shared);
+
+        keyring.raiseFloor(shared, 3);
+        expect(keyring.grantGen(shared)).toBe(3);
+        expect(keyring.isStale(shared)).toBe(true);
+        const ahead = await keyring.requireKeysAt(shared, 3);
+
+        await keyring.bump(shared);
+        expect(keyring.genOf(shared)).toBe(3);
+        expect(await keyring.requireKeys(shared)).toEqual(ahead);
+        expect(keyring.isStale(shared)).toBe(false);
+      });
+
       it('should refuse to rotate a node held through a grant, and renew it only forward', async () => {
         const grantee = await grantAndWalk();
         const original = await keyring.requireHeld(shared);

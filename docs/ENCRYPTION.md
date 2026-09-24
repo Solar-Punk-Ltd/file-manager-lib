@@ -160,7 +160,9 @@ Three requirements, all of which compile and pass tests when violated:
 (1) and (3) pull against each other. Two kinds of portability are involved, and only one of them is a login concern:
 
 - **Device portability** — the same identity from any device or browser. A login has to deliver this.
-- **Origin portability** — the same identity from a different site. This is cross-app data sharing, not login.
+- **Origin portability** — the same identity from a different site. This is not a login concern, and sharing across
+  sites does not need it: a grant made out to a Swarm ID user's account-wide sharing key opens on any origin
+  ([ACCESS_CONTROL.md §3](ACCESS_CONTROL.md#3-publisher-and-grantee-keys)).
 
 | Credential                                      |         Device-portable         | Origin-portable |   Unphishable   |
 | ----------------------------------------------- | :-----------------------------: | :-------------: | :-------------: |
@@ -284,7 +286,10 @@ parent's manifest. Its own head, its manifest and everything below it stay as th
 - **Every fork records the parent generation it was wrapped under.** A node whose record lags its parent's current
   generation is **stale**: it is still held by whoever the parent's rotation withdrew, so it rotates before anything is
   written to it. Preparation runs top down over the path of every write, and the store's save path refuses a write to a
-  stale node, so no write can seal under a generation a rotation above it has withdrawn.
+  stale node, so no write can seal under a generation a rotation above it has withdrawn. A node is stale too when it
+  sits below the floor a committed revoke recorded for it, or when its fork carries an earlier generation than the one
+  held — a rotation whose manifest save did not land
+  ([ACCESS_CONTROL.md §6](ACCESS_CONTROL.md#lazy-re-keying)).
 
 Re-keying is therefore lazy. A node keeps its old seal until its next write and nothing is re-encrypted up front; a
 rotation costs one manifest save, whatever the size of the subtree.
@@ -560,7 +565,8 @@ Listed here so the gaps are explicit rather than inferred:
   byte-identical `keyId` in both, publicly linking the two login addresses.
 
 - **Origin-independent identity on Swarm ID.** `deriveAppSecret` is scoped to `(identity, app origin)`, so the same user
-  on two origins gets two disjoint identities. This limits cross-app sharing, not login. Origin scoping is also what
+  on two origins gets two disjoint identities. Sharing is unaffected — grants go to the account-wide sharing key — but
+  a user's own drives do not follow them to another site. Origin scoping is also what
   currently stands in for an embedder allowlist — a hostile site can already embed the iframe, and only gets a different
   `appSecret` — so lifting it without per-embedder registration and consent would turn a portability limit into a
   phishing hole.

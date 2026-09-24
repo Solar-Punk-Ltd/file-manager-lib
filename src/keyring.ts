@@ -1,4 +1,4 @@
-import type { NodeKeys, WrappedKeys } from './types/crypto';
+import type { HeldNode, NodeKeys, WrappedKeys } from './types/crypto';
 import type { Identity } from './types/identity';
 import {
   KEY_CHAIN_LENGTH,
@@ -9,14 +9,6 @@ import {
 } from './utils/constants';
 import { chainKey, copyKeys, pastChainKey, sameKey, sealKey, unwrapKey, wrapKey, zeroBytes } from './utils/crypto';
 import { KeyringError } from './utils/errors';
-
-interface HeldNode {
-  gen: number;
-  keys: NodeKeys;
-  link?: { parent: string; parentGen: number };
-  // Reached through someone else's grant: the chain is theirs, so this identity only counts down it.
-  foreign: boolean;
-}
 
 /**
  * In-memory key chain for one identity: every node's `meta`/`content` key pair at the generation it
@@ -31,6 +23,7 @@ interface HeldNode {
  */
 export class Keyring {
   private readonly nodes: Map<string, HeldNode> = new Map();
+  private readonly floors: Map<string, number> = new Map();
   private readonly rootTopic: string;
 
   constructor(private readonly identity: Identity) {
@@ -79,6 +72,29 @@ export class Keyring {
     return node.gen;
   }
 
+  /**
+   * Keys for an owned node at `gen`, including one it has not rotated to yet. A grant issued ahead of
+   * a rotation opens the node from the moment it lands.
+   */
+  async requireKeysAt(topic: string, gen: number): Promise<NodeKeys> {
+    return copyKeys(await this.keysAt(topic, gen));
+  }
+
+  /**
+   * The generation `topic` has to reach before its next write — a revoke recorded but not yet
+   * rotated. Only ever raises it.
+   */
+  raiseFloor(topic: string, gen: number): void {
+    if (gen > (this.floors.get(topic) ?? 0)) {
+      this.floors.set(topic, gen);
+    }
+  }
+
+  /** The generation a grant issued now carries: the held one, or a pending rotation's above it. */
+  grantGen(topic: string): number {
+    return Math.max(this.genOf(topic), this.floors.get(topic) ?? 0);
+  }
+
   /** Keys for a node being created: generation 0 of its own chain. */
   async mint(topic: string): Promise<NodeKeys> {
     const keys = await this.derive(topic, 0);
@@ -87,17 +103,20 @@ export class Keyring {
     return copyKeys(keys);
   }
 
-  /** Step an owned node one generation on. Whoever held it stops following it from its next write. */
+  /**
+   * Step an owned node one generation on, or up to its floor. Whoever held it stops following it
+   * from its next write.
+   */
   async bump(topic: string): Promise<number> {
     const node = await this.requireNode(topic);
     if (node.foreign) {
       throw new KeyringError(`Node ${topic.slice(0, 6)} was shared with this identity — only its owner rotates it`);
     }
-    if (node.gen >= KEY_CHAIN_LENGTH) {
+    const gen = Math.max(node.gen + 1, this.floors.get(topic) ?? 0);
+    if (gen > KEY_CHAIN_LENGTH) {
       throw new KeyringError(`Key chain for node ${topic.slice(0, 6)} is exhausted`);
     }
 
-    const gen = node.gen + 1;
     this.advance(node, await this.derive(topic, gen), gen);
 
     return node.gen;
@@ -142,20 +161,34 @@ export class Keyring {
   }
 
   /**
-   * Whether `topic` or a node above it lags its parent's generation. Such a node is still held by
-   * whoever a rotation higher up withdrew, so it has to rotate before anything is written to it.
+   * Whether `topic` or a node above it has to rotate before anything is written to it: it lags its
+   * parent's generation or its floor, or its fork lags it. Each is still held by someone a rotation
+   * withdrew, or reached at a generation its writes would no longer be sealed under.
    */
   isStale(topic: string): boolean {
-    let node = this.nodes.get(topic);
-    while (node?.link && !node.foreign) {
+    let current = topic;
+    let node = this.nodes.get(current);
+    while (node && !node.foreign) {
+      if (node.forkLag || node.gen < (this.floors.get(current) ?? 0)) return true;
+      if (!node.link) return false;
+
       const parent = this.nodes.get(node.link.parent);
       if (!parent) return false;
       if (node.link.parentGen < parent.gen) return true;
 
+      current = node.link.parent;
       node = parent;
     }
 
     return false;
+  }
+
+  /** Flag an owned node whose fork may still carry an earlier generation, so its next write re-wraps it first. */
+  markForkLag(topic: string): void {
+    const node = this.nodes.get(topic);
+    if (node && !node.foreign) {
+      node.forkLag = true;
+    }
   }
 
   /** `K_meta` for `topic` at `gen` — the key its manifest and feed payload are sealed under. */
@@ -196,6 +229,7 @@ export class Keyring {
       parentGen,
     };
     child.link = { parent: parentTopic, parentGen };
+    child.forkLag = false;
 
     return wrapped;
   }
@@ -243,8 +277,14 @@ export class Keyring {
       return copyKeys(keys);
     }
 
-    // A copy of the parent read before this node rotated: the generation held is the newer one.
+    // A fork older than the generation held: the rotation's save did not land, or this copy of the
+    // parent predates it. Writes seal under the held one, so the fork is re-wrapped before the next.
     if (wrapped.gen < known.gen) {
+      known.link = link;
+      if (!known.foreign) {
+        known.forkLag = true;
+      }
+
       return copyKeys(known.keys);
     }
 
@@ -262,6 +302,7 @@ export class Keyring {
     const content = known.keys.content ?? keys.content;
     known.keys = { meta: known.keys.meta, ...(content ? { content } : {}) };
     known.link = link;
+    known.forkLag = false;
 
     return copyKeys(known.keys);
   }
@@ -272,6 +313,7 @@ export class Keyring {
       zeroKeys(node.keys);
     }
     this.nodes.clear();
+    this.floors.clear();
   }
 
   private async requireNode(topic: string): Promise<HeldNode> {

@@ -7,7 +7,8 @@ how it is accepted. See [docs/TESTS.md](TESTS.md) for test coverage and usage pa
 
 All methods live on `FileManagerBase`, which implements the `FileManager` interface. Every method that accepts a drive
 takes either a `string` id or a core-sdk `Identifier`. `requestOptions?: BeeRequestOptions` is available on every
-network method for cancellation (`signal`) and retries; it is omitted from the descriptions below for brevity.
+network method for cancellation (`signal`) and retries; it is omitted from the descriptions below for brevity. `share`
+and `revokeShare` take it without `signal`: a grant change runs to completion once started.
 
 Two things every method does before anything else, so they are not repeated in each entry:
 
@@ -30,7 +31,7 @@ Two things every method does before anything else, so they are not repeated in e
 - [Folders](#folders) — `createFolder`, `listFolder`, `move` (also rename, and drive rename), `forget`
 - [Versioning](#versioning) — `getFileVersion`, `restoreFileVersion`
 - [Trash](#trash) — `trash`, `recover`, `listTrash`, `emptyTrash`
-- [Sharing](#sharing) — `share`, `getShareGrantees`, `revokeShare`, `acceptShare`
+- [Sharing](#sharing) — `share`, `getShareGrantees`, `revokeShare`, `acceptShare`, `unmountShare`
 - [Getters](#getters) — `identity`, `adminStamp`, `driveList`, `sharedWithMe`, `recordList`, `shareList`, `emitter`,
   `isInitialized`
 - [Events](#events)
@@ -62,7 +63,7 @@ relocation, and event emission. All Swarm I/O goes through the injected `SwarmCl
 
 The Swarm I/O seam the library depends on instead of a concrete `Bee`. No bee-js types cross it: references and keys are
 hex strings, payloads are `Uint8Array`, and feed indexes are **decimal** strings. It carries identity (`owner`,
-`publicKey`, `actPublisher`), plain and ACT-protected byte transfer, chunk access, sequential feed read/write,
+`publicKey`, `actPublisher`, `granteeKey`), plain and ACT-protected byte transfer, chunk access, sequential feed read/write,
 `deriveSecret`, and a read-only `getStamp`. Stamp _management_ is deliberately out of scope — that belongs to the host
 application.
 
@@ -70,6 +71,7 @@ application.
 readonly owner: Hex;          // 40-hex address of the login — locates the identity envelope, nothing else
 readonly publicKey: Hex;      // 66-hex compressed key of `owner`
 readonly actPublisher: Hex;   // 66-hex compressed key of whoever ACT-encrypts; valid only after initialize()
+readonly granteeKey: Hex;     // 66-hex compressed key to hand out to be granted access; valid only after initialize()
 
 deriveSecret(label: string): Promise<Uint8Array>;   // 32 stable, private bytes
 initialize(requestOptions?): Promise<void>;
@@ -98,9 +100,12 @@ writeFeed(batchId, topic, payload, index, options?, requestOptions?): Promise<Fe
 
 Three members deserve care, because substituting one for another fails in ways that do not look like what they are:
 
-- **`owner`, `publicKey` and `actPublisher` are not interchangeable.** `owner` is a 20-byte address, the other two are
-  33-byte compressed keys, and under `BeeClient` the ACT publisher is the **Bee node's** key rather than the signer's.
-  Passing an address where a key is expected fails client-side, before any request, so it looks nothing like a 404.
+- **`owner`, `publicKey`, `actPublisher` and `granteeKey` are not interchangeable.** `owner` is a 20-byte address, the
+  others are 33-byte compressed keys. Under `BeeClient` the ACT publisher and the grantee key are both the **Bee
+  node's** key rather than the signer's; under `SnahaClient` the grantee key is the account-wide sharing key, which a
+  grant reaches on every origin, while the other two are origin-scoped. Share to a recipient's `granteeKey`, never their
+  `publicKey`. Passing an address where a key is expected fails client-side, before any request, so it looks nothing
+  like a 404.
 - **`deriveSecret` must return bytes that are stable, private, and elicitable only by the user.** Stable, or the
   identity stops unsealing on the next session. Private, because deriving it from a public value compiles and passes
   tests and leaves the envelope openable by anyone who can read it. Elicitable only by the user, because a wallet
@@ -113,8 +118,8 @@ Three members deserve care, because substituting one for another fails in ways t
   FMK-derived signer — never the backend's credential. Omit it and the update is signed by the backend key, which is
   what puts the identity envelope under the login's address.
 
-The ACT members (`uploadProtected`, `downloadProtected`, `downloadProtectedStream`, `actPublisher` and the three grantee
-methods) are **not used by the tree** — it is protected by the key chain. They serve the sharing layer alone, so a
+The ACT members (`uploadProtected`, `downloadProtected`, `downloadProtectedStream`, `actPublisher`, `granteeKey` and the
+three grantee methods) are **not used by the tree** — it is protected by the key chain. They serve the sharing layer alone, so a
 backend that will never share may throw from them.
 
 The two backends address a grantee list differently — Bee by the list's own reference, swarm-id by the ACT history — so
@@ -241,8 +246,13 @@ publishes the sealed root as the first slot of a freshly generated per-drive fee
 Removes the drive and all of its file metadata from local state and persists the updated drive list. **Does not** touch
 the underlying Swarm batch (no dilution). Cannot target the admin drive.
 
-- **Emits**: `DRIVE_FORGOTTEN`.
-- **Throws**: `DriveError` (not initialized, not found, or admin drive).
+Every open grant on the drive is closed first, as [`revokeShare`](#revokeshareshareid-recipients-requestoptions-promisesharentry)
+closes one: its ACT is withdrawn, so a handle not yet accepted opens nothing, and its entry is stamped `revokedAt`.
+Nothing rotates, since nothing is written to the drive again, so recipients keep what they could already read.
+
+- **Emits**: `SHARE_REVOKED` for each grant closed, then `DRIVE_FORGOTTEN`.
+- **Throws**: `DriveError` (not initialized, not found, or admin drive); `ShareError` (the share index could not be saved
+  — the drive is left as it was, and a retry closes what is still open).
 
 ---
 
@@ -556,9 +566,10 @@ entry's `publisher`, which is the ACT public key of whoever encrypted the blob. 
 dereference to nothing, so the handle is safe on a public channel; delivering it is the application's job. It never
 changes: membership churn moves the feed's head, not the handle.
 
-Grantee keys are **compressed secp256k1 public keys** (66 hex), and which key an identity publishes is backend-specific
-— a Bee node key on `BeeClient`, the origin-scoped `appKey` on `SnahaClient`. Both engines implement the same ACT
-construction, so a grant crosses backends.
+Grantee keys are **compressed secp256k1 public keys** (66 hex): each recipient's `SwarmClient.granteeKey`, which their
+application hands to yours. That is the Bee node key on `BeeClient`, and on `SnahaClient` the account-wide sharing key,
+so a grant opens on every origin the recipient logs in from. Both engines implement the same ACT construction, so a
+grant crosses backends.
 
 See [ACCESS_CONTROL.md](ACCESS_CONTROL.md) for the grant format, the publisher/grantee key split and the accept path.
 
@@ -610,6 +621,11 @@ Withdraws access. With `recipients`, those keys are dropped from the grantee lis
 the shared node's keys are rotated one generation on. A grant that stays open is re-issued at the new generation to those
 still on it, as the share feed's next head, so they keep reading without doing anything; a grant that closes has its ACT
 revoked. Every other open grant on the same node — another grade — is re-issued alongside.
+
+**Recorded, then rotated.** The re-issues and the index commit come first and the rotation last, so no failure hands the
+new generation to a removed recipient. A failure before the commit throws and leaves the index as it was — retry the
+call. Once the commit lands the revoke holds: a rotation that fails is logged, and the node rotates before its next
+write. The call runs to completion once started; it takes no abort signal.
 
 **An emptied list closes the grant** — `revokedAt` is stamped whether the last member left by name or by omission. A
 revoked entry stays in `.shares` as the record that the grant existed and is never matched again, so re-sharing the same
@@ -663,6 +679,16 @@ has not propagated yet, a dropped connection — leaves nothing mounted and the 
 The blob is written by someone else, so it is validated as untrusted input: the grade is re-checked against the type the
 blob claims, which rejects a drive root, a control-plane node, and a grade that contradicts its own subject.
 
+### `unmountShare(path, requestOptions?): Promise<void>`
+
+Removes a mount from [`sharedWithMe`](#getters) — the recipient's side of a grant, as removing an item from Google
+Drive's "Shared with me" does. The fork and its keys go; the grant is the sharer's and is left as it is, so the same
+handle can be accepted again. A mount whose grant was withdrawn stays until it is unmounted.
+
+- **path** — the mount's name in `sharedWithMe`.
+- **Emits**: `SHARE_UNMOUNTED`.
+- **Throws**: `DriveError` (not initialized); `ShareError` (nothing is mounted under `path`).
+
 ---
 
 ## Getters
@@ -686,9 +712,9 @@ forget or share back would be a lie. Pass its `id` to `listFolder` and `download
 paths refuse it.
 
 **`shareList` distinguishes `undefined` from `[]`.** The index is written whole, so it is loaded as a unit: `undefined`
-means "not loaded yet", `[]` means "no grants". It is fetched during `initialize` — where a failure is logged rather
-than fatal, since the drives are usable without it — and again by the first share operation of a session, which loads it
-before writing so a write cannot publish a list missing earlier grants.
+means "not loaded yet", `[]` means "no grants". It is loaded on first use: by the first share operation of a session,
+so a write cannot publish a list missing earlier grants, or by the session's first write, which needs the generations the
+index records before it seals anything (see [`revokeShare`](#revokeshareshareid-recipients-requestoptions-promisesharentry)).
 
 ### `identity`
 
@@ -742,8 +768,9 @@ Emitted on the provided `EventEmitter` as `FileManagerEvents`:
 | `TRASH_EMPTIED`         | `emptyTrash`                                       | `{ driveId, count }`                                 |
 | `SHARE_CREATED`         | `share` (grant minted)                             | `{ entry }`                                          |
 | `SHARE_AMENDED`         | `share` (recipients joined a standing grant)       | `{ entry }`                                          |
-| `SHARE_REVOKED`         | `revokeShare`                                      | `{ entry }`                                          |
+| `SHARE_REVOKED`         | `revokeShare`, `forgetDrive` (per grant closed)    | `{ entry }`                                          |
 | `SHARE_ACCEPTED`        | `acceptShare`                                      | `{ driveId, entry }`                                 |
+| `SHARE_UNMOUNTED`       | `unmountShare`                                     | `{ driveId, path }`                                  |
 
 `move` / `trash` / `recover` / `forget` are path-addressed and dispatch on node type, so each emits a file **or** folder
 event whose payloads are the same shape: the drive id, the operation's paths, and the node itself — a
@@ -1178,11 +1205,11 @@ interface ShareEntry {
   granteeList: ActReferences; // the ACT grantee list on Swarm — the membership itself
   act: ActReferences; // the grant blob; mirrors the current share-feed head
   publisher: Hex; // whoever encrypted the blob — not the feed owner, and not part of the handle
-  gen: number; // the node's key generation the current blob carries
+  gen: number; // the node's key generation the current blob carries — on a revoked entry, the one its revoke rotated to
   grantees: Hex[]; // membership as of the last write — getShareGrantees reads the ACT itself
   message?: string; // carried into every re-issue of the blob
   createdAt: number;
-  revokedAt?: number; // set once the grantee list is empty
+  revokedAt?: number; // set once the grant closes — its list emptied, or its drive forgotten
 }
 
 interface ShareHandle {
