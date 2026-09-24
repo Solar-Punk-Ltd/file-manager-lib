@@ -3,6 +3,7 @@ import { Bytes } from '@ethersphere/core-sdk';
 import type { NodeKeys } from '../types/crypto';
 import type { Hex } from '../types/utils';
 
+import { KEY_CHAIN_LENGTH, NODE_SEAL_LABEL } from './constants';
 import { KeyringError } from './errors';
 
 const HKDF_ALG = 'HKDF';
@@ -152,13 +153,6 @@ export async function openWithKey(key: Uint8Array, sealed: Uint8Array): Promise<
   return await decryptBytes(await importAesKey(key), sealed);
 }
 
-export function generateNodeKeys(): NodeKeys {
-  return {
-    meta: generateRandomBytes(DERIVED_SECRET_LENGTH).toUint8Array(),
-    content: generateRandomBytes(DERIVED_SECRET_LENGTH).toUint8Array(),
-  };
-}
-
 export async function wrapKey(kek: Uint8Array, key: Uint8Array): Promise<Hex> {
   return new Bytes(await sealWithKey(kek, key)).toString();
 }
@@ -176,4 +170,40 @@ export function copyKeys(keys: NodeKeys): NodeKeys {
 
 export function sameKey(a: Uint8Array, b: Uint8Array): boolean {
   return a.length === b.length && a.every((byte, i) => byte === b[i]);
+}
+
+/** The key a node's feed payloads and manifests are sealed under, kept apart from the one that wraps its children. */
+export async function sealKey(nodeKey: Uint8Array): Promise<CryptoKey> {
+  return await deriveAesKey(await importDerivationKey(nodeKey), NODE_SEAL_LABEL, new Uint8Array(0));
+}
+
+function hashChain(seed: Uint8Array, steps: number): Uint8Array {
+  let out: Uint8Array = new Uint8Array(seed);
+  for (let i = 0; i < steps; i++) {
+    out = Bytes.keccak256(out).toUint8Array();
+  }
+
+  return out;
+}
+
+/**
+ * Generation `gen` of a key chain. The chain runs backwards, so a holder derives every earlier
+ * generation and none later — that asymmetry is the whole of a withdrawal, and reversing it would
+ * void every one.
+ */
+export function chainKey(root: Uint8Array, gen: number): Uint8Array {
+  if (!Number.isInteger(gen) || gen < 0 || gen > KEY_CHAIN_LENGTH) {
+    throw new KeyringError(`Key generation ${gen} is outside the chain`);
+  }
+
+  return hashChain(root, KEY_CHAIN_LENGTH - gen);
+}
+
+/** An earlier generation's key, from one already in hand. */
+export function pastChainKey(key: Uint8Array, from: number, to: number): Uint8Array {
+  if (to > from) {
+    throw new KeyringError(`Cannot derive generation ${to} from ${from} — the chain only runs backwards`);
+  }
+
+  return hashChain(key, from - to);
 }

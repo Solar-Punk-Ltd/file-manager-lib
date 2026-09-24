@@ -49,4 +49,4 @@ export type {
   SwarmUploadOptions,
 } from './utils';
 export type { Credential, Identity, IdentityInfo, IdentityEnvelope } from './identity';
-export type { WrappedKeys, NodeKeys } from './crypto';
+export type { NodeKeys } from './crypto';

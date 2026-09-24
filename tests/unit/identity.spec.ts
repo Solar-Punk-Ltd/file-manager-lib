@@ -14,7 +14,7 @@ import {
   UNLOCK_KDF_LABEL,
   UNLOCK_SALT_LENGTH,
 } from '@/utils/constants';
-import { GCM_IV_LENGTH } from '@/utils/crypto';
+import { decryptBytes, encryptBytes, GCM_IV_LENGTH } from '@/utils/crypto';
 import { IdentityError, KeyringError } from '@/utils/errors';
 import { deriveIdentity, envelopeTopic, sealKey, unsealKey } from '@/utils/identity';
 
@@ -345,7 +345,7 @@ describe('Identity envelope and key chain', () => {
 
     it('should recover a child key from its parent', async () => {
       const child = topicOf(1);
-      const minted = keyring.mint(child);
+      const minted = await keyring.mint(child);
       const wrapped = await keyring.wrapFor(root, child);
 
       // A fresh session: nothing cached, the root re-derived from the same FMK.
@@ -353,11 +353,12 @@ describe('Identity envelope and key chain', () => {
       const unwrapped = await reopened.unwrapChild(root, child, wrapped);
 
       expect(unwrapped).toEqual(minted);
+      expect(wrapped).toMatchObject({ gen: 0, parentGen: 0 });
     });
 
     it('should not store a child key in the clear', async () => {
       const child = topicOf(1);
-      const minted = keyring.mint(child);
+      const minted = await keyring.mint(child);
       const wrapped = await keyring.wrapFor(root, child);
 
       expect(wrapped.meta).not.toContain(new Bytes(minted.meta).toString());
@@ -370,13 +371,13 @@ describe('Identity envelope and key chain', () => {
 
       // The owner holds both keys at every level, so the fork it wrote carries a wrapped content key.
       const owner = new Keyring(identity) as RealKeyring;
-      const sharedKeys = owner.mint(shared);
-      const childKeys = owner.mint(child);
+      const sharedKeys = await owner.mint(shared);
+      const childKeys = await owner.mint(child);
       const fork = await owner.wrapFor(shared, child);
       expect(fork.content).toBeDefined();
 
       // What a `list` grant hands over: K_meta of the shared node and nothing else.
-      keyring.register(shared, { meta: sharedKeys.meta });
+      keyring.register(shared, { meta: sharedKeys.meta }, 0);
       const unwrapped = await keyring.unwrapChild(shared, child, fork);
 
       expect(unwrapped.meta).toEqual(childKeys.meta);
@@ -388,8 +389,8 @@ describe('Identity envelope and key chain', () => {
     it('should refuse a child wrapped under a different parent', async () => {
       const parent = topicOf(1);
       const child = topicOf(2);
-      keyring.mint(parent);
-      keyring.mint(child);
+      await keyring.mint(parent);
+      await keyring.mint(child);
       const wrapped = await keyring.wrapFor(root, child);
 
       // Same ciphertext, wrong key-encryption key: GCM authenticates, so this cannot half-succeed.
@@ -397,6 +398,143 @@ describe('Identity envelope and key chain', () => {
       await expect(keyring.unwrapChild(parent, topicOf(3), wrapped)).rejects.toThrow(
         /does not unwrap under its parent/,
       );
+    });
+
+    describe('rotation', () => {
+      const shared = topicOf(1);
+      const file = topicOf(2);
+      const payload = new Uint8Array([1, 2, 3]);
+
+      // The owner's tree, and a grantee holding `shared` at generation 0 who walked down to `file`.
+      const grantAndWalk = async (): Promise<RealKeyring> => {
+        await keyring.mint(shared);
+        await keyring.wrapFor(root, shared);
+        await keyring.mint(file);
+        const fork = await keyring.wrapFor(shared, file);
+
+        const grantee = new Keyring(await deriveIdentity(new Uint8Array(FMK_LENGTH).fill(0x55), FIXED_SALT));
+        const { gen, keys } = await keyring.requireHeld(shared);
+        grantee.register(shared, keys, gen);
+        await grantee.unwrapChild(shared, file, fork);
+
+        return grantee;
+      };
+
+      it('should withdraw a rotated node from whoever held it before', async () => {
+        const revoked = await grantAndWalk();
+
+        await keyring.bump(shared);
+        await keyring.bump(file);
+        const fork = await keyring.wrapFor(shared, file);
+        const sealed = await encryptBytes(await keyring.contentSealKey(file, 1), payload);
+
+        await expect(revoked.contentSealKey(file, 1)).rejects.toThrow(/past the 0/);
+        await expect(decryptBytes(await revoked.contentSealKey(file, 0), sealed)).rejects.toThrow();
+        await expect(revoked.unwrapChild(shared, file, fork)).rejects.toThrow(KeyringError);
+      });
+
+      it('should let a holder of the new generation read every earlier one', async () => {
+        await grantAndWalk();
+        const before = await encryptBytes(await keyring.contentSealKey(file, 0), payload);
+        const oldFork = await keyring.wrapFor(shared, file);
+        await keyring.bump(shared);
+
+        const remaining = new Keyring(await deriveIdentity(new Uint8Array(FMK_LENGTH).fill(0x66), FIXED_SALT));
+        const { gen, keys } = await keyring.requireHeld(shared);
+        remaining.register(shared, keys, gen);
+        await remaining.unwrapChild(shared, file, oldFork);
+
+        expect(await decryptBytes(await remaining.contentSealKey(file, 0), before)).toEqual(payload);
+      });
+
+      it('should mark the nodes below a rotation stale until they rotate themselves', async () => {
+        await grantAndWalk();
+        expect(keyring.isStale(file)).toBe(false);
+
+        await keyring.bump(shared);
+        expect(keyring.isStale(shared)).toBe(false);
+        expect(keyring.isStale(file)).toBe(true);
+
+        await keyring.bump(file);
+        const fork = await keyring.wrapFor(shared, file);
+        expect(fork).toMatchObject({ gen: 1, parentGen: 1 });
+        expect(keyring.isStale(file)).toBe(false);
+      });
+
+      it('should open a node sealed past the generation its fork recorded', async () => {
+        await keyring.mint(file);
+        const fork = await keyring.wrapFor(root, file);
+        await keyring.bump(file);
+        const sealed = await encryptBytes(await keyring.metaSealKey(file, 1), payload);
+
+        // A later session whose fork still says 0, reading a head another session sealed at 1.
+        const reopened = new Keyring(await deriveIdentity(FIXED_FMK.slice(), FIXED_SALT));
+        await reopened.unwrapChild(root, file, fork);
+
+        expect(await decryptBytes(await reopened.metaSealKey(file, 1), sealed)).toEqual(payload);
+        await reopened.noteGen(file, 1);
+        expect(reopened.genOf(file)).toBe(1);
+      });
+
+      it('should land a retried rotation on the same keys', async () => {
+        await keyring.mint(file);
+        const fork = await keyring.wrapFor(root, file);
+        await keyring.bump(file);
+
+        const retry = new Keyring(await deriveIdentity(FIXED_FMK.slice(), FIXED_SALT));
+        await retry.unwrapChild(root, file, fork);
+        await retry.bump(file);
+
+        expect(await retry.requireHeld(file)).toEqual(await keyring.requireHeld(file));
+      });
+
+      it('should re-wrap a node whose rotation never reached its fork before the next write', async () => {
+        await keyring.mint(shared);
+        const staleFork = await keyring.wrapFor(root, shared);
+        await keyring.bump(shared);
+        await keyring.wrapFor(root, shared);
+
+        // The parent, re-read after the rotation's save failed, still carries generation 0.
+        await keyring.unwrapChild(root, shared, staleFork);
+        expect(keyring.genOf(shared)).toBe(1);
+        expect(keyring.isStale(shared)).toBe(true);
+
+        await keyring.bump(shared);
+        expect(await keyring.wrapFor(root, shared)).toMatchObject({ gen: 2 });
+        expect(keyring.isStale(shared)).toBe(false);
+      });
+
+      it('should hold a node below its floor stale, and rotate it straight to the floor', async () => {
+        await keyring.mint(shared);
+        await keyring.wrapFor(root, shared);
+
+        keyring.raiseFloor(shared, 3);
+        expect(keyring.grantGen(shared)).toBe(3);
+        expect(keyring.isStale(shared)).toBe(true);
+        const ahead = await keyring.requireKeysAt(shared, 3);
+
+        await keyring.bump(shared);
+        expect(keyring.genOf(shared)).toBe(3);
+        expect(await keyring.requireKeys(shared)).toEqual(ahead);
+        expect(keyring.isStale(shared)).toBe(false);
+      });
+
+      it('should refuse to rotate a node held through a grant, and renew it only forward', async () => {
+        const grantee = await grantAndWalk();
+        const original = await keyring.requireHeld(shared);
+        await keyring.bump(shared);
+        const renewed = await keyring.requireHeld(shared);
+
+        await expect(grantee.bump(shared)).rejects.toThrow(/only its owner rotates it/);
+        expect(grantee.behind(shared, 1)).toBe(true);
+
+        grantee.renew(shared, renewed.keys, renewed.gen);
+        expect(grantee.behind(shared, 1)).toBe(false);
+
+        // An older grant read late says nothing new.
+        grantee.renew(shared, original.keys, original.gen);
+        expect(grantee.genOf(shared)).toBe(1);
+      });
     });
 
     it('should hand out copies, so a clear cannot zero a key still in use', async () => {
@@ -416,7 +554,7 @@ describe('Identity envelope and key chain', () => {
       keyring.clear();
 
       expect(await keyring.requireKeys(root)).toEqual(before);
-      // Node keys are random, so only the root survives a clear.
+      // Only the root is reached without a walk, so it is all that survives a clear.
       await expect(keyring.requireKeys(topicOf(1))).rejects.toThrow(KeyringError);
     });
   });

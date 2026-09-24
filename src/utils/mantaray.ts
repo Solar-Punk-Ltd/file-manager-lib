@@ -24,24 +24,26 @@ import {
   MANIFEST_METADATA_DRIVE_KIND,
   MANIFEST_METADATA_DRIVE_NAME,
   MANIFEST_METADATA_DRIVE_OWNER,
+  MANIFEST_METADATA_KEY_GEN,
   MANIFEST_METADATA_NODE_OWNER,
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
   MANIFEST_METADATA_NODE_VERSION,
+  MANIFEST_METADATA_PARENT_GEN,
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
   MANIFEST_METADATA_SHARE_TOPIC,
   MANIFEST_METADATA_TRASHED_FROM,
   MANIFEST_METADATA_WRAPPED_CONTENT_KEY,
   MANIFEST_METADATA_WRAPPED_META_KEY,
 } from './constants';
-import { openWithKey, sealWithKey } from './crypto';
+import { decryptBytes, encryptBytes } from './crypto';
 import { FolderError, KeyringError } from './errors';
 import { splitPath } from './path';
 
 export async function loadMantaray(
   swarmClient: SwarmClient,
   mantarayRef: string | Reference,
-  key: Uint8Array,
+  key: CryptoKey,
   options?: SwarmDownloadOptions,
   requestOptions?: SwarmRequestOptions,
 ): Promise<MantarayNode> {
@@ -54,12 +56,12 @@ export async function loadMantaray(
 async function unmarshalNode(
   swarmClient: SwarmClient,
   reference: Reference,
-  key: Uint8Array,
+  key: CryptoKey,
   options?: SwarmDownloadOptions,
   requestOptions?: SwarmRequestOptions,
 ): Promise<MantarayNode> {
   const sealed = await swarmClient.downloadData(reference.toString(), options, requestOptions);
-  const data = await openWithKey(key, sealed);
+  const data = await decryptBytes(key, sealed);
 
   return MantarayNode.unmarshalFromData(data, reference.toUint8Array());
 }
@@ -67,7 +69,7 @@ async function unmarshalNode(
 async function loadForks(
   swarmClient: SwarmClient,
   node: MantarayNode,
-  key: Uint8Array,
+  key: CryptoKey,
   options?: SwarmDownloadOptions,
   requestOptions?: SwarmRequestOptions,
 ): Promise<void> {
@@ -90,7 +92,7 @@ async function saveMantarayRecursively(
   swarmClient: SwarmClient,
   node: MantarayNode,
   batchId: string,
-  key: Uint8Array,
+  key: CryptoKey,
   options?: SwarmUploadOptions,
   requestOptions?: SwarmRequestOptions,
 ): Promise<Reference> {
@@ -98,7 +100,7 @@ async function saveMantarayRecursively(
     await saveMantarayRecursively(swarmClient, fork.node, batchId, key, options, requestOptions);
   }
 
-  const sealed = await sealWithKey(key, await node.marshal());
+  const sealed = await encryptBytes(key, await node.marshal());
   const { reference } = await swarmClient.uploadData(batchId, sealed, options, requestOptions);
   const saved = new Reference(reference);
   node.selfAddress = saved.toUint8Array();
@@ -110,6 +112,8 @@ export function wrappedKeysMetadata(wrapped: WrappedKeys): Record<string, string
   return {
     [MANIFEST_METADATA_WRAPPED_META_KEY]: wrapped.meta,
     ...(wrapped.content ? { [MANIFEST_METADATA_WRAPPED_CONTENT_KEY]: wrapped.content } : {}),
+    [MANIFEST_METADATA_KEY_GEN]: wrapped.gen.toString(),
+    [MANIFEST_METADATA_PARENT_GEN]: wrapped.parentGen.toString(),
   };
 }
 
@@ -121,7 +125,37 @@ export function wrappedKeysFromMetadata(meta: Record<string, string>): WrappedKe
 
   const wrappedContent = meta[MANIFEST_METADATA_WRAPPED_CONTENT_KEY];
 
-  return { meta: wrappedMeta, ...(wrappedContent ? { content: wrappedContent } : {}) };
+  return {
+    meta: wrappedMeta,
+    ...(wrappedContent ? { content: wrappedContent } : {}),
+    gen: parseGen(meta[MANIFEST_METADATA_KEY_GEN]),
+    parentGen: parseGen(meta[MANIFEST_METADATA_PARENT_GEN]),
+  };
+}
+
+/** A fork's metadata minus its wrapped keys, ready to take a fresh wrap. */
+export function withoutWrappedKeys(meta: Record<string, string>): Record<string, string> {
+  const {
+    [MANIFEST_METADATA_WRAPPED_META_KEY]: _meta,
+    [MANIFEST_METADATA_WRAPPED_CONTENT_KEY]: _content,
+    [MANIFEST_METADATA_KEY_GEN]: _gen,
+    [MANIFEST_METADATA_PARENT_GEN]: _parentGen,
+    ...rest
+  } = meta;
+
+  return rest;
+}
+
+// Absent means never rotated.
+function parseGen(raw: string | undefined): number {
+  if (raw === undefined) return 0;
+
+  const gen = Number(raw);
+  if (!Number.isInteger(gen) || gen < 0) {
+    throw new KeyringError(`Fork carries an invalid key generation: "${raw}"`);
+  }
+
+  return gen;
 }
 
 export function getAllNodeEntries(root: MantarayNode): NodeHeader[] {
@@ -152,7 +186,8 @@ export async function saveNodeManifest(
   identity: Identity,
   node: MantarayNode,
   host: ManifestHost,
-  key: Uint8Array,
+  key: CryptoKey,
+  gen: number,
   index?: bigint,
   requestOptions?: BeeRequestOptions,
 ): Promise<FeedWriteResult> {
@@ -163,6 +198,7 @@ export async function saveNodeManifest(
     identity,
     rootReference,
     key,
+    gen,
     {
       batchId: host.batchId,
       topic: host.topic,
@@ -248,7 +284,13 @@ export function driveForkMetadata(drive: DriveInfo, wrapped: WrappedKeys): Recor
 }
 
 export function mountForkMetadata(
-  mount: { topic: string; type: NodeType; owner: string; shareTopic: string; redundancyLevel: RedundancyLevel },
+  mount: {
+    topic: string;
+    type: NodeType;
+    owner: string;
+    shareTopic: string;
+    redundancyLevel: RedundancyLevel;
+  },
   wrapped: WrappedKeys,
 ): Record<string, string> {
   return {
@@ -256,6 +298,7 @@ export function mountForkMetadata(
     [MANIFEST_METADATA_NODE_TYPE]: mount.type,
     [MANIFEST_METADATA_NODE_OWNER]: mount.owner,
     [MANIFEST_METADATA_REDUNDANCY_LEVEL]: mount.redundancyLevel.toString(),
+    // Where the mount renews its keys once the sharer rotates them. Private to the recipient's own manifest.
     [MANIFEST_METADATA_SHARE_TOPIC]: mount.shareTopic,
     ...wrappedKeysMetadata(wrapped),
   };

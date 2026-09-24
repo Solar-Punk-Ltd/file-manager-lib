@@ -9,10 +9,29 @@ import { type ContentRef, type FeedResultWithIndex, type FeedTarget, type FeedWr
 
 import { assertGrantBlob, assertShareFeedHead } from './asserts';
 import { FEED_INDEX_NONE, FEED_INDEX_ZERO } from './constants';
-import { generateRandomBytes, openWithKey, sealWithKey } from './crypto';
-import { ErrorHandler, ShareError, StampError } from './errors';
+import { decryptBytes, encryptBytes, generateRandomBytes } from './crypto';
+import { DriveError, ErrorHandler, ShareError, StampError } from './errors';
 
 const errorHandler = ErrorHandler.getInstance();
+
+// A feed payload is a 4-byte big-endian tag, the key generation it was sealed under, followed by
+// the sealed reference. The tag is in the clear because a reader has to know which generation to
+// derive before it can open anything.
+const GEN_TAG_LENGTH = 4;
+
+function view(bytes: Uint8Array): DataView {
+  return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+}
+
+/** The key generation a feed payload was sealed under. Read this before deriving the key that opens it. */
+export function feedGen(payload: Bytes): number {
+  const bytes = payload.toUint8Array();
+  if (bytes.length <= GEN_TAG_LENGTH) {
+    throw new DriveError(`Feed payload is ${bytes.length} bytes — too short to carry a generation tag`);
+  }
+
+  return view(bytes).getUint32(0, false);
+}
 
 export async function getFeedData(
   swarmClient: SwarmClient,
@@ -69,12 +88,17 @@ export async function writeSealedRefFeed(
   swarmClient: SwarmClient,
   identity: Identity,
   reference: Reference,
-  key: Uint8Array,
+  key: CryptoKey,
+  gen: number,
   target: FeedTarget,
   requestOptions?: BeeRequestOptions,
 ): Promise<FeedWriteResult> {
-  const sealed = await sealWithKey(key, reference.toUint8Array());
-  const { index, nextIndex } = await writePlainFeed(swarmClient, identity, sealed, target, requestOptions);
+  const sealed = await encryptBytes(key, reference.toUint8Array());
+  const payload = new Uint8Array(GEN_TAG_LENGTH + sealed.length);
+  view(payload).setUint32(0, gen, false);
+  payload.set(sealed, GEN_TAG_LENGTH);
+
+  const { index, nextIndex } = await writePlainFeed(swarmClient, identity, payload, target, requestOptions);
 
   return { contentRef: { reference: reference.toString() }, index, nextIndex };
 }
@@ -114,7 +138,8 @@ export async function writeEncryptedFeed(
   swarmClient: SwarmClient,
   identity: Identity,
   payload: string | Uint8Array,
-  key: Uint8Array,
+  key: CryptoKey,
+  gen: number,
   target: FeedTarget,
   requestOptions?: BeeRequestOptions,
 ): Promise<FeedWriteResult> {
@@ -125,11 +150,20 @@ export async function writeEncryptedFeed(
     requestOptions,
   );
 
-  return await writeSealedRefFeed(swarmClient, identity, new Reference(upload.reference), key, target, requestOptions);
+  return await writeSealedRefFeed(
+    swarmClient,
+    identity,
+    new Reference(upload.reference),
+    key,
+    gen,
+    target,
+    requestOptions,
+  );
 }
 
-export async function openFeedRef(payload: Bytes, key: Uint8Array): Promise<ContentRef> {
-  const opened = await openWithKey(key, payload.toUint8Array());
+/** Unseal a feed payload. `key` must be the seal key for the generation {@link feedGen} reports. */
+export async function openFeedRef(payload: Bytes, key: CryptoKey): Promise<ContentRef> {
+  const opened = await decryptBytes(key, payload.toUint8Array().subarray(GEN_TAG_LENGTH));
 
   return { reference: new Reference(opened).toString() };
 }

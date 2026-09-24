@@ -54,12 +54,12 @@ import {
   verifyStampUsability,
 } from './utils/bee';
 import {
-  applyGranteeUpdate,
   awaitAllPromisesBounded,
   errorMessage,
   getRecordStatus,
   joinPath,
   settlePromises,
+  withoutSignal,
 } from './utils/common';
 import {
   ADMIN_DRIVE_NAME,
@@ -88,6 +88,7 @@ import {
   FileRecordError,
   FolderError,
   IdentityError,
+  KeyringError,
   ShareError,
 } from './utils/errors';
 import { FileManagerEvents } from './utils/events';
@@ -115,6 +116,7 @@ import {
   splitPath,
   trashPathOf,
 } from './utils/path';
+import { applyGranteeUpdate, grantNodeKeys, withShareEntry } from './utils/share';
 import { processDownload } from './download';
 import { type EventEmitter, EventEmitterBase } from './eventEmitter';
 import { provisionIdentity, resolveIdentity, swarmClientCredential } from './identity';
@@ -160,6 +162,7 @@ export class FileManagerBase implements FileManager {
   private readonly _recordList: FileRecord[] = [];
   private _shareList: ShareEntry[] | undefined = undefined;
   private shareNode: ControlNode | undefined = undefined;
+  private reissuedRotations = 0;
   private readonly store: MantarayStore;
   private readonly errorHandler = ErrorHandler.getInstance();
   private readonly logger = Logger.getInstance();
@@ -403,8 +406,12 @@ export class FileManagerBase implements FileManager {
       throw new DriveError('Cannot forget admin drive');
     }
 
+    const closed = await this.closeDriveShares(cachedDrive, withoutSignal(requestOptions));
     await this.pruneDriveMetadata(cachedDrive, driveIx, stateTopic, requestOptions);
     this.logger.debug(`Drive forgotten (metadata only): ${cachedDrive.name}`);
+    for (const entry of closed) {
+      this.emitter.emit(FileManagerEvents.SHARE_REVOKED, { entry });
+    }
     this.emitter.emit(FileManagerEvents.DRIVE_FORGOTTEN, { driveInfo: cachedDrive });
   }
 
@@ -426,6 +433,7 @@ export class FileManagerBase implements FileManager {
     // Resolve the parent folder up front so the new fork inherits the parent's redundancy level.
     const { parentPath, name: filename } = splitPath(item.path);
 
+    await this.prepareWrite(cachedDrive, parentPath, requestOptions);
     const { host: targetHost, folder: parentFolder } = await this.store.resolveHost(
       cachedDrive,
       parentPath,
@@ -438,7 +446,7 @@ export class FileManagerBase implements FileManager {
     }
 
     const { topic, version } = await getTopicAndVersion(this.swarmClient, owner, undefined, undefined, requestOptions);
-    this.store.keyring.mint(topic);
+    await this.store.keyring.mint(topic);
 
     const { content, rLevel } = await processUpload(
       this.swarmClient,
@@ -478,6 +486,7 @@ export class FileManagerBase implements FileManager {
     }
 
     this.cacheRecord(record);
+    await this.reissueRotatedGrants(requestOptions);
     this.emitter.emit(FileManagerEvents.FILE_UPLOADED, { record });
 
     return record;
@@ -507,6 +516,7 @@ export class FileManagerBase implements FileManager {
     assertNotTrashPath(destinationPath);
     const destSegments = pathSegments(destinationPath);
     const destKey = destSegments.join('/');
+    await this.prepareWrite(cachedDrive, destinationPath, requestOptions);
     const { host: destHost } = await this.store.resolveHost(cachedDrive, destinationPath, requestOptions);
 
     interface PlannedFile {
@@ -568,15 +578,15 @@ export class FileManagerBase implements FileManager {
       }
 
       const parentMantaray = await this.store.getMantarayNode(parentHost.topic, parentHost.manifestRef, requestOptions);
-      const fork = parentMantaray.find(folderName);
-
-      if (!fork) {
+      if (!parentMantaray.find(folderName)) {
         missingFolderPaths.add(path);
         missingFolders.push({ path: path, parentPath, folderName });
         continue;
       }
 
-      const meta = fork.metadata ?? {};
+      // Rotating a stale folder rewrites its fork, so the metadata is read after it.
+      await this.prepareWrite(cachedDrive, path, requestOptions);
+      const meta = parentMantaray.find(folderName)?.metadata ?? {};
       if (meta[MANIFEST_METADATA_NODE_TYPE] !== NodeType.Folder) {
         throw new DriveError(`Path is not a folder: ${path}`);
       }
@@ -656,7 +666,7 @@ export class FileManagerBase implements FileManager {
           undefined,
           requestOptions,
         );
-        this.store.keyring.mint(topic);
+        await this.store.keyring.mint(topic);
 
         const { content, rLevel } = await processUpload(
           this.swarmClient,
@@ -728,6 +738,7 @@ export class FileManagerBase implements FileManager {
     for (const record of succeeded) {
       this.cacheRecord(record);
     }
+    await this.reissueRotatedGrants(requestOptions);
     for (const folderInfo of createdFolders) {
       this.emitter.emit(FileManagerEvents.FOLDER_CREATED, { folderInfo });
     }
@@ -790,6 +801,7 @@ export class FileManagerBase implements FileManager {
       requestOptions,
     );
 
+    await this.prepareWrite(cachedDrive, cached.path, requestOptions);
     const resolvedFork = await this.store.resolveFileFork(cachedDrive, cached.path, cached.topic, requestOptions);
     const filename = resolvedFork.filename;
 
@@ -836,6 +848,7 @@ export class FileManagerBase implements FileManager {
     fr.path = cached.path;
 
     this.cacheRecord(fr);
+    await this.reissueRotatedGrants(requestOptions);
     this.emitter.emit(FileManagerEvents.FILE_UPDATED, { record: fr });
 
     return fr;
@@ -977,6 +990,7 @@ export class FileManagerBase implements FileManager {
     const cached = this.recordList.find((f) => f.topic === versionToRestore.topic);
 
     const restoredPath = cached?.path ?? versionToRestore.path;
+    await this.prepareWrite(cachedDrive, restoredPath, requestOptions);
     const resolvedFork = await this.store.resolveFileFork(
       cachedDrive,
       restoredPath,
@@ -998,6 +1012,7 @@ export class FileManagerBase implements FileManager {
     await this.commitForkVersion(driveIx, resolvedFork, writtenVersion, requestOptions);
 
     this.cacheRecord(restored);
+    await this.reissueRotatedGrants(requestOptions);
     this.emitter.emit(FileManagerEvents.FILE_VERSION_RESTORED, {
       restored,
     });
@@ -1022,6 +1037,7 @@ export class FileManagerBase implements FileManager {
     const actualPath = joinPath(normalizePath(parentPath), folderName);
     assertNotTrashPath(actualPath);
 
+    await this.prepareWrite(cachedDrive, parentPath, requestOptions);
     const { host: parentHost, folder: parentFolder } = await this.store.resolveHost(
       cachedDrive,
       parentPath,
@@ -1052,6 +1068,7 @@ export class FileManagerBase implements FileManager {
       this.driveList[driveIx].manifestRef = updatedParentManifestRef;
     }
 
+    await this.reissueRotatedGrants(requestOptions);
     this.emitter.emit(FileManagerEvents.FOLDER_CREATED, { folderInfo: folder });
 
     return folder;
@@ -1299,6 +1316,8 @@ export class FileManagerBase implements FileManager {
     const { parentPath: srcParentPath, name: srcName } = splitPath(fromPath);
     const { parentPath: tgtParentPath, name: tgtName } = splitPath(toPath);
 
+    await this.prepareWrite(cachedSource, srcParentPath, requestOptions);
+    await this.prepareWrite(cachedSource, tgtParentPath, requestOptions);
     const {
       host: srcParentHost,
       folder: srcParentFolder,
@@ -1366,6 +1385,8 @@ export class FileManagerBase implements FileManager {
       }
     }
 
+    await this.reissueRotatedGrants(requestOptions);
+
     if (!isFile) {
       this.rewriteRecordPaths(cachedSource.id, fromPath, toPath);
       this.emitter.emit(FileManagerEvents.FOLDER_MOVED, {
@@ -1406,6 +1427,7 @@ export class FileManagerBase implements FileManager {
 
     const { parentPath, name } = splitPath(path);
 
+    await this.prepareWrite(cachedDrive, parentPath, requestOptions);
     const {
       host: parentHost,
       folder: parentFolder,
@@ -1435,6 +1457,8 @@ export class FileManagerBase implements FileManager {
     if (nodeTopic) {
       this.store.evict(nodeTopic);
     }
+
+    await this.reissueRotatedGrants(requestOptions);
 
     if (nodeType === NodeType.Folder) {
       const prefix = path.endsWith('/') ? path : path + '/';
@@ -1476,6 +1500,7 @@ export class FileManagerBase implements FileManager {
     assertNotTrashPath(path);
 
     const sourcePath = normalizePath(path);
+    await this.prepareWrite(cachedDrive, splitPath(sourcePath).parentPath, requestOptions);
     const source = await this.store.resolveNodeFork(cachedDrive, sourcePath, requestOptions);
     const topic = source.metadata[MANIFEST_METADATA_NODE_TOPIC];
     const type = source.metadata[MANIFEST_METADATA_NODE_TYPE] as NodeType | undefined;
@@ -1497,6 +1522,8 @@ export class FileManagerBase implements FileManager {
     if (!source.folder) {
       this.driveList[driveIx].manifestRef = newSourceRef;
     }
+
+    await this.reissueRotatedGrants(requestOptions);
 
     if (type === NodeType.Folder) {
       this.rewriteRecordPaths(cachedDrive.id, sourcePath, trashedPath);
@@ -1559,6 +1586,7 @@ export class FileManagerBase implements FileManager {
     delete metadata[MANIFEST_METADATA_TRASHED_FROM];
 
     const { parentPath, name } = splitPath(destination);
+    await this.prepareWrite(cachedDrive, parentPath, requestOptions);
     const {
       host: destHost,
       folder: destFolder,
@@ -1579,6 +1607,7 @@ export class FileManagerBase implements FileManager {
 
     trash.node.removeFork(topic);
     await this.store.saveMantarayNode(trash.node, trash.host, requestOptions);
+    await this.reissueRotatedGrants(requestOptions);
 
     const restoredPath = normalizePath(destination);
     if (metadata[MANIFEST_METADATA_NODE_TYPE] === NodeType.Folder) {
@@ -1715,29 +1744,36 @@ export class FileManagerBase implements FileManager {
     grade: ShareGrade,
     recipients: Hex[],
     options?: ShareOptions,
-    requestOptions?: BeeRequestOptions,
+    requestOptions?: Omit<BeeRequestOptions, 'signal'>,
   ): Promise<ShareEntry> {
-    requestOptions?.signal?.throwIfAborted();
     assertReady(this.isInitialized, this.store.identity);
+    const beeOptions = withoutSignal(requestOptions);
     const cachedDrive = this.findReadableDriveOrThrow(driveId);
+    if (cachedDrive.kind === DriveKind.Admin) {
+      throw new DriveError('Cannot share from the admin drive');
+    }
+    if (cachedDrive.kind === DriveKind.Shared) {
+      throw new ShareError('A node shared with you cannot be re-shared — only its owner can grant access to it');
+    }
 
     const grantees = [...new Set(recipients.map((r) => toGranteeKey(r, 'recipient')))];
     if (grantees.length === 0) {
       throw new ShareError('A share needs at least one recipient');
     }
 
-    const shares = await this.ensureShareList(requestOptions);
-    const subject = await this.resolveShareSubject(cachedDrive, path, requestOptions);
+    const shares = await this.ensureShareList(beeOptions);
+    const subject = await this.resolveShareSubject(cachedDrive, path, beeOptions);
     assertShareGrade(grade, subject.type);
 
     const current = shares.find((e) => e.nodeTopic === subject.topic && e.grade === grade && e.revokedAt === undefined);
 
     const entry = current
-      ? await this.addShareGrantees(current, subject, cachedDrive, grantees, requestOptions)
-      : await this.mintShareEntry(subject, cachedDrive, grade, grantees, options, requestOptions);
+      ? await this.addShareGrantees(current, subject, cachedDrive, grantees, beeOptions)
+      : await this.mintShareEntry(subject, cachedDrive, grade, grantees, options, beeOptions);
 
-    await this.commitShareEntry(shares, entry, requestOptions);
-    await this.publishShareHead(cachedDrive.batchId, entry, requestOptions);
+    const next = withShareEntry(shares, entry);
+    await this.publishShareHead(cachedDrive.batchId, entry, beeOptions);
+    await this.commitShareList(next, beeOptions);
 
     this.emitter.emit(current ? FileManagerEvents.SHARE_AMENDED : FileManagerEvents.SHARE_CREATED, { entry });
 
@@ -1760,50 +1796,122 @@ export class FileManagerBase implements FileManager {
     return members.map((m) => toGranteeKey(m, 'grantee'));
   }
 
-  async revokeShare(shareId: string, recipients?: Hex[], requestOptions?: BeeRequestOptions): Promise<ShareEntry> {
-    requestOptions?.signal?.throwIfAborted();
+  async revokeShare(
+    shareId: string,
+    recipients?: Hex[],
+    requestOptions?: Omit<BeeRequestOptions, 'signal'>,
+  ): Promise<ShareEntry> {
     assertReady(this.isInitialized, this.store.identity);
+    const beeOptions = withoutSignal(requestOptions);
 
-    const shares = await this.ensureShareList(requestOptions);
+    const shares = await this.ensureShareList(beeOptions);
     const current = this.findShareOrThrow(shares, shareId);
     if (current.revokedAt !== undefined) {
       throw new ShareError(`Share ${shareId.slice(0, 6)} is already revoked`);
     }
 
-    const cachedDrive = this.findReadableDriveOrThrow(current.driveId);
+    const { cachedDrive } = this.findDriveOrThrow(current.driveId);
     const entry: ShareEntry = { ...current };
 
-    const members = await this.getShareGrantees(shareId, requestOptions);
+    const members = await this.getShareGrantees(shareId, beeOptions);
     const named = recipients && new Set(recipients.map((r) => toGranteeKey(r, 'recipient')));
     const remove = named ? members.filter((m) => named.has(m)) : members;
     if (named && remove.length === 0) {
       throw new ShareError(`Share ${shareId.slice(0, 6)} grants none of the given recipients`);
     }
-
-    if (remove.length > 0) {
-      const revokeResult = await this.swarmClient.revokeGrantees(
-        cachedDrive.batchId,
-        entry.granteeList.reference,
-        entry.granteeList.historyRef,
-        entry.act.reference,
-        remove,
-        requestOptions,
-      );
-      applyGranteeUpdate(entry, revokeResult);
-    }
-
     // An emptied list grants nobody, so a partial removal that takes the last member closes the
     // entry too — leaving it open would let a later share amend a grant that reaches no one.
-    if (!named || remove.length === members.length) {
-      entry.revokedAt = Date.now();
+    const closes = !named || remove.length === members.length;
+
+    // Undefined when the node is gone from the drive: nothing is written to it again, so nothing rotates.
+    const path = await this.locateShareRoot(cachedDrive, entry, beeOptions);
+    const gen = path ? this.store.keyring.grantGen(entry.nodeTopic) + 1 : undefined;
+    if (path) {
+      entry.path = path;
     }
 
-    await this.commitShareEntry(shares, entry, requestOptions);
-    await this.publishShareHead(cachedDrive.batchId, entry, requestOptions);
+    // A grant that stays open is re-issued on a fresh grantee list below, which drops them anyway.
+    if (remove.length > 0 && (closes || gen === undefined)) {
+      await this.withdrawGrantees(cachedDrive.batchId, entry, remove, beeOptions);
+    }
+    entry.grantees = members.filter((m) => !remove.includes(m));
+    if (closes) {
+      entry.revokedAt = Date.now();
+      // Kept as the node's floor, so the rotation is owed even when no open grant is left to carry it.
+      if (gen !== undefined) {
+        entry.gen = gen;
+      }
+    }
 
-    this.emitter.emit(FileManagerEvents.SHARE_REVOKED, { entry });
+    let next = withShareEntry(shares, entry);
+    if (gen === undefined || closes) {
+      await this.publishShareHead(cachedDrive.batchId, entry, beeOptions);
+    }
+    // Every open grant on the node, this one included, moves to the new generation ahead of the
+    // rotation. It derives the current one, so its grantees keep reading in between.
+    if (gen !== undefined) {
+      for (const open of next.filter((e) => e.nodeTopic === entry.nodeTopic && e.revokedAt === undefined)) {
+        const reissued = await this.reissueGrant(open, beeOptions, gen);
+        await this.publishShareHead(cachedDrive.batchId, reissued, beeOptions);
+        next = withShareEntry(next, reissued);
+      }
+    }
+    await this.commitShareList(next, beeOptions);
 
-    return { ...entry };
+    // Rotated only once the index says who holds the new generation, so a failure before this line
+    // leaves nothing a later re-issue could hand back to whoever was withdrawn.
+    if (path) {
+      try {
+        await this.store.rotateNode(cachedDrive, path, entry.nodeTopic, beeOptions);
+      } catch (err: unknown) {
+        this.errorHandler.handleError(
+          err,
+          'Revoke recorded, but the key rotation did not land — the next write rotates it',
+        );
+      }
+    }
+    // Rotating the path above the node may have reached other shared nodes.
+    await this.reissueRotatedGrants(beeOptions);
+
+    const revoked = next.find((e) => e.id === entry.id) ?? entry;
+    this.emitter.emit(FileManagerEvents.SHARE_REVOKED, { entry: revoked });
+
+    return { ...revoked };
+  }
+
+  // The recorded path goes stale once the node or a folder above it moves, so a miss falls back to
+  // a walk. Either way the node's keys are held afterwards. Undefined when it is gone from the drive.
+  private async locateShareRoot(
+    drive: DriveInfo,
+    entry: ShareEntry,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<string | undefined> {
+    try {
+      await this.holdShareRoot(drive, entry.path, entry.nodeTopic, requestOptions);
+
+      return entry.path;
+    } catch (err: unknown) {
+      if (!(err instanceof DriveError || err instanceof FolderError || err instanceof FileRecordError)) {
+        throw err;
+      }
+    }
+
+    const path = await this.store.locate(drive, entry.nodeTopic, requestOptions);
+    if (!path) return undefined;
+
+    await this.holdShareRoot(drive, path, entry.nodeTopic, requestOptions);
+
+    return path;
+  }
+
+  private async holdShareRoot(
+    drive: DriveInfo,
+    path: string,
+    topic: string,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void> {
+    const fork = await this.store.resolveFileFork(drive, path, topic, requestOptions);
+    await this.store.unwrapFork(fork.host.topic, topic, fork.metadata);
   }
 
   async acceptShare(handle: ShareHandle, requestOptions?: BeeRequestOptions): Promise<NodeEntry> {
@@ -1812,17 +1920,13 @@ export class FileManagerBase implements FileManager {
 
     const head = await readShareHead(this.swarmClient, handle, requestOptions);
     const blob = await openGrantBlob(this.swarmClient, head, requestOptions);
-    assertShareGrade(head.grade, blob.type);
+    assertShareGrade(blob.grade, blob.type);
 
-    const keys = {
-      meta: blob.meta ? new Bytes(blob.meta).toUint8Array() : undefined,
-      content: blob.content ? new Bytes(blob.content).toUint8Array() : undefined,
-    };
     // What the grade promises: `list` walks the manifest, `open` opens one file, `read` does both.
     const needsMeta = blob.type !== NodeType.File;
-    const needsContent = head.grade !== ShareGrade.List;
-    if ((needsMeta && !keys.meta) || (needsContent && !keys.content)) {
-      throw new ShareError(`Grant blob carries no usable keys for a "${head.grade}" grant of a ${blob.type}`);
+    const needsContent = blob.grade !== ShareGrade.List;
+    if ((needsMeta && !blob.meta) || (needsContent && !blob.content)) {
+      throw new ShareError(`Grant blob carries no usable keys for a "${blob.grade}" grant of a ${blob.type}`);
     }
 
     const shared = this.requireSharedWithMe();
@@ -1839,12 +1943,12 @@ export class FileManagerBase implements FileManager {
       throw new ShareError(`Grant names node ${blob.topic.slice(0, 6)}, which this identity already holds keys for`);
     }
 
-    // A file has no manifest, so its meta key is never read — but every fork is sealed under one,
-    // and the recipient must be able to re-wrap it on each relocation.
-    this.store.keyring.register(blob.topic, {
-      meta: keys.meta ?? generateRandomBytes(DERIVED_SECRET_LENGTH).toUint8Array(),
-      ...(keys.content ? { content: keys.content } : {}),
-    });
+    this.store.keyring.register(
+      blob.topic,
+      grantNodeKeys(blob, generateRandomBytes(DERIVED_SECRET_LENGTH).toUint8Array()),
+      blob.gen,
+    );
+    this.store.trackGrant(blob.topic, handle);
 
     let entry: NodeEntry;
     try {
@@ -1873,9 +1977,41 @@ export class FileManagerBase implements FileManager {
       throw err;
     }
 
-    this.emitter.emit(FileManagerEvents.SHARE_ACCEPTED, { driveId: shared.id, entry });
+    this.emitter.emit(FileManagerEvents.SHARE_ACCEPTED, {
+      driveId: shared.id,
+      entry,
+      ...(blob.message !== undefined ? { message: blob.message } : {}),
+    });
 
     return entry;
+  }
+
+  async unmountShare(path: string, requestOptions?: BeeRequestOptions): Promise<void> {
+    requestOptions?.signal?.throwIfAborted();
+    assertReady(this.isInitialized, this.store.identity);
+
+    const name = normalizePath(path);
+    const shared = this.requireSharedWithMe();
+    const sharedHost = await this.store.resolveHost(shared, ROOT_PATH, requestOptions);
+    const sharedNode = await this.store.getMantarayNode(shared.topic, shared.manifestRef, requestOptions);
+
+    const topic = sharedNode.find(name)?.metadata?.[MANIFEST_METADATA_NODE_TOPIC];
+    if (!topic) {
+      throw new ShareError(`Nothing is mounted at "${name}"`);
+    }
+
+    sharedNode.removeFork(name);
+    shared.manifestRef = await this.store.saveMantarayNode(sharedNode, sharedHost.host, requestOptions);
+
+    this.store.releaseGrant(topic);
+    for (let i = this.recordList.length - 1; i >= 0; --i) {
+      const record = this.recordList[i];
+      if (record.driveId === shared.id && (record.path === name || record.path.startsWith(name + '/'))) {
+        this._recordList.splice(i, 1);
+      }
+    }
+
+    this.emitter.emit(FileManagerEvents.SHARE_UNMOUNTED, { driveId: shared.id, path: name });
   }
 
   // --- Private helpers ---
@@ -1889,6 +2025,7 @@ export class FileManagerBase implements FileManager {
     this._shareList = undefined;
     this.shareNode = undefined;
     this.store.clear();
+    this.reissuedRotations = this.store.rotationCount;
   }
 
   private discardCachedUploads(records: FileRecord[], mutatedTopics: string[]): void {
@@ -1955,7 +2092,7 @@ export class FileManagerBase implements FileManager {
       redundancyLevel,
     };
 
-    this.store.keyring.mint(node.topic);
+    await this.store.keyring.mint(node.topic);
     this.store.setNodeNextIndexCache(node.topic, 0n);
     await this.store.saveControlDocument(node, [], requestOptions);
 
@@ -2016,7 +2153,7 @@ export class FileManagerBase implements FileManager {
       (await this.store.loadControlDocument(topic, requestOptions)) ?? [],
     );
 
-    this._shareList = entries;
+    this.setShareList(entries);
 
     if (malformed.length > 0) {
       this.logger.error(`share index: dropping ${malformed.length} unparseable entries`);
@@ -2032,6 +2169,20 @@ export class FileManagerBase implements FileManager {
     }
 
     await this.store.saveControlDocument(this.shareNode, shares, requestOptions);
+  }
+
+  // A revoke whose rotation did not land leaves it to the next write, which has to know its floor.
+  private async prepareWrite(drive: DriveInfo, path: string, requestOptions?: BeeRequestOptions): Promise<void> {
+    if (!this._shareList) {
+      if (!this.shareNode) {
+        await this.resolveShareNode();
+      }
+      if (this.shareNode) {
+        await this.ensureShareList(requestOptions);
+      }
+    }
+
+    await this.store.prepareWrite(drive, path, requestOptions);
   }
 
   private requireSharedWithMe(): DriveInfo {
@@ -2090,18 +2241,14 @@ export class FileManagerBase implements FileManager {
   ): Promise<ShareEntry> {
     assertMountName(subject.name);
 
-    const keys = await this.store.keyring.requireKeys(subject.topic);
-    // Every grade but `list` hands out `K_content`, so a subtree held list-only cannot pass on more
-    const content = grade === ShareGrade.List ? undefined : await this.store.keyring.requireContentKey(subject.topic);
-
     const blob: GrantBlob = {
       v: SHARE_FORMAT_VERSION,
       owner: subject.owner,
       topic: subject.topic,
       type: subject.type,
       name: subject.name,
-      meta: grade !== ShareGrade.Open ? new Bytes(keys.meta).toString() : undefined,
-      content: content ? new Bytes(content).toString() : undefined,
+      grade,
+      ...(await this.grantKeys(subject.topic, grade)),
       message: options?.message,
     };
 
@@ -2128,7 +2275,10 @@ export class FileManagerBase implements FileManager {
       granteeList: { reference: upload.granteeListRef, historyRef: upload.contentRefs.historyRef },
       act: { ...upload.contentRefs },
       publisher: this.swarmClient.actPublisher,
+      gen: blob.gen,
       createdAt: Date.now(),
+      grantees: [...grantees],
+      ...(options?.message !== undefined ? { message: options.message } : {}),
     };
     this.store.setNodeNextIndexCache(entry.shareTopic, 0n);
 
@@ -2142,7 +2292,16 @@ export class FileManagerBase implements FileManager {
     grantees: Hex[],
     requestOptions?: BeeRequestOptions,
   ): Promise<ShareEntry> {
-    const entry: ShareEntry = { ...current, path: subject.path };
+    const entry: ShareEntry = {
+      ...current,
+      path: subject.path,
+      grantees: [...new Set([...current.grantees, ...grantees])],
+    };
+    // Patching would hand the newcomers keys the node has since rotated past.
+    if (this.store.keyring.grantGen(subject.topic) !== current.gen) {
+      return await this.reissueGrant(entry, requestOptions);
+    }
+
     const grantResult = await this.swarmClient.addGrantees(
       drive.batchId,
       entry.granteeList.reference,
@@ -2153,6 +2312,107 @@ export class FileManagerBase implements FileManager {
     applyGranteeUpdate(entry, grantResult);
 
     return entry;
+  }
+
+  // What a grade hands over, at `gen` — by default the one a grant issued now carries: `list` the
+  // meta key, `open` the content key, `read` both. A subtree held list-only cannot pass on more.
+  private async grantKeys(
+    topic: string,
+    grade: ShareGrade,
+    gen: number = this.store.keyring.grantGen(topic),
+  ): Promise<Pick<GrantBlob, 'meta' | 'content' | 'gen'>> {
+    const keys = await this.store.keyring.requireKeysAt(topic, gen);
+    if (grade !== ShareGrade.List && !keys.content) {
+      throw new KeyringError(`No content key for node ${topic.slice(0, 6)} — it was reached through a list grant`);
+    }
+
+    return {
+      meta: grade !== ShareGrade.Open ? new Bytes(keys.meta).toString() : undefined,
+      content: grade !== ShareGrade.List && keys.content ? new Bytes(keys.content).toString() : undefined,
+      gen,
+    };
+  }
+
+  // The grant's blob again, with the node's current keys, on a fresh grantee list of its members.
+  // Fresh rather than patched, because a swarm-id backend cannot continue an ACT history. Built from
+  // the entry, not the old blob, which only the node that published it can decrypt under bee-js. The
+  // share head is left to the caller.
+  private async reissueGrant(
+    current: ShareEntry,
+    requestOptions?: BeeRequestOptions,
+    gen?: number,
+  ): Promise<ShareEntry> {
+    const { cachedDrive } = this.findDriveOrThrow(current.driveId);
+    const blob: GrantBlob = {
+      v: SHARE_FORMAT_VERSION,
+      owner: cachedDrive.owner,
+      topic: current.nodeTopic,
+      type: current.type,
+      name: splitPath(current.path).name,
+      grade: current.grade,
+      ...(await this.grantKeys(current.nodeTopic, current.grade, gen)),
+      message: current.message,
+    };
+
+    const upload = await this.swarmClient.uploadProtected(
+      cachedDrive.batchId,
+      JSON.stringify(blob),
+      current.grantees,
+      undefined,
+      { redundancyLevel: this.adminRedundancyLevel },
+      requestOptions,
+    );
+    if (!upload.granteeListRef) {
+      throw new ShareError('Protected upload returned no grantee list — the grant could never be amended or revoked');
+    }
+
+    return {
+      ...current,
+      granteeList: { reference: upload.granteeListRef, historyRef: upload.contentRefs.historyRef },
+      act: { ...upload.contentRefs },
+      publisher: this.swarmClient.actPublisher,
+      gen: blob.gen,
+    };
+  }
+
+  /**
+   * Re-issue every open grant on a node rotated since the last pass, so its grantees keep reading.
+   * Runs after each write. A failure leaves those grantees on the old keys until a later write
+   * retries it, and does not fail the write that already landed.
+   */
+  private async reissueRotatedGrants(requestOptions?: BeeRequestOptions): Promise<void> {
+    const rotations = this.store.rotationCount;
+    if (rotations === this.reissuedRotations) return;
+
+    // Follows a write that already landed, so aborting that write does not cut this short.
+    const beeOptions = withoutSignal(requestOptions);
+
+    try {
+      const shares = await this.ensureShareList(beeOptions);
+      const { keyring } = this.store;
+      const due = shares.filter(
+        (e) =>
+          e.revokedAt === undefined &&
+          this.driveList.some((d) => d.id === e.driveId) &&
+          keyring.has(e.nodeTopic) &&
+          keyring.genOf(e.nodeTopic) > e.gen,
+      );
+
+      if (due.length > 0) {
+        let next = shares;
+        for (const entry of due) {
+          const { cachedDrive } = this.findDriveOrThrow(entry.driveId);
+          const reissued = await this.reissueGrant(entry, beeOptions);
+          await this.publishShareHead(cachedDrive.batchId, reissued, beeOptions);
+          next = withShareEntry(next, reissued);
+        }
+        await this.commitShareList(next, beeOptions);
+      }
+
+      this.reissuedRotations = rotations;
+    } catch (err: unknown) {
+      this.errorHandler.handleError(err, 'Failed to re-issue grants after a key rotation');
+    }
   }
 
   private async resolveShareSubject(
@@ -2185,6 +2445,57 @@ export class FileManagerBase implements FileManager {
     };
   }
 
+  private async withdrawGrantees(
+    batchId: string,
+    entry: ShareEntry,
+    remove: Hex[],
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void> {
+    const revokeResult = await this.swarmClient.revokeGrantees(
+      batchId,
+      entry.granteeList.reference,
+      entry.granteeList.historyRef,
+      entry.act.reference,
+      remove,
+      requestOptions,
+    );
+    applyGranteeUpdate(entry, revokeResult);
+  }
+
+  // A forgotten drive is never written again, so its grants close without a rotation. Withdrawn from
+  // the ACT, so a handle not yet accepted opens nothing.
+  private async closeDriveShares(drive: DriveInfo, requestOptions?: BeeRequestOptions): Promise<ShareEntry[]> {
+    if (!this.shareNode) {
+      await this.resolveShareNode();
+    }
+
+    if (!this.shareNode) return [];
+
+    const shares = await this.ensureShareList(requestOptions);
+    const open = shares.filter((e) => e.driveId === drive.id && e.revokedAt === undefined);
+
+    if (open.length === 0) return [];
+
+    let next = shares;
+    const closed: ShareEntry[] = [];
+    for (const current of open) {
+      const entry: ShareEntry = { ...current };
+      const members = await this.getShareGrantees(entry.id, requestOptions);
+      if (members.length > 0) {
+        await this.withdrawGrantees(drive.batchId, entry, members, requestOptions);
+      }
+      entry.grantees = [];
+      entry.revokedAt = Date.now();
+
+      await this.publishShareHead(drive.batchId, entry, requestOptions);
+      next = withShareEntry(next, entry);
+      closed.push(entry);
+    }
+    await this.commitShareList(next, requestOptions);
+
+    return closed;
+  }
+
   private async publishShareHead(
     batchId: string,
     entry: ShareEntry,
@@ -2195,33 +2506,31 @@ export class FileManagerBase implements FileManager {
       reference: entry.act.reference,
       historyRef: entry.act.historyRef,
       publisher: entry.publisher,
-      grade: entry.grade,
     };
 
-    await this.store.saveShareHead({ batchId, topic: entry.shareTopic }, head, requestOptions);
+    await this.store.savePublicHead({ batchId, topic: entry.shareTopic }, head, requestOptions);
   }
 
-  // The grantee mutation is already on Swarm by the time this runs, so the entry stays even when
-  // the index write fails — it is the only record of the references the grant now lives under, and
-  // the next successful save carries it.
-  private async commitShareEntry(
-    shares: ShareEntry[],
-    entry: ShareEntry,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<void> {
-    const ix = shares.findIndex((e) => e.id === entry.id);
-    if (ix === -1) {
-      shares.push(entry);
-    } else {
-      shares[ix] = entry;
+  // The cached index only moves once the save lands. A failed save leaves it at what is persisted,
+  // so a retry starts from there and supersedes whatever the failed call already put on Swarm.
+  private async commitShareList(next: ShareEntry[], requestOptions?: BeeRequestOptions): Promise<void> {
+    try {
+      await this.saveShareList(next, requestOptions);
+    } catch (err: unknown) {
+      this.errorHandler.handleError(err, 'Failed to commit the share index');
+      throw new ShareError('The grant changed on Swarm but the share index was not saved — retry the call', err);
     }
 
-    try {
-      await this.saveShareList(shares, requestOptions);
-    } catch (err: unknown) {
-      this.errorHandler.handleError(err, 'Failed to commit share entry');
-      throw err;
+    this.setShareList(next);
+  }
+
+  // A revoke's generation is a floor for its node: one whose rotation did not land yet rotates
+  // before its next write, whichever session makes it.
+  private setShareList(shares: ShareEntry[]): void {
+    for (const entry of shares) {
+      this.store.keyring.raiseFloor(entry.nodeTopic, entry.gen);
     }
+    this._shareList = shares;
   }
 
   private async registerDrive(
@@ -2263,7 +2572,7 @@ export class FileManagerBase implements FileManager {
       };
 
       const driveNode = new MantarayNode();
-      this.store.keyring.mint(newDrive.topic);
+      await this.store.keyring.mint(newDrive.topic);
       this.store.setNodeNextIndexCache(newDrive.topic, 0n);
       newDrive.manifestRef = await this.store.saveMantarayNode(driveNode, newDrive, requestOptions);
       this.store.setManifestCache(newDrive.topic, driveNode);
@@ -2497,7 +2806,7 @@ export class FileManagerBase implements FileManager {
     };
 
     const folderNode = new MantarayNode();
-    this.store.keyring.mint(newFolderTopic);
+    await this.store.keyring.mint(newFolderTopic);
     this.store.setNodeNextIndexCache(newFolderTopic, 0n);
     fi.manifestRef = await this.store.saveMantarayNode(folderNode, fi, requestOptions);
     this.store.setManifestCache(newFolderTopic, folderNode);

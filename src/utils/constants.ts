@@ -17,6 +17,11 @@ export const KEY_ID_LABEL = label('key-id');
 export const SIGNER_LABEL = label('signer');
 export const ROOT_META_KEY_LABEL = label('root-meta');
 export const ROOT_CONTENT_KEY_LABEL = label('root-content');
+export const NODE_META_CHAIN_LABEL = label('node-meta-chain');
+export const NODE_CONTENT_CHAIN_LABEL = label('node-content-chain');
+export const NODE_SEAL_LABEL = label('node-seal');
+// Generations a node's keys can step through. Creating a node walks the full chain twice.
+export const KEY_CHAIN_LENGTH = 1024;
 
 // Deliberately epoch-free: these two locate the envelope, and an envelope that cannot be found
 // cannot be reported as outdated — resolveIdentity would read it as a first run and provision a
@@ -64,4 +69,6 @@ export const MANIFEST_METADATA_DRIVE_NAME = 'swarm-drive-name';
 export const MANIFEST_METADATA_DRIVE_OWNER = 'swarm-drive-owner';
 export const MANIFEST_METADATA_DRIVE_KIND = 'swarm-drive-kind';
 export const MANIFEST_METADATA_DRIVE_BATCH_ID = 'swarm-drive-batch-id';
+export const MANIFEST_METADATA_KEY_GEN = 'swarm-key-gen';
+export const MANIFEST_METADATA_PARENT_GEN = 'swarm-parent-gen';
 export const MANIFEST_METADATA_SHARE_TOPIC = 'swarm-share-topic';

@@ -16,15 +16,18 @@ export interface GrantBlob {
   topic: string;
   type: NodeType;
   name: string;
+  grade: ShareGrade;
   meta?: Hex; // `K_meta`
   content?: Hex; // `K_content`
+  /** The generation of the keys above. Every earlier one derives from them, no later one does. */
+  gen: number;
   message?: string;
 }
 
+/** Published in the clear on a share feed: an ACT address, useless outside its grantee list. */
 export interface ShareFeedHead extends ActReferences {
   v: number;
   publisher: Hex;
-  grade: ShareGrade;
 }
 
 export interface ShareHandle {
@@ -58,8 +61,14 @@ export interface ShareEntry {
   act: ActReferences;
   /** ACT key of whoever encrypted this blob, kept because amending never re-encrypts it. */
   publisher: Hex;
+  /** The node's key generation the current blob carries. For a revoked grant, the one its revoke rotated the node to. */
+  gen: number;
   createdAt: number;
   revokedAt?: number;
+  /** Membership as of the last write, so a re-issue needs no ACT read. */
+  grantees: Hex[];
+  /** The grant's message, carried into every re-issue of its blob. */
+  message?: string;
 }
 
 export interface MalformedShare {

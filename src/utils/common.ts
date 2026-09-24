@@ -1,11 +1,19 @@
+import type { BeeRequestOptions } from '@ethersphere/bee-js';
+
 import { NodeStatus } from '../types/info';
-import type { ShareEntry } from '../types/share';
-import { type GranteeListUpdate } from '../types/utils';
 
 import { Logger } from './logger';
 import { isTrashPath } from './path';
 
 const logger = Logger.getInstance();
+
+export function withoutSignal(requestOptions?: BeeRequestOptions): BeeRequestOptions | undefined {
+  if (!requestOptions) return undefined;
+
+  const { signal: _signal, ...rest } = requestOptions;
+
+  return rest;
+}
 
 export function errorMessage(reason: unknown): string {
   if (reason instanceof Error) return reason.message;
@@ -84,9 +92,4 @@ export async function settlePromises<T>(
 
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-export function applyGranteeUpdate(entry: ShareEntry, update: GranteeListUpdate): void {
-  entry.granteeList = { reference: update.granteeListRef, historyRef: update.historyRef };
-  entry.act = { reference: update.contentRef ?? entry.act.reference, historyRef: update.historyRef };
 }

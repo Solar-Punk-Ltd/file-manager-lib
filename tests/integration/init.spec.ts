@@ -14,12 +14,13 @@ import { ensureUniqueSignerWithStamp } from './setup/utils';
 
 import { BeeClient } from '@/clients';
 import { FileManagerBase } from '@/fileManager';
+import { type Keyring } from '@/keyring';
 import { DriveKind } from '@/types';
 import { type Identity } from '@/types/identity';
 import { FileManagerEvents, StampError } from '@/utils';
 import { getFeedData, openFeedRef } from '@/utils/bee';
-import { FEED_INDEX_ZERO, ROOT_META_KEY_LABEL, STATE_TOPIC_LABEL, SWARM_ZERO_ADDRESS } from '@/utils/constants';
-import { DERIVED_SECRET_LENGTH, generateRandomBytes } from '@/utils/crypto';
+import { FEED_INDEX_ZERO, STATE_TOPIC_LABEL, SWARM_ZERO_ADDRESS } from '@/utils/constants';
+import { DERIVED_SECRET_LENGTH, generateRandomBytes, importAesKey } from '@/utils/crypto';
 
 describe('Initialization and construction', () => {
   let client: BeeClient;
@@ -29,9 +30,14 @@ describe('Initialization and construction', () => {
 
   // The state topic and the root keys are internal by design — a consumer never needs them, but a
   // test that asserts on what actually landed on Swarm does.
-  const adminIdentity = (): Identity =>
-    (fileManager as unknown as { store: { requireIdentity(): Identity } }).store.requireIdentity();
-  const stateMetaKey = (): Promise<Uint8Array> => adminIdentity().deriveKeyBytes(ROOT_META_KEY_LABEL);
+  const adminStore = () =>
+    (fileManager as unknown as { store: { requireIdentity(): Identity; keyring: Keyring } }).store;
+  const adminIdentity = (): Identity => adminStore().requireIdentity();
+  const stateMetaKey = (): Promise<CryptoKey> => {
+    const topic = adminIdentity().stateTopic.toString();
+
+    return adminStore().keyring.metaSealKey(topic, adminStore().keyring.genOf(topic));
+  };
 
   beforeAll(async () => {
     const { client: bc, bee: beeDev, ownerStamp } = await ensureUniqueSignerWithStamp();
@@ -93,7 +99,7 @@ describe('Initialization and construction', () => {
 
     // The feed itself is public — anyone who learns the topic can fetch the slot. What they cannot
     // do is open it: GCM authenticates, so a foreign key fails outright rather than yielding noise.
-    const foreignKey = generateRandomBytes(DERIVED_SECRET_LENGTH).toUint8Array();
+    const foreignKey = await importAesKey(generateRandomBytes(DERIVED_SECRET_LENGTH).toUint8Array());
     await expect(openFeedRef(payload, foreignKey)).rejects.toThrow();
 
     // And the topic is not reachable either: it is HKDF(FMK, …), not a function of the login.

@@ -48,6 +48,10 @@ import {
  * value here (`connectionInfo.appKey.publicKey`), unlike {@link BeeClient} where they differ. The
  * key is scoped to the app origin, so the same user on two origins owns two different feed sets.
  *
+ * Grants are made out to the account-wide sharing key instead (`identity.sharingPublicKey`). The
+ * iframe decrypts with the app key or the sharing key, whichever a grant names, so a share reaches
+ * the recipient on every origin they log in from.
+ *
  * ### Known gaps against the port contract
  * - **`AbortSignal` is dropped.** swarm-id's `RequestOptions` carries only `timeout`/`headers`, so
  *   in-flight cancellation is not propagated across the iframe boundary.
@@ -75,6 +79,15 @@ export class SnahaClient implements SwarmClient {
   /** Identical to {@link publicKey} here — the iframe encrypts with the app key itself. */
   get actPublisher(): Hex {
     return this.appKey().publicKey;
+  }
+
+  get granteeKey(): Hex {
+    const sharingKey = this.client.connectionInfo.identity?.sharingPublicKey;
+    if (!sharingKey) {
+      throw new SignerError('Swarm ID session carries no sharing key — connect() before sharing');
+    }
+
+    return sharingKey;
   }
 
   // eslint-disable-next-line require-await

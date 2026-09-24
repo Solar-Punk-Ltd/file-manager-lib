@@ -15,8 +15,9 @@ models a full, versioned, access-controlled filesystem on top of Swarm's content
 - **Trash / recover / forget** — soft-delete by relocating a node into the drive's reserved `.trash` folder, or
   hard-delete it from the manifest.
 - **Move** — relocate files and folders within a drive.
-- **Sharing** — grant a drive, folder or file to other identities at one of three grades, gated by Swarm's Access
-  Control Trie. What travels is a small handle; recipients mount what they accept in a read-only `sharedWithMe` drive.
+- **Sharing** — grant a folder or file to other identities at one of three grades, gated by Swarm's Access Control
+  Trie. What travels is a small handle; recipients mount what they accept in a read-only `sharedWithMe` drive. Revoking
+  rotates the node's keys, so those removed see nothing written afterwards.
 - **Browser + Node.js** — one unified API; the byte source differs (`file` vs `sourcePath`).
 
 > Full method-level documentation: see [REFERENCE.md](docs/REFERENCE.md). Encryption and key handling: see
@@ -103,7 +104,11 @@ two levels.
   **FileManager Key (FMK)** — the same 32 bytes the identity envelope seals.
 
 That split is what makes sharing cheap: a key blob of a few hundred bytes covers a subtree of any size, so **ACT gates
-the blob, not the tree**. One ACT write grants a whole drive.
+the blob, not the tree**. One ACT write grants a whole folder.
+
+Each node's keys also step through **generations** on a reverse hash chain of its own: holding one generation opens
+every earlier one and none later. Rotating a node — one step on — is how access is withdrawn without re-encrypting
+anything.
 
 ### Sharing
 
@@ -122,7 +127,11 @@ address that signs every feed you write. Outside the grantee list its addresses 
 a public channel; delivering it is your app's job. It stays valid for the life of the grant, because membership changes
 move the feed's head, not the handle.
 
+Recipients are named by **grantee key**: each one's `swarmClient.granteeKey`, which their app hands to yours. On Swarm ID
+that is the account-wide sharing key, so a grant opens on every site the recipient logs in from.
+
 ```ts
+// alicePubKey, bobPubKey: each recipient's swarmClient.granteeKey
 const entry = await fm.share(drive.id, 'docs', ShareGrade.Read, [alicePubKey]);
 const handle = { shareTopic: entry.shareTopic, owner: fm.identity!.owner }; // hand this to Alice
 
@@ -133,22 +142,37 @@ await fm.revokeShare(entry.id, [bobPubKey]); // drops Bob; omit the array to clo
 // on the recipient's side
 const mounted = await fm.acceptShare(handle);
 await fm.listFolder(fm.sharedWithMe!.id, '/');
+await fm.unmountShare(mounted.path); // removes it again; the handle can be accepted anew
 ```
 
 `share` only ever adds: a second call for the same node and grade joins the standing grant instead of issuing another,
-and a different grade mints its own, revocable on its own. `revokeShare` is the only removal. `acceptShare` mounts the
-grant as an ordinary fork in `sharedWithMe`, a drive kept out of `driveList` because every node in it belongs to someone
-else — `listFolder` and `downloadFile` work on it unchanged.
+and a different grade mints its own, revocable on its own. A drive root, `.trash`, the admin drive and anything in
+`sharedWithMe` cannot be shared — a node shared with you is not yours to pass on. `acceptShare` mounts the grant as an
+ordinary fork in `sharedWithMe`, a drive kept out of `driveList` because every node in it belongs to someone else —
+`listFolder` and `downloadFile` work on it unchanged.
 
-Three things this implies for your application:
+`revokeShare` is the only removal. It rotates the shared node and re-issues the grant, at the new generation, to whoever
+is still on it — behind the same handle, so they keep reading without doing anything. Emptying the list closes the
+grant. Nothing below the node is touched at revoke time: each node re-keys on its own next write. Moving a node to
+another folder, or trashing it, rotates it the same way, so readers of its old folder stop following it. Forgetting a
+drive closes every grant on it.
+
+Five things this implies for your application:
 
 - **List before you open.** Keys are hydrated by walking, so a `FileRecord` held across a process restart carries no key
   material. `updateFile`, `getFileVersion` and `restoreFileVersion` re-walk the record's path to recover them; if the
   path is stale, the call fails with `KeyringError` rather than returning nothing.
-- **Revocation denies future reads only.** Anything a recipient already dereferenced stays readable — Swarm cannot
-  unsee. Withdrawing past access means rotating the subtree's keys.
-- **`shareList` is `undefined` until loaded.** It is fetched during `initialize` and by the first share operation of a
-  session; `undefined` means "not loaded yet", an empty array means "no grants".
+- **Revocation denies future writes only.** Everything that existed at the moment of the revoke stays readable to those
+  removed, whether or not they had fetched it — Swarm cannot unsee, and a reference is a capability for as long as its
+  chunks live.
+- **A re-issue can lag.** Grants rotated by an ordinary write (a move, a write under a revoked folder) are re-issued once
+  that write lands. If that fails it is logged, the write still succeeds, and the grant's recipients see nothing newer
+  until a later write retries it.
+- **`shareList` is `undefined` until loaded.** It is fetched on first use — a share operation, or the session's first
+  write; `undefined` means "not loaded yet", an empty array means "no grants".
+- **One instance, one call at a time.** Sharing assumes a single `FileManagerBase` per identity, making one call at a
+  time. `share` and `revokeShare` take no abort signal: a grant change runs to completion once started, and a revoke
+  that fails partway leaves nothing the removed recipients can use.
 
 Full detail — the identity flow, the key hierarchy and what an observer can still see — is in
 [ENCRYPTION.md](docs/ENCRYPTION.md); the grant format, the ACT boundary and the accept path are in
@@ -345,8 +369,9 @@ On recovery see [Recovery](docs/ENCRYPTION.md#recovery).
 > gateway the same `appSecret`); use a stable custom or ENS-backed domain. `www.` and bare, and `localhost` and
 > production, are different origins and therefore different identities.
 
-The limitation: identities do not cross origins, so the same user on two sites has two separate file managers. That
-limits cross-app sharing, not login.
+The limitation: identities do not cross origins, so the same user on two sites has two separate file managers. Shares
+do cross: a grant made out to a user's `granteeKey` — their account-wide sharing key — opens on every site they log in
+from, mounted into that site's `sharedWithMe`.
 
 ### Custom credentials and the wallet tradeoff
 
