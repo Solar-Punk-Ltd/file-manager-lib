@@ -69,6 +69,11 @@ export class BeeClient implements SwarmClient {
     return this.nodePublicKey;
   }
 
+  /** The node decrypts grants with its own key, so recipients are granted {@link actPublisher}. */
+  get granteeKey(): Hex {
+    return this.actPublisher;
+  }
+
   async initialize(requestOptions?: SwarmRequestOptions): Promise<void> {
     const ro = toBeeRequestOptions(requestOptions);
     await verifySupportedBeeVersions(this.bee, ro);

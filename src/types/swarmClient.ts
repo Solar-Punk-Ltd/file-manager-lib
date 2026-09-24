@@ -39,13 +39,13 @@ export interface SwarmClient {
    * Compressed secp256k1 public key (66 hex chars) of {@link owner}.
    *
    * The *identity* key: who this login is. It is **not** what ACT decrypts with, and it is not what to publish as a grantee key.
-   * {@link actPublisher} is the key an identity hands out to be shared with.
+   * {@link granteeKey} is the key an identity hands out to be shared with.
    */
   readonly publicKey: Hex;
 
   /**
    * Compressed public key of whatever performs ACT for this backend — quoted as `actPublisher` when
-   * reading protected content, and the key to hand out to be granted access.
+   * reading protected content this client uploaded.
    *
    * Distinct from {@link publicKey} and not interchangeable with it. Under bee-js the Bee **node**
    * performs the ACT encryption, so this is the node's key from `getNodeAddresses()` — which means
@@ -53,6 +53,16 @@ export interface SwarmClient {
    * swarm-id it is the origin-scoped `appKey`. Only valid after {@link initialize}.
    */
   readonly actPublisher: Hex;
+
+  /**
+   * Compressed public key to hand out to be granted access — the key this backend's ACT engine
+   * decrypts grants with.
+   *
+   * Under bee-js it is the Bee node's key, the same as {@link actPublisher}. Under swarm-id it is the
+   * account-wide sharing key, so a grant made out to it opens on every origin the user logs in from.
+   * Only valid after {@link initialize}.
+   */
+  readonly granteeKey: Hex;
 
   /**
    * Derive 32 stable, secret bytes from the backend's own key material. Used for the identity
@@ -99,8 +109,8 @@ export interface SwarmClient {
    * Upload bytes gated by an ACT grantee list.
    *
    * `grantees` are compressed public keys, each the key its holder's own ACT engine decrypts with —
-   * a Bee node's key for a `BeeClient` recipient, an origin-scoped `appKey` for a swarm-id one; in
-   * both cases the recipient's {@link actPublisher}, never their {@link publicKey}. The publisher is
+   * a Bee node's key for a `BeeClient` recipient, the account-wide sharing key for a swarm-id one; in
+   * both cases the recipient's {@link granteeKey}, never their {@link publicKey}. The publisher is
    * always granted and needs no entry. Passing `historyRef` continues an existing ACT history
    * instead of minting one.
    */
