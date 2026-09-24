@@ -13,34 +13,40 @@ import {
   NodeType,
   type ResolvedFileFork,
 } from './types/info';
-import type { BulletinHandle, BulletinPayload, ShareFeedHead } from './types/share';
+import type { GrantBlob, ShareFeedHead, ShareHandle } from './types/share';
 import { type SwarmClient } from './types/swarmClient';
-import {
-  type ContentRef,
-  type FeedResultWithIndex,
-  type FeedTarget,
-  type FeedWriteResult,
-  type Hex,
-} from './types/utils';
+import { type ContentRef, type FeedResultWithIndex, type FeedTarget, type FeedWriteResult } from './types/utils';
 import { assertFileRecord } from './utils/asserts';
-import { feedEpoch, getFeedData, openFeedRef, readBulletin, writeEncryptedFeed, writePlainFeed } from './utils/bee';
+import {
+  feedGen,
+  getFeedData,
+  openFeedRef,
+  openGrantBlob,
+  readShareHead,
+  writeEncryptedFeed,
+  writePlainFeed,
+} from './utils/bee';
 import {
   FEED_INDEX_NONE,
-  MANIFEST_METADATA_BULLETIN_OWNER,
-  MANIFEST_METADATA_BULLETIN_TOPIC,
   MANIFEST_METADATA_NODE_OWNER,
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
-  MANIFEST_METADATA_WRAPPED_CONTENT_KEY,
-  MANIFEST_METADATA_WRAPPED_META_KEY,
+  MANIFEST_METADATA_SHARE_TOPIC,
   ROOT_PATH,
-  SHARE_FORMAT_VERSION,
 } from './utils/constants';
-import { bulletinTopic } from './utils/crypto';
-import { DriveError, FileRecordError, FolderError, IdentityError } from './utils/errors';
-import { loadMantaray, saveNodeManifest, wrappedKeysFromMetadata, wrappedKeysMetadata } from './utils/mantaray';
-import { pathSegments, splitPath } from './utils/path';
+import { DriveError, FileRecordError, FolderError, IdentityError, KeyringError, ShareError } from './utils/errors';
+import {
+  getAllNodeEntries,
+  getRlevel,
+  loadMantaray,
+  saveNodeManifest,
+  withoutWrappedKeys,
+  wrappedKeysFromMetadata,
+  wrappedKeysMetadata,
+} from './utils/mantaray';
+import { normalizePath, pathSegments, splitPath } from './utils/path';
+import { grantNodeKeys } from './utils/share';
 import { Keyring } from './keyring';
 
 /**
@@ -55,8 +61,10 @@ export class MantarayStore {
   private readonly nodeManifestLoading: Map<string, Promise<MantarayNode>> = new Map();
   private readonly nodeNextIndexCache: Map<string, bigint> = new Map();
   private readonly nodeRefCache: Map<string, ContentRef> = new Map();
-  private readonly nodeEpochCache: Map<string, number> = new Map();
-  private readonly bulletinCache: Map<string, BulletinPayload> = new Map();
+  private readonly nodeGenCache: Map<string, number> = new Map();
+  private readonly grantHandles: Map<string, ShareHandle> = new Map();
+  private readonly renewals: Map<string, Promise<void>> = new Map();
+  private rotations = 0;
 
   // --- Initialization ---
 
@@ -86,6 +94,11 @@ export class MantarayStore {
     }
 
     return this._keyring;
+  }
+
+  /** How many nodes this store has rotated. A change since it was last read means a grant may be due a re-issue. */
+  get rotationCount(): number {
+    return this.rotations;
   }
 
   // --- Swarm operations  ---
@@ -189,7 +202,9 @@ export class MantarayStore {
     // Concurrent getMantarayNode calls for the same but not yet cached topic must share one load (and thus one MantarayNode instance) — otherwise
     // each caller mutates its own copy and all but the last are dropped before the batched save.
     const loadPromise = (async (): Promise<MantarayNode> => {
-      const key = await this.keyring.metaSealKey(topic, this.epochOf(topic));
+      const gen = this.genOf(topic);
+      await this.renewIfBehind(topic, gen);
+      const key = await this.keyring.metaSealKey(topic, gen);
       const node = await loadMantaray(this.swarmClient, manifestRef.reference, key, undefined, requestOptions);
 
       this.setManifestCache(topic, node);
@@ -211,9 +226,10 @@ export class MantarayStore {
     host: ManifestHost,
     requestOptions?: BeeRequestOptions,
   ): Promise<ContentRef> {
+    this.assertFresh(host.topic);
     const cachedWriteIx = this.getNodeNextIndexCache(host.topic);
-    const epoch = this.keyring.epochFor(host.topic);
-    const key = await this.keyring.metaSealKey(host.topic, epoch);
+    const gen = this.keyring.genOf(host.topic);
+    const key = await this.keyring.metaSealKey(host.topic, gen);
 
     let contentRef: ContentRef;
     let nextIndex: bigint;
@@ -224,7 +240,7 @@ export class MantarayStore {
         node,
         host,
         key,
-        epoch,
+        gen,
         cachedWriteIx,
         requestOptions,
       ));
@@ -234,7 +250,7 @@ export class MantarayStore {
     }
     this.setNodeNextIndexCache(host.topic, nextIndex);
     this.setNodeRef(host.topic, contentRef);
-    this.nodeEpochCache.set(host.topic, epoch);
+    this.nodeGenCache.set(host.topic, gen);
 
     return contentRef;
   }
@@ -248,15 +264,16 @@ export class MantarayStore {
     delete persistable.driveId;
     delete (persistable as Partial<FileRecord>).path;
 
-    const epoch = this.keyring.epochFor(record.topic);
-    const key = await this.keyring.contentSealKey(record.topic, epoch);
+    this.assertFresh(record.topic);
+    const gen = this.keyring.genOf(record.topic);
+    const key = await this.keyring.contentSealKey(record.topic, gen);
 
     const { contentRef, index, nextIndex } = await writeEncryptedFeed(
       this.swarmClient,
       this.requireIdentity(),
       JSON.stringify(persistable),
       key,
-      epoch,
+      gen,
       {
         batchId: record.batchId,
         topic: record.topic,
@@ -267,7 +284,7 @@ export class MantarayStore {
     );
     this.setNodeNextIndexCache(record.topic, nextIndex);
     this.setNodeRef(record.topic, contentRef);
-    this.nodeEpochCache.set(record.topic, epoch);
+    this.nodeGenCache.set(record.topic, gen);
 
     return { contentRef, index, nextIndex };
   }
@@ -282,15 +299,16 @@ export class MantarayStore {
     document: ControlDocument,
     requestOptions?: BeeRequestOptions,
   ): Promise<FeedWriteResult> {
-    const epoch = this.keyring.epochFor(node.topic);
-    const key = await this.keyring.contentSealKey(node.topic, epoch);
+    this.assertFresh(node.topic);
+    const gen = this.keyring.genOf(node.topic);
+    const key = await this.keyring.contentSealKey(node.topic, gen);
 
     const result = await writeEncryptedFeed(
       this.swarmClient,
       this.requireIdentity(),
       JSON.stringify(document),
       key,
-      epoch,
+      gen,
       {
         batchId: node.batchId,
         topic: node.topic,
@@ -301,13 +319,13 @@ export class MantarayStore {
     );
     this.setNodeNextIndexCache(node.topic, result.nextIndex);
     this.setNodeRef(node.topic, result.contentRef);
-    this.nodeEpochCache.set(node.topic, epoch);
+    this.nodeGenCache.set(node.topic, gen);
 
     return result;
   }
 
   /**
-   * Write a share or bulletin feed head.
+   * Write a share feed head.
    *
    * In the clear, unlike every other feed this library writes: the head is an ACT address, and an
    * ACT address resolves to nothing outside its grantee list.
@@ -323,54 +341,6 @@ export class MantarayStore {
     );
 
     this.setNodeNextIndexCache(target.topic, nextIndex);
-  }
-
-  /** A bulletin's current secret, read once per session. */
-  async readBulletin(handle: BulletinHandle, requestOptions?: BeeRequestOptions): Promise<BulletinPayload> {
-    let payload = this.bulletinCache.get(handle.topic);
-    if (!payload) {
-      payload = await readBulletin(this.swarmClient, handle, requestOptions);
-      this.bulletinCache.set(handle.topic, payload);
-    }
-
-    return payload;
-  }
-
-  /**
-   * Publish the drive's current epoch secret to `audience`. Minted fresh rather than patched: one
-   * upload instead of two, and no ACT history to keep alive.
-   */
-  async publishBulletin(
-    driveTopic: string,
-    batchId: string,
-    audience: Hex[],
-    redundancyLevel: RedundancyLevel,
-    requestOptions?: BeeRequestOptions,
-  ): Promise<void> {
-    // Nobody left to read it. The epoch still moved, so the drive is simply closed to its old readers.
-    if (audience.length === 0) return;
-
-    const { epoch, secret } = this.keyring.currentSecret(driveTopic);
-    const payload: BulletinPayload = { v: SHARE_FORMAT_VERSION, epoch, secret: new Bytes(secret).toString() };
-
-    const upload = await this.swarmClient.uploadProtected(
-      batchId,
-      JSON.stringify(payload),
-      audience,
-      undefined,
-      { redundancyLevel },
-      requestOptions,
-    );
-
-    const head: ShareFeedHead = {
-      v: SHARE_FORMAT_VERSION,
-      reference: upload.contentRefs.reference,
-      historyRef: upload.contentRefs.historyRef,
-      publisher: this.swarmClient.actPublisher,
-    };
-    const topic = await bulletinTopic(this.requireIdentity(), driveTopic);
-
-    await this.savePublicHead({ batchId, topic }, head, requestOptions);
   }
 
   /**
@@ -477,46 +447,51 @@ export class MantarayStore {
    * payload, the store holds the key.
    */
   async openManifestRef(topic: string, payload: Bytes): Promise<ContentRef> {
-    const epoch = feedEpoch(payload);
-    this.keyring.noteEpoch(topic, epoch);
-    this.nodeEpochCache.set(topic, epoch);
+    const gen = await this.noteHeadGen(topic, payload);
 
-    return await openFeedRef(payload, await this.keyring.metaSealKey(topic, epoch));
+    return await openFeedRef(payload, await this.keyring.metaSealKey(topic, gen));
   }
 
-  // As the node's last-read head declared, falling back to current for one written but not read back.
-  private epochOf(topic: string): number {
-    // TODO: do we cache if nodeEpochCache.get returns undefined and store epochfor?
-    return this.nodeEpochCache.get(topic) ?? this.keyring.epochFor(topic);
+  // As the node's last-read head declared, falling back to the held one for a node written but not read back.
+  private genOf(topic: string): number {
+    return this.nodeGenCache.get(topic) ?? this.keyring.genOf(topic);
   }
 
   private async contentKeyAt(topic: string, payload: Bytes): Promise<CryptoKey> {
-    const epoch = feedEpoch(payload);
-    this.keyring.noteEpoch(topic, epoch);
-    this.nodeEpochCache.set(topic, epoch);
+    const gen = await this.noteHeadGen(topic, payload);
 
-    return await this.keyring.contentSealKey(topic, epoch);
+    return await this.keyring.contentSealKey(topic, gen);
+  }
+
+  private async noteHeadGen(topic: string, payload: Bytes): Promise<number> {
+    const gen = feedGen(payload);
+    await this.keyring.noteGen(topic, gen);
+    this.nodeGenCache.set(topic, gen);
+    await this.renewIfBehind(topic, gen);
+
+    return gen;
   }
 
   // --- Key chain ---
 
   /** Recover a child's keys from its fork metadata, sealed under `parentTopic`'s. */
   async unwrapFork(parentTopic: string, childTopic: string, meta: Record<string, string>): Promise<NodeKeys> {
-    const keys = await this.keyring.unwrapChild(parentTopic, childTopic, wrappedKeysFromMetadata(meta));
-    await this.adoptMountScope(childTopic, meta);
+    const wrapped = wrappedKeysFromMetadata(meta);
+    const shareTopic = meta[MANIFEST_METADATA_SHARE_TOPIC];
+    const owner = meta[MANIFEST_METADATA_NODE_OWNER];
+    if (shareTopic && owner) {
+      this.trackGrant(childTopic, { shareTopic, owner });
+    }
 
-    return keys;
+    await this.keyring.noteGen(parentTopic, wrapped.parentGen);
+    await this.renewIfBehind(parentTopic, wrapped.parentGen);
+
+    return await this.keyring.unwrapChild(parentTopic, childTopic, wrapped, Boolean(shareTopic));
   }
 
-  // A mount follows the sharer's epoch, not that of the drive it is mounted in.
-  private async adoptMountScope(topic: string, meta: Record<string, string>): Promise<void> {
-    const bulletin = meta[MANIFEST_METADATA_BULLETIN_TOPIC];
-    const owner = meta[MANIFEST_METADATA_BULLETIN_OWNER];
-    // TODO: throw isntead of return
-    if (!bulletin || !owner) return;
-
-    const payload = await this.readBulletin({ topic: bulletin, owner });
-    this.keyring.adoptScope(topic, payload.epoch, new Bytes(payload.secret).toUint8Array());
+  /** Remember where a mount's grant is published, so its keys can be renewed once its sharer rotates them. */
+  trackGrant(topic: string, handle: ShareHandle): void {
+    this.grantHandles.set(topic, handle);
   }
 
   /**
@@ -524,6 +499,8 @@ export class MantarayStore {
    *
    * Required on every relocation — move, trash, recover. A fork copied verbatim into another
    * manifest carries keys wrapped under its old parent, so it lists correctly and opens for nobody.
+   * The node rotates on the way: whoever reached it through its old place stops following it, as
+   * after a delete.
    */
   async rewrapFork(
     fromParentTopic: string,
@@ -532,12 +509,155 @@ export class MantarayStore {
     meta: Record<string, string>,
   ): Promise<Record<string, string>> {
     await this.unwrapFork(fromParentTopic, childTopic, meta);
+    await this.keyring.bump(childTopic);
+    this.rotations++;
 
-    // Dropped rather than overwritten: the new wrap omits a key the chain no longer carries, and a
-    // leftover entry would claim a key that does not open under the new parent.
-    const { [MANIFEST_METADATA_WRAPPED_META_KEY]: _m, [MANIFEST_METADATA_WRAPPED_CONTENT_KEY]: _c, ...rest } = meta;
+    const wrapped = await this.keyring.wrapFor(toParentTopic, childTopic);
 
-    return { ...rest, ...wrappedKeysMetadata(await this.keyring.wrapFor(toParentTopic, childTopic)) };
+    return { ...withoutWrappedKeys(meta), ...wrappedKeysMetadata(wrapped) };
+  }
+
+  /**
+   * Rotate every node on the way to `path` that lags its parent's generation, top down, so each is
+   * re-wrapped under a parent that already moved on. Required before writing anything at or below
+   * `path`: the save guard refuses a write that skipped it.
+   */
+  async prepareWrite(drive: DriveInfo, path: string, requestOptions?: BeeRequestOptions): Promise<void> {
+    const nodePath = normalizePath(path);
+    if (!nodePath) return;
+
+    const { parentPath, name } = splitPath(nodePath);
+    const folder = await this.resolveFolder(drive, parentPath, requestOptions, true);
+    const host = folder ?? (await this.driveRootHost(drive, requestOptions));
+    const node = await this.getMantarayNode(host.topic, host.manifestRef, requestOptions);
+
+    const meta = node.find(name)?.metadata;
+    const topic = meta?.[MANIFEST_METADATA_NODE_TOPIC];
+    if (!meta || !topic) return;
+
+    await this.unwrapFork(host.topic, topic, meta);
+    if (this.keyring.isStale(topic)) {
+      await this.rotateFork(drive, host, node, name, requestOptions);
+    }
+  }
+
+  /** Rotate the node at `path` one generation on. Only its fork in the parent is re-written, not its own head. */
+  async rotateNode(drive: DriveInfo, path: string, topic: string, requestOptions?: BeeRequestOptions): Promise<void> {
+    const { parentPath, name } = splitPath(normalizePath(path));
+    await this.prepareWrite(drive, parentPath, requestOptions);
+
+    const { host, node } = await this.resolveHostMantaray(drive, parentPath, requestOptions);
+    const meta = node.find(name)?.metadata;
+    if (!meta || meta[MANIFEST_METADATA_NODE_TOPIC] !== topic) {
+      throw new FileRecordError(`Fork at ${path} belongs to a different node than ${topic.slice(0, 6)}`);
+    }
+
+    await this.unwrapFork(host.topic, topic, meta);
+    await this.rotateFork(drive, host, node, name, requestOptions);
+  }
+
+  /** Where `topic` sits in `drive`, trash included, found by walking the whole tree. */
+  async locate(drive: DriveInfo, topic: string, requestOptions?: BeeRequestOptions): Promise<string | undefined> {
+    let frontier: { host: ManifestHost; path: string }[] = [
+      { host: await this.driveRootHost(drive, requestOptions), path: '' },
+    ];
+
+    while (frontier.length > 0) {
+      const next: { host: ManifestHost; path: string }[] = [];
+      for (const { host, path } of frontier) {
+        const node = await this.getMantarayNode(host.topic, host.manifestRef, requestOptions);
+
+        for (const entry of getAllNodeEntries(node)) {
+          const entryPath = path ? `${path}/${entry.path}` : entry.path;
+          if (entry.topic === topic) return entryPath;
+          if (entry.type !== NodeType.Folder) continue;
+
+          await this.unwrapFork(host.topic, entry.topic, entry.rawMetadata);
+          const owner = entry.owner ?? drive.owner;
+          next.push({
+            host: {
+              owner,
+              topic: entry.topic,
+              manifestRef: await this.resolveManifestRef(entry.topic, owner, `folder ${entryPath}`, requestOptions),
+              batchId: drive.batchId,
+              redundancyLevel: getRlevel(entry.rawMetadata, drive.redundancyLevel),
+            },
+            path: entryPath,
+          });
+        }
+      }
+
+      frontier = next;
+    }
+
+    return undefined;
+  }
+
+  private async rotateFork(
+    drive: DriveInfo,
+    host: ManifestHost,
+    node: MantarayNode,
+    name: string,
+    requestOptions?: BeeRequestOptions,
+  ): Promise<void> {
+    const fork = node.find(name);
+    const meta = fork?.metadata;
+    const topic = meta?.[MANIFEST_METADATA_NODE_TOPIC];
+    if (!fork || !meta || !topic) {
+      throw new FolderError(`Path not found: ${name}`);
+    }
+
+    await this.keyring.bump(topic);
+    this.rotations++;
+
+    const target = fork.targetAddress;
+    const wrapped = await this.keyring.wrapFor(host.topic, topic);
+    node.removeFork(name);
+    node.addFork(name, target, { ...withoutWrappedKeys(meta), ...wrappedKeysMetadata(wrapped) });
+
+    const manifestRef = await this.saveMantarayNode(node, host, requestOptions);
+    if (host.topic === drive.topic) {
+      drive.manifestRef = manifestRef;
+    }
+  }
+
+  // The one check every write passes through: sealing under a generation a rotation above has
+  // already withdrawn would hand the write to whoever it was withdrawn from.
+  private assertFresh(topic: string): void {
+    if (this.keyring.isStale(topic)) {
+      throw new KeyringError(`Node ${topic.slice(0, 6)} is due a key rotation — its path was not prepared first`);
+    }
+  }
+
+  // A mount whose sharer rotated past its grant re-reads the grant before opening anything under it.
+  private async renewIfBehind(topic: string, gen: number): Promise<void> {
+    if (!this.keyring.behind(topic, gen) || !this.grantHandles.has(topic)) return;
+
+    let renewal = this.renewals.get(topic);
+    if (!renewal) {
+      renewal = this.renewGrant(topic).finally(() => this.renewals.delete(topic));
+      this.renewals.set(topic, renewal);
+    }
+
+    await renewal;
+  }
+
+  private async renewGrant(topic: string): Promise<void> {
+    const handle = this.grantHandles.get(topic);
+    if (!handle) return;
+
+    let blob: GrantBlob;
+    try {
+      blob = await openGrantBlob(this.swarmClient, await readShareHead(this.swarmClient, handle));
+    } catch (err: unknown) {
+      throw new ShareError(`The grant for ${topic.slice(0, 6)} could not be renewed — it may be withdrawn`, err);
+    }
+    if (blob.topic !== topic) {
+      throw new ShareError(`The share feed for ${topic.slice(0, 6)} now carries a grant for another node`);
+    }
+
+    const { meta } = await this.keyring.requireKeys(topic);
+    this.keyring.renew(topic, grantNodeKeys(blob, meta), blob.gen);
   }
 
   // --- Cache management  ---
@@ -587,7 +707,7 @@ export class MantarayStore {
     this.nodeManifestLoading.delete(topic);
     this.nodeNextIndexCache.delete(topic);
     this.nodeRefCache.delete(topic);
-    this.nodeEpochCache.delete(topic);
+    this.nodeGenCache.delete(topic);
   }
 
   /** Drop all cached state */
@@ -596,8 +716,9 @@ export class MantarayStore {
     this.nodeManifestLoading.clear();
     this.nodeNextIndexCache.clear();
     this.nodeRefCache.clear();
-    this.nodeEpochCache.clear();
-    this.bulletinCache.clear();
+    this.nodeGenCache.clear();
+    this.grantHandles.clear();
+    this.renewals.clear();
     this._keyring?.clear();
   }
 
@@ -630,17 +751,18 @@ export class MantarayStore {
     };
   }
 
+  // With `rotate`, every folder on the way that lags its parent is rotated before it is descended into.
   private async resolveFolder(
     driveInfo: DriveInfo,
     path: string,
     requestOptions?: BeeRequestOptions,
+    rotate: boolean = false,
   ): Promise<FolderInfo | null> {
     if (!path || path === ROOT_PATH) return null;
 
     const segments = pathSegments(path);
-    const driveRootHost = await this.driveRootHost(driveInfo, requestOptions);
-    let currentMantaray = await this.getMantarayNode(driveRootHost.topic, driveRootHost.manifestRef, requestOptions);
-    let currentTopic = driveRootHost.topic;
+    let currentHost: ManifestHost = await this.driveRootHost(driveInfo, requestOptions);
+    let currentMantaray = await this.getMantarayNode(currentHost.topic, currentHost.manifestRef, requestOptions);
     let currentPath = '';
     let currentFolderInfo: FolderInfo | null = null;
 
@@ -661,7 +783,11 @@ export class MantarayStore {
         throw new FileRecordError(`Folder fork missing topic: ${currentPath}`);
       }
 
-      await this.unwrapFork(currentTopic, nodeTopic, meta);
+      await this.unwrapFork(currentHost.topic, nodeTopic, meta);
+      if (rotate && this.keyring.isStale(nodeTopic)) {
+        await this.rotateFork(driveInfo, currentHost, currentMantaray, segment, requestOptions);
+      }
+
       const owner = meta[MANIFEST_METADATA_NODE_OWNER] ?? driveInfo.owner;
       const folderManifestRef = await this.resolveManifestRef(
         nodeTopic,
@@ -688,7 +814,7 @@ export class MantarayStore {
         currentFolderInfo.manifestRef,
         requestOptions,
       );
-      currentTopic = nodeTopic;
+      currentHost = currentFolderInfo;
     }
 
     return currentFolderInfo;

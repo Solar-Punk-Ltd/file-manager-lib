@@ -571,8 +571,9 @@ inside it.
 **Additive, and additive only.** A second call for the same node and the same grade adds its recipients to the standing
 grant instead of issuing another one, so the handle the first recipients hold keeps working. There is **at most one live
 grant per `(node, grade)`**. A different grade mints its own grant with its own handle, revocable on its own; the grade
-of a standing grant never changes, because the blob is immutable and already carries the keys it was minted with.
-Removal is never expressed here — that is
+of a standing grant never changes, because a grade is the set of keys its blob carries. If the node has rotated since
+the grant was last issued, joining it re-issues the grant — a new blob at the node's current key generation, for old and
+new members alike — behind the same handle. Removal is never expressed here — that is
 [`revokeShare`](#revokeshareshareid-recipients-requestoptions-promisesharentry).
 
 | `grade`           | Valid on | The recipient gets                                       |
@@ -586,14 +587,14 @@ Removal is never expressed here — that is
   one.
 - **Returns**: the [`ShareEntry`](#shareentry). Its `shareTopic` plus `identity.owner` is the handle.
 - **Emits**: `SHARE_CREATED` when the grant is minted, `SHARE_AMENDED` when recipients join a standing one.
-- **Throws**: `DriveError` (not initialized, drive not found); `ShareError` (`recipients` empty, `path` is the drive
-  root, the grade does not fit the node type, or the backend returned no grantee list to amend against); `FolderError`
+- **Throws**: `DriveError` (not initialized, drive not found, or the admin drive); `ShareError` (`driveId` is
+  `sharedWithMe`, `recipients` empty, `path` is the drive root, the grade does not fit the node type, or the backend
+  returned no grantee list to amend against); `FolderError`
   (path not found, or under `.trash`); `FileRecordError` (fork missing node metadata); `KeyringError` (node never
   reached in this session).
 
-Re-sharing a node that was itself shared with you works: the grant names the **original** owner's address, not yours, so
-the recipient reads the sharer's feeds directly rather than through you. Only the sharer's key epoch comes through you —
-each session that sees a newer one relays it, and a relay that fails emits `BULLETIN_RELAY_FAILED`.
+A node shared with you cannot be re-shared. The grant carries the sharer's keys on the sharer's key chain, which only
+the sharer can rotate, so a re-share would be a grant its issuer could never withdraw.
 
 ### `getShareGrantees(shareId, requestOptions?): Promise<Hex[]>`
 
@@ -606,22 +607,27 @@ address, never a copy — so this is a network fetch, not a field read.
 ### `revokeShare(shareId, recipients?, requestOptions?): Promise<ShareEntry>`
 
 Withdraws access. With `recipients`, those keys are dropped from the grantee list; without it, everyone is. Either way
-the ACT is re-keyed and the new head published, so recipients still on the list follow the feed and keep reading, while
-those removed are left on an address that no longer resolves for them.
+the shared node's keys are rotated one generation on. A grant that stays open is re-issued at the new generation to those
+still on it, as the share feed's next head, so they keep reading without doing anything; a grant that closes has its ACT
+revoked. Every other open grant on the same node — another grade — is re-issued alongside.
 
 **An emptied list closes the grant** — `revokedAt` is stamped whether the last member left by name or by omission. A
 revoked entry stays in `.shares` as the record that the grant existed and is never matched again, so re-sharing the same
 node at the same grade mints a fresh grant with a fresh handle.
 
-> **Denies future writes.** The drive's key epoch is bumped, so everything written afterwards is sealed under a secret
-> removed recipients cannot derive. Everything that existed at the moment of the revoke stays readable to them — Swarm
-> has no delete, and a reference is a capability for as long as the chunks live. Revoking a re-share takes effect at
-> the original sharer's next bump.
+> **Denies future writes.** Everything written to the node afterwards — and to each node below it, which re-keys on
+> its own next write — is sealed past any key removed recipients hold. Everything that existed at the moment of the
+> revoke stays readable to them — Swarm has no delete, and a reference is a capability for as long as the chunks live.
+
+The entry's `path` is a snapshot. A revoke that no longer finds the node there walks the drive, trash included, to
+locate it and records where it was found; a node no longer in the drive is not rotated, and the ACT alone is withdrawn.
+See [ACCESS_CONTROL.md §6](ACCESS_CONTROL.md#6-groups-amendment-and-withdrawal) for what rotates and when.
 
 - **Returns**: the updated [`ShareEntry`](#shareentry), stamped `revokedAt` once nobody is left on it.
 - **Emits**: `SHARE_REVOKED`.
 - **Throws**: `DriveError` (not initialized, or the entry's drive is no longer known); `ShareError` (share not found,
-  already revoked, or it grants none of `recipients`).
+  already revoked, it grants none of `recipients`, or the grant changed on Swarm but the index save failed — retry the
+  call); `KeyringError` (the node's key chain is exhausted).
 
 ### `acceptShare(handle, requestOptions?): Promise<NodeEntry>`
 
@@ -635,6 +641,11 @@ Files and folders mount alike and sit side by side, because a mantaray fork carr
 
 A `ShareGrade.List` mount walks but does not open: its files list with `content` absent, and `downloadFiles` reports
 them under `failed`. See [`FileRecord`](#filerecord).
+
+**A mount follows its grant.** When the sharer rotates the node and re-issues the grant, the recipient notices the newer
+key generation on read and re-reads the share feed on its own, once per session. A recipient no longer on the grant
+keeps everything up to the revoke; anything written after it fails to open with `ShareError`. A node mounts once, so a
+second grant on it — another grade — is refused as already mounted.
 
 **Safe to retry.** The granted node is read before the fork is written, so an attempt that cannot finish — a feed that
 has not propagated yet, a dropped connection — leaves nothing mounted and the same handle can be accepted again.
@@ -1167,6 +1178,9 @@ interface ShareEntry {
   granteeList: ActReferences; // the ACT grantee list on Swarm — the membership itself
   act: ActReferences; // the grant blob; mirrors the current share-feed head
   publisher: Hex; // whoever encrypted the blob — not the feed owner, and not part of the handle
+  gen: number; // the node's key generation the current blob carries
+  grantees: Hex[]; // membership as of the last write — getShareGrantees reads the ACT itself
+  message?: string; // carried into every re-issue of the blob
   createdAt: number;
   revokedAt?: number; // set once the grantee list is empty
 }
@@ -1249,13 +1263,15 @@ Each manifest fork carries a metadata map that mirrors inode metadata. Keys are 
 | `MANIFEST_METADATA_REDUNDANCY_LEVEL`    | `swarm-redundancy-level`    | all   | Redundancy strategy                           |
 | `MANIFEST_METADATA_WRAPPED_META_KEY`    | `swarm-wrapped-meta-key`    | all   | `K_meta(child)` sealed under `K_meta(parent)` |
 | `MANIFEST_METADATA_WRAPPED_CONTENT_KEY` | `swarm-wrapped-content-key` | all   | `K_content(child)` sealed under the parent's  |
+| `MANIFEST_METADATA_KEY_GEN`             | `swarm-key-gen`             | all   | The child's key generation — absent means 0   |
+| `MANIFEST_METADATA_PARENT_GEN`          | `swarm-parent-gen`          | all   | The parent generation the keys are wrapped at |
 | `MANIFEST_METADATA_DRIVE_ID`            | `swarm-drive-id`            | drive | Drive identifier                              |
 | `MANIFEST_METADATA_DRIVE_NAME`          | `swarm-drive-name`          | drive | Drive display name                            |
 | `MANIFEST_METADATA_DRIVE_OWNER`         | `swarm-drive-owner`         | drive | Drive owner                                   |
 | `MANIFEST_METADATA_DRIVE_KIND`          | `swarm-drive-kind`          | drive | `admin` / `user` / `shared`                   |
 | `MANIFEST_METADATA_DRIVE_BATCH_ID`      | `swarm-drive-batch-id`      | drive | Backing postage batch                         |
 | `MANIFEST_METADATA_TRASHED_FROM`        | `swarm-trashed-from`        | trash | Path the node was trashed from                |
-| `MANIFEST_METADATA_SHARE_TOPIC`         | `swarm-share-topic`         | mount | The share feed an accepted grant came from    |
+| `MANIFEST_METADATA_SHARE_TOPIC`         | `swarm-share-topic`         | mount | The share feed a mount renews its keys from   |
 
 The map is **not encrypted** — the manifest chunk carrying it is, under the host's `K_meta`. So reaching this metadata
 already requires the parent's key, and the two wrapped-key entries are ciphertext regardless.

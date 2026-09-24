@@ -1,4 +1,5 @@
 import {
+  BatchId,
   Bee,
   Bytes,
   FeedIndex,
@@ -18,6 +19,7 @@ import { applyDefaultMocks, createMockFeedReader } from './mock';
 import { type FileManagerBase } from '@/fileManager';
 import {
   type DriveInfo,
+  DriveKind,
   type FolderInfo,
   type GrantBlob,
   NodeType,
@@ -25,9 +27,15 @@ import {
   type ShareHandle,
   type ShareOptions,
 } from '@/types';
-import { FileManagerEvents } from '@/utils';
+import { DriveError, FileManagerEvents } from '@/utils';
 import { getFeedData } from '@/utils/bee';
-import { FEED_INDEX_ZERO, ROOT_PATH, SWARM_ZERO_ADDRESS } from '@/utils/constants';
+import {
+  FEED_INDEX_ZERO,
+  MANIFEST_METADATA_KEY_GEN,
+  MANIFEST_METADATA_PARENT_GEN,
+  ROOT_PATH,
+  SWARM_ZERO_ADDRESS,
+} from '@/utils/constants';
 import { getAllNodeEntries } from '@/utils/mantaray';
 
 const RECIPIENT_A = new PrivateKey('11'.repeat(32)).publicKey().toCompressedHex();
@@ -99,7 +107,7 @@ describe('Sharing', () => {
     mockGranteeApi();
 
     fm = await createInitializedFileManager();
-    drive = fm.driveList[0];
+    [drive] = await fm.createDrives([{ batchId: new BatchId('4'.repeat(64)), name: 'Test Drive' }]);
     await fm.uploadFile(drive.id, { path: 'notes.txt', ...makeUploadSource('package.json') });
     folder = await fm.createFolder(drive.id, '', 'Docs');
   });
@@ -178,6 +186,15 @@ describe('Sharing', () => {
 
       expect(fm.shareList).toHaveLength(0);
     });
+
+    it('refuses to share from the admin drive', async () => {
+      const admin = fm.driveList.find((d) => d.kind === DriveKind.Admin)!;
+
+      const attempt = fm.share(admin.id, 'Docs', ShareGrade.Read, [RECIPIENT_A]);
+      await expect(attempt).rejects.toThrow(DriveError);
+      await expect(attempt).rejects.toThrow('Cannot share from the admin drive');
+      expect(fm.shareList).toHaveLength(0);
+    });
   });
 
   describe('getShareGrantees', () => {
@@ -251,6 +268,69 @@ describe('Sharing', () => {
     });
   });
 
+  describe('key rotation', () => {
+    const forkMeta = (hostTopic: string, name: string): Record<string, string> =>
+      (fm as any).store.getManifestCache(hostTopic).find(name).metadata;
+
+    it('rotates the shared node on a revoke and leaves everything below it for later', async () => {
+      const sub = await fm.createFolder(drive.id, 'Docs', 'Sub');
+      const entry = await fm.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_A]);
+
+      await fm.revokeShare(entry.id);
+
+      expect(forkMeta(drive.topic, 'Docs')[MANIFEST_METADATA_KEY_GEN]).toBe('1');
+      expect(forkMeta(folder.topic, 'Sub')[MANIFEST_METADATA_KEY_GEN]).toBe('0');
+      expect((fm as any).store.keyring.isStale(sub.topic)).toBe(true);
+    });
+
+    it('re-issues a partially revoked grant at the new generation, to those still on it', async () => {
+      const entry = await fm.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_A, RECIPIENT_B]);
+      const blobs = captureBlobUploads();
+
+      const amended = await fm.revokeShare(entry.id, [RECIPIENT_A]);
+
+      expect(amended.gen).toBe(1);
+      expect(amended.grantees).toEqual([RECIPIENT_B]);
+      expect(await fm.getShareGrantees(entry.id)).toEqual([RECIPIENT_B]);
+      expect(blobs.map((b) => (JSON.parse(b) as GrantBlob).gen)).toEqual([1]);
+    });
+
+    it('rotates a stale node on its first write, and re-issues the grant rooted there', async () => {
+      const sub = await fm.createFolder(drive.id, 'Docs', 'Sub');
+      const outer = await fm.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_A]);
+      const inner = await fm.share(drive.id, 'Docs/Sub', ShareGrade.Read, [RECIPIENT_B]);
+      await fm.revokeShare(outer.id);
+
+      await fm.createFolder(drive.id, 'Docs/Sub', 'Later');
+
+      expect(forkMeta(folder.topic, 'Sub')[MANIFEST_METADATA_KEY_GEN]).toBe('1');
+      expect(forkMeta(sub.topic, 'Later')[MANIFEST_METADATA_PARENT_GEN]).toBe('1');
+      expect((fm as any).store.keyring.isStale(sub.topic)).toBe(false);
+      expect(fm.shareList!.find((e) => e.id === inner.id)!.gen).toBe(1);
+    });
+
+    it('rotates a node moved to another folder, so readers of its old place stop following it', async () => {
+      await fm.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_A]);
+      const privateFolder = await fm.createFolder(drive.id, '', 'Private');
+      await fm.uploadFile(drive.id, { path: 'Docs/report.txt', ...makeUploadSource('package.json') });
+
+      await fm.move('Docs/report.txt', 'Private/report.txt', drive.id);
+
+      expect(forkMeta(privateFolder.topic, 'report.txt')[MANIFEST_METADATA_KEY_GEN]).toBe('1');
+    });
+
+    it('refuses a write to a node that is due a rotation', async () => {
+      const sub = await fm.createFolder(drive.id, 'Docs', 'Sub');
+      const entry = await fm.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_A]);
+      await fm.revokeShare(entry.id);
+
+      const store = (fm as any).store;
+      await expect(store.saveMantarayNode(store.getManifestCache(sub.topic), sub)).rejects.toThrow(
+        'due a key rotation',
+      );
+    });
+  });
+
   describe('acceptShare', () => {
     const serveShareFeed = (topic?: string, head?: Uint8Array): void => {
       jest
@@ -278,11 +358,9 @@ describe('Sharing', () => {
     ): Promise<{ handle: ShareHandle; blob: GrantBlob }> => {
       const blobs = captureBlobUploads();
       const entry = await fm.share(drive.id, 'Docs', grade, [RECIPIENT_A], options);
-      // The grant blob, then the drive's bulletin — which the recipient reads back through the store.
-      expect(blobs).toHaveLength(2);
+      expect(blobs).toHaveLength(1);
 
       serveGrantBlob(blobs[0]);
-      jest.spyOn((fm as any).store, 'readBulletin').mockResolvedValue(JSON.parse(blobs[1]));
 
       // Whatever `share` published is what comes back, rather than a hand-built head.
       const published = await (getFeedData as jest.Mock)(null, new Topic(entry.shareTopic), drive.owner);

@@ -19,25 +19,12 @@ export interface GrantBlob {
   grade: ShareGrade;
   meta?: Hex; // `K_meta`
   content?: Hex; // `K_content`
-  /** Where the sharer publishes the epoch secret. Carries no key material itself. */
-  bulletin: BulletinHandle;
+  /** The generation of the keys above. Every earlier one derives from them, no later one does. */
+  gen: number;
   message?: string;
 }
 
-/** Where a drive's epoch bulletin is published — the topic is derived, so only a grantee needs telling. */
-export interface BulletinHandle {
-  topic: string;
-  owner: Hex;
-}
-
-/** The drive's current epoch secret. Safe to share drive-wide: it salts a base key it does not supply. */
-export interface BulletinPayload {
-  v: number;
-  epoch: number;
-  secret: Hex;
-}
-
-/** Published in the clear on a share or bulletin feed: an ACT address, useless outside its grantee list. */
+/** Published in the clear on a share feed: an ACT address, useless outside its grantee list. */
 export interface ShareFeedHead extends ActReferences {
   v: number;
   publisher: Hex;
@@ -74,10 +61,14 @@ export interface ShareEntry {
   act: ActReferences;
   /** ACT key of whoever encrypted this blob, kept because amending never re-encrypts it. */
   publisher: Hex;
+  /** The node's key generation the current blob carries. Behind the node's, the grant is due a re-issue. */
+  gen: number;
   createdAt: number;
   revokedAt?: number;
-  /** Membership as of the last write, so the bulletin's audience needs no ACT read per grant. */
+  /** Membership as of the last write, so a re-issue needs no ACT read. */
   grantees: Hex[];
+  /** The grant's message, carried into every re-issue of its blob. */
+  message?: string;
 }
 
 export interface MalformedShare {

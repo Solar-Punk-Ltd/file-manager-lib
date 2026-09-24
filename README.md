@@ -15,8 +15,9 @@ models a full, versioned, access-controlled filesystem on top of Swarm's content
 - **Trash / recover / forget** — soft-delete by relocating a node into the drive's reserved `.trash` folder, or
   hard-delete it from the manifest.
 - **Move** — relocate files and folders within a drive.
-- **Sharing** — grant a drive, folder or file to other identities at one of three grades, gated by Swarm's Access
-  Control Trie. What travels is a small handle; recipients mount what they accept in a read-only `sharedWithMe` drive.
+- **Sharing** — grant a folder or file to other identities at one of three grades, gated by Swarm's Access Control
+  Trie. What travels is a small handle; recipients mount what they accept in a read-only `sharedWithMe` drive. Revoking
+  rotates the node's keys, so those removed see nothing written afterwards.
 - **Browser + Node.js** — one unified API; the byte source differs (`file` vs `sourcePath`).
 
 > Full method-level documentation: see [REFERENCE.md](docs/REFERENCE.md). Encryption and key handling: see
@@ -103,7 +104,11 @@ two levels.
   **FileManager Key (FMK)** — the same 32 bytes the identity envelope seals.
 
 That split is what makes sharing cheap: a key blob of a few hundred bytes covers a subtree of any size, so **ACT gates
-the blob, not the tree**. One ACT write grants a whole drive.
+the blob, not the tree**. One ACT write grants a whole folder.
+
+Each node's keys also step through **generations** on a reverse hash chain of its own: holding one generation opens
+every earlier one and none later. Rotating a node — one step on — is how access is withdrawn without re-encrypting
+anything.
 
 ### Sharing
 
@@ -136,19 +141,29 @@ await fm.listFolder(fm.sharedWithMe!.id, '/');
 ```
 
 `share` only ever adds: a second call for the same node and grade joins the standing grant instead of issuing another,
-and a different grade mints its own, revocable on its own. `revokeShare` is the only removal. `acceptShare` mounts the
-grant as an ordinary fork in `sharedWithMe`, a drive kept out of `driveList` because every node in it belongs to someone
-else — `listFolder` and `downloadFile` work on it unchanged.
+and a different grade mints its own, revocable on its own. A drive root, `.trash`, the admin drive and anything in
+`sharedWithMe` cannot be shared — a node shared with you is not yours to pass on. `acceptShare` mounts the grant as an
+ordinary fork in `sharedWithMe`, a drive kept out of `driveList` because every node in it belongs to someone else —
+`listFolder` and `downloadFile` work on it unchanged.
 
-Three things this implies for your application:
+`revokeShare` is the only removal. It rotates the shared node and re-issues the grant, at the new generation, to whoever
+is still on it — behind the same handle, so they keep reading without doing anything. Emptying the list closes the
+grant. Nothing below the node is touched at revoke time: each node re-keys on its own next write. Moving a node to
+another folder, or trashing it, rotates it the same way, so readers of its old folder stop following it.
+
+Four things this implies for your application:
 
 - **List before you open.** Keys are hydrated by walking, so a `FileRecord` held across a process restart carries no key
   material. `updateFile`, `getFileVersion` and `restoreFileVersion` re-walk the record's path to recover them; if the
   path is stale, the call fails with `KeyringError` rather than returning nothing.
-- **Revocation denies future reads only.** Anything a recipient already dereferenced stays readable — Swarm cannot
-  unsee. Withdrawing past access means rotating the subtree's keys.
-- **`shareList` is `undefined` until loaded.** It is fetched during `initialize` and by the first share operation of a
-  session; `undefined` means "not loaded yet", an empty array means "no grants".
+- **Revocation denies future writes only.** Everything that existed at the moment of the revoke stays readable to those
+  removed, whether or not they had fetched it — Swarm cannot unsee, and a reference is a capability for as long as its
+  chunks live.
+- **A re-issue can lag.** Grants rotated by an ordinary write (a move, a write under a revoked folder) are re-issued once
+  that write lands. If that fails it is logged, the write still succeeds, and the grant's recipients see nothing newer
+  until a later write retries it.
+- **`shareList` is `undefined` until loaded.** It is fetched on first use — a share operation, or a write that rotates a
+  node; `undefined` means "not loaded yet", an empty array means "no grants".
 
 Full detail — the identity flow, the key hierarchy and what an observer can still see — is in
 [ENCRYPTION.md](docs/ENCRYPTION.md); the grant format, the ACT boundary and the accept path are in

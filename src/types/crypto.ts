@@ -13,16 +13,13 @@ export interface NodeKeys {
 
 /**
  * A child's {@link NodeKeys} sealed under its parent's, as stored in the parent's fork metadata.
- * Each value is `iv || ciphertext`, hex-encoded.
+ * Each key is `iv || ciphertext`, hex-encoded.
  */
 export interface WrappedKeys {
   meta: Hex;
   content?: Hex;
-}
-
-export interface EpochScope {
-  current: number;
-  secrets: Map<number, Uint8Array>;
-  /** Absent on a mount, which is handed one epoch's secret rather than the chain it came from. */
-  root?: Uint8Array;
+  /** The child's key generation. */
+  gen: number;
+  /** The parent generation the keys are sealed under. Behind the parent's current one, the child is due a rotation. */
+  parentGen: number;
 }

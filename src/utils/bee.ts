@@ -3,30 +3,31 @@ import { type BatchId, Bytes, FeedIndex, Reference, Topic } from '@ethersphere/c
 
 import type { Identity } from '../types/identity';
 import type { StampInfo } from '../types/info';
-import type { BulletinHandle, BulletinPayload, GrantBlob, ShareFeedHead, ShareHandle } from '../types/share';
+import type { GrantBlob, ShareFeedHead, ShareHandle } from '../types/share';
 import type { SwarmClient } from '../types/swarmClient';
 import { type ContentRef, type FeedResultWithIndex, type FeedTarget, type FeedWriteResult } from '../types/utils';
 
-import { assertBulletinPayload, assertGrantBlob, assertShareFeedHead } from './asserts';
+import { assertGrantBlob, assertShareFeedHead } from './asserts';
 import { FEED_INDEX_NONE, FEED_INDEX_ZERO } from './constants';
 import { decryptBytes, encryptBytes, generateRandomBytes } from './crypto';
 import { DriveError, ErrorHandler, ShareError, StampError } from './errors';
 
 const errorHandler = ErrorHandler.getInstance();
 
-// A feed payload is a 4-byte big-endian epoch tag followed by the sealed reference. The tag is in
-// the clear because a reader has to know which epoch secret to derive before it can open anything.
-const EPOCH_TAG_LENGTH = 4;
+// A feed payload is a 4-byte big-endian tag, the key generation it was sealed under, followed by
+// the sealed reference. The tag is in the clear because a reader has to know which generation to
+// derive before it can open anything.
+const GEN_TAG_LENGTH = 4;
 
 function view(bytes: Uint8Array): DataView {
   return new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 }
 
-/** The epoch a feed payload was sealed under. Read this before deriving the key that opens it. */
-export function feedEpoch(payload: Bytes): number {
+/** The key generation a feed payload was sealed under. Read this before deriving the key that opens it. */
+export function feedGen(payload: Bytes): number {
   const bytes = payload.toUint8Array();
-  if (bytes.length <= EPOCH_TAG_LENGTH) {
-    throw new DriveError(`Feed payload is ${bytes.length} bytes — too short to carry an epoch tag`);
+  if (bytes.length <= GEN_TAG_LENGTH) {
+    throw new DriveError(`Feed payload is ${bytes.length} bytes — too short to carry a generation tag`);
   }
 
   return view(bytes).getUint32(0, false);
@@ -88,14 +89,14 @@ export async function writeSealedRefFeed(
   identity: Identity,
   reference: Reference,
   key: CryptoKey,
-  epoch: number,
+  gen: number,
   target: FeedTarget,
   requestOptions?: BeeRequestOptions,
 ): Promise<FeedWriteResult> {
   const sealed = await encryptBytes(key, reference.toUint8Array());
-  const payload = new Uint8Array(EPOCH_TAG_LENGTH + sealed.length);
-  view(payload).setUint32(0, epoch, false);
-  payload.set(sealed, EPOCH_TAG_LENGTH);
+  const payload = new Uint8Array(GEN_TAG_LENGTH + sealed.length);
+  view(payload).setUint32(0, gen, false);
+  payload.set(sealed, GEN_TAG_LENGTH);
 
   const { index, nextIndex } = await writePlainFeed(swarmClient, identity, payload, target, requestOptions);
 
@@ -138,7 +139,7 @@ export async function writeEncryptedFeed(
   identity: Identity,
   payload: string | Uint8Array,
   key: CryptoKey,
-  epoch: number,
+  gen: number,
   target: FeedTarget,
   requestOptions?: BeeRequestOptions,
 ): Promise<FeedWriteResult> {
@@ -154,15 +155,15 @@ export async function writeEncryptedFeed(
     identity,
     new Reference(upload.reference),
     key,
-    epoch,
+    gen,
     target,
     requestOptions,
   );
 }
 
-/** Unseal a feed payload. `key` must be the effective key for the epoch {@link feedEpoch} reports. */
+/** Unseal a feed payload. `key` must be the seal key for the generation {@link feedGen} reports. */
 export async function openFeedRef(payload: Bytes, key: CryptoKey): Promise<ContentRef> {
-  const opened = await decryptBytes(key, payload.toUint8Array().subarray(EPOCH_TAG_LENGTH));
+  const opened = await decryptBytes(key, payload.toUint8Array().subarray(GEN_TAG_LENGTH));
 
   return { reference: new Reference(opened).toString() };
 }
@@ -205,39 +206,6 @@ export async function openGrantBlob(
   assertGrantBlob(blob);
 
   return blob;
-}
-
-/** The drive's current epoch secret, if this identity is on the bulletin's grantee list. */
-export async function readBulletin(
-  swarmClient: SwarmClient,
-  handle: BulletinHandle,
-  requestOptions?: BeeRequestOptions,
-): Promise<BulletinPayload> {
-  const { payload, feedIndex } = await getFeedData(
-    swarmClient,
-    new Topic(handle.topic),
-    handle.owner,
-    undefined,
-    requestOptions,
-  );
-  if (feedIndex.equals(FEED_INDEX_NONE)) {
-    throw new ShareError('Bulletin feed has no head — the drive has published no epoch secret');
-  }
-
-  const head = payload.toJSON();
-  assertShareFeedHead(head);
-
-  const bytes = await swarmClient.downloadProtected(
-    { reference: head.reference, historyRef: head.historyRef, publisher: head.publisher },
-    undefined,
-    undefined,
-    requestOptions,
-  );
-
-  const body = new Bytes(bytes).toJSON();
-  assertBulletinPayload(body);
-
-  return body;
 }
 
 export async function fetchStamp(

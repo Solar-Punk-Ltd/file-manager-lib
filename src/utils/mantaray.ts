@@ -12,7 +12,6 @@ import {
   type NodeHeader,
   NodeType,
 } from '../types/info';
-import type { BulletinHandle } from '../types/share';
 import type { SwarmClient } from '../types/swarmClient';
 import type { FeedWriteResult, SwarmDownloadOptions, SwarmRequestOptions, SwarmUploadOptions } from '../types/utils';
 
@@ -20,17 +19,17 @@ import { writeSealedRefFeed } from './bee';
 import { getRecordStatus } from './common';
 import {
   DRIVE_FORK_PREFIX,
-  MANIFEST_METADATA_BULLETIN_OWNER,
-  MANIFEST_METADATA_BULLETIN_TOPIC,
   MANIFEST_METADATA_DRIVE_BATCH_ID,
   MANIFEST_METADATA_DRIVE_ID,
   MANIFEST_METADATA_DRIVE_KIND,
   MANIFEST_METADATA_DRIVE_NAME,
   MANIFEST_METADATA_DRIVE_OWNER,
+  MANIFEST_METADATA_KEY_GEN,
   MANIFEST_METADATA_NODE_OWNER,
   MANIFEST_METADATA_NODE_TOPIC,
   MANIFEST_METADATA_NODE_TYPE,
   MANIFEST_METADATA_NODE_VERSION,
+  MANIFEST_METADATA_PARENT_GEN,
   MANIFEST_METADATA_REDUNDANCY_LEVEL,
   MANIFEST_METADATA_SHARE_TOPIC,
   MANIFEST_METADATA_TRASHED_FROM,
@@ -113,6 +112,8 @@ export function wrappedKeysMetadata(wrapped: WrappedKeys): Record<string, string
   return {
     [MANIFEST_METADATA_WRAPPED_META_KEY]: wrapped.meta,
     ...(wrapped.content ? { [MANIFEST_METADATA_WRAPPED_CONTENT_KEY]: wrapped.content } : {}),
+    [MANIFEST_METADATA_KEY_GEN]: wrapped.gen.toString(),
+    [MANIFEST_METADATA_PARENT_GEN]: wrapped.parentGen.toString(),
   };
 }
 
@@ -124,7 +125,37 @@ export function wrappedKeysFromMetadata(meta: Record<string, string>): WrappedKe
 
   const wrappedContent = meta[MANIFEST_METADATA_WRAPPED_CONTENT_KEY];
 
-  return { meta: wrappedMeta, ...(wrappedContent ? { content: wrappedContent } : {}) };
+  return {
+    meta: wrappedMeta,
+    ...(wrappedContent ? { content: wrappedContent } : {}),
+    gen: parseGen(meta[MANIFEST_METADATA_KEY_GEN]),
+    parentGen: parseGen(meta[MANIFEST_METADATA_PARENT_GEN]),
+  };
+}
+
+/** A fork's metadata minus its wrapped keys, ready to take a fresh wrap. */
+export function withoutWrappedKeys(meta: Record<string, string>): Record<string, string> {
+  const {
+    [MANIFEST_METADATA_WRAPPED_META_KEY]: _meta,
+    [MANIFEST_METADATA_WRAPPED_CONTENT_KEY]: _content,
+    [MANIFEST_METADATA_KEY_GEN]: _gen,
+    [MANIFEST_METADATA_PARENT_GEN]: _parentGen,
+    ...rest
+  } = meta;
+
+  return rest;
+}
+
+// Absent means never rotated.
+function parseGen(raw: string | undefined): number {
+  if (raw === undefined) return 0;
+
+  const gen = Number(raw);
+  if (!Number.isInteger(gen) || gen < 0) {
+    throw new KeyringError(`Fork carries an invalid key generation: "${raw}"`);
+  }
+
+  return gen;
 }
 
 export function getAllNodeEntries(root: MantarayNode): NodeHeader[] {
@@ -156,7 +187,7 @@ export async function saveNodeManifest(
   node: MantarayNode,
   host: ManifestHost,
   key: CryptoKey,
-  epoch: number,
+  gen: number,
   index?: bigint,
   requestOptions?: BeeRequestOptions,
 ): Promise<FeedWriteResult> {
@@ -167,7 +198,7 @@ export async function saveNodeManifest(
     identity,
     rootReference,
     key,
-    epoch,
+    gen,
     {
       batchId: host.batchId,
       topic: host.topic,
@@ -258,7 +289,6 @@ export function mountForkMetadata(
     type: NodeType;
     owner: string;
     shareTopic: string;
-    bulletin: BulletinHandle;
     redundancyLevel: RedundancyLevel;
   },
   wrapped: WrappedKeys,
@@ -268,10 +298,8 @@ export function mountForkMetadata(
     [MANIFEST_METADATA_NODE_TYPE]: mount.type,
     [MANIFEST_METADATA_NODE_OWNER]: mount.owner,
     [MANIFEST_METADATA_REDUNDANCY_LEVEL]: mount.redundancyLevel.toString(),
-    // Kept so a mount can find its grant's share feed again. Private to the recipient's own manifest.
+    // Where the mount renews its keys once the sharer rotates them. Private to the recipient's own manifest.
     [MANIFEST_METADATA_SHARE_TOPIC]: mount.shareTopic,
-    [MANIFEST_METADATA_BULLETIN_TOPIC]: mount.bulletin.topic,
-    [MANIFEST_METADATA_BULLETIN_OWNER]: mount.bulletin.owner,
     ...wrappedKeysMetadata(wrapped),
   };
 }

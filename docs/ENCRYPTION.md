@@ -15,8 +15,9 @@ embedded in a 64-byte reference — the library never chooses or stores a conten
 **index** (feed payloads and mantaray manifests), and the index is encrypted **client-side** with AES-256-GCM under keys
 the library does control. Every node — drive, folder or file — carries two keys: `K_meta` unlocks its listing and
 `K_content` unlocks its content pointer. Each is wrapped under its parent's corresponding key, so the tree carries two
-parallel key chains rooted in one **FileManager Key (FMK)**. All of it hangs off a single sealed envelope that turns a
-login into that FMK.
+parallel key chains rooted in one **FileManager Key (FMK)**. A node's keys also step through **generations** — a
+reverse hash chain per node — which is how access is withdrawn without re-encrypting anything. All of it hangs off a
+single sealed envelope that turns a login into that FMK.
 
 Consequences worth stating up front:
 
@@ -240,68 +241,88 @@ flowchart TD
 
 The invariant: **folder and drive feed payloads are meta-keyed; file feed payloads are content-keyed.** Walking the tree
 needs `K_meta`. Opening a leaf needs `K_content`. That single asymmetry is what makes "list a folder without being able
-to open its files" expressible — the basis of the share grades in §7.
+to open its files" expressible — the basis of the share grades in
+[ACCESS_CONTROL.md §1](ACCESS_CONTROL.md#share-grades).
 
-Node keys are 32 random bytes each, minted when the node is created and stored **only** as a wrapped pair in the
-parent's fork metadata:
+A key does two jobs, and never with the same AES key. It **wraps** its children's keys directly, as the AES key behind
+the fork metadata below. It **seals** its own node — the feed payload and the manifest chunks — through
+`seal(K) = HKDF(K, 'fm-node-seal-v1')`. Wherever the diagram shows a payload sealed "under `K`", it is sealed under
+`seal(K)`.
+
+A node's keys are stored **only** as a wrapped pair in the parent's fork metadata, beside the generations they belong
+to:
 
 | Metadata key                | Constant                                | Holds                                               |
 | --------------------------- | --------------------------------------- | --------------------------------------------------- |
 | `swarm-wrapped-meta-key`    | `MANIFEST_METADATA_WRAPPED_META_KEY`    | `iv ‖ AES-GCM(K_meta(parent), K_meta(child))`       |
 | `swarm-wrapped-content-key` | `MANIFEST_METADATA_WRAPPED_CONTENT_KEY` | `iv ‖ AES-GCM(K_content(parent), K_content(child))` |
+| `swarm-key-gen`             | `MANIFEST_METADATA_KEY_GEN`             | the child's generation — absent means 0             |
+| `swarm-parent-gen`          | `MANIFEST_METADATA_PARENT_GEN`          | the parent's generation the pair was wrapped under  |
 
-### Base keys and the drive epoch
+### Key generations
 
-The pair above is a node's **base key**: minted at creation, wrapped into the parent, never changed. It does the
-scoping — a grant on a folder hands over that folder's base key and the recipient walks down unwrapping the rest.
-
-What seals a feed payload is the **effective key**, derived per write:
+Below the root, a node's keys are not random. Each sits on two reverse hash chains of the node's own, one per key,
+rooted in the FMK:
 
 ```
-K_eff(node, e) = HKDF(K_base(node), S_e)
-S_e            = HKDF(FMK, driveId ‖ e)
+R_meta(N)       = HKDF(FMK, 'fm-node-meta-chain-v1:' ‖ topic(N))      R_content(N) likewise
+K_meta(N, g)    = keccak^(L − g)(R_meta(N))                           L = KEY_CHAIN_LENGTH = 1024
+K_meta(N, g−1)  = keccak(K_meta(N, g))
 ```
 
-`S_e` is the drive's **epoch secret** — one per drive, bumped on every withdrawal. Bumping it changes the effective key
-of every node in the drive at once while touching nothing on the wire, because the wraps in every manifest are over
-base keys. That is what makes withdrawal cost one publish per live grant instead of one write per node; see
-ACCESS_CONTROL.md §6. The diagram above names base keys, and every payload it shows sealed is sealed under the
-effective key derived from them.
+A node is created at generation 0. **Holding one generation derives every earlier one and none later**, so stepping a
+node to `g + 1` — a **rotation** — withdraws everything it seals from then on from whoever held `g`, while leaving them
+every state sealed at `g` or before. That asymmetry is the whole of a withdrawal
+([ACCESS_CONTROL.md §6](ACCESS_CONTROL.md#6-groups-amendment-and-withdrawal)); reversing it would void every one.
 
-Re-keying is lazy: a node keeps its old seal until the next time it is written, so the epochs in a drive are mixed by
-design and each feed head records its own in the clear. The drive root's tag is the authoritative current epoch — it is
-re-sealed on every withdrawal and at no other time, which is the whole of the bookkeeping.
+A rotation touches one fork: the node steps on and is re-wrapped under its parent, which rewrites its fork in the
+parent's manifest. Its own head, its manifest and everything below it stay as they are. Two records keep that honest:
 
-Secrets form a **reverse hash chain**: `S_e = keccak(S_e+1)`, rooted at `R = HKDF(FMK, driveId ‖ 'epoch-root')` with
-`S_e = keccak^(E-e)(R)` and `E = EPOCH_CHAIN_LENGTH`. Holding one epoch's secret derives every earlier one and none later, which is exactly the shape a
-withdrawal needs — a node not written since an earlier epoch is still sealed under it, so a reader without the history
-would see a subtree full of holes. The owner walks the chain once per drive load, about 13ms at `E = 4096`, shrinking
-as epochs advance; every historical epoch after that is a handful of hashes from the value already in hand.
+- **Every feed payload carries its generation in the clear**, as a 4-byte tag ahead of the sealed reference — a reader
+  must know which generation to derive before it can open anything, and the nodes of a tree are at mixed generations by
+  design.
+- **Every fork records the parent generation it was wrapped under.** A node whose record lags its parent's current
+  generation is **stale**: it is still held by whoever the parent's rotation withdrew, so it rotates before anything is
+  written to it. Preparation runs top down over the path of every write, and the store's save path refuses a write to a
+  stale node, so no write can seal under a generation a rotation above it has withdrawn.
 
-`E` caps how many withdrawals a drive can make. Past it the drive re-anchors on a fresh root, and the bulletin carries
-the generation alongside the secret so a reader knows which chain an epoch belongs to.
+Re-keying is therefore lazy. A node keeps its old seal until its next write and nothing is re-encrypted up front; a
+rotation costs one manifest save, whatever the size of the subtree.
 
-A grant blob carries the shared node's base key and a handle to the drive's bulletin. It carries **no epoch material**,
-so a withdrawal never re-mints it — see ACCESS_CONTROL.md §6.
+**The owner derives; a recipient counts down.** The owner holds the chain roots through the FMK, so it reaches any
+generation of its own nodes from the topic alone, and picks up a rotation made by another session from the next head it
+reads. A recipient holds one generation, from a grant: it derives the ones before and nothing else, so a mounted node
+the sharer has rotated stays closed to it until the grant is re-issued. Only an owner rotates.
 
-Root keys are raw bytes rather than a non-extractable `CryptoKey`, because every node key below the root is wrapped into
-a manifest and — once sharing lands — handed to a grantee, so none of them can be non-extractable. The FMK itself is
-imported non-extractable, which keeps its bytes out of the heap but is not a mitigation against code running in the page
-— see [§6](#the-page-is-trusted).
+**The cost is paid on creation.** Deriving generation 0 walks both chains in full — 2 × 1024 keccak hashes per node
+created. A rotation derives the new generation from the roots again; opening an older generation from a newer one costs
+the difference in hashes. `L` caps how often a node can rotate: past it, a rotation raises `KeyringError`.
+
+The **state node** — the root of the admin manifest — is the exception: its keys come straight from the FMK
+(`'fm-root-meta-v1'` / `'fm-root-content-v1'`) and never rotate. Drive roots are ordinary nodes under it, at generation 0
+for good, since a drive root is never shared and never moved.
+
+A grant blob carries the shared node's keys at one generation. When the node rotates, the grant is re-issued at the new
+one — see ACCESS_CONTROL.md §6.
+
+Node keys are raw bytes rather than a non-extractable `CryptoKey`, because every one of them is wrapped into a manifest
+and may be handed to a grantee in a grant blob, so none of them can be non-extractable. The root keys follow suit, since
+they wrap the level below. The FMK itself is imported non-extractable, which keeps its bytes out of the heap but is not
+a mitigation against code running in the page — see [§6](#the-page-is-trusted).
 
 ---
 
 ## 4. What is encrypted, and how
 
-| Object                | Encrypted by                   | Under                   | On the wire                                |
-| --------------------- | ------------------------------ | ----------------------- | ------------------------------------------ |
-| File content chunks   | Swarm native (`encrypt: true`) | a random per-object key | 64-byte reference carries the key          |
-| `FileRecord` JSON     | Swarm native (`encrypt: true`) | a random per-object key | 64-byte reference carries the key          |
-| File feed payload     | fm-lib, AES-256-GCM            | `K_content(file)`       | ~92 bytes: `iv ‖ sealed(64-byte ref)`      |
-| Manifest chunks       | fm-lib, AES-256-GCM            | `K_meta(host)`          | plain upload of sealed bytes, 32-byte refs |
-| Manifest feed payload | fm-lib, AES-256-GCM            | `K_meta(host)`          | ~60 bytes: `iv ‖ sealed(32-byte ref)`      |
-| Identity envelope     | fm-lib, AES-256-GCM            | `K_unlock`              | JSON in the feed slot                      |
-| Fork metadata         | not separately encrypted       | `K_meta(host)`          | marshaled into the manifest chunk above    |
+| Object                | Encrypted by                   | Under                   | On the wire                                 |
+| --------------------- | ------------------------------ | ----------------------- | ------------------------------------------- |
+| File content chunks   | Swarm native (`encrypt: true`) | a random per-object key | 64-byte reference carries the key           |
+| `FileRecord` JSON     | Swarm native (`encrypt: true`) | a random per-object key | 64-byte reference carries the key           |
+| File feed payload     | fm-lib, AES-256-GCM            | `K_content(file)`       | ~96 bytes: `gen ‖ iv ‖ sealed(64-byte ref)` |
+| Manifest chunks       | fm-lib, AES-256-GCM            | `K_meta(host)`          | plain upload of sealed bytes, 32-byte refs  |
+| Manifest feed payload | fm-lib, AES-256-GCM            | `K_meta(host)`          | ~64 bytes: `gen ‖ iv ‖ sealed(32-byte ref)` |
+| Identity envelope     | fm-lib, AES-256-GCM            | `K_unlock`              | JSON in the feed slot                       |
+| Fork metadata         | not separately encrypted       | `K_meta(host)`          | marshaled into the manifest chunk above     |
 
 All fm-lib encryption is AES-256-GCM via `globalThis.crypto.subtle`, available in the browser and in Node ≥ 22 — which
 `engines.node` already requires, so this adds no dependency. Every ciphertext the library produces is `iv ‖ ciphertext`
@@ -319,8 +340,9 @@ Sealing only the key half of a 64-byte reference would be equally secure — the
 sealing all 64 costs 32 bytes and additionally hides _which chunk_ a feed points at, so an observer cannot correlate a
 feed to a chunk.
 
-A slot is the epoch and the sealed reference, the epoch in the clear: nodes are re-keyed lazily, so a reader has to
-know which epoch secret to derive with before it can unseal anything ([§3](#base-keys-and-the-drive-epoch)).
+A slot is the key generation and the sealed reference, the generation in the clear as a 4-byte big-endian tag: nodes
+are re-keyed lazily, so a reader has to know which generation to derive before it can unseal anything
+([§3](#key-generations)).
 
 Two writers follow from payload size:
 
@@ -354,15 +376,17 @@ never mantaray entries.
 
 ```mermaid
 flowchart TD
-    A["uploadFile(driveId, item)"] --> B["resolve the parent host<br/>walking down unwraps K_meta / K_content per segment"]
-    B --> C["mint K_meta(X), K_content(X)<br/>32 random bytes each"]
+    A["uploadFile(driveId, item)"] --> P["prepare the path<br/>rotate any stale node on it, top down"]
+    P --> B["resolve the parent host<br/>walking down unwraps K_meta / K_content per segment"]
+    B --> C["K_meta(X), K_content(X) at generation 0<br/>derived from the FMK and X's topic"]
     C --> D["uploadData(bytes, { encrypt: true })<br/>→ 64-byte content reference"]
     D --> E["record = { topic, name, content: { reference }, … }"]
     E --> F["writeEncryptedFeed:<br/>uploadData(JSON(record), { encrypt: true }) → 64-byte ref<br/>AES-GCM(K_content(X), ref) → the file's feed slot"]
-    F --> G["parent.addFork(name, topic, metadata)<br/>metadata carries wrap_meta, wrap_content, type, owner, version"]
+    F --> G["parent.addFork(name, topic, metadata)<br/>metadata carries wrap_meta, wrap_content, gen, parent gen,<br/>type, owner, version"]
     G --> H["save the parent manifest:<br/>each node AES-GCM(K_meta(parent)) → uploadData (plain)"]
     H --> I["AES-GCM(K_meta(parent), root ref) → the parent's feed slot"]
     I --> J["propagate the new manifest ref up to the drive root"]
+    J --> K["re-issue the grants on any node the preparation rotated"]
 ```
 
 ### Listing and opening
@@ -402,9 +426,9 @@ valid path and the node is still where it says; otherwise the call fails with a 
 than returning an empty result. **List before you open** is the reliable pattern, and it is what an application does
 anyway.
 
-**Keys are never evicted on rotation.** Dropping a single node's caches (after a failed write, say) deliberately leaves
-its keys in place — they are not recoverable once dropped, since the only other copy is wrapped in a parent manifest
-that may no longer be reachable. Keys go away only on a full reset, which rebuilds them from the FMK.
+**Keys outlive their caches.** Evicting a single node's caches (after a failed write, say) deliberately leaves its keys
+and generation in place: a mounted node's keys have no other source in the session than its grant, and a generation is
+learned only from the walk. Keys go away only on a full reset, which rebuilds them by walking from the FMK again.
 
 ### Relocation must re-wrap
 
@@ -413,6 +437,10 @@ parent's keys, so a relocation without unwrap-then-re-wrap leaves an entry that 
 nobody. The library re-wraps on every cross-parent relocation; a same-parent move (a rename) shares the key and needs
 nothing. Renaming a **drive** needs it too, for a less obvious reason: it rebuilds the drive's fork metadata from
 scratch to change the name, which would drop the wrapped keys unless they are re-sealed alongside it.
+
+A cross-parent relocation also **rotates** the node on the way ([§3](#key-generations)). Whoever could read it through
+its old parent held its current generation; stepping it on means they keep what it was and none of what it becomes, as
+after a delete. A rename rotates nothing — the readers are the same.
 
 ---
 
@@ -428,7 +456,9 @@ Encryption is not anonymity. With no keys at all, someone who knows an address o
   all of them carry the same stable pseudonymous identifier. Whoever sees many chunks (a multi-node operator, a gateway,
   or under `BeeClient` the user's own node) links them into one write history: which topics they saw, how often each
   updates, and roughly how many nodes the tree has. Names, paths, structure and content stay sealed — but feed payload
-  size does separate a manifest host from a file, ~60 bytes against ~92 (see [§4](#4-what-is-encrypted-and-how)).
+  size does separate a manifest host from a file, ~64 bytes against ~96 (see [§4](#4-what-is-encrypted-and-how)).
+- **How often a node has rotated.** The generation tag on each feed payload is in the clear, so a watcher of a feed sees
+  when its node stepped on — a revoke, a move to another folder — but not what it withdrew, or from whom.
 - **The shape of a manifest chunk**: it is uploaded plain, so its size is visible. Its _contents_ — names, types,
   wrapped keys — are sealed.
 - **The login's address**, from the envelope feed, if they know where to look. The envelope's topic is derived from a
@@ -444,7 +474,7 @@ confidentiality against the node operator is not something this design provides.
 Nothing in this design defends against code running in the library's own page. `Identity.deriveKeyBytes(info)` is an
 HKDF oracle over the FMK with a caller-supplied label, and the labels are listed in [§8](#8-constants-and-labels):
 `fm-signer-v1` reproduces the feed signer byte for byte, `fm-root-meta-v1` and `fm-root-content-v1` yield the whole read
-chain. `identity.signer` sits alongside it as a hex string, and the `MantarayStore` holding both is TypeScript-private
+chain, and `fm-node-meta-chain-v1:<topic>` yields any node's chain root, every generation included. `identity.signer` sits alongside it as a hex string, and the `MantarayStore` holding both is TypeScript-private
 only, so neither is out of reach at runtime. The FMK's non-extractability is what stops the key _bytes_ being read back
 — which is why a second credential cannot be linked to an existing identity ([§10](#10-not-implemented)) — and nothing
 more.
@@ -468,6 +498,9 @@ SIGNER_LABEL = 'fm-signer-v1'; // signer      = HKDF(FMK, …)
 KEY_ID_LABEL = 'fm-key-id-v1'; // keyId       = HKDF(FMK, …, salt)
 ROOT_META_KEY_LABEL = 'fm-root-meta-v1'; // K_meta(root)
 ROOT_CONTENT_KEY_LABEL = 'fm-root-content-v1'; // K_content(root)
+NODE_META_CHAIN_LABEL = 'fm-node-meta-chain-v1'; // R_meta(N) = HKDF(FMK, `${label}:${topic}`)
+NODE_CONTENT_CHAIN_LABEL = 'fm-node-content-chain-v1'; // R_content(N), likewise
+NODE_SEAL_LABEL = 'fm-node-seal-v1'; // seal(K) = HKDF(K, …)
 
 // Deliberately epoch-FREE — see below.
 UNLOCK_KDF_LABEL = 'fm-unlock';
@@ -489,15 +522,16 @@ Other fixed values:
 | `DERIVED_SECRET_LENGTH`        | 32    | every derived secret and AES key             |
 | `GCM_IV_LENGTH`                | 12    | prefixed to every ciphertext                 |
 | `IDENTITY_ENVELOPE_FEED_INDEX` | `0n`  | the envelope feed's only slot — never append |
+| `KEY_CHAIN_LENGTH`             | 1024  | rotations a node's key chain allows          |
 
 ---
 
 ## 9. Errors you will see
 
-| Error           | Raised when                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `IdentityError` | the envelope will not unseal, its `keyId` belongs to another FMK, its version does not match the current epoch, provisioning found one already there, or provisioning read back a foreign envelope. `initialize()` reports it as `IDENTITY_INVALID` ahead of `INITIALIZED false`, so "sign in with the other credential" and "the node is unreachable" stay distinguishable. A **missing** envelope is not an error — it is a first run, and a write that has not become readable yet is `IDENTITY_UNCONFIRMED`, not an error either. |
-| `KeyringError`  | a node's keys are not in the chain and cannot be recovered — the node was never walked to, or a fork carries no wrapped keys, or its wrapped keys do not unwrap under its parent (the manifest and the key chain disagree).                                                                                                                                                                                                                                |
+| Error           | Raised when                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `IdentityError` | the envelope will not unseal, its `keyId` belongs to another FMK, its version does not match the current epoch, provisioning found one already there, or provisioning read back a foreign envelope. `initialize()` reports it as `IDENTITY_INVALID` ahead of `INITIALIZED false`, so "sign in with the other credential" and "the node is unreachable" stay distinguishable. A **missing** envelope is not an error — it is a first run, and a write that has not become readable yet is `IDENTITY_UNCONFIRMED`, not an error either.                                                                                                                                                             |
+| `KeyringError`  | a node's keys are not in the chain and cannot be recovered — the node was never walked to, or a fork carries no wrapped keys, or its wrapped keys do not unwrap under its parent (the manifest and the key chain disagree). Also raised on the rotation path: a node's chain is exhausted; a node held through a grant was asked to rotate, which only its owner can; a node inside a mount is sealed past the generation held for it, because the sharer rotated it since (the mount root renews through its grant first, and raises `ShareError` when that fails); or a write reached a node still due a rotation, which means its path was not prepared — a library fault, not a caller error. |
 
 Both name the node they are about, truncated to its topic prefix.
 
@@ -511,9 +545,10 @@ calling before `initialize()`.
 
 Listed here so the gaps are explicit rather than inferred:
 
-- **Sharing (phase 2)** — the ACT delivery of key blobs, and every share grade in §7.
-- **Phase 1 folder sharing** — snapshotting a subtree into a new plaintext manifest. The single-file case needs no API.
-- **Key rotation** — including the resumable-job machinery it requires.
+- **Publishing a folder** — snapshotting a subtree into a new plaintext manifest. The single-file case needs no API.
+- **Re-sharing a mounted node.** A grant hands over the sharer's chain, which only the sharer can step on, so a node
+  shared with you cannot be shared on ([ACCESS_CONTROL.md §6](ACCESS_CONTROL.md#re-sharing)). Copying it into a drive
+  of your own — a snapshot under your own keys — is what would make it shareable.
 - **Linking a second credential to one identity.** A second login finds no envelope under its own address and mints a
   fresh FMK — a second, disjoint identity. Joining means sealing the _same_ FMK under credential B's unlock key at B's
   address, which needs B's whole client (the envelope is signed by the backend's own key, not `identity.signer`) and an

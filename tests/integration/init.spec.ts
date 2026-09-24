@@ -36,7 +36,7 @@ describe('Initialization and construction', () => {
   const stateMetaKey = (): Promise<CryptoKey> => {
     const topic = adminIdentity().stateTopic.toString();
 
-    return adminStore().keyring.metaSealKey(topic, adminStore().keyring.epochFor(topic));
+    return adminStore().keyring.metaSealKey(topic, adminStore().keyring.genOf(topic));
   };
 
   beforeAll(async () => {

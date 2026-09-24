@@ -18,13 +18,14 @@ jest.mock('@/utils/mantaray', () => ({
  *
  * Fork metadata in these specs is written by hand, and a real `wrapFor` seals a child's keys under
  * a parent key minted at runtime — no static fixture can produce that ciphertext. So wrapping is
- * hex here while everything else keeps its real shape: keys stay per-node, are still registered
- * only by minting or unwrapping, and `requireKeys` still throws for a node nothing walked to. The
- * real AES path runs in the integration suite, which mocks nothing.
+ * hex here and every generation of a node shares one key, while the rest keeps its real shape: keys
+ * stay per-node and are registered only by minting or unwrapping, `requireKeys` still throws for a
+ * node nothing walked to, and generations, parent links and staleness behave as the real chain's.
+ * The real AES path runs in the integration suite, which mocks nothing.
  */
 jest.mock('@/keyring', () => {
   const { Bytes } = jest.requireActual('@ethersphere/core-sdk');
-  const { generateNodeKeys, effectiveKey } = jest.requireActual('@/utils/crypto');
+  const { generateRandomBytes, sealKey } = jest.requireActual('@/utils/crypto');
   const { KeyringError } = jest.requireActual('@/utils/errors');
 
   interface Keys {
@@ -32,27 +33,59 @@ jest.mock('@/keyring', () => {
     content?: Uint8Array;
   }
 
+  interface Wrapped {
+    meta: string;
+    content?: string;
+    gen: number;
+    parentGen: number;
+  }
+
+  interface Held {
+    gen: number;
+    keys: Keys;
+    link?: { parent: string; parentGen: number };
+    foreign: boolean;
+  }
+
+  const freshKeys = (): Keys => ({
+    meta: generateRandomBytes(32).toUint8Array(),
+    content: generateRandomBytes(32).toUint8Array(),
+  });
+
   class TestKeyring {
-    private readonly keys = new Map<string, Keys>();
+    private readonly nodes = new Map<string, Held>();
     private readonly rootTopic: string;
 
     constructor(identity: { stateTopic: { toString: () => string } }) {
       this.rootTopic = identity.stateTopic.toString();
     }
 
-    async requireKeys(topic: string): Promise<Keys> {
-      const known = this.keys.get(topic);
+    private node(topic: string): Held {
+      const known = this.nodes.get(topic);
       if (known) return known;
 
       if (topic !== this.rootTopic) {
         throw new KeyringError(`No keys for node ${topic.slice(0, 6)} — its parent was never resolved`);
       }
 
-      return this.mintAnchor(topic);
+      const root: Held = { gen: 0, keys: freshKeys(), foreign: false };
+      this.nodes.set(topic, root);
+
+      return root;
+    }
+
+    async requireKeys(topic: string): Promise<Keys> {
+      return this.node(topic).keys;
+    }
+
+    async requireHeld(topic: string): Promise<{ gen: number; keys: Keys }> {
+      const { gen, keys } = this.node(topic);
+
+      return { gen, keys };
     }
 
     async requireContentKey(topic: string): Promise<Uint8Array> {
-      const { content } = await this.requireKeys(topic);
+      const { content } = this.node(topic).keys;
       if (!content) {
         throw new KeyringError(`No content key for node ${topic.slice(0, 6)} — it was reached through a list grant`);
       }
@@ -61,84 +94,125 @@ jest.mock('@/keyring', () => {
     }
 
     has(topic: string): boolean {
-      return this.keys.has(topic) || topic === this.rootTopic;
+      return this.nodes.has(topic) || topic === this.rootTopic;
     }
 
-    adoptScope(_anchorTopic: string, _epoch: number, _secret: Uint8Array): void {}
-
-    bumpEpoch(_anchorTopic: string): number {
-      return 0;
+    genOf(topic: string): number {
+      return this.node(topic).gen;
     }
 
-    mint(topic: string, _parentTopic: string): Keys {
-      const keys = generateNodeKeys() as Keys;
-      this.keys.set(topic, keys);
-      return keys;
+    // Registers before returning, so a caller that does not await still finds the node.
+    mint(topic: string): Promise<Keys> {
+      const keys = freshKeys();
+      this.nodes.set(topic, { gen: 0, keys, foreign: false });
+
+      return Promise.resolve(keys);
     }
 
-    async mintAnchor(topic: string): Promise<Keys> {
-      return this.mint(topic, topic);
+    async bump(topic: string): Promise<number> {
+      const node = this.node(topic);
+      if (node.foreign) {
+        throw new KeyringError(`Node ${topic.slice(0, 6)} was shared with this identity — only its owner rotates it`);
+      }
+
+      node.gen += 1;
+
+      return node.gen;
     }
 
-    register(topic: string, keys: Keys, _scope: { epoch: number; secret: Uint8Array }): void {
+    register(topic: string, keys: Keys, gen: number): void {
       if (this.has(topic)) {
         throw new KeyringError(`Node ${topic.slice(0, 6)} already has keys — refusing to replace them`);
       }
-      this.keys.set(topic, keys);
+
+      this.nodes.set(topic, { gen, keys, foreign: true });
     }
 
-    async openScope(_topic: string, _current?: number): Promise<void> {}
-    noteEpoch(_topic: string, _epoch: number): void {}
-    epochFor(_topic: string): number {
-      return 0;
+    renew(topic: string, keys: Keys, gen: number): void {
+      const node = this.nodes.get(topic);
+      if (node && gen > node.gen) {
+        node.gen = gen;
+        node.keys = keys;
+      }
     }
 
-    async metaSealKey(topic: string, _epoch: number): Promise<CryptoKey> {
-      return await effectiveKey((await this.requireKeys(topic)).meta, new Uint8Array(32));
+    behind(topic: string, gen: number): boolean {
+      const node = this.nodes.get(topic);
+
+      return node !== undefined && node.foreign && gen > node.gen;
     }
 
-    async contentSealKey(topic: string, _epoch: number): Promise<CryptoKey> {
-      return await effectiveKey(await this.requireContentKey(topic), new Uint8Array(32));
+    async noteGen(topic: string, gen: number): Promise<void> {
+      const node = this.nodes.get(topic);
+      if (node && !node.foreign && gen > node.gen) {
+        node.gen = gen;
+      }
     }
 
-    currentSecret(_topic: string): { epoch: number; secret: Uint8Array } {
-      return { epoch: 0, secret: new Uint8Array(32) };
+    isStale(topic: string): boolean {
+      let node = this.nodes.get(topic);
+      while (node?.link && !node.foreign) {
+        const parent = this.nodes.get(node.link.parent);
+        if (!parent) return false;
+        if (node.link.parentGen < parent.gen) return true;
+
+        node = parent;
+      }
+
+      return false;
+    }
+
+    async metaSealKey(topic: string, _gen: number): Promise<CryptoKey> {
+      return await sealKey(this.node(topic).keys.meta);
+    }
+
+    async contentSealKey(topic: string, _gen: number): Promise<CryptoKey> {
+      return await sealKey(await this.requireContentKey(topic));
     }
 
     drop(topic: string): void {
-      this.keys.delete(topic);
+      this.nodes.delete(topic);
     }
 
-    async wrapFor(parentTopic: string, childTopic: string): Promise<{ meta: string; content?: string }> {
-      const parent = await this.requireKeys(parentTopic);
-      const child = await this.requireKeys(childTopic);
+    async wrapFor(parentTopic: string, childTopic: string): Promise<Wrapped> {
+      const parent = this.node(parentTopic);
+      const child = this.node(childTopic);
+      child.link = { parent: parentTopic, parentGen: parent.gen };
 
       return {
-        meta: new Bytes(child.meta).toString(),
-        ...(parent.content && child.content ? { content: new Bytes(child.content).toString() } : {}),
+        meta: new Bytes(child.keys.meta).toString(),
+        ...(parent.keys.content && child.keys.content ? { content: new Bytes(child.keys.content).toString() } : {}),
+        gen: child.gen,
+        parentGen: parent.gen,
       };
     }
 
-    async unwrapChild(
-      parentTopic: string,
-      childTopic: string,
-      wrapped: { meta: string; content?: string },
-    ): Promise<Keys> {
-      const known = this.keys.get(childTopic);
-      if (known) return known;
+    async unwrapChild(parentTopic: string, childTopic: string, wrapped: Wrapped, foreign = false): Promise<Keys> {
+      const parent = this.node(parentTopic);
+      const link = { parent: parentTopic, parentGen: wrapped.parentGen };
+      const known = this.nodes.get(childTopic);
+      if (known && known.gen > wrapped.gen) return known.keys;
+      if (known && known.gen === wrapped.gen) {
+        known.link = link;
+        return known.keys;
+      }
 
-      const parent = await this.requireKeys(parentTopic);
       const keys: Keys = {
         meta: new Bytes(wrapped.meta).toUint8Array(),
-        ...(parent.content && wrapped.content ? { content: new Bytes(wrapped.content).toUint8Array() } : {}),
+        ...(parent.keys.content && wrapped.content ? { content: new Bytes(wrapped.content).toUint8Array() } : {}),
       };
-      this.keys.set(childTopic, keys);
+      this.nodes.set(childTopic, {
+        gen: wrapped.gen,
+        keys,
+        link,
+        foreign: foreign || parent.foreign || Boolean(known?.foreign),
+      });
 
       return keys;
     }
 
     clear(): void {
-      this.keys.clear();
+      this.nodes.clear();
     }
   }
 

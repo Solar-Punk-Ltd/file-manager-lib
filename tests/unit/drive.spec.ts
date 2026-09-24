@@ -94,7 +94,7 @@ describe('Drive operations', () => {
       expect(fm.driveList.map((d) => d.name)).toEqual([ADMIN_DRIVE_NAME, 'My files', 'Websites', 'Trash']);
 
       // The point of the batch: three drive manifests, but the registry feed advances once.
-      const adminWrites = (writeSealedRefFeed as jest.Mock).mock.calls.filter((c) => c[4].topic === stateTopic);
+      const adminWrites = (writeSealedRefFeed as jest.Mock).mock.calls.filter((c) => c[5].topic === stateTopic);
       expect(adminWrites).toHaveLength(1);
     });
 

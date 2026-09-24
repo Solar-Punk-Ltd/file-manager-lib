@@ -479,8 +479,8 @@ export interface FileManager {
 
   /**
    * Withdraws access, from named recipients or — with `recipients` omitted — from the whole grant.
-   * The grantee list is re-keyed, the drive's key epoch bumped and the grant republished as the
-   * share feed's next head, so those still on it keep reading. Emptying the list closes the grant.
+   * The shared node's keys are rotated and the grant re-issued to those still on it as the share
+   * feed's next head, so they keep reading. Emptying the list closes the grant.
    *
    * **Denies future writes.** Everything that existed at the moment of the revoke stays readable to
    * a removed recipient, whether or not they had fetched it.

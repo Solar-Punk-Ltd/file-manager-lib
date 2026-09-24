@@ -85,8 +85,10 @@ ACT-protected, a few hundred bytes, independent of what it grants:
   "topic": "…", // the shared node's feed topic
   "type": "folder", // NodeType — decides whether the feed payload is meta- or content-keyed
   "name": "Q3 report", // display label: a node's name lives in its PARENT's fork, which is not shared
+  "grade": "read", // ShareGrade — gated with the keys, so the grade is not public
   "meta": "…", // K_meta, hex — present for List and Read
   "content": "…", // K_content, hex — present for Read and Open
+  "gen": 3, // the key generation of meta/content — every earlier one derives from them
   "message": "…", // optional note from the sharer
 }
 ```
@@ -94,17 +96,22 @@ ACT-protected, a few hundred bytes, independent of what it grants:
 `name` and `type` are not decoration. A recipient receives a topic, not a path: the fork prefix that names the node and
 the metadata that types it both live in the parent manifest, which the share does not include.
 
+`gen` is what the keys are worth. A node's keys sit on a reverse hash chain (ENCRYPTION.md §3), so the blob opens every
+state of the node sealed at `gen` or earlier and none sealed later. A blob is therefore a snapshot of one generation: when
+the node rotates, the grant is re-issued as a new blob at the new generation (§6).
+
 `message` rides inside the blob rather than alongside the handle because the blob is the only ACT-gated part. A note
 carried by a notification channel is in the clear; a note in the blob is readable only by the grantee list.
 
 ### The share feed — the stable handle
 
-The ACT address changes whenever the grantee list is amended: `grantee.patch` returns a fresh `{reference, historyRef}`,
-and `actUploadData` mints a new history per call. So the handle is not the ACT address — it is a feed:
+The ACT address changes whenever the grantee list is amended — `grantee.patch` returns a fresh `{reference,
+historyRef}`, and `actUploadData` mints a new history per call — and whenever the node's keys rotate, since the grant is
+then re-issued as a new blob. So the handle is not the ACT address — it is a feed:
 
 ```jsonc
 // head of the share feed
-{ "v": 1, "reference": "…", "historyRef": "…", "publisher": "…", "grade": "read" }
+{ "v": 1, "reference": "…", "historyRef": "…", "publisher": "…" }
 ```
 
 Random topic, owned by `identity.owner`, signed by `identity.signer` like every other feed the library writes. The
@@ -117,7 +124,7 @@ what it grants.
 
 ### The `.shares` index
 
-Owner-private, one entry per grant. It is what `shareList` exposes and what derives a node's share state (§8).
+Owner-private, one entry per grant. It is what `shareList` exposes, and the record a revoke or a re-issue works from.
 
 `initialize` resolves the node and stops there. The document behind it is a network read that a session which never
 shares anything has no use for, so it is loaded on first use — `listShares`, or any grant operation — and cached for the
@@ -141,35 +148,43 @@ interface ShareEntry {
   granteeList: ActReferences; // the encrypted grantee list on Swarm — the membership
   act: ActReferences; // the grant blob; mirrors the current share-feed head
   publisher: Hex; // whoever encrypted
+  gen: number; // the node's key generation the current blob carries
+  grantees: Hex[]; // membership as of the last write — what a re-issue is addressed to
+  message?: string; // carried into every re-issue of the blob
   createdAt: number;
   revokedAt?: number;
 }
 ```
 
-**One entry is one grant: one node, one grade, one grantee list, one blob, one ACT history, one share feed, one
-handle.** The chain is 1:1 at every link, because a blob's bytes are fixed by `(node, grade)` and an ACT reference
-resolves against exactly one grantee list. That is also the invariant `share()` maintains: **at most one live entry per
+**One entry is one grant: one node, one grade, one handle, one share feed — and at any moment one blob, one grantee
+list and one ACT history.** The chain is 1:1 at every link, because a blob's bytes are fixed by `(node, grade, gen)` and
+an ACT reference resolves against exactly one grantee list. The blob and the list behind the handle are replaced when
+the node rotates; the handle is not. That is also the invariant `share()` maintains: **at most one live entry per
 `(node, grade)`**. A second call for the same pair joins the standing grant rather than minting a rival to it, so a
 node's audience has one address and not a set of them that could drift apart.
 
-The grantee list is the plural part: one entry, many grantees. The entry holds its **address**, not a copy of its
-members — `getShareGrantees()` fetches them on demand. Membership then has one home, so an amendment cannot leave the
-index disagreeing with the ACT, and an entry stays a fixed size no matter how wide the audience. Dropping one person is
-`revokeShare(id, [key])` against that list, never a second entry.
+The grantee list is the plural part: one entry, many grantees. **The ACT list on Swarm is the membership** —
+`getShareGrantees()` fetches it, and `revokeShare` reads it before removing anyone, so what a revoke acts on is always
+what the ACT enforces. `grantees` is a copy kept for one job: re-issuing the grant after a rotation, which happens after
+ordinary writes and should not cost an ACT read per grant. Dropping one person is `revokeShare(id, [key])` against that
+list, never a second entry.
 
 Two **grades** on one node are two entries, each with its own handle and each revocable alone — which is how a folder is
-browsable by one audience and readable by another. A grade never changes on a standing grant: the blob is immutable and
-already carries the keys it was minted with, so a downgrade would be a claim the bytes on Swarm do not honour.
+browsable by one audience and readable by another. A grade never changes on a standing grant: the keys a blob carries
+are what its grade means, so moving an audience to another grade is a revoke at one grade and a share at the other.
 
 ### What a share does not touch
 
 Not the shared node's feed, not its version, not its manifest, and not its drive's manifest. Sharing is additive: three
 new objects and one index append. A node cannot tell it is shared.
 
+Withdrawing is not free of the tree in the same way: a revoke rotates the node, which rewrites its fork in the parent
+manifest (§6).
+
 ### Cost
 
 One ACT upload, one feed write for the share head, one write to `.shares` — whether the share is a single file or a
-drive with ten thousand nodes. Paid from the **shared drive's** batch: if that stamp lapses the content goes with it, so
+folder with ten thousand nodes. Paid from the **shared drive's** batch: if that stamp lapses the content goes with it, so
 the grant's lifetime belongs to the same batch.
 
 ---
@@ -254,8 +269,8 @@ flowchart TD
     H["handle: shareTopic + sharer's identity.owner"] --> R1["readFeed(shareTopic, owner) → head"]
     R1 --> R2["downloadProtected(reference, historyRef, publisher)"]
     R2 -->|"outside the grantee list"| X["fails here — the blob is the gate"]
-    R2 --> R3["grant blob → owner · topic · type · name · keys"]
-    R3 --> R4["keyring.register(topic, keys)"]
+    R2 --> R3["grant blob → owner · topic · type · name · keys · gen"]
+    R3 --> R4["keyring.register(topic, keys, gen)<br/>held as foreign: counted down, never rotated"]
     R4 --> R5["read the granted node<br/>record feed, or manifest feed"]
     R5 --> R6["keyring.wrapFor(sharedDrive.topic, topic)<br/>re-seal under MY root key"]
     R6 --> R7["a fork in MY &quot;Shared with me&quot; manifest<br/>+ the sharer's owner and shareTopic"]
@@ -272,13 +287,14 @@ Three properties make this cheap:
   No second key store, no persisted raw keys.
 - **Writing the sharer's address into the fork** (`swarm-node-owner`) means the walk reads the mounted subtree under the
   right feed owner without the drive having to be foreign-owned.
-- **Storing `shareTopic` on the fork** means the recipient re-reads the share feed to pick up an amended or rotated
-  grant, without a new handle.
+- **Storing `shareTopic` on the fork** means the recipient re-reads the share feed to pick up a re-issued grant, without
+  a new handle.
 
 The grant blob names the node but not where it sits: a recipient gets a topic, and the fork prefix that would name it
 lives in the sharer's parent manifest, which the share does not include. So the mount is named from the blob's `name`,
 suffixed when that name is already taken — two people may share a `Q3 report` and both land intact. The node's topic is
-what identifies it, so accepting the same grant twice is refused rather than mounted twice.
+what identifies it, so a node mounts once: accepting a second grant on it — the same one again, or one at another
+grade — is refused rather than mounted twice.
 
 A grade the recipient cannot walk is refused at accept time rather than mounted broken: `assertShareGrade` re-runs on
 the untrusted blob, because a blob written by someone else is data, not a promise. It is the same rule the sharer ran,
@@ -293,6 +309,28 @@ type and timestamp live in the content-keyed record. Reaching for the bytes fail
 at accept time: `downloadFiles` reports the file under `failed`, and anything needing `K_content` throws a
 `KeyringError`. It is the reach of a UNIX directory that is readable but not searchable — `ls` works, `stat` does not.
 
+### Following a rotation
+
+A mount is held at the generation its grant carried, and everything below it is held as the sharer's chain — the
+recipient can count down it but never step it on. When the sharer rotates the mounted node and re-issues the grant, the
+recipient notices on its own:
+
+```mermaid
+flowchart TD
+    A["read the mounted node's head<br/>or a child fork naming its parent's generation"] --> B{"sealed past the<br/>generation held?"}
+    B -- no --> OK["open with the held keys,<br/>or keys derived back from them"]
+    B -- yes --> C["re-read the share feed<br/>(shareTopic from the mount fork)"]
+    C --> D{"still on the<br/>grantee list?"}
+    D -- yes --> E["open the re-issued blob<br/>move the held keys forward"]
+    E --> OK
+    D -- no --> X["ShareError — the grant could not be renewed<br/>nothing past the held generation opens"]
+```
+
+Renewal lives in memory. The mount fork keeps the keys it was accepted with, so each session that meets a rotation
+renews once — one share-feed read and one ACT download per mount — and concurrent reads of the same mount share that one
+renewal. A node below the mount that rotated on its own needs no grant: its parent's manifest carries the new wrap,
+and the recipient picks it up the next time it reads that manifest.
+
 ---
 
 ## 6. Groups, amendment and withdrawal
@@ -302,113 +340,84 @@ convenience in front of `share()`, which is resolved to keys at call time — so
 having to trust `.contacts` to know who holds a grant.
 
 Membership moves in one direction per call. `share()` adds and `revokeShare` removes, and there is at most one live
-grant per node and grade — so `share()` on a node already shared at that grade patches the standing grant rather than
+grant per node and grade — so `share()` on a node already shared at that grade joins the standing grant rather than
 issuing a second one, while a different grade mints its own, independently revocable.
 
 ```mermaid
 flowchart TD
     A["share(driveId, path, grade, recipients)"] --> B{"a live grant<br/>for this node and grade?"}
-    B -- no --> M["upload the grant blob under a new ACT<br/>→ new entry, new shareTopic"]
-    B -- yes --> C["addGrantees on the ACT history<br/>→ new grantee list and historyRef"]
-    R["revokeShare(shareId, recipients?)"] --> C2["revokeGrantees, re-keying the ACT<br/>→ new grantee list and historyRef"]
-    C2 --> C3["bump the drive epoch<br/>→ new bulletin, re-sealed drive root"]
-    M --> D["write the new share-feed head"]
+    B -- no --> M["mint a blob at the node's generation<br/>→ new entry, new shareTopic"]
+    B -- "yes, same generation" --> C["addGrantees on the ACT history<br/>→ new grantee list and historyRef"]
+    B -- "yes, node rotated since" --> RI["re-issue to old and new members"]
+    R["revokeShare(shareId, recipients?)"] --> RN["rotate the node one generation"]
+    RN --> C2["closing: revokeGrantees<br/>staying open: re-issue to those left"]
+    C2 --> RO["re-issue the node's other open grants"]
+    M --> D["write the share-feed head"]
     C --> D
-    C2 --> D
-    D --> E["update the .shares entry"]
+    RI --> D
+    RO --> D
+    D --> E["commit the .shares entry"]
     E --> F["recipients follow the feed —<br/>the handle is unchanged"]
 ```
 
-Amending never re-uploads the grant blob: both backends patch a grantee list against the ACT history it already has, so
-the protected bytes and — on `BeeClient` — the encrypted reference stay put. That is also why a grade is fixed for the
-life of a grant: the blob is immutable and already carries the keys it was minted with.
+Amending at the node's current generation never re-uploads the grant blob: both backends patch a grantee list against
+the ACT history it already has, so the protected bytes and — on `BeeClient` — the encrypted reference stay put. Once the
+node has rotated, a patch would hand the newcomers keys the node has moved past, so the grant is re-issued instead, to
+old and new members together.
 
-`revokeShare(shareId, recipients?)` covers both shapes of withdrawal against that one list. Named recipients are
-intersected with the current membership and dropped; omitting them drops everyone. Either way the ACT is re-keyed, the
-drive's key epoch is bumped and the new head published, so those still on the list follow the feed and keep reading
-while those removed are left on an address that no longer resolves for them. **An emptied list closes the entry** — `revokedAt` is stamped whether the last
-member left by name or by omission, because a grant reaching nobody is one `share()` would otherwise keep amending.
+`revokeShare(shareId, recipients?)` covers both shapes of withdrawal. Named recipients are intersected with the current
+membership — read from the ACT, not the index — and dropped; omitting them drops everyone. **An emptied list closes the
+entry** — `revokedAt` is stamped whether the last member left by name or by omission, because a grant reaching nobody is
+one `share()` would otherwise keep amending.
 
 A revoked entry stays in `.shares` as the record that the grant existed, and is never matched again: re-sharing the same
 node at the same grade mints a fresh grant with a fresh handle, which is the honest outcome — the old handle was
 published to people who no longer hold it.
 
-### Rotation is an epoch bump, not a re-keying job
+### Withdrawal rotates the node
 
-Every node's feed payload is sealed under an **effective key**, derived from the node's own base key and the drive's
-current **epoch secret** — see ENCRYPTION.md §3. Base keys do the scoping and never change; the epoch secret does the
-confidentiality and changes on every withdrawal.
+Every node's keys sit on a reverse hash chain of their own (ENCRYPTION.md §3). A holder of generation `g` derives every
+earlier generation and none later, so **stepping a node to `g + 1` withdraws its future writes from everyone who held
+`g`**. A revoke does exactly that to the shared node, then hands the new generation to whoever is still meant to have it:
 
-So a withdrawal re-keys the whole drive by minting one secret, and **nothing in the shared subtree is rewritten**. The
-wrapped keys in every manifest wrap base keys, which are untouched, so no manifest is re-uploaded and no feed index is
-contended. A subfolder with a feed of its own is re-keyed by the same bump that re-keys its parent, without being
-touched or even visited — the epoch is an input every node already depends on, so there is nothing to propagate.
+1. **Rotate** the shared node: step it one generation and re-wrap it under its parent, which rewrites its fork in the
+   parent manifest. The node's own head is left as it is.
+2. **Withdraw the ACT.** A grant that closes has its grantee list revoked and its head republished. A grant that stays
+   open skips this step: it is re-issued on a fresh list, which leaves the removed recipients out anyway.
+3. **Re-issue** every open grant on the node — this one if it stays open, and those at any other grade — as a new blob
+   at the new generation, each behind its unchanged handle.
+4. **Commit** the index, last. A failure before it leaves the persisted index as it was, and the call is safe to retry:
+   the retry starts from that index and rotates the node once more.
 
-### The epoch bulletin
+The cost is constant in the size of the tree: one manifest save for the parent, one ACT upload and one head per open
+grant on the node, one index write. Nothing below the node is visited.
 
-The current epoch secret lives in one ACT-protected **bulletin** per drive, published behind a bulletin feed the way a
-grant is published behind a share feed. Its grantee list is everyone holding any live grant in the drive. Each publish
-mints a fresh bulletin rather than patching the last one, so it keeps no ACT history.
+### Lazy re-keying
 
-A grant blob carries base keys and the bulletin's handle, never epoch material, so a withdrawal never re-mints a blob.
-Recipients still on the list read the new secret from the bulletin and carry on under the handle they already hold.
-
-A recipient reaches a folder through both feeds, and the two paths meet only at the effective key. The grant decides
-*what* opens; the bulletin decides *until when*:
-
-```mermaid
-flowchart TD
-    subgraph PUB["Public"]
-        SH["Share feed head<br/>ACT ref · grade"]
-        BH["Bulletin feed head<br/>ACT ref · epoch number e"]
-    end
-    subgraph GATED["ACT-gated"]
-        GB["Grant blob<br/>K_base(F) · bulletin handle"]
-        BP["Bulletin payload<br/>epoch secret S(e)"]
-    end
-    subgraph SEALED["Sealed under K_eff"]
-        FP["Folder F feed payload<br/>epoch tag e + sealed manifest ref"]
-        FM["Folder F manifest<br/>forks hold wrapped child keys"]
-    end
-    SH --> GB
-    BH --> BP
-    GB -. "handle" .-> BH
-    GB --> K["K_eff(F, e) = HKDF(K_base(F), S(e))<br/>derived, never stored"]
-    BP --> K
-    K --> FP --> FM
-    FM -. "each child: unwrap its K_base under K_base(F), same S(e)" .-> K
-```
-
-That is the whole of a withdrawal: revoke the grant's ACT, upload the new secret to those still on a grant, publish
-the bulletin head, and re-seal the drive root at the new epoch — whose head tag is what makes that epoch the drive's
-current one. Four writes, constant in both the size of the tree and the number of grants, each idempotent. There is no
-resumable job, and no half-rotated state that leaves parents holding keys their children no longer answer to.
-
-The bump itself lives only in the keyring. The drive root's head tag is where it persists, and every path resolution
-reads that head before any write:
+A rotation does not reach down. The nodes below keep the keys they had, and each fork still records the parent
+generation it was wrapped under — which is now behind. **A node whose recorded parent generation lags its parent's is
+stale**, and it rotates before anything is written to it:
 
 ```mermaid
 flowchart TD
-    B["Session 1: revokeShare bumps e → e+1<br/>keyring memory only"]
-    B --> S1["Drive root re-sealed<br/>new slot, tag e+1"]
-    B -. "without the re-seal" .-> X1["Latest root slot<br/>still tag e"]
-    S1 --> S2["Session 2 reads the root head<br/>current = e+1"]
-    X1 --> X2["Session 2 reads the root head<br/>current = e"]
-    S2 --> S3["Next write seals under K_eff(node, e+1)"]
-    X2 --> X3["Next write seals under K_eff(node, e)"]
-    S3 --> S4["Revoked recipient cannot derive S(e+1)"]
-    X3 --> X4["Revoked recipient holds S(e) and reads it"]
+    R["revokeShare: Docs steps g → g+1<br/>Docs' fork in its parent re-written"] --> S["Docs/Reports still records parent generation g<br/>— stale, untouched"]
+    S --> W["owner uploads Docs/Reports/Q3.pdf"]
+    W --> P["the path is prepared top down:<br/>Reports steps on, re-wrapped under Docs at g+1"]
+    P --> N["Q3.pdf is wrapped under Reports' new generation<br/>Reports' manifest seals under it"]
+    R -. "removed recipient holds Docs at g" .-> O["opens every state sealed at g or earlier —<br/>the tree as it stood at the revoke"]
+    N -. "sealed past anything they hold" .-> X["cannot open it, or learn it exists"]
 ```
 
-The secret can be shared that widely because it is not a capability on its own: `K_eff = HKDF(K_base, S_e)`, and a
-recipient holds base keys only for what they were granted. The epoch secret is the lever that withdraws, not a key that
-reads.
+Every write goes through that preparation — upload, update, create folder, move, trash, recover, restore — and the
+store's save path refuses a write to a node that is still stale, so no write can seal under a generation that a rotation
+above it has already withdrawn. A node rotated on the way may itself be shared; its open grants are re-issued once the
+write lands, the same way a revoke re-issues them.
 
-Re-keying is **lazy**. A node keeps its old seal until the next time it is written, and its head records in the clear
-which epoch sealed it, so the owner knows which secret opens it. A withdrawn recipient therefore keeps opening any node
-that has not changed since — which is exactly the state they already held. The moment a node is written it seals under
-the new epoch and they are out of it, and anything created afterwards is invisible to them, because the parent manifest
-naming it is sealed under the new epoch too.
+The owner never loses track of a generation: the chains are rooted in the FMK, so any generation derives from the
+topic alone, and each feed head names the one it was sealed under. A node written at a generation this session has not
+seen — another device rotated it — opens all the same, and the session's own next write seals at least that high.
+
+### What withdrawal denies
 
 **What withdrawal denies is future writes.** It does not deny access a recipient held but never exercised: everything
 that existed at the moment of withdrawal stays readable to them, whether or not they had fetched it. Eagerly re-sealing
@@ -416,25 +425,70 @@ those nodes would not change that — Swarm has no delete, a 64-byte reference i
 live, and a `read` recipient can mirror a subtree in one pass the moment they accept. Paying a write per node to re-seal
 state the recipient is free to have copied buys nothing.
 
-Content is never re-uploaded. The content references are unchanged; only the pointer to them is re-sealed.
+Content is never re-uploaded. The content references are unchanged; only the pointers to them are re-sealed, as each
+node is next written.
+
+**Withdrawal is exactly as wide as the grant.** The generation belongs to the node, so a recipient removed from one
+grant keeps precisely what their other grants give them, and nothing of the one revoked:
+
+- A second grant in the same drive — held already, or issued later — carries its own node's keys, never the revoked
+  node's new ones.
+- A second grade on the same node is re-issued at the new generation with the keys that grade carries: revoking `read`
+  while `list` stays keeps listings current and closes every content written afterwards.
+- A node moved out of a shared folder rotates on the way, so the folder's grantees keep what they had of it and none of
+  what follows.
+
+### What rotates
+
+| Event                                        | Rotates                               | Why                                                                            |
+| -------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------ |
+| `revokeShare`                                | the shared node                       | withdraws its future writes from the removed recipients                        |
+| the first write below a rotated node         | each stale node on the path, top down | re-wraps it under its parent's new generation                                  |
+| `move` to another folder, `trash`, `recover` | the moved node                        | whoever reached it through its old place stops following it, as after a delete |
+| a rename within one folder                   | nothing                               | same parent, same readers                                                      |
+
+Moving a node _into_ a shared folder hands the folder's grantees its new generation, and with it every earlier one: its
+version history comes along, as it does when a file is moved into a shared folder on Google Drive.
+
+A chain allows `KEY_CHAIN_LENGTH` (1024) rotations, and every event above spends one on the node it rotates. A node that
+has spent them all refuses to rotate again with a `KeyringError`: it can no longer be revoked, moved to another folder,
+or written once a rotation above it has made it stale.
+
+### Re-issuing grants
+
+A rotation leaves every open grant on the rotated node carrying keys one generation short, so the grant is re-issued: a
+new blob at the current generation, uploaded under ACT to the entry's `grantees` and published as the next head of its
+share feed. The handle does not change, and recipients pick the new blob up as in §5.
+
+A re-issue mints a **fresh** grantee list rather than patching the old one, because a swarm-id backend cannot continue an
+ACT history. It builds the blob from the index entry rather than from the old blob, which under `BeeClient` only the
+publishing node can open.
+
+A revoke re-issues the grants on the node it rotates within the call. Every other rotation happens inside an ordinary
+write, and the grants it touches are re-issued once that write has landed. A re-issue that fails is logged and does not
+fail the write — the data is already on Swarm. The grant stays a generation behind, its recipients reading everything up
+to the rotation and nothing after, until the session's next write retries it, or — in a later session — the next
+rotation, amendment or revoke that reaches it.
 
 ### Re-sharing
 
-A mounted node follows its sharer's epoch, and only the sharer can bump it. So a re-share cannot point its recipients
-at the sharer's bulletin, which they are not on — the re-sharer runs a bulletin of its own for that mount and relays the
-sharer's secret through it. Each session that reads a newer secret from the sharer passes it on, so the re-share's
-recipients are exactly as current as the re-sharer's last visit.
+A node shared with you cannot be re-shared: `share()` refuses the `Shared` drive with a `ShareError`. A grant hands
+over the sharer's keys on the sharer's chain, and only the sharer can step that chain on — so a re-share would be a grant
+its issuer could never withdraw.
 
-Access flows through the re-sharer, as it does on Google Drive: when the sharer withdraws the re-sharer, the relay
-stops receiving new epochs and every recipient behind it is withdrawn with it. Revoking a re-share drops its recipients
-from the relay, and takes effect at the sharer's next bump — until then they hold the same epoch as everyone else.
+### Lifecycle of the shared node
 
-**Lifecycle of the shared node.** `trash`, `forget` and `emptyTrash` all leave grants untouched. None of them removes
-the node: `trash` moves its fork, `forget` and `emptyTrash` drop forks from a manifest, and the node's own feed, keys
-and chunks survive all three. That is what a grant reads — a recipient resolves the subject by topic and owner and never
-traverses the sharer's manifest — so removing a fork neither withdraws access nor degrades it. Withdrawing is
-`revokeShare`, and the caller chooses when: it takes a share id rather than a path, so it works as well after the fork
-is gone as before. `shareList` is where a forgotten node's entries are found.
+`trash` and `recover` move the node to another folder, so they rotate it: readers who reached it through its old folder
+stop following it, while its own open grants are re-issued and keep reading. `forget` and `emptyTrash` drop forks from a
+manifest and rotate nothing — nothing is written to the node again, so there is nothing left to withdraw. None of the
+four closes a grant, and none removes the node: its feed, keys and chunks survive all of them, and a recipient resolves
+the subject by topic and owner rather than through the sharer's manifest.
+
+Withdrawing is `revokeShare`, and the caller chooses when: it takes a share id rather than a path, so it works as well
+after the node has moved, or its fork is gone, as before. An entry's `path` is a snapshot, so a revoke that no longer
+finds the node there walks the drive — trash included — to locate it, and records where it was found. A node no longer
+in the drive is not rotated, since nothing will be written to it again, and the revoke withdraws the ACT alone.
+`shareList` is where a forgotten node's entries are found.
 
 ---
 

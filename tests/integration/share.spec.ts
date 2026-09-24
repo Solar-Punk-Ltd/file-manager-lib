@@ -414,7 +414,7 @@ describe('reading a revoked grant', () => {
   });
 
   afterAll(cleanup);
-  // TODO: test access of the same identity of siblings if other grants are still live
+
   it('denies a revoked recipient the writes that land after the revoke', async () => {
     const revoked = await retryWhileGranteeSettles(() => owner.revokeShare(entry.id));
     expect(revoked.revokedAt).toEqual(expect.any(Number));
@@ -446,5 +446,123 @@ describe('reading a revoked grant', () => {
     }
 
     expect(paths).not.toContain('Docs/C.pdf');
+  });
+});
+
+describe('withdrawing one grant among several', () => {
+  let owner: FileManagerBase;
+  let drive: DriveInfo;
+  let recipientClient: BeeClient;
+  let recipientStamp: BatchId;
+  let docs: ShareEntry;
+  let graded: ShareEntry;
+  const { writeTempFile, cleanup } = tempFileRegistry();
+
+  // Every revoke below leaves the recipient another way into the same drive: a second grant, or a
+  // second grade on the same node. None of them may hand the revoked grant's writes back.
+  beforeAll(async () => {
+    ({ fileManager: owner, drive } = await setupUserDrive('sharepartial', { stampLabel: 'sharePartialIntegration' }));
+
+    for (const name of ['Docs', 'Photos', 'Graded', 'Private']) {
+      await owner.createFolder(drive.id, ROOT_PATH, name);
+    }
+    await owner.uploadFile(drive.id, { path: 'Docs/A.pdf', sourcePath: writeTempFile('it-partial-a.pdf', 'Before') });
+    await owner.uploadFile(drive.id, { path: 'Graded/G.pdf', sourcePath: writeTempFile('it-partial-g.pdf', 'Before') });
+    await owner.uploadFile(drive.id, { path: 'Photos/M.jpg', sourcePath: writeTempFile('it-partial-m.jpg', 'Before') });
+
+    ({ client: recipientClient, ownerStamp: recipientStamp } = await ensureUniqueSignerWithStamp());
+    const recipient = await createInitializedFileManager(recipientClient, recipientStamp);
+
+    docs = await owner.share(drive.id, 'Docs', ShareGrade.Read, [RECIPIENT_A]);
+    const photos = await owner.share(drive.id, 'Photos', ShareGrade.Read, [RECIPIENT_A]);
+    graded = await owner.share(drive.id, 'Graded', ShareGrade.Read, [RECIPIENT_A]);
+    await owner.share(drive.id, 'Graded', ShareGrade.List, [RECIPIENT_A]);
+
+    for (const entry of [docs, photos, graded]) {
+      await retryOnPropagationDelay(() => recipient.acceptShare({ shareTopic: entry.shareTopic, owner: drive.owner }));
+    }
+  });
+
+  afterAll(cleanup);
+
+  // Cold caches, same persisted keys: the recipient coming back after the owner's writes. Waits for
+  // `expected` to show up, so a write that is only slow to land is not mistaken for a denied one.
+  const mountPaths = async (path: string, expected: string): Promise<string[]> => {
+    const returning = await createInitializedFileManager(recipientClient, recipientStamp);
+    const list = async (): Promise<string[]> => {
+      try {
+        const { entries } = await returning.listFolder(returning.sharedWithMe!.id, path, ListDepth.Shallow);
+        return entries.map((e) => e.path);
+      } catch {
+        // A re-keyed subtree no longer opens at all.
+        return [];
+      }
+    };
+
+    let paths = await list();
+    for (let attempt = 0; attempt < 8 && !paths.includes(expected); attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      paths = await list();
+    }
+
+    return paths;
+  };
+
+  it('denies the writes to a revoked grant while another grant in the drive stays open', async () => {
+    await retryWhileGranteeSettles(() => owner.revokeShare(docs.id));
+    await owner.uploadFile(drive.id, { path: 'Docs/C.pdf', sourcePath: writeTempFile('it-partial-c.pdf', 'After') });
+    await owner.uploadFile(drive.id, { path: 'Photos/Q.jpg', sourcePath: writeTempFile('it-partial-q.jpg', 'After') });
+
+    expect(await mountPaths('Photos', 'Photos/Q.jpg')).toContain('Photos/Q.jpg');
+    expect(await mountPaths('Docs', 'Docs/C.pdf')).not.toContain('Docs/C.pdf');
+  });
+
+  it('keeps a revoked grant closed when a later grant readmits its recipient to the drive', async () => {
+    await owner.createFolder(drive.id, ROOT_PATH, 'Later');
+    const later = await owner.share(drive.id, 'Later', ShareGrade.Read, [RECIPIENT_A]);
+    const recipient = await createInitializedFileManager(recipientClient, recipientStamp);
+    await retryOnPropagationDelay(() => recipient.acceptShare({ shareTopic: later.shareTopic, owner: drive.owner }));
+
+    await owner.uploadFile(drive.id, { path: 'Docs/D.pdf', sourcePath: writeTempFile('it-partial-d.pdf', 'Later') });
+
+    expect(await mountPaths('Docs', 'Docs/D.pdf')).not.toContain('Docs/D.pdf');
+  });
+
+  it('denies new content once the read grant goes, while a list grant on the same node stays', async () => {
+    await retryWhileGranteeSettles(() => owner.revokeShare(graded.id));
+    await owner.uploadFile(drive.id, { path: 'Graded/H.pdf', sourcePath: writeTempFile('it-partial-h.pdf', 'After') });
+
+    expect(await mountPaths('Graded', 'Graded/H.pdf')).not.toContain('Graded/H.pdf');
+  });
+
+  it('stops a recipient following a file moved out of the shared folder', async () => {
+    const recipient = await createInitializedFileManager(recipientClient, recipientStamp);
+    const seen = await retryOnPropagationDelay(async () => {
+      const { entries } = await recipient.listFolder(recipient.sharedWithMe!.id, 'Photos', ListDepth.Shallow);
+      const found = entries.find((e) => e.path === 'Photos/M.jpg');
+      if (!found) throw new Error('Photos/M.jpg is not listed yet');
+
+      return found as FileRecord;
+    });
+
+    await owner.move('Photos/M.jpg', 'Private/M.jpg', drive.id);
+    const moved = owner.recordList.find((r) => r.topic === seen.topic)!;
+    await owner.updateFile(drive.id, moved, { item: { sourcePath: writeTempFile('it-partial-m2.jpg', 'After') } });
+
+    // It still holds the file's topic and the keys it walked to: the head written after the move
+    // is what must not open.
+    let refused = false;
+    for (let attempt = 0; attempt < 8 && !refused; attempt++) {
+      const head = await recipient.getFileVersion(seen).catch(() => undefined);
+      if (!head) {
+        refused = true;
+        break;
+      }
+
+      expect(head.version).toBe(seen.version);
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+
+    expect(refused).toBe(true);
   });
 });
