@@ -48,6 +48,7 @@ export class FileManagerBase implements FileManager {
   private signerAddress: string;
   private publisher: PublicKey | undefined = undefined;
   private driveListNextIndex: bigint = 0n;
+  private driveListSaveQueue: Promise<void> = Promise.resolve();
   private stateFeedTopic: Topic | undefined = undefined;
   private isInitialized: boolean = false;
   private isInitializing: boolean = false;
@@ -673,7 +674,14 @@ export class FileManagerBase implements FileManager {
     return fileInfo;
   }
 
-  private async saveDriveList(requestOptions?: BeeRequestOptions): Promise<void> {
+  private saveDriveList(requestOptions?: BeeRequestOptions): Promise<void> {
+    const save = this.driveListSaveQueue.then(() => this.writeDriveList(requestOptions));
+    this.driveListSaveQueue = save.catch(() => undefined);
+
+    return save;
+  }
+
+  private async writeDriveList(requestOptions?: BeeRequestOptions): Promise<void> {
     if (!this.stateFeedTopic || !this.isInitialized) {
       throw new DriveError('Drive list topic not initialized');
     }

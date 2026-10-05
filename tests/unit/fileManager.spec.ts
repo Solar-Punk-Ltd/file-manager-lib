@@ -9,6 +9,7 @@ import {
   Reference,
   Topic,
 } from '@ethersphere/bee-js';
+import { Optional } from 'cafe-utility';
 
 import {
   createInitializedFileManager,
@@ -555,6 +556,68 @@ describe('FileManager', () => {
 
       const updated = fm.fileInfoList.find((fi) => fi.name === 'hello')!;
       expect(updated.version!).toBe(FeedIndex.fromBigInt(1n).toString());
+    });
+
+    it('should write concurrent drive list saves to consecutive feed indexes', async () => {
+      const fm = await createInitializedFileManager();
+      await fm.createDrive(otherMockBatchId, 'Test Drive', false);
+      const di = fm.driveList.find((d) => !d.isAdmin)!;
+
+      const writtenIndexes: bigint[] = [];
+      const writer = createMockFeedWriter();
+      (writer.uploadPayload as jest.Mock).mockImplementation(async (_batchId, _data, opts) => {
+        writtenIndexes.push((opts.index as FeedIndex).toBigInt());
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      });
+      jest.spyOn(Object.getPrototypeOf(new Bee(BEE_URL).feed), 'makeWriter').mockReturnValue(writer);
+
+      const uploadedDriveLists: string[] = [];
+      jest.spyOn(Object.getPrototypeOf(new Bee(BEE_URL).data), 'upload').mockImplementation(async (_batchId, data) => {
+        uploadedDriveLists.push(data as string);
+        // let the other save start while this one is still uploading
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        return { reference: SWARM_ZERO_ADDRESS, historyAddress: Optional.of(SWARM_ZERO_ADDRESS) };
+      });
+
+      const save = (): Promise<void> => (fm as any).saveDriveList();
+
+      di.infoFeedList!.push({ topic: 'a'.repeat(64) });
+      const first = save();
+      di.infoFeedList!.push({ topic: 'b'.repeat(64) });
+      const second = save();
+      await Promise.all([first, second]);
+
+      expect(writtenIndexes).toHaveLength(2);
+      expect(writtenIndexes[1]).toBe(writtenIndexes[0] + 1n);
+
+      const lastDriveList = JSON.parse(uploadedDriveLists[uploadedDriveLists.length - 1]) as DriveInfo[];
+      const topics = lastDriveList.find((d) => d.name === di.name)!.infoFeedList!.map((f) => f.topic);
+      expect(topics).toEqual(expect.arrayContaining(['a'.repeat(64), 'b'.repeat(64)]));
+    });
+
+    it('should keep saving the drive list after a failed save', async () => {
+      const fm = await createInitializedFileManager();
+
+      const writtenIndexes: bigint[] = [];
+      const writer = createMockFeedWriter();
+      (writer.uploadPayload as jest.Mock)
+        .mockRejectedValueOnce(new Error('feed write failed'))
+        .mockImplementation(async (_batchId, _data, opts) => {
+          writtenIndexes.push((opts.index as FeedIndex).toBigInt());
+        });
+      jest.spyOn(Object.getPrototypeOf(new Bee(BEE_URL).feed), 'makeWriter').mockReturnValue(writer);
+
+      const save = (): Promise<void> => (fm as any).saveDriveList();
+      const indexBefore = (fm as any).driveListNextIndex as bigint;
+
+      const failed = save();
+      const next = save();
+
+      await expect(failed).rejects.toThrow('Failed to save drive list: feed write failed');
+      await expect(next).resolves.toBeUndefined();
+      // the failed write did not consume an index
+      expect(writtenIndexes).toEqual([indexBefore]);
     });
   });
 
